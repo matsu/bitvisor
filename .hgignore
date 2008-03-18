@@ -1,0 +1,9 @@
+syntax: glob
+*.o
+*~
+core/builtin/bin_*
+core/builtin/process_builtin.s
+core/builtin/lib.a
+bitvisor.elf
+bitvisor.map
+.config*
