@@ -27,7 +27,46 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_VMMCALL_LOG_H
-#define _CORE_VMMCALL_LOG_H
+#include "current.h"
+#include "initfunc.h"
+#include "int.h"
+#include "nmi_pass.h"
+#include "types.h"
 
+#ifdef __x86_64__
+asm ("nmihandler: \n"
+     " incl %gs:gs_nmi \n"
+     " iretq \n");
+#else
+asm ("nmihandler: \n"
+     " incl %gs:gs_nmi \n"
+     " iretl \n");
 #endif
+
+extern char nmihandler[];
+extern u64 nmi asm ("%gs:gs_nmi");
+
+static unsigned int
+get_nmi_count (void)
+{
+	unsigned int r = 0;
+
+	asm volatile ("xchgl %0, %%gs:gs_nmi" : "=r" (r) : "r" (r));
+	return r;
+}
+
+static void
+nmi_pass_init_pcpu (void)
+{
+	set_int_handler (EXCEPTION_NMI, nmihandler);
+}
+
+static void
+nmi_pass_init (void)
+{
+	current->nmi.get_nmi_count = get_nmi_count;
+	nmi = 0;
+}
+
+INITFUNC ("pass0", nmi_pass_init);
+INITFUNC ("pcpu0", nmi_pass_init_pcpu);

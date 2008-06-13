@@ -59,6 +59,7 @@
 #define ICR_TRIGGER_EDGE	0x0000
 #define ICR_TRIGGER_LEVEL	0x8000
 #define ICR_DEST_OTHER		0xC0000
+#define ICR_DEST_ALL		0x80000
 
 static void ap_start (void);
 
@@ -116,7 +117,7 @@ apinitproc0 (void)
 	asm_wrrsp_and_jmp ((ulong)newstack + VMM_STACKSIZE, apinitproc1);
 }
 
-static bool
+bool
 apic_available (void)
 {
 	u32 a, b, c, d;
@@ -158,6 +159,14 @@ apic_send_startup_ipi (volatile u32 *apic_icr)
 	apic_wait_for_idle (apic_icr);
 	*apic_icr = ICR_DEST_OTHER | ICR_LEVEL_ASSERT | ICR_MODE_STARTUP |
 		(APINIT_ADDR >> 12);
+}
+
+static void
+apic_send_nmi (volatile u32 *apic_icr)
+{
+	apic_wait_for_idle (apic_icr);
+	*apic_icr = ICR_DEST_OTHER | ICR_LEVEL_ASSERT | ICR_MODE_NMI;
+	apic_wait_for_idle (apic_icr);
 }
 
 static void
@@ -216,6 +225,31 @@ bsp_continue (asmlinkage void (*initproc_arg) (void))
 	alloc_pages (&newstack, NULL, VMM_STACKSIZE / PAGESIZE);
 	currentcpu->stackaddr = newstack;
 	asm_wrrsp_and_jmp ((ulong)newstack + VMM_STACKSIZE, initproc_arg);
+}
+
+void
+panic_wakeup_all (void)
+{
+	const u64 apic_icr_base = 0xFEE00000;
+	const u32 apic_icr_phys = 0xFEE00300;
+	u64 tmp;
+	volatile u32 *apic_icr;
+
+	if (!apic_available ())
+		return;
+	asm_rdmsr64 (MSR_IA32_APIC_BASE_MSR, &tmp);
+	if (!(tmp & MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT))
+		return;
+	tmp &= ~MSR_IA32_APIC_BASE_MSR_APIC_BASE_MASK;
+	tmp |= apic_icr_base;
+	asm_wrmsr64 (MSR_IA32_APIC_BASE_MSR, tmp);
+
+	apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
+			   MAPMEM_PCD, apic_icr_phys, sizeof *apic_icr);
+	if (!apic_icr)
+		return;
+	apic_send_nmi (apic_icr);
+	unmapmem ((void *)apic_icr, sizeof *apic_icr);
 }
 
 void

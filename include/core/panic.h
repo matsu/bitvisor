@@ -31,8 +31,6 @@
 #define __CORE_PANIC_H
 
 void panic_test (void);
-void panic0 (void);
-void panic1 (void) __attribute__ ((noreturn));
 void panic (char *format, ...)
 	__attribute__ ((format (printf, 1, 2), noreturn));
 

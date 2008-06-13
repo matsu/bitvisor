@@ -313,7 +313,8 @@ ata_virtualize_identify_packet (struct ata_channel *channel)
 	identify_packet = (struct ata_identify_packet *)channel->pio_buf;
 	ata_convert_string (identify_packet->model_number, buf, 40);
 	buf[40] = '\0';
-	printf("ATA IDENTIFY PACKET DEVICE: \"%s\"\n", buf);
+	printf("ATA IDENTIFY PACKET (0x%X): \"%s\"\n",
+	       channel->base[ATA_ID_CMD], buf);
 	if (identify_packet->interleaved_dma_support) {
 		printf ("ATAPI interleaved DMA support disabled.\n");
 		identify_packet->interleaved_dma_support = 0;
@@ -330,12 +331,14 @@ ata_virtualize_identify_packet (struct ata_channel *channel)
 
 static void ata_virtualize_identity(struct ata_channel *channel)
 {
-	struct ata_identity *identity = (struct ata_identity *)channel->pio_buf;
+	struct ata_identity *identity;
 	char buf[41];
 
+	identity = (struct ata_identity *)channel->pio_buf;
 	ata_convert_string (identity->model_number, buf, 40);
 	buf[40] = '\0';
-	printf("ATA IDENTIFY DEVICE: \"%s\"\n", buf);
+	printf("ATA IDENTIFY (0x%X): \"%s\"\n", channel->base[ATA_ID_CMD],
+	       buf);
 	ata_convert_string(virtual_model, identity->model_number, 40);
 	ata_convert_string(virtual_revision, identity->firmware_revision, 8);
 }
@@ -664,6 +667,8 @@ static int ata_handle_command(struct ata_channel *channel, union mem *data)
 	case ATA_CMD_IDLE:
 	case ATA_CMD_STANDBY:
 	case ATA_CMD_NOP:
+	case ATA_CMD_READ_VERIFY_SECTOR: /* no data is transferred */
+	case ATA_CMD_READ_VERIFY_SECTOR_EXT: /* no data is transferred */
 		return CORE_IO_RET_DEFAULT;
 
 	case ATA_CMD_IDENTIFY_PACKET_DEVICE:

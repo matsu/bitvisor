@@ -30,14 +30,8 @@
 #ifndef _CORE_THREAD_H
 #define _CORE_THREAD_H
 
-#include "types.h"
+#include <core/thread.h>
 
-typedef u8 tid_t;
-
-tid_t thread_gettid (void);
-void schedule (void);
-void thread_new (void (*func) (void *), void *arg, int stacksize);
-void thread_exit (void);
 void thread_set_process_switch (phys_t switchto);
 
 #endif

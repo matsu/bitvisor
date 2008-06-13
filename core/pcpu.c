@@ -30,11 +30,6 @@
 #include "pcpu.h"
 
 struct pcpu pcpu_default = {
-	{
-		NULL,
-		NULL,
-	},
-	false,
 };
 
 #define DEFINE_GS_OFFSET(name, offset) \
@@ -44,3 +39,4 @@ DEFINE_GS_OFFSET (gs_inthandling, 0);
 DEFINE_GS_OFFSET (gs_currentcpu, 8);
 DEFINE_GS_OFFSET (gs_syscallstack, 16);
 DEFINE_GS_OFFSET (gs_current, 24);
+DEFINE_GS_OFFSET (gs_nmi, 32);

@@ -66,6 +66,13 @@ enum sreg {
 		return err; \
 } while (0)
 
+#define GUESTSEG_READ_Q(p,offset,data) do { \
+	enum vmmerr err; \
+	err = cpu_seg_read_q (p, offset, data); \
+	if (err) \
+		return err; \
+} while (0)
+
 #define GUESTSEG_WRITE_B(p,offset,data) do { \
 	enum vmmerr err; \
 	err = cpu_seg_write_b (p, offset, data); \
@@ -87,11 +94,20 @@ enum sreg {
 		return err; \
 } while (0)
 
+#define GUESTSEG_WRITE_Q(p,offset,data) do { \
+	enum vmmerr err; \
+	err = cpu_seg_write_q (p, offset, data); \
+	if (err) \
+		return err; \
+} while (0)
+
 enum vmmerr cpu_seg_read_b (enum sreg s, ulong offset, u8 *data);
 enum vmmerr cpu_seg_read_w (enum sreg s, ulong offset, u16 *data);
 enum vmmerr cpu_seg_read_l (enum sreg s, ulong offset, u32 *data);
+enum vmmerr cpu_seg_read_q (enum sreg s, ulong offset, u64 *data);
 enum vmmerr cpu_seg_write_b (enum sreg s, ulong offset, u8 data);
 enum vmmerr cpu_seg_write_w (enum sreg s, ulong offset, u16 data);
 enum vmmerr cpu_seg_write_l (enum sreg s, ulong offset, u32 data);
+enum vmmerr cpu_seg_write_q (enum sreg s, ulong offset, u64 data);
 
 #endif

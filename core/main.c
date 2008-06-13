@@ -58,6 +58,7 @@
 static struct multiboot_info mi;
 static u32 minios_startaddr;
 static void *bios_data_area;
+static int shiftkey;
 
 static void
 print_boot_msg (void)
@@ -270,11 +271,16 @@ create_pass_vm (void)
 }
 
 static void
+get_shiftflags (void)
+{
+	shiftkey = callrealmode_getshiftflags ();
+}
+
+static void
 debug_on_shift_key (void)
 {
-	int d, shiftkey;
+	int d;
 
-	shiftkey = callrealmode_getshiftflags ();
 	d = newprocess ("init");
 	debug_msgregister ();
 	msgsendint (d,
@@ -313,3 +319,4 @@ INITFUNC ("pcpu5", create_pass_vm);
 INITFUNC ("bsp0", debug_on_shift_key);
 INITFUNC ("global1", print_boot_msg);
 INITFUNC ("global3", copy_minios);
+INITFUNC ("global3", get_shiftflags);

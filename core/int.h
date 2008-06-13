@@ -35,6 +35,7 @@
 int callfunc_and_getint (asmlinkage void (*func)(void *), void *arg);
 int do_externalint_enable (void);
 void int_exceptionHandler (int intnum, void *handler);
+void set_int_handler (int intnum, void *handler);
 void int_init_ap (void);
 
 #endif

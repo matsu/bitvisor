@@ -597,10 +597,13 @@ int
 vsnprintf (char *str, size_t size, const char *format, va_list ap)
 {
 	struct snputchar_data data;
+	int r;
 
 	data.buf = str;
 	data.len = size;
-	return do_printf (format, ap, do_snputchar, &data);
+	r = do_printf (format, ap, do_snputchar, &data);
+	do_snputchar ('\0', &data);
+	return r;
 }
 
 void

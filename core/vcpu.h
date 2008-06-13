@@ -46,6 +46,10 @@ struct exint_func {
 	void (*hlt) (void);
 };
 
+struct nmi_func {
+	unsigned int (*get_nmi_count) (void);
+};
+
 struct vcpu {
 	struct vcpu *next;
 	union {
@@ -64,6 +68,7 @@ struct vcpu {
 	/* vcpu0: data per VM */
 	struct vcpu *vcpu0;
 	struct mmio_data mmio;
+	struct nmi_func nmi;
 };
 
 void vcpu_list_foreach (bool (*func) (struct vcpu *p, void *q), void *q);

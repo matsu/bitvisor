@@ -70,6 +70,13 @@ enum exit_qual_io_str {
 	EXIT_QUAL_IO_STR_STRING = 1,
 };
 
+enum exit_qual_ts_src {
+	EXIT_QUAL_TS_SRC_CALL = 0,
+	EXIT_QUAL_TS_SRC_IRET = 1,
+	EXIT_QUAL_TS_SRC_JMP = 2,
+	EXIT_QUAL_TS_SRC_INTR = 3,
+};
+
 enum intr_info_err {
 	INTR_INFO_ERR_INVALID = 0,
 	INTR_INFO_ERR_VALID = 1,
@@ -108,6 +115,13 @@ struct exit_qual_io {
 	unsigned int reserved1 : 9;
 	unsigned int port : 16;
 } __attribute__ ((packed));
+
+struct exit_qual_ts {
+	unsigned int sel : 16;
+	unsigned int reserved1 : 14;
+	enum exit_qual_ts_src src : 2;
+	unsigned int reserved2 : 32;
+};
 
 struct intr_info {
 	unsigned int vector : 8;

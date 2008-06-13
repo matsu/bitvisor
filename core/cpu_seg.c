@@ -99,6 +99,28 @@ cpu_seg_read_l (enum sreg s, ulong offset, u32 *data)
 }
 
 enum vmmerr
+cpu_seg_read_q (enum sreg s, ulong offset, u64 *data)
+{
+	ulong linear;
+	ulong acr;
+	ulong base;
+
+	current->vmctl.read_sreg_acr (s, &acr);
+	current->vmctl.read_sreg_base (s, &base);
+	if (acr & ACCESS_RIGHTS_UNUSABLE_BIT)
+		return VMMERR_INVALID_GUESTSEG;
+	if (!(acr & ACCESS_RIGHTS_P_BIT))
+		return VMMERR_GUESTSEG_NOT_PRESENT;
+	/* FIXME: expand-down */
+	/* FIXME: limit check */
+	/* FIXME: CPL check */
+	/* FIXME: access rights check */
+	linear = base + offset;
+	RIE (read_linearaddr_q (linear, data));
+	return VMMERR_SUCCESS;
+}
+
+enum vmmerr
 cpu_seg_write_b (enum sreg s, ulong offset, u8 data)
 {
 	ulong linear;
@@ -161,5 +183,27 @@ cpu_seg_write_l (enum sreg s, ulong offset, u32 data)
 	/* FIXME: access rights check */
 	linear = base + offset;
 	RIE (write_linearaddr_l (linear, data));
+	return VMMERR_SUCCESS;
+}
+
+enum vmmerr
+cpu_seg_write_q (enum sreg s, ulong offset, u64 data)
+{
+	ulong linear;
+	ulong acr;
+	ulong base;
+
+	current->vmctl.read_sreg_acr (s, &acr);
+	current->vmctl.read_sreg_base (s, &base);
+	if (acr & ACCESS_RIGHTS_UNUSABLE_BIT)
+		return VMMERR_INVALID_GUESTSEG;
+	if (!(acr & ACCESS_RIGHTS_P_BIT))
+		return VMMERR_GUESTSEG_NOT_PRESENT;
+	/* FIXME: expand-down */
+	/* FIXME: limit check */
+	/* FIXME: CPL check */
+	/* FIXME: access rights check */
+	linear = base + offset;
+	RIE (write_linearaddr_q (linear, data));
 	return VMMERR_SUCCESS;
 }

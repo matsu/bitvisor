@@ -33,7 +33,35 @@
 #include <lib_string.h>
 #include <lib_syscalls.h>
 
+enum memdump_type {
+	MEMDUMP_GPHYS,
+	MEMDUMP_HVIRT,
+	MEMDUMP_GVIRT,
+	MEMDUMP_HPHYS,
+};
+
+typedef unsigned long long u64;
+typedef unsigned long ulong;
+
+struct memdump_data {
+	u64 physaddr;
+	u64 cr0, cr3, cr4, efer;
+	ulong virtaddr;
+};
+
 unsigned char memdata[256];
+enum memdump_type dtype;
+u64 daddr;
+int dinit;
+
+char logbuf[65536];
+int loglen;
+int logoff;
+
+struct {
+	u64 rip, rsp, gdtrbase, idtrbase;
+	u64 cr0, cr3, cr4, efer;
+} guest;
 
 void
 command_error (void)
@@ -44,101 +72,276 @@ command_error (void)
 void
 print_help (char *buf)
 {
-	printf ("d guest-physical-address(hex) : dump memory\n");
-	printf ("D vmm-virtual-address(hex) : dump memory \n");
+	printf ("dp guest-physical-address(hex) : dump memory\n");
+	printf ("dv guest-virtual-address(hex) : dump memory\n");
+	printf ("Dp vmm-physical-address(hex) : dump memory\n");
+	printf ("Dv vmm-virtual-address(hex) : dump memory\n");
+	printf ("r [register-name register-value(hex)]: print/set guest registers\n");
+	printf ("n : get next guest state from log\n");
 	printf ("q : quit\n");
+}
+
+char *
+skip_space (char *buf)
+{
+	while (*buf && isspace (*buf))
+		buf++;
+	return buf;
+}
+
+int
+parse_hex (char **buf, unsigned long long *v)
+{
+	int c = 0;
+
+	*v = 0;
+	for (;;++*buf) {
+		if (**buf == '\0')
+			break;
+		if (**buf <= ' ')
+			break;
+		if (**buf >= '0' && **buf <= '9') {
+			c++;
+			*v = (*v << 4) | (**buf - '0');
+			continue;
+		}
+		if (**buf >= 'A' && **buf <= 'F') {
+			c++;
+			*v = (*v << 4) | (**buf - 'A' + 0xA);
+			continue;
+		}
+		if (**buf >= 'a' && **buf <= 'f') {
+			c++;
+			*v = (*v << 4) | (**buf - 'a' + 0xA);
+			continue;
+		}
+		break;
+	}
+	return c;
 }
 
 void
 dump_mem (char *buf, int t)
 {
 	int c = 0;
-	static unsigned long long v = 0;
-	unsigned long long i;
+	unsigned long long i, v;
 	int tmp[16], j, k;
 	int a;
+	struct memdump_data d;
 
-	if (buf[1] == '\0')
+	buf++;
+	buf = skip_space (buf);
+	if (*buf == '\0')
 		c = 1;
-	else
-		v = 0;
-	for (;;) {
-		buf++;
-		if (*buf == '\0')
-			break;
-		if (*buf <= ' ')
-			continue;
-		if (*buf >= '0' && *buf <= '9') {
-			c++;
-			v = (v << 4) | (*buf - '0');
-			continue;
-		}
-		if (*buf >= 'A' && *buf <= 'F') {
-			c++;
-			v = (v << 4) | (*buf - 'A' + 0xA);
-			continue;
-		}
-		if (*buf >= 'a' && *buf <= 'f') {
-			c++;
-			v = (v << 4) | (*buf - 'a' + 0xA);
-			continue;
-		}
-		c = 0;
-		break;
-	}
-	if (c > 0) {
-		a = msgopen ("memdump");
-		if (a < 0) {
-			printf ("msgopen failed.\n");
+	if (c) {
+		if (dinit == 0) {
+			command_error ();
 			return;
 		}
-		if (msgsendbuf (a, t, &v, sizeof v, memdata, sizeof memdata)) {
-			printf ("msgsendbuf failed.\n");
-		} else {
-			i = v & ~0xFULL;
-			k = -(int)(v & 0xF);
-			do {
-				for (j = 0; j < 16; j++) {
-					if (k >= 0 && k < sizeof memdata)
-						tmp[j] = memdata[k];
-					else
-						tmp[j] = -1;
-					k++;
-				}
-				printf ("%08llX ", i); /* address */
-				for (j = 0; j < 8; j++) { /* hex dump */
-					if (tmp[j] < 0)
-						printf ("   ");
-					else
-						printf (" %02X", tmp[j]);
-				}
-				if (tmp[7] < 0 || tmp[8] < 0)
-					printf (" ");
-				else
-					printf ("-");
-				for (j = 8; j < 16; j++) {
-					if (tmp[j] < 0)
-						printf ("   ");
-					else
-						printf ("%02X ", tmp[j]);
-				}
-				printf ("  ");
-				for (j = 0; j < 16; j++) {	/* string */
-					if (tmp[j] < 0)
-						printf (" ");
-					else if (isprint (tmp[j]))
-						printf ("%c", tmp[j]);
-					else
-						printf (".");
-				}
-				printf ("\n");
-				i += 16;
-			} while (k < sizeof memdata);
-			v = v + sizeof memdata;
-		}
-		msgclose (a);
 	} else {
-		command_error ();
+		dinit = 0;
+		switch (*buf) {
+		case 'p':
+		case 'P':
+			dtype = t ? MEMDUMP_HPHYS : MEMDUMP_GPHYS;
+			buf++;
+			break;
+		case 'v':
+		case 'V':
+			dtype = t ? MEMDUMP_HVIRT : MEMDUMP_GVIRT;
+			buf++;
+			break;
+		default:
+			command_error ();
+			return;
+		}
+		buf = skip_space (buf);
+		if (!parse_hex (&buf, &daddr)) {
+			command_error ();
+			return;
+		}
+		dinit = 1;
+	}
+	d.physaddr = daddr;
+	d.cr3 = guest.cr3;
+	d.cr0 = guest.cr0;
+	d.cr4 = guest.cr4;
+	d.efer = guest.efer;
+	d.virtaddr = (ulong)daddr;
+	a = msgopen ("memdump");
+	if (a < 0) {
+		printf ("msgopen failed.\n");
+		return;
+	}
+	if (msgsendbuf (a, dtype, &d, sizeof d, memdata, sizeof memdata)) {
+		printf ("msgsendbuf failed.\n");
+	} else {
+		v = daddr;
+		i = v & ~0xFULL;
+		k = -(int)(v & 0xF);
+		do {
+			for (j = 0; j < 16; j++) {
+				if (k >= 0 && k < sizeof memdata)
+					tmp[j] = memdata[k];
+				else
+					tmp[j] = -1;
+				k++;
+			}
+			printf ("%08llX ", i); /* address */
+			for (j = 0; j < 8; j++) { /* hex dump */
+				if (tmp[j] < 0)
+					printf ("   ");
+				else
+					printf (" %02X", tmp[j]);
+			}
+			if (tmp[7] < 0 || tmp[8] < 0)
+				printf (" ");
+			else
+				printf ("-");
+			for (j = 8; j < 16; j++) {
+				if (tmp[j] < 0)
+					printf ("   ");
+				else
+					printf ("%02X ", tmp[j]);
+			}
+			printf ("  ");
+			for (j = 0; j < 16; j++) {	/* string */
+				if (tmp[j] < 0)
+					printf (" ");
+				else if (isprint (tmp[j]))
+					printf ("%c", tmp[j]);
+				else
+					printf (".");
+			}
+			printf ("\n");
+			i += 16;
+		} while (k < sizeof memdata);
+		v = v + sizeof memdata;
+		daddr = v;
+	}
+	msgclose (a);
+}
+
+void
+getlog (void)
+{
+	int d;
+
+	memset (logbuf, 0, sizeof logbuf);
+	d = msgopen ("ttylog");
+	if (d >= 0) {
+		loglen = msgsendbuf (d, 0, "", 0, logbuf, sizeof logbuf);
+		msgclose (d);
+		if (loglen > sizeof logbuf)
+			loglen = sizeof logbuf;
+	} else {
+		printf ("ttylog not found.\n");
+		loglen = 0;
+	}
+}
+
+int
+findlog (int off, int end, char *key, int len, int *ii)
+{
+	int i;
+
+	for (i = off; i < end; i++) {
+		if (logbuf[i] == key[0]) {
+			if (memcmp (&logbuf[i], key, len) == 0) {
+				*ii = i + len;
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+void
+getnextstate (void)
+{
+	int i, j;
+	char *p;
+	static char key1[] = "\nGuest state and registers of ";
+	static struct {
+		char *key;
+		u64 *data;
+	} *pp, l[] = {
+		{ "RSP ", &guest.rsp },
+		{ "CR0 ", &guest.cr0 },
+		{ "CR3 ", &guest.cr3 },
+		{ "CR4 ", &guest.cr4 },
+		{ "EFER ", &guest.efer },
+		{ "RIP ", &guest.rip },
+		{ "GDTR ", &guest.gdtrbase },
+		{ "IDTR ", &guest.idtrbase },
+		{ 0, 0 }
+	};
+
+	if (findlog (logoff, loglen - strlen (key1), key1, strlen (key1), &i))
+		goto found;
+	if (findlog (0, logoff, key1, strlen (key1), &i))
+		goto found;
+	printf ("guest state not found\n");
+	return;
+found:
+	logoff = i;
+	for (; i < loglen && logbuf[i] != '-'; i++)
+		printf ("%c", logbuf[i]);
+	for (pp = l; pp->key; pp++) {
+		if (!findlog (i, loglen - 3, pp->key, strlen (pp->key), &j)) {
+			printf ("%s not found\n", pp->key);
+			continue;
+		}
+		p = &logbuf[j];
+		p = skip_space (p);
+		if (!parse_hex (&p, pp->data)) {
+			printf ("%s parse failed\n", pp->key);
+			continue;
+		}
+	}
+	printf (" guest state loaded\n");
+}
+
+void
+guestreg (char *buf)
+{
+	static struct {
+		char *fmt;
+		char *name;
+		u64 *data;
+	} *pp, l[] = {
+		{ "%s  %08llX   ", "RIP",  &guest.rip },
+		{ "%s  %08llX   ", "RSP",  &guest.rsp },
+		{ "%s %08llX   ",  "GDTR", &guest.gdtrbase },
+		{ "%s %08llX\n",   "IDTR", &guest.idtrbase },
+		{ "%s  %08llX   ", "CR0",  &guest.cr0 },
+		{ "%s  %08llX   ", "CR3",  &guest.cr3 },
+		{ "%s  %08llX   ", "CR4",  &guest.cr4 },
+		{ "%s %08llX\n",   "EFER", &guest.efer },
+		{ 0, 0, 0 }
+	};
+	u64 tmp;
+
+	if (buf[1] == '\0') {
+		for (pp = l; pp->fmt; pp++)
+			printf (pp->fmt, pp->name, *pp->data);
+	} else {
+		buf++;
+		buf = skip_space (buf);
+		for (pp = l; pp->fmt; pp++) {
+			if (memcmp (buf, pp->name, strlen (pp->name)) == 0)
+				goto next1;
+		}
+		printf ("bad register name\n");
+		return;
+	next1:
+		buf += strlen (pp->name);
+		buf = skip_space (buf);
+		if (!parse_hex (&buf, &tmp)) {
+			printf ("bad register value\n");
+			return;
+		}
+		*pp->data = tmp;
 	}
 }
 
@@ -147,6 +350,9 @@ _start (int a1, int a2)
 {
 	char buf[100];
 
+	getlog ();
+	logoff = 0;
+	getnextstate ();
 	for (;;) {
 		printf ("debug> ");
 		lineinput (buf, 100);
@@ -162,6 +368,12 @@ _start (int a1, int a2)
 			break;
 		case 'q':
 			exitprocess (0);
+			break;
+		case 'r':
+			guestreg (buf);
+			break;
+		case 'n':
+			getnextstate ();
 			break;
 		default:
 			command_error ();

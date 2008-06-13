@@ -30,7 +30,7 @@
 #ifndef _CORE_GUEST_BOOT_H
 #define _CORE_GUEST_BOOT_H
 
-#define GUEST_BOOT_OFFSET 0xF000
+#define GUEST_BOOT_OFFSET 0x800
 extern char guest_boot_start[], guest_boot_end[];
 
 #endif

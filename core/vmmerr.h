@@ -45,6 +45,7 @@ enum vmmerr {
 	VMMERR_EXCEPTION_UD,
 	VMMERR_AVOID_COMPILER_WARNING,
 	VMMERR_SW,
+	VMMERR_NOMEM,
 };
 
 #define RET_IF_ERR(func) do { \

@@ -27,7 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "debug.h"
 #include "initfunc.h"
+#include "printf.h"
 #include "process.h"
 #include "putchar.h"
 #include "serial.h"
@@ -98,6 +100,16 @@ tty_putchar (unsigned char c)
 }
 
 static void
+tty_init_global2 (void)
+{
+	char buf[100];
+
+	snprintf (buf, 100, "tty:log=%p,logoffset=%p,loglen=%p,logmax=%lu\n",
+		  log, &logoffset, &loglen, (unsigned long)sizeof log);
+	debug_addstr (buf);
+}
+
+static void
 tty_init_global (void)
 {
 	logoffset = 0;
@@ -132,4 +144,5 @@ tty_init_msg (void)
 }
 
 INITFUNC ("global0", tty_init_global);
+INITFUNC ("global3", tty_init_global2);
 INITFUNC ("msg1", tty_init_msg);

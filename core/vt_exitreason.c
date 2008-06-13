@@ -163,7 +163,7 @@ printexitreason (int num)
 	char *m;
 
 	m = message_exitreason (num);
-	printf ("%d, 0x%x (%s) %s %s\n", num, num, m,
+	printf ("%d=0x%X (%s) %s %s\n", num, num, m,
 		(num & EXIT_REASON_VMEXIT_FROM_VMX_ROOT_OPERATION_BIT)
 		? "VM exit from VMX root operation" : "",
 		(num & EXIT_REASON_VMENTRY_FAILURE_BIT)

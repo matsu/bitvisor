@@ -30,8 +30,10 @@
 #include "asm.h"
 #include "current.h"
 #include "initfunc.h"
+#include "mm.h"
 #include "msr.h"
 #include "msr_pass.h"
+#include "panic.h"
 #include "printf.h"
 
 static bool
@@ -63,6 +65,14 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 		asm_rdmsr64 (MSR_IA32_TIME_STAMP_COUNTER, &tmp);
 		current->tsc_offset = msrdata - tmp;
 		current->vmctl.tsc_offset_changed ();
+		break;
+	case MSR_IA32_APIC_BASE_MSR:
+		if (msrdata & MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT) {
+			tmp = msrdata & MSR_IA32_APIC_BASE_MSR_APIC_BASE_MASK;
+			if (phys_in_vmm (tmp))
+				panic ("relocating APIC Base to VMM address!");
+		}
+		asm_wrmsr64 (msrindex, msrdata);
 		break;
 	default:
 		asm_wrmsr64 (msrindex, msrdata);

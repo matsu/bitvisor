@@ -30,7 +30,7 @@
 #ifndef _CORE_REBOOT_H
 #define _CORE_REBOOT_H
 
-void handle_nmi (void);
+void reboot_test (void);
 void handle_init_to_bsp (void);
 
 #endif

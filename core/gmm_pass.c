@@ -78,7 +78,7 @@ install_int0x15_hook (void)
 	u64 int0x15_vector_phys = 0x15 * 4;
 
 	/* guest 0xD4000 page has guest_bios_hook contents */
-	if (((u32)guest_bios_hook) & 0xFFF)
+	if (((ulong)guest_bios_hook) & 0xFFF)
 		panic ("Fatal error:"
 		       " guest_bios_hook at %p alignment error.",
 		       guest_bios_hook);

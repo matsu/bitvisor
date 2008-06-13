@@ -122,7 +122,7 @@ keyboard_reset (void)
 	wait_for_kbdsend (false);
 	asm_outb (KBD_STATUS, 0x60);
 	wait_for_kbdsend (false);
-	asm_outb (KBD_DATA, 0x44);
+	asm_outb (KBD_DATA, 0x64);
 	wait_for_kbdsend (false);
 	asm_outb (KBD_DATA, 0xFF);
 }

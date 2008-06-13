@@ -31,10 +31,11 @@
 #include "constants.h"
 #include "cpu_mmu.h"
 #include "current.h"
-#include "panic.h"
 #include "gmm_access.h"
 #include "mm.h"
+#include "panic.h"
 #include "printf.h"
+#include "string.h"
 
 struct get_pte_data {
 	unsigned int pg : 1;	/* PG (Paging): CR0 bit 31 */
@@ -267,7 +268,7 @@ get_pte (ulong virt, bool wr, bool us, bool ex, u64 *pte)
 }
 
 enum vmmerr
-write_linearaddr_ok_b (u32 linear)
+write_linearaddr_ok_b (ulong linear)
 {
 	u64 pte;
 
@@ -276,7 +277,7 @@ write_linearaddr_ok_b (u32 linear)
 }
 
 enum vmmerr
-write_linearaddr_ok_w (u32 linear)
+write_linearaddr_ok_w (ulong linear)
 {
 	if ((linear & 0xFFE) <= 0xFFE) {
 		RIE (write_linearaddr_ok_b (linear));
@@ -288,7 +289,7 @@ write_linearaddr_ok_w (u32 linear)
 }
 
 enum vmmerr
-write_linearaddr_ok_l (u32 linear)
+write_linearaddr_ok_l (ulong linear)
 {
 	if ((linear & 0xFFC) <= 0xFFC) {
 		RIE (write_linearaddr_ok_w (linear));
@@ -300,7 +301,7 @@ write_linearaddr_ok_l (u32 linear)
 }
 
 enum vmmerr
-write_linearaddr_b (u32 linear, u32 data)
+write_linearaddr_b (ulong linear, u8 data)
 {
 	u64 pte;
 
@@ -311,7 +312,7 @@ write_linearaddr_b (u32 linear, u32 data)
 }
 
 enum vmmerr
-write_linearaddr_w (u32 linear, u32 data)
+write_linearaddr_w (ulong linear, u16 data)
 {
 	u64 pte;
 
@@ -327,7 +328,7 @@ write_linearaddr_w (u32 linear, u32 data)
 }
 
 enum vmmerr
-write_linearaddr_l (u32 linear, u32 data)
+write_linearaddr_l (ulong linear, u32 data)
 {
 	u64 pte;
 
@@ -343,7 +344,23 @@ write_linearaddr_l (u32 linear, u32 data)
 }
 
 enum vmmerr
-read_linearaddr_b (u32 linear, void *data)
+write_linearaddr_q (ulong linear, u64 data)
+{
+	u64 pte;
+
+	if ((linear & 0xFFF) >= 0xFF9) {
+		RIE (write_linearaddr_l (linear, data));
+		RIE (write_linearaddr_l (linear + 4, data >> 32));
+		return VMMERR_SUCCESS;
+	}
+	RIE (get_pte (linear, true, false /*FIXME*/, false /*FIXME*/, &pte));
+	write_gphys_q ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+		       pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
+	return VMMERR_SUCCESS;
+}
+
+enum vmmerr
+read_linearaddr_b (ulong linear, void *data)
 {
 	u64 pte;
 
@@ -354,7 +371,7 @@ read_linearaddr_b (u32 linear, void *data)
 }
 
 enum vmmerr
-read_linearaddr_w (u32 linear, void *data)
+read_linearaddr_w (ulong linear, void *data)
 {
 	u64 pte;
 
@@ -370,7 +387,7 @@ read_linearaddr_w (u32 linear, void *data)
 }
 
 enum vmmerr
-read_linearaddr_l (u32 linear, u32 *data)
+read_linearaddr_l (ulong linear, void *data)
 {
 	u64 pte;
 
@@ -382,5 +399,55 @@ read_linearaddr_l (u32 linear, u32 *data)
 	RIE (get_pte (linear, false, false /*FIXME*/, false /*FIXME*/, &pte));
 	read_gphys_l ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
 		      pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
+	return VMMERR_SUCCESS;
+}
+
+enum vmmerr
+read_linearaddr_q (ulong linear, void *data)
+{
+	u64 pte;
+
+	if ((linear & 0xFFF) >= 0xFF9) {
+		RIE (read_linearaddr_l (linear, ((u8 *)data)));
+		RIE (read_linearaddr_l (linear + 4, ((u8 *)data + 4)));
+		return VMMERR_SUCCESS;
+	}
+	RIE (get_pte (linear, false, false /*FIXME*/, false /*FIXME*/, &pte));
+	read_gphys_q ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+		      pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
+	return VMMERR_SUCCESS;
+}
+
+/* access a TSS during a task switch */
+/* According to the manual, a processor uses contiguous physical addresses */
+/* to access a TSS during a task switch */ 
+enum vmmerr
+read_linearaddr_tss (ulong linear, void *tss, uint len)
+{
+	u64 pte;
+	void *p;
+
+	RIE (get_pte (linear, false, false, false, &pte));
+	p = mapmem_gphys ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), len, 0);
+	if (!p)
+		return VMMERR_NOMEM;
+	memcpy (tss, p, len);
+	unmapmem (p, len);
+	return VMMERR_SUCCESS;
+}
+
+enum vmmerr
+write_linearaddr_tss (ulong linear, void *tss, uint len)
+{
+	u64 pte;
+	void *p;
+
+	RIE (get_pte (linear, true, false, false, &pte));
+	p = mapmem_gphys ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), len,
+			  MAPMEM_WRITE);
+	if (!p)
+		return VMMERR_NOMEM;
+	memcpy (p, tss, len);
+	unmapmem (p, len);
 	return VMMERR_SUCCESS;
 }

@@ -1,5 +1,0 @@
-# key string,value type,default value, selection
-vmm.idman.password.algorithm		string		"SHA1"	SHA1,SHA256,SHA512
-vmm.idman.randomseed.randomseedsize	integer		128
-vmm.idman.slotinfo.manufactureID	string		NULL
-vmm.idman.key				binary		0

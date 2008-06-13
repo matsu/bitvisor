@@ -46,13 +46,10 @@ enum fullvirtualize_type {
 };
 
 struct pcpu_func {
-	void (*panic0) (void);
-	void (*panic1) (void);
 };
 
 struct pcpu {
 	struct pcpu_func func;
-	bool panicflag;
 	struct segdesc segdesctbl[NUM_OF_SEGDESCTBL];
 	struct tss32 tss32;
 	struct tss64 tss64;
@@ -71,6 +68,7 @@ struct pcpu_gs {
 	void *syscallstack PCPU_GS_ALIGN;
 				   /* %gs:16 (process.c, process_sysenter.s) */
 	void *current PCPU_GS_ALIGN;	/* %gs:24 (current.h) */
+	u64 nmi;		/* %gs:32 (nmi_pass.c) */
 };
 
 extern struct pcpu pcpu_default;

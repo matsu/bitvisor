@@ -163,14 +163,13 @@ vt__vmcs_init (void)
 	current->u.vt.io.iobmpflag = false;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
-	alloc_page (&current->u.vt.vi.vmm_stack, NULL);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
 
 	p = current->u.vt.vi.vmcs_region_virt;
 	*p = currentcpu->vt.vmcs_revision_identifier; /* write VMCS revision
 							 identifier */
 	asm_vmclear (&current->u.vt.vi.vmcs_region_phys); /* clear */
-	asm_vmptrld (&current->u.vt.vi.vmcs_region_phys); /* load */
+	vt_vmptrld (current->u.vt.vi.vmcs_region_phys); /* load */
 
 	/* get information from MSR */
 	asm_rdmsr32 (MSR_IA32_VMX_PINBASED_CTLS,
@@ -342,7 +341,6 @@ static void
 vt__vmcs_exit (void)
 {
 	free_page (current->u.vt.vi.vmcs_region_virt);
-	free_page (current->u.vt.vi.vmm_stack);
 }
 
 void
@@ -364,7 +362,6 @@ vt_vmexit (void)
 void
 vt_init (void)
 {
-	vt_panic_init ();
 	vt__vmx_init ();
 	vt__vmxon ();
 }

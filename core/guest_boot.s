@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-GUEST_BOOT_OFFSET = 0xF000
+GUEST_BOOT_OFFSET = 0x800
 
 	.globl	guest_boot_start
 	.globl	guest_boot_end
@@ -60,11 +60,77 @@ guest_boot_start:
 	test	%edi,%edi
 	jne	startkernel
 	push	%cx
-	mov	$0x02,%ah
-	int	$0x10
+	mov	$0x02,%ah	# SET CURSOR POSITION
+	int	$0x10		# CALL VIDEO BIOS
+	pop	%dx
+	mov	$0x4B01,%ax	# GET STATUS
+	mov	$0x7C00,%si
+	int	$0x13		# CALL DISK BIOS
+	jc	notcd
+	cmpw	$0x13,(%si)	# PACKET SIZE = 0x13 AND NO EMULATION
+	jne	notcd
+	call	print_by_bios
+	.string	"Reading CD-ROM.\n"
+	mov	$GUEST_BOOT_OFFSET + (exread1 - guest_boot_start),%si
+	mov     $0x42,%ah	# EXTENDED READ
+	int     $0x13		# CALL DISK BIOS
+	jc	notcd
+	mov	$GUEST_BOOT_OFFSET + (exread2 - guest_boot_start),%si
+	mov	0x7C47,%ax	# READ BOOT CATALOG
+	mov	%ax,8(%si)
+	mov	0x7C49,%ax
+	mov	%ax,10(%si)
+	mov     $0x42,%ah	# EXTENDED READ
+	int     $0x13		# CALL DISK BIOS
+	jc	notcd
+	cmpb	$0x88,0x7C20	# BOOTABLE?
+	jne	notcd
+	mov	$GUEST_BOOT_OFFSET + (exread3 - guest_boot_start),%si
+	mov	0x7C22,%ax	# SEGMENT
+	test	%ax,%ax
+	jne	1f
+	mov	$0x7C0,%ax
+1:
+	cmp	$0x100,%ax	# CHECK SEGMENT
+	jb	cderr
+	push	%ax
+	mov	%ax,6(%si)
+	mov	0x7C26,%ax	# SECTOR COUNT
+	mov	%ax,2(%si)
+	mov	0x7C28,%ax	# LOAD RBA
+	mov	%ax,8(%si)
+	mov	0x7C2A,%ax
+	mov	%ax,10(%si)
+	mov     $0x42,%ah	# EXTENDED READ
+	int     $0x13		# CALL DISK BIOS
+	jc	cderr
+	call	print_by_bios
+	.string	"Booting from CD.\n"
+	xor	%ax,%ax
+	push	%ax
+	lret
+cderr:
+	call	print_by_bios
+	.string	"CD boot failed.\n"
+	jmp	error
+exread1:
+	.short	0x10		# PACKET SIZE
+	.short	1		# NUMBER OF BLOCKS
+	.long	0x7C00		# BUFFER ADDRESS
+	.quad	0x11		# LBA
+exread2:
+	.short	0x10		# PACKET SIZE
+	.short	1		# NUMBER OF BLOCKS
+	.long	0x7C00		# BUFFER ADDRESS
+	.quad	0		# LBA
+exread3:
+	.short	0x10		# PACKET SIZE
+	.short	0		# NUMBER OF BLOCKS
+	.long	0		# BUFFER ADDRESS
+	.quad	0		# LBA
+notcd:
 	call	print_by_bios
 	.string	"Loading MBR.\n"
-	pop	%dx
 	mov	$0x00,%ah	# DRIVE RESET
 	int	$0x13		# CALL DISK BIOS
 	jnc	1f		# JUMP IF NO ERRORS
@@ -84,8 +150,10 @@ guest_boot_start:
 1:
 	jmp	*%bx		# JUMP TO MASTER BOOT RECORD
 error:
-	int	$0x19
-	int	$0x18
+	xor	%ax,%ax		# GET KEYSTROKE
+	int	$0x16		# CALL KEYBOARD BIOS
+	int	$0x19		# BOOTSTRAP LOADER
+	int	$0x18		# ROM BASIC
 	cli
 	hlt
 2:
@@ -94,9 +162,11 @@ error:
 	.string	"\r"
 	pop	%ax
 1:
-	mov	$7,%bx
-	mov	$0x0E,%ah
-	int	$0x10
+	push	%dx
+	mov	$7,%bx		# COLOR (GRAPHICS MODE ONLY) AND PAGE NUMBER
+	mov	$0x0E,%ah	# TELETYPE OUTPUT
+	int	$0x10		# CALL VIDEO BIOS
+	pop	%dx
 print_by_bios:
 	pop	%si
 	cld

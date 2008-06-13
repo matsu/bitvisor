@@ -36,14 +36,18 @@
 enum vmmerr cpu_mmu_get_pte (ulong virt, ulong cr0, ulong cr3, ulong cr4,
 			     u64 efer, bool write, bool user, bool exec,
 			     u64 entries[5], int *plevels);
-enum vmmerr write_linearaddr_ok_b (u32 linear);
-enum vmmerr write_linearaddr_ok_w (u32 linear);
-enum vmmerr write_linearaddr_ok_l (u32 linear);
-enum vmmerr write_linearaddr_b (u32 linear, u32 data);
-enum vmmerr write_linearaddr_w (u32 linear, u32 data);
-enum vmmerr write_linearaddr_l (u32 linear, u32 data);
-enum vmmerr read_linearaddr_b (u32 linear, void *data);
-enum vmmerr read_linearaddr_w (u32 linear, void *data);
-enum vmmerr read_linearaddr_l (u32 linear, u32 *data);
+enum vmmerr write_linearaddr_ok_b (ulong linear);
+enum vmmerr write_linearaddr_ok_w (ulong linear);
+enum vmmerr write_linearaddr_ok_l (ulong linear);
+enum vmmerr write_linearaddr_b (ulong linear, u8 data);
+enum vmmerr write_linearaddr_w (ulong linear, u16 data);
+enum vmmerr write_linearaddr_l (ulong linear, u32 data);
+enum vmmerr write_linearaddr_q (ulong linear, u64 data);
+enum vmmerr read_linearaddr_b (ulong linear, void *data);
+enum vmmerr read_linearaddr_w (ulong linear, void *data);
+enum vmmerr read_linearaddr_l (ulong linear, void *data);
+enum vmmerr read_linearaddr_q (ulong linear, void *data);
+enum vmmerr read_linearaddr_tss (ulong linear, void *tss, uint len);
+enum vmmerr write_linearaddr_tss (ulong linear, void *tss, uint len);
 
 #endif

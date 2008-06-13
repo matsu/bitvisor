@@ -36,6 +36,7 @@
 #include "panic.h"
 #include "printf.h"
 #include "seg.h"
+#include "vt_msr.h"
 #include "vt_regs.h"
 
 #define REALMODE_IDTR_BASE	0
@@ -79,6 +80,30 @@ vt_read_general_reg (enum general_reg reg, ulong *val)
 	case GENERAL_REG_RDI:
 		*val = current->u.vt.vr.rdi;
 		break;
+	case GENERAL_REG_R8:
+		*val = current->u.vt.vr.r8;
+		break;
+	case GENERAL_REG_R9:
+		*val = current->u.vt.vr.r9;
+		break;
+	case GENERAL_REG_R10:
+		*val = current->u.vt.vr.r10;
+		break;
+	case GENERAL_REG_R11:
+		*val = current->u.vt.vr.r11;
+		break;
+	case GENERAL_REG_R12:
+		*val = current->u.vt.vr.r12;
+		break;
+	case GENERAL_REG_R13:
+		*val = current->u.vt.vr.r13;
+		break;
+	case GENERAL_REG_R14:
+		*val = current->u.vt.vr.r14;
+		break;
+	case GENERAL_REG_R15:
+		*val = current->u.vt.vr.r15;
+		break;
 	default:
 		panic ("Fatal error: unknown register.");
 	}
@@ -111,6 +136,30 @@ vt_write_general_reg (enum general_reg reg, ulong val)
 		break;
 	case GENERAL_REG_RDI:
 		current->u.vt.vr.rdi = val;
+		break;
+	case GENERAL_REG_R8:
+		current->u.vt.vr.r8 = val;
+		break;
+	case GENERAL_REG_R9:
+		current->u.vt.vr.r9 = val;
+		break;
+	case GENERAL_REG_R10:
+		current->u.vt.vr.r10 = val;
+		break;
+	case GENERAL_REG_R11:
+		current->u.vt.vr.r11 = val;
+		break;
+	case GENERAL_REG_R12:
+		current->u.vt.vr.r12 = val;
+		break;
+	case GENERAL_REG_R13:
+		current->u.vt.vr.r13 = val;
+		break;
+	case GENERAL_REG_R14:
+		current->u.vt.vr.r14 = val;
+		break;
+	case GENERAL_REG_R15:
+		current->u.vt.vr.r15 = val;
 		break;
 	default:
 		panic ("Fatal error: unknown register.");
@@ -224,12 +273,9 @@ pe_change_enable_sw (bool pe)
 			asm_vmwrite (VMCS_GUEST_SS_SEL, vr->sw.ss);
 			vr->sw.enable &= ~SW_SREG_SS_BIT;
 		}
-		if ((vr->sw.ds & 7) == 0) {
+		if ((vr->sw.ds & 7) == 0 && vr->sw.ds != 0) {
 			asm_vmwrite (VMCS_GUEST_DS_SEL, vr->sw.ds);
 			vr->sw.enable &= ~SW_SREG_DS_BIT;
-			if (vr->sw.ds == 0)
-				asm_vmwrite (VMCS_GUEST_DS_ACCESS_RIGHTS,
-					     ACCESS_RIGHTS_UNUSABLE_BIT);
 		}
 		if ((vr->sw.fs & 7) == 0) {
 			asm_vmwrite (VMCS_GUEST_FS_SEL, vr->sw.fs);
@@ -321,6 +367,7 @@ vt_write_control_reg (enum control_reg reg, ulong val)
 			current->u.vt.vr.pg = !!(val & CR0_PG_BIT);
 			cpu_mmu_spt_updatecr3 ();
 		}
+		vt_msr_update_lma ();
 		asm_rdmsr (MSR_IA32_VMX_CR0_FIXED0, &cr0_0);
 		asm_rdmsr (MSR_IA32_VMX_CR0_FIXED1, &cr0_1);
 		val &= cr0_1;

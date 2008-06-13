@@ -30,6 +30,7 @@
 #include "asm.h"
 #include "constants.h"
 #include "cpu_emul.h"
+#include "cpu_mmu.h"
 #include "current.h"
 #include "exint_pass.h"
 #include "gmm_pass.h"
@@ -92,7 +93,11 @@ do_mov_cr (void)
 		vt_write_control_reg (CONTROL_REG_CR0, val);
 		break;
 	case EXIT_QUAL_CR_TYPE_LMSW:
-		panic ("Fatal error: LMSW not implemented.");
+		vt_read_control_reg (CONTROL_REG_CR0, &val);
+		val &= ~0xFFFF;
+		val |= eqc.s.lmsw_src;
+		vt_write_control_reg (CONTROL_REG_CR0, val);
+		break;
 	default:
 		panic ("Fatal error: Not implemented.");
 	}
@@ -212,8 +217,12 @@ do_exception (void)
 			current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
 			break;
 		case INTR_INFO_TYPE_NMI:
-			handle_nmi ();
-			/* fall through */
+			vii.s.nmi = 0; /* FIXME */
+			current->u.vt.intr.vmcs_intr_info.v = vii.v;
+			asm_vmread (VMCS_VMEXIT_INSTRUCTION_LEN, &len);
+			current->u.vt.intr.vmcs_instruction_len = len;
+			current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
+			break;
 		case INTR_INFO_TYPE_EXTERNAL:
 		default:
 			panic ("Fatal error:"
@@ -239,6 +248,25 @@ do_vmcall (void)
 {
 	vmmcall ();
 	add_ip ();
+}
+
+static void
+vt__nmi (void)
+{
+	struct vt_intr_data *vid = &current->u.vt.intr;
+
+	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID)
+		return;
+	if (!current->nmi.get_nmi_count ())
+		return;
+	if (!current->u.vt.vr.pe)
+		panic ("NMI in real mode");
+	printf ("VT NMI!\n");	/* DEBUG */
+	vid->vmcs_intr_info.v = 0;
+	vid->vmcs_intr_info.s.vector = EXCEPTION_NMI;
+	vid->vmcs_intr_info.s.type = INTR_INFO_TYPE_NMI;
+	vid->vmcs_intr_info.s.err = INTR_INFO_ERR_INVALID;
+	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
 }
 
 static void
@@ -331,15 +359,11 @@ vt__event_delivery_check (void)
 			vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
 		else if (ivif.v == vid->vmcs_intr_info.v)
 			;
-		else {
-			panic0 ();
-			printf ("Fatal error:\n");
-			printf ("VMCS_IDT_VECTORING_INFO_FIELD == 0x%lX\n",
-				ivif.v);
-			printf ("VMCS_VMENTRY_INTR_INFO == 0x%X\n",
-				vid->vmcs_intr_info.v);
-			panic1 ();
-		}
+		else
+			panic ("Fatal error:\n"
+			       "VMCS_IDT_VECTORING_INFO_FIELD == 0x%lX\n"
+			       "VMCS_VMENTRY_INTR_INFO == 0x%X\n",
+			       ivif.v, vid->vmcs_intr_info.v);
 	}
 }
 
@@ -408,6 +432,210 @@ do_hlt (void)
 }
 
 static void
+task_switch_load_segdesc (u16 sel, ulong gdtr_base, ulong gdtr_limit,
+			  ulong base, ulong limit, ulong acr)
+{
+	ulong addr, ldt_acr, desc_base, desc_limit;
+	union {
+		struct segdesc s;
+		u64 v;
+	} desc;
+	enum vmmerr r;
+
+	/* FIXME: set busy bit */
+	if (sel == 0)
+		return;
+	if (sel & SEL_LDT_BIT) {
+		asm_vmread (VMCS_GUEST_LDTR_ACCESS_RIGHTS, &ldt_acr);
+		asm_vmread (VMCS_GUEST_LDTR_BASE, &desc_base);
+		asm_vmread (VMCS_GUEST_LDTR_LIMIT, &desc_limit);
+		if (ldt_acr & ACCESS_RIGHTS_UNUSABLE_BIT)
+			panic ("loadseg: LDT unusable. sel=0x%X, idx=0x%lX\n",
+			       sel, base);
+		addr = sel & ~(SEL_LDT_BIT | SEL_PRIV_MASK);
+	} else {
+		desc_base = gdtr_base;
+		desc_limit = gdtr_limit;
+		addr = sel & ~(SEL_LDT_BIT | SEL_PRIV_MASK);
+	}
+	if ((addr | 7) > desc_limit)
+		panic ("loadseg: limit check failed");
+	addr += desc_base;
+	r = read_linearaddr_q (addr, &desc.v);
+	if (r != VMMERR_SUCCESS)
+		panic ("loadseg: cannot read descriptor");
+	if (desc.s.s == SEGDESC_S_CODE_OR_DATA_SEGMENT)
+		desc.s.type |= 1; /* accessed bit */
+	asm_vmwrite (acr, (desc.v >> 40) & ACCESS_RIGHTS_MASK);
+	asm_vmwrite (base, SEGDESC_BASE (desc.s));
+	asm_vmwrite (limit, ((desc.s.limit_15_0 | (desc.s.limit_19_16 << 16))
+			     << (desc.s.g ? 12 : 0)) | (desc.s.g ? 0xFFF : 0));
+}
+
+static void
+do_task_switch (void)
+{
+	enum vmmerr r;
+	union {
+		struct exit_qual_ts s;
+		ulong v;
+	} eqt;
+	ulong tr_sel;
+	ulong gdtr_base, gdtr_limit;
+	union {
+		struct segdesc s;
+		u64 v;
+	} tss1_desc, tss2_desc;
+	struct tss32 tss32_1, tss32_2;
+	ulong rflags, tmp;
+	u16 tmp16;
+
+	/* FIXME: 16bit TSS */
+	/* FIXME: generate an exception if errors */
+	/* FIXME: virtual 8086 mode */
+	asm_vmread (VMCS_EXIT_QUALIFICATION, &eqt.v);
+	asm_vmread (VMCS_GUEST_TR_SEL, &tr_sel);
+	printf ("task switch from 0x%lX to 0x%X\n", tr_sel, eqt.s.sel);
+	vt_read_gdtr (&gdtr_base, &gdtr_limit);
+	r = read_linearaddr_q (gdtr_base + tr_sel, &tss1_desc.v);
+	if (r != VMMERR_SUCCESS)
+		goto err;
+	r = read_linearaddr_q (gdtr_base + eqt.s.sel, &tss2_desc.v);
+	if (r != VMMERR_SUCCESS)
+		goto err;
+	if (tss1_desc.s.type == SEGDESC_TYPE_16BIT_TSS_BUSY)
+		panic ("task switch from 16bit TSS is not implemented.");
+	if (tss1_desc.s.type != SEGDESC_TYPE_32BIT_TSS_BUSY)
+		panic ("bad TSS descriptor 0x%llX", tss1_desc.v);
+	if (eqt.s.src == EXIT_QUAL_TS_SRC_IRET ||
+	    eqt.s.src == EXIT_QUAL_TS_SRC_JMP)
+		tss1_desc.s.type = SEGDESC_TYPE_32BIT_TSS_AVAILABLE;
+	if (eqt.s.src == EXIT_QUAL_TS_SRC_IRET) {
+		if (tss2_desc.s.type == SEGDESC_TYPE_16BIT_TSS_BUSY)
+			panic ("task switch to 16bit TSS is not implemented.");
+		if (tss2_desc.s.type != SEGDESC_TYPE_32BIT_TSS_BUSY)
+			panic ("bad TSS descriptor 0x%llX", tss1_desc.v);
+	} else {
+		if (tss2_desc.s.type == SEGDESC_TYPE_16BIT_TSS_AVAILABLE)
+			panic ("task switch to 16bit TSS is not implemented.");
+		if (tss2_desc.s.type != SEGDESC_TYPE_32BIT_TSS_AVAILABLE)
+			panic ("bad TSS descriptor 0x%llX", tss1_desc.v);
+		tss2_desc.s.type = SEGDESC_TYPE_32BIT_TSS_BUSY;
+	}
+	r = read_linearaddr_tss (SEGDESC_BASE (tss1_desc.s), &tss32_1,
+				 sizeof tss32_1);
+	if (r != VMMERR_SUCCESS)
+		goto err;
+	r = read_linearaddr_tss (SEGDESC_BASE (tss2_desc.s), &tss32_2,
+				 sizeof tss32_2);
+	if (r != VMMERR_SUCCESS)
+		goto err;
+	/* save old state */
+	vt_read_flags (&rflags);
+	if (eqt.s.src == EXIT_QUAL_TS_SRC_IRET)
+		rflags &= ~RFLAGS_NT_BIT;
+	vt_read_general_reg (GENERAL_REG_RAX, &tmp); tss32_1.eax = tmp;
+	vt_read_general_reg (GENERAL_REG_RCX, &tmp); tss32_1.ecx = tmp;
+	vt_read_general_reg (GENERAL_REG_RDX, &tmp); tss32_1.edx = tmp;
+	vt_read_general_reg (GENERAL_REG_RBX, &tmp); tss32_1.ebx = tmp;
+	vt_read_general_reg (GENERAL_REG_RSP, &tmp); tss32_1.esp = tmp;
+	vt_read_general_reg (GENERAL_REG_RBP, &tmp); tss32_1.ebp = tmp;
+	vt_read_general_reg (GENERAL_REG_RSI, &tmp); tss32_1.esi = tmp;
+	vt_read_general_reg (GENERAL_REG_RDI, &tmp); tss32_1.edi = tmp;
+	vt_read_sreg_sel (SREG_ES, &tmp16); tss32_1.es = tmp16;
+	vt_read_sreg_sel (SREG_CS, &tmp16); tss32_1.cs = tmp16;
+	vt_read_sreg_sel (SREG_SS, &tmp16); tss32_1.ss = tmp16;
+	vt_read_sreg_sel (SREG_DS, &tmp16); tss32_1.ds = tmp16;
+	vt_read_sreg_sel (SREG_FS, &tmp16); tss32_1.fs = tmp16;
+	vt_read_sreg_sel (SREG_GS, &tmp16); tss32_1.gs = tmp16;
+	tss32_1.eflags = rflags;
+	vt_read_ip (&tmp); tss32_1.eip = tmp;
+	r = write_linearaddr_q (gdtr_base + tr_sel, tss1_desc.v);
+	if (r != VMMERR_SUCCESS)
+		goto err;
+	r = write_linearaddr_tss (SEGDESC_BASE (tss1_desc.s), &tss32_1,
+				  sizeof tss32_1);
+	if (r != VMMERR_SUCCESS)
+		goto err;
+	/* load new state */
+	rflags = tss32_2.eflags;
+	if (eqt.s.src == EXIT_QUAL_TS_SRC_CALL ||
+	    eqt.s.src == EXIT_QUAL_TS_SRC_INTR) {
+		rflags |= RFLAGS_NT_BIT;
+		tss32_2.link = tr_sel;
+	}
+	rflags |= RFLAGS_ALWAYS1_BIT;
+	vt_write_general_reg (GENERAL_REG_RAX, tss32_2.eax);
+	vt_write_general_reg (GENERAL_REG_RCX, tss32_2.ecx);
+	vt_write_general_reg (GENERAL_REG_RDX, tss32_2.edx);
+	vt_write_general_reg (GENERAL_REG_RBX, tss32_2.ebx);
+	vt_write_general_reg (GENERAL_REG_RSP, tss32_2.esp);
+	vt_write_general_reg (GENERAL_REG_RBP, tss32_2.ebp);
+	vt_write_general_reg (GENERAL_REG_RSI, tss32_2.esi);
+	vt_write_general_reg (GENERAL_REG_RDI, tss32_2.edi);
+	asm_vmwrite (VMCS_GUEST_ES_SEL, tss32_2.es);
+	asm_vmwrite (VMCS_GUEST_CS_SEL, tss32_2.cs);
+	asm_vmwrite (VMCS_GUEST_SS_SEL, tss32_2.ss);
+	asm_vmwrite (VMCS_GUEST_DS_SEL, tss32_2.ds);
+	asm_vmwrite (VMCS_GUEST_FS_SEL, tss32_2.fs);
+	asm_vmwrite (VMCS_GUEST_GS_SEL, tss32_2.gs);
+	asm_vmwrite (VMCS_GUEST_TR_SEL, eqt.s.sel);
+	asm_vmwrite (VMCS_GUEST_LDTR_SEL, tss32_2.ldt);
+	asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS, ACCESS_RIGHTS_UNUSABLE_BIT);
+	asm_vmwrite (VMCS_GUEST_CS_ACCESS_RIGHTS, ACCESS_RIGHTS_UNUSABLE_BIT);
+	asm_vmwrite (VMCS_GUEST_SS_ACCESS_RIGHTS, ACCESS_RIGHTS_UNUSABLE_BIT);
+	asm_vmwrite (VMCS_GUEST_DS_ACCESS_RIGHTS, ACCESS_RIGHTS_UNUSABLE_BIT);
+	asm_vmwrite (VMCS_GUEST_FS_ACCESS_RIGHTS, ACCESS_RIGHTS_UNUSABLE_BIT);
+	asm_vmwrite (VMCS_GUEST_GS_ACCESS_RIGHTS, ACCESS_RIGHTS_UNUSABLE_BIT);
+	asm_vmwrite (VMCS_GUEST_TR_ACCESS_RIGHTS, ACCESS_RIGHTS_UNUSABLE_BIT);
+	asm_vmwrite (VMCS_GUEST_LDTR_ACCESS_RIGHTS,
+		     ACCESS_RIGHTS_UNUSABLE_BIT);
+	vt_write_flags (rflags);
+	vt_write_ip (tss32_2.eip);
+	vt_write_control_reg (CONTROL_REG_CR3, tss32_2.cr3);
+	r = write_linearaddr_q (gdtr_base + eqt.s.sel, tss2_desc.v);
+	if (r != VMMERR_SUCCESS)
+		goto err;
+	r = write_linearaddr_tss (SEGDESC_BASE (tss2_desc.s), &tss32_2,
+				  sizeof tss32_2);
+	if (r != VMMERR_SUCCESS)
+		goto err;
+	/* load segment descriptors */
+	if (rflags & RFLAGS_VM_BIT)
+		panic ("switching to virtual 8086 mode");
+	task_switch_load_segdesc (eqt.s.sel, gdtr_base, gdtr_limit,
+				  VMCS_GUEST_TR_BASE, VMCS_GUEST_TR_LIMIT,
+				  VMCS_GUEST_TR_ACCESS_RIGHTS);
+	task_switch_load_segdesc (tss32_2.ldt, gdtr_base, gdtr_limit,
+				  VMCS_GUEST_LDTR_BASE, VMCS_GUEST_LDTR_LIMIT,
+				  VMCS_GUEST_LDTR_ACCESS_RIGHTS);
+	task_switch_load_segdesc (tss32_2.es, gdtr_base, gdtr_limit,
+				  VMCS_GUEST_ES_BASE, VMCS_GUEST_ES_LIMIT,
+				  VMCS_GUEST_ES_ACCESS_RIGHTS);
+	task_switch_load_segdesc (tss32_2.cs, gdtr_base, gdtr_limit,
+				  VMCS_GUEST_CS_BASE, VMCS_GUEST_CS_LIMIT,
+				  VMCS_GUEST_CS_ACCESS_RIGHTS);
+	task_switch_load_segdesc (tss32_2.ss, gdtr_base, gdtr_limit,
+				  VMCS_GUEST_SS_BASE, VMCS_GUEST_SS_LIMIT,
+				  VMCS_GUEST_SS_ACCESS_RIGHTS);
+	task_switch_load_segdesc (tss32_2.ds, gdtr_base, gdtr_limit,
+				  VMCS_GUEST_DS_BASE, VMCS_GUEST_DS_LIMIT,
+				  VMCS_GUEST_DS_ACCESS_RIGHTS);
+	task_switch_load_segdesc (tss32_2.fs, gdtr_base, gdtr_limit,
+				  VMCS_GUEST_FS_BASE, VMCS_GUEST_FS_LIMIT,
+				  VMCS_GUEST_FS_ACCESS_RIGHTS);
+	task_switch_load_segdesc (tss32_2.gs, gdtr_base, gdtr_limit,
+				  VMCS_GUEST_GS_BASE, VMCS_GUEST_GS_LIMIT,
+				  VMCS_GUEST_GS_ACCESS_RIGHTS);
+	vt_read_control_reg (CONTROL_REG_CR0, &tmp);
+	tmp |= CR0_TS_BIT;
+	vt_write_control_reg (CONTROL_REG_CR0, tmp);
+	return;
+err:
+	panic ("do_task_switch: error %d", r);
+}
+
+static void
 vt__exit_reason (void)
 {
 	ulong exit_reason;
@@ -459,11 +687,13 @@ vt__exit_reason (void)
 		STATUS_UPDATE (asm_lock_incl (&stat_hltcnt));
 		do_hlt ();
 		break;
+	case EXIT_REASON_TASK_SWITCH:
+		do_task_switch ();
+		break;
 	default:
-		panic0 ();
 		printf ("Fatal error: handler not implemented.\n");
 		printexitreason (exit_reason);
-		panic1 ();
+		panic ("Fatal error: handler not implemented.");
 	}
 }
 
@@ -568,9 +798,12 @@ static void
 vt_mainloop (void)
 {
 	enum vmmerr err;
+	ulong cr0, acr;
+	u64 efer;
 
 	for (;;) {
 		schedule ();
+		vt_vmptrld (current->u.vt.vi.vmcs_region_phys);
 		panic_test ();
 		if (current->halt) {
 			vt__halt ();
@@ -601,6 +834,18 @@ vt_mainloop (void)
 				current->u.vt.vr.sw.enable = 0;
 				continue;
 			}
+			vt_read_control_reg (CONTROL_REG_CR0, &cr0);
+			if (cr0 & CR0_PG_BIT) {
+				vt_read_msr (MSR_IA32_EFER, &efer);
+				if (efer & MSR_IA32_EFER_LME_BIT) {
+					vt_read_sreg_acr (SREG_CS, &acr);
+					if (acr & ACCESS_RIGHTS_L_BIT) {
+						/* long mode */
+						current->u.vt.vr.sw.enable = 0;
+						continue;
+					}
+				}
+			}
 			err = cpu_interpreter ();
 			if (err == VMMERR_SUCCESS) /* emulation successful */
 				continue;
@@ -616,6 +861,7 @@ vt_mainloop (void)
 		}
 		/* when the state is switching, do single step */
 		if (current->u.vt.vr.sw.enable) {
+			vt__nmi ();
 			vt__event_delivery_setup ();
 			vt__vm_run_with_tf ();
 			cpu_mmu_spt_tlbflush ();
@@ -623,6 +869,7 @@ vt_mainloop (void)
 			vt__exit_reason ();
 			vt__event_delivery_update ();
 		} else {	/* not switching */
+			vt__nmi ();
 			vt__event_delivery_setup ();
 			vt__vm_run ();
 			cpu_mmu_spt_tlbflush ();

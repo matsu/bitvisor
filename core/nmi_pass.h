@@ -26,10 +26,3 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef _CORE_VT_PANIC_H
-#define _CORE_VT_PANIC_H
-
-void vt_panic_dump (void);
-
-#endif

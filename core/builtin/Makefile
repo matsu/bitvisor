@@ -11,7 +11,7 @@ BIN_NAME      = $(patsubst bin_%,%,$(patsubst %.c,%,$(wildcard bin_*.c))) \
 		$(patsubst bin_%,%,$(patsubst %.s,%,$(wildcard bin_*.s)))
 HEADERS       = $(wildcard *.h)
 CFLAGS        = -m$(BITS-$(CONFIG_64)) -mno-red-zone -g -O -nostdinc \
-		-fno-builtin -Wall -I. -nostdlib
+		-fno-builtin -Wall -I. -nostdlib -fno-stack-protector
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64

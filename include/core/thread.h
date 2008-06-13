@@ -27,44 +27,18 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "current.h"
-#include "gmm_access.h"
-#include "initfunc.h"
-#include "putchar.h"
-#include "vmmcall.h"
-#include "vmmcall_log.h"
+#ifndef __CORE_THREAD_H
+#define __CORE_THREAD_H
 
-static ulong offset, pagenum;
+#include <core/types.h>
 
-static void
-log_putchar (unsigned char c)
-{
-	u32 n;
+typedef u8 tid_t;
 
-	write_phys_b ((pagenum << 12) + offset, c);
-	offset++;
-	if (offset >= 4096)
-		offset = 4;
-	read_phys_l ((pagenum << 12) + 0, &n);
-	n++;
-	write_phys_l ((pagenum << 12) + 0, n);
-}
+tid_t thread_gettid (void);
+void schedule (void);
+tid_t thread_new (void (*func) (void *), void *arg, int stacksize);
+void thread_exit (void);
+void thread_wakeup (tid_t tid);
+void thread_will_stop (void);
 
-static void
-log_set_page (void)
-{
-	putchar_exit_global ();
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &pagenum);
-	if (pagenum == 0xFFFFFFFF)
-		return;
-	offset = 4;
-	putchar_init_global (log_putchar);
-}
-
-static void
-vmmcall_log_init (void)
-{
-	vmmcall_register ("log_set_page", log_set_page);
-}
-
-INITFUNC ("vmmcal0", vmmcall_log_init);
+#endif

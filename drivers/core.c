@@ -162,14 +162,12 @@ static void core_iofunc(enum iotype iotype, u32 port, void *data)
 	case CORE_IO_RET_DONE:
 		break;
 	case CORE_IO_RET_INVALID:
-		panic0();
-		printf("%s: CORE_IO_RET_INVALID: %08x\n", __func__, *(int*)&io);
-		panic1();
+		panic ("%s: CORE_IO_RET_INVALID: %08x\n",
+		       __func__, *(int *)&io);
 		break;
 	case CORE_IO_RET_BLOCKED:
-		panic0();
-		printf("%s: CORE_IO_RET_BLOCKED: %08x\n", __func__, *(int*)&io);
-		panic1();
+		panic ("%s: CORE_IO_RET_BLOCKED: %08x\n",
+		       __func__, *(int *)&io);
 		break;
 	}
 	

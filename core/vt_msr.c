@@ -31,6 +31,8 @@
 #include "constants.h"
 #include "current.h"
 #include "mm.h"
+#include "panic.h"
+#include "printf.h"
 #include "vt_msr.h"
 
 #define MAXNUM_OF_VT_MSR 512
@@ -41,6 +43,42 @@ write_count (void)
 	asm_vmwrite (VMCS_VMEXIT_MSR_STORE_COUNT, current->u.vt.msr.count);
 	asm_vmwrite (VMCS_VMEXIT_MSR_LOAD_COUNT, current->u.vt.msr.count);
 	asm_vmwrite (VMCS_VMENTRY_MSR_LOAD_COUNT, current->u.vt.msr.count);
+}
+
+void
+vt_msr_update_lma (void)
+{
+	u64 efer;
+	ulong ctl;
+	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
+
+	if (current->u.vt.lme && current->u.vt.vr.pg) {
+		if (current->u.vt.lma)
+			return;
+#ifdef __x86_64__
+		current->u.vt.lma = true;
+		asm_vmread (VMCS_VMENTRY_CTL, &ctl);
+		ctl |= VMCS_VMENTRY_CTL_64_GUEST_BIT;
+		asm_vmwrite (VMCS_VMENTRY_CTL, ctl);
+		vt_read_guest_msr (current->u.vt.msr.efer, &efer);
+		efer |= mask;
+		vt_write_guest_msr (current->u.vt.msr.efer, efer);
+#else
+		panic ("Long mode is not supported!");
+#endif
+		printf ("Long mode activated\n"); /* DEBUG */
+	} else {
+		if (!current->u.vt.lma)
+			return;
+		current->u.vt.lma = false;
+		asm_vmread (VMCS_VMENTRY_CTL, &ctl);
+		ctl &= ~VMCS_VMENTRY_CTL_64_GUEST_BIT;
+		asm_vmwrite (VMCS_VMENTRY_CTL, ctl);
+		vt_read_guest_msr (current->u.vt.msr.efer, &efer);
+		efer &= ~mask;
+		vt_write_guest_msr (current->u.vt.msr.efer, efer);
+		printf ("Long mode inactivated\n"); /* DEBUG */
+	}
 }
 
 int
@@ -89,6 +127,7 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 	ulong a;
 	u64 data;
 	bool r = false;
+	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
 
 	switch (msrindex) {
 	case MSR_IA32_SYSENTER_CS:
@@ -105,8 +144,35 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 		break;
 	case MSR_IA32_EFER:
 		vt_read_guest_msr (current->u.vt.msr.efer, &data);
-		data &= ~(u64)(MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT);
+		data &= ~mask;
+		if (current->u.vt.lme)
+			data |= MSR_IA32_EFER_LME_BIT;
+		if (current->u.vt.lma)
+			data |= MSR_IA32_EFER_LMA_BIT;
 		*msrdata = data;
+		break;
+	case MSR_IA32_STAR:
+		vt_read_guest_msr (current->u.vt.msr.star, msrdata);
+		break;
+	case MSR_IA32_LSTAR:
+		vt_read_guest_msr (current->u.vt.msr.lstar, msrdata);
+		break;
+	case MSR_AMD_CSTAR:
+		vt_read_guest_msr (current->u.vt.msr.cstar, msrdata);
+		break;
+	case MSR_IA32_FMASK:
+		vt_read_guest_msr (current->u.vt.msr.fmask, msrdata);
+		break;
+	case MSR_IA32_FS_BASE:
+		asm_vmread (VMCS_GUEST_FS_BASE, &a);
+		*msrdata = a;
+		break;
+	case MSR_IA32_GS_BASE:
+		asm_vmread (VMCS_GUEST_GS_BASE, &a);
+		*msrdata = a;
+		break;
+	case MSR_IA32_KERNEL_GS_BASE:
+		vt_read_guest_msr (current->u.vt.msr.kerngs, msrdata);
 		break;
 	default:
 		r = current->msr.read_msr (msrindex, msrdata);
@@ -117,8 +183,9 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 bool
 vt_write_msr (u32 msrindex, u64 msrdata)
 {
-	u64 data, mask;
+	u64 data;
 	bool r = false;
+	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
 
 	switch (msrindex) {
 	case MSR_IA32_SYSENTER_CS:
@@ -132,11 +199,33 @@ vt_write_msr (u32 msrindex, u64 msrdata)
 		break;
 	case MSR_IA32_EFER:
 		vt_read_guest_msr (current->u.vt.msr.efer, &data);
-		mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
+		current->u.vt.lme = !!(msrdata & MSR_IA32_EFER_LME_BIT);
 		data &= mask;
 		data |= msrdata & ~mask;
 		/* FIXME: Reserved bits should be checked here. */
 		vt_write_guest_msr (current->u.vt.msr.efer, data);
+		vt_msr_update_lma ();
+		break;
+	case MSR_IA32_STAR:
+		vt_write_guest_msr (current->u.vt.msr.star, msrdata);
+		break;
+	case MSR_IA32_LSTAR:
+		vt_write_guest_msr (current->u.vt.msr.lstar, msrdata);
+		break;
+	case MSR_AMD_CSTAR:
+		vt_write_guest_msr (current->u.vt.msr.cstar, msrdata);
+		break;
+	case MSR_IA32_FMASK:
+		vt_write_guest_msr (current->u.vt.msr.fmask, msrdata);
+		break;
+	case MSR_IA32_FS_BASE:
+		asm_vmwrite (VMCS_GUEST_FS_BASE, (ulong)msrdata);
+		break;
+	case MSR_IA32_GS_BASE:
+		asm_vmwrite (VMCS_GUEST_GS_BASE, (ulong)msrdata);
+		break;
+	case MSR_IA32_KERNEL_GS_BASE:
+		vt_write_guest_msr (current->u.vt.msr.kerngs, msrdata);
 		break;
 	default:
 		r = current->msr.write_msr (msrindex, msrdata);
@@ -167,5 +256,15 @@ vt_msr_init (void)
 	asm_vmwrite (VMCS_VMENTRY_MSRLOAD_ADDR, msr_guest_phys);
 	asm_vmwrite (VMCS_VMENTRY_MSRLOAD_ADDR_HIGH, msr_guest_phys >> 32);
 	current->u.vt.msr.efer = vt_add_guest_msr (MSR_IA32_EFER);
+	current->u.vt.msr.star = vt_add_guest_msr (MSR_IA32_STAR);
+	current->u.vt.msr.lstar = vt_add_guest_msr (MSR_IA32_LSTAR);
+	current->u.vt.msr.cstar = vt_add_guest_msr (MSR_AMD_CSTAR);
+	current->u.vt.msr.fmask = vt_add_guest_msr (MSR_IA32_FMASK);
+	current->u.vt.msr.kerngs = vt_add_guest_msr (MSR_IA32_KERNEL_GS_BASE);
 	vt_write_guest_msr (current->u.vt.msr.efer, 0);
+	vt_write_guest_msr (current->u.vt.msr.star, 0);
+	vt_write_guest_msr (current->u.vt.msr.lstar, 0);
+	vt_write_guest_msr (current->u.vt.msr.cstar, 0);
+	vt_write_guest_msr (current->u.vt.msr.fmask, 0);
+	vt_write_guest_msr (current->u.vt.msr.kerngs, 0);
 }

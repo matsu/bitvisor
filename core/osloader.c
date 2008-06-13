@@ -32,6 +32,7 @@
 #include "mm.h"
 #include "osloader.h"
 #include "panic.h"
+#include "printf.h"
 #include "string.h"
 #include "types.h"
 
@@ -142,7 +143,11 @@ setup_bootparams_for_linux (u32 ramdisk_startaddr, u32 ramdisksize)
 		*(u32 *)((u8 *)tmp + 0x218) = ramdisk_startaddr; /* address */
 		*(u32 *)((u8 *)tmp + 0x21C) = ramdisksize;
 	}
-	memcpy ((u8 *)tmp + 0x1000, "quiet", 6);
+	snprintf ((char *)tmp + 0x1000, 0x1000, "%s",
+#ifdef FWDBG
+		  "ohci1394_dma=early "
+#endif
+		  "quiet");
 	unmapmem (tmp, 0x2000);
 }
 

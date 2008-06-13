@@ -209,7 +209,8 @@ fill_segdesctbl (struct segdesc *gdt, struct tss32 *tss32, struct tss64 *tss64,
 		     SEGDESC_S_CODE_OR_DATA_SEGMENT, 0, 1,
 		     0, SEGDESC_L_16_OR_32, SEGDESC_D_B_32);
 	/* SEG_SEL_CALLGATE32 */
-	set_gatedesc ((struct gatedesc32 *)&gdt[9], (u32)syscall_entry_lret,
+	set_gatedesc ((struct gatedesc32 *)&gdt[9],
+		      (u32)(ulong)syscall_entry_lret,
 		      SEG_SEL_CODE32, 0, GATEDESC_TYPE_32BIT_CALL, 3, 1);
 	/* SEG_SEL_CODE64 */
 	set_segdesc (&gdt[10], 0xFFFFFFFF, 0x00000000,

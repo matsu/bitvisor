@@ -90,7 +90,8 @@ timer_set (void *handle, u64 interval_usec)
 	p->settime = time;
 	p->interval = interval_usec;
 	LIST1_FOREACH (list1_timer_on, d)
-		if (d->interval - (time - d->settime) > interval_usec)
+		if (d->interval > (time - d->settime) &&
+		    d->interval - (time - d->settime) > interval_usec)
 			break;
 	LIST1_INSERT (list1_timer_on, d, p);
 	spinlock_unlock (&timer_lock);
@@ -112,9 +113,6 @@ timer_free (void *handle)
 	spinlock_unlock (&timer_lock);
 }
 
-#include "asm.h"
-#include "printf.h"
-#include "pcpu.h"
 static void
 timer_thread (void *thread_data)
 {

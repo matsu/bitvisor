@@ -223,8 +223,8 @@ struct tss64 {
 	unsigned int iomap : 16;
 } __attribute__ ((packed));
 
-#define SEGDESC_BASE(desc) (((desc).base_31_24 << 24) | \
+#define SEGDESC_BASE(desc) ((u32)(((desc).base_31_24 << 24) | \
 			    ((desc).base_23_16 << 16) | \
-			    (desc).base_15_0)
+			    (desc).base_15_0))
 
 #endif

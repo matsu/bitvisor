@@ -73,6 +73,59 @@
 				 &(data)->next, (nextd), &(nextd)->pnext) \
 		 : LIST1_ADD ((head), (data)))
 
+/* usage:
+   struct foo {
+     LIST2_DEFINE (struct foo, mona);
+     LIST2_DEFINE (struct foo, giko);
+     int bar;
+   };
+   LIST2_DEFINE_HEAD (list_foo_mona, struct foo, mona);
+   LIST2_DEFINE_HEAD (list_foo_giko, struct foo, giko);
+   func () {
+     struct foo f[3], *p;
+     LIST2_HEAD_INIT (list_foo_mona, mona);
+     LIST2_HEAD_INIT (list_foo_giko, giko);
+     LIST2_PUSH (list_foo_mona, mona, &f[0]);
+     LIST2_PUSH (list_foo_mona, mona, &f[1]);
+     LIST2_PUSH (list_foo_giko, giko, &f[0]);
+     p = LIST2_POP (list_foo_mona, mona);
+     LIST2_DEL (list_foo_giko, giko, &f[0]);
+   }
+*/
+
+#define LIST2_DEFINE(type, sx) type **sx##pnext, *sx##next
+#define LIST2_DEFINE_HEAD(name, type, sx) \
+	struct { type **pnext, *next; } name
+#define LIST2_DEFINE_HEAD_INIT(name, type, sx) \
+	struct { type **pnext, *next; } name = { &name.next, NULL }
+#define LIST2_HEAD_INIT(name, sx) *(name.pnext = &name.next) = NULL
+#define LIST2_NEXTPNEXT(head, sx, data) \
+	((data)->sx##next ? &(data)->sx##next->sx##pnext : &(head).pnext)
+#define LIST2_NEXTPNEXT2(head, sx) \
+	((head).next ? &(head).next->sx##pnext : &(head).pnext)
+#define LIST2_ADD(head, sx, data) \
+	list1_insert ((head).pnext, (data), &(data)->sx##pnext, \
+		      &(data)->sx##next, NULL, &(head).pnext)
+#define LIST2_PUSH(head, sx, data) \
+	list1_insert (&(head).next, (data), &(data)->sx##pnext, \
+		      &(data)->sx##next, (head).next, \
+		      LIST2_NEXTPNEXT2 (head, sx))
+#define LIST2_DEL(head, sx, data) \
+	list1_delete ((data)->sx##pnext, (data)->sx##next, \
+		      LIST2_NEXTPNEXT (head, sx, data), (data))
+#define LIST2_POP(head, sx) \
+	((head).next ? LIST2_DEL (head, sx, (head).next) : NULL)
+#define LIST2_FOREACH(head, sx, var) \
+	for (var = (head).next; var; var = var->sx##next)
+#define LIST2_FOREACH_DELETABLE(head, sx, var, varn) \
+	for (var = (head).next; var && ((varn = var->sx##next), 1); \
+	     var = varn)
+#define LIST2_INSERT(head, sx, nextd, data) \
+	((nextd) ? list1_insert ((nextd)->sx##pnext, (data), \
+				 &(data)->sx##pnext, &(data)->sx##next, \
+				 (nextd), &(nextd)->sx##pnext) \
+		 : LIST2_ADD (head, sx, (data)))
+
 /* p{p_pn,p_n} -> n{n_pn,n_n} */
 /* p{p_pn,p_n} -> d{d_pn,d_n} -> n{n_pn,n_n} */
 static inline void

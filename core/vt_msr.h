@@ -42,9 +42,10 @@ struct vt_msr {
 	struct vt_msr_entry *vmm;
 	struct vt_msr_entry *guest;
 	int count;
-	int efer;
+	int efer, star, lstar, cstar, fmask, kerngs;
 };
 
+void vt_msr_update_lma (void);
 int vt_add_guest_msr (ulong index);
 void vt_read_guest_msr (int i, u64 *data);
 void vt_write_guest_msr (int i, u64 data);

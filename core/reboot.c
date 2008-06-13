@@ -27,6 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "ap.h"
+#include "asm.h"
 #include "callrealmode.h"
 #include "initfunc.h"
 #include "panic.h"
@@ -34,6 +36,8 @@
 #include "process.h"
 #include "reboot.h"
 #include "sleep.h"
+
+static volatile bool rebooting = false;
 
 void
 do_panic_reboot (void)
@@ -55,14 +59,6 @@ do_panic_reboot (void)
 }
 
 void
-handle_nmi (void)
-{
-#ifdef AUTO_REBOOT
-	auto_reboot ();
-#endif
-}
-
-void
 handle_init_to_bsp (void)
 {
 #ifdef AUTO_REBOOT
@@ -74,7 +70,29 @@ handle_init_to_bsp (void)
 static void
 do_reboot (void)
 {
-	callrealmode_reboot ();
+	rebooting = true;
+	/*
+	asm_outb (0x70, 0x0F);
+	asm_outb (0x71, 0x00);
+	asm_outb (0x70, 0x00);
+	asm_outb (0x64, 0xFE);
+	*/
+	if (apic_available ()) {
+		printf ("shutdown\n");
+		asm_wridtr (0, 0);
+		asm volatile ("int3");
+	} else {
+		printf ("call reboot\n");
+		callrealmode_reboot ();
+	}
+	for (;;);
+}
+
+void
+reboot_test (void)
+{
+	if (rebooting)
+		do_reboot ();
 }
 
 static int

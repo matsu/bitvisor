@@ -257,6 +257,23 @@ asm_vmptrld (void *p)
 #endif
 }
 
+/* 0f c7 3b                vmptrst (%ebx) */
+static inline void
+asm_vmptrst (void *p)
+{
+#ifdef AS_DOESNT_SUPPORT_VMX
+	asm volatile (".byte 0x0f, 0xc7, 0x3b"
+		      :
+		      : "b" (p)
+		      : "cc", "memory");
+#else
+	asm volatile ("vmptrst %0"
+		      :
+		      : "m" (*(ulong *)p)
+		      : "cc", "memory");
+#endif
+}
+
 /* 0f 79 c2                vmwrite %edx,%eax */
 static inline void
 asm_vmwrite (ulong index, ulong val)

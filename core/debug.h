@@ -36,6 +36,7 @@
 #	endif
 #endif
 
+void debug_addstr (char *str);
 void debug_msgregister (void);
 void debug_msgunregister (void);
 void debug_gdb (void);

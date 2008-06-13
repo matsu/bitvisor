@@ -48,6 +48,7 @@
 #define RSDT_SIGNATURE		"RSDT"
 #define FACP_SIGNATURE		"FACP"
 #define FACS_SIGNATURE		"FACS"
+#define MCFG_SIGNATURE		"MCFG"
 #define PM1_CNT_SLP_EN_BIT	0x2000
 #define IS_STRUCT_SIZE_OK(l, h, m) \
 	((l) >= ((u8 *)&(m) - (u8 *)(h)) + sizeof (m))
@@ -264,6 +265,18 @@ find_facp (void)
 }
 
 static void
+clear_mcfg (void)
+{
+	void *mcfg;
+
+	mcfg = find_entry (MCFG_SIGNATURE);
+	if (mcfg) {
+		memset (mcfg, 0, 4);
+		printf ("ACPI MCFG cleared.\n");
+	}
+}
+
+static void
 debug_dump (void *p, int len)
 {
 	u8 *q;
@@ -399,6 +412,7 @@ acpi_init_global (void)
 	if (0)
 		printf ("PM1a control port is 0x%X\n", pm1a_cnt_ioaddr);
 	pm1a_cnt_found = true;
+	clear_mcfg ();
 }
 
 INITFUNC ("global3", acpi_init_global);

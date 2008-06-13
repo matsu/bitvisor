@@ -39,21 +39,33 @@
 #include "vmmcall.h"
 
 static volatile int s, r;
-static spinlock_t dbgsh_lock;
+static spinlock_t dbgsh_lock, dbgsh_lock2;
+static bool stopped;
+static tid_t tid;
 static bool i;
 
 static int
 dbgsh_ttyin_msghandler (int m, int c)
 {
+	int tmp;
+
 	if (m == 0) {
 	retry:
 		s = 0;
-		r = -1;
-		while (r == -1)
+		while (r == -1 || s != -1) {
+#ifndef FWDBG
+			spinlock_lock (&dbgsh_lock2);
+			stopped = true;
+			thread_will_stop ();
+			spinlock_unlock (&dbgsh_lock2);
+#endif
 			schedule ();
-		if (r == 0)
+		}
+		tmp = r;
+		r = -1;
+		if (tmp == 0)
 			goto retry;
-		return r;
+		return tmp;
 	}
 	return 0;
 }
@@ -65,9 +77,16 @@ dbgsh_ttyout_msghandler (int m, int c)
 		if (c == 0)
 			c = ' ';
 		s = c;
-		r = -1;
-		while (r == -1)
+		while (r == -1 || s != -1) {
+#ifndef FWDBG
+			spinlock_lock (&dbgsh_lock2);
+			stopped = true;
+			thread_will_stop ();
+			spinlock_unlock (&dbgsh_lock2);
+#endif
 			schedule ();
+		}
+		r = -1;
 	}
 	return 0;
 }
@@ -102,7 +121,7 @@ dbgsh (void)
 
 	spinlock_lock (&dbgsh_lock);
 	if (!i) {
-		thread_new (dbgsh_thread, NULL, PAGESIZE);
+		tid = thread_new (dbgsh_thread, NULL, PAGESIZE);
 		i = true;
 	}
 	spinlock_unlock (&dbgsh_lock);
@@ -111,8 +130,31 @@ dbgsh (void)
 	if (b != -1) {
 		r = b;
 		s = -1;
+#ifndef FWDBG
+		spinlock_lock (&dbgsh_lock2);
+		if (stopped)
+			thread_wakeup (tid);
+		spinlock_unlock (&dbgsh_lock2);
+#endif
 	}
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, (ulong)s);
+}
+
+static void
+vmmcall_dbgsh_init_pcpu (void)
+{
+#ifdef FWDBG
+	char buf[100];
+
+	spinlock_lock (&dbgsh_lock);
+	if (!i) {
+		snprintf (buf, 100, "dbgsh:s=%p,r=%p\n", &s, &r);
+		debug_addstr (buf);
+		thread_new (dbgsh_thread, NULL, PAGESIZE);
+		i = true;
+	}
+	spinlock_unlock (&dbgsh_lock);
+#endif
 }
 
 static void
@@ -121,7 +163,9 @@ vmmcall_dbgsh_init (void)
 #ifdef DBGSH
 	s = r = -1;
 	i = false;
+	stopped = false;
 	spinlock_init (&dbgsh_lock);
+	spinlock_init (&dbgsh_lock2);
 	vmmcall_register ("dbgsh", dbgsh);
 #else
 	if (0)
@@ -130,6 +174,7 @@ vmmcall_dbgsh_init (void)
 }
 
 INITFUNC ("vmmcal0", vmmcall_dbgsh_init);
+INITFUNC ("pcpu1", vmmcall_dbgsh_init_pcpu);
 
 /************************************************************
 #include <stdio.h>

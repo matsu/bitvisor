@@ -51,6 +51,8 @@
 #define PREFIX_GS		0x65
 #define PREFIX_OPERAND_SIZE	0x66
 #define PREFIX_ADDRESS_SIZE	0x67
+#define PREFIX_REX_MIN		0x40
+#define PREFIX_REX_MAX		0x4F
 
 #define OPCODE_0x0F			0x0F
 #define OPCODE_0x0F_MOV_TO_CR		0x22
@@ -116,11 +118,13 @@
 enum addrtype {
 	ADDRTYPE_16BIT,
 	ADDRTYPE_32BIT,
+	ADDRTYPE_64BIT,
 };
 
 enum reptype {
 	REPTYPE_16BIT,
 	REPTYPE_32BIT,
+	REPTYPE_64BIT,
 };
 
 enum reg {
@@ -203,6 +207,17 @@ struct prefix {
 	unsigned int repe : 1;
 	unsigned int opsize : 1;
 	unsigned int addrsize : 1;
+	union {
+		struct {
+			unsigned int b : 1;
+			unsigned int x : 1;
+			unsigned int r : 1;
+			unsigned int w : 1;
+		} b;
+		struct {
+			unsigned int val : 4;
+		} v;
+	} rex;
 };
 
 struct modrm {
@@ -674,6 +689,94 @@ static struct idata grp3[8] = {
 
 #define UPDATE_IP(op) current->vmctl.write_ip (op->ip + op->ip_off)
 
+#define LGUESTSEG_READ_B(op,p,offset,data) do { \
+	if (op->addrtype == ADDRTYPE_64BIT) { \
+		ulong base = 0; \
+		if (p == SREG_FS || p == SREG_GS) \
+			current->vmctl.read_sreg_base (p, &base); \
+		RIE (read_linearaddr_b (base + (offset), (data))); \
+	} else { \
+		GUESTSEG_READ_B (p, offset, data); \
+	} \
+} while (0)
+
+#define LGUESTSEG_READ_W(op,p,offset,data) do { \
+	if (op->addrtype == ADDRTYPE_64BIT) { \
+		ulong base = 0; \
+		if (p == SREG_FS || p == SREG_GS) \
+			current->vmctl.read_sreg_base (p, &base); \
+		RIE (read_linearaddr_w (base + (offset), (data))); \
+	} else { \
+		GUESTSEG_READ_W (p, offset, data); \
+	} \
+} while (0)
+
+#define LGUESTSEG_READ_L(op,p,offset,data) do { \
+	if (op->addrtype == ADDRTYPE_64BIT) { \
+		ulong base = 0; \
+		if (p == SREG_FS || p == SREG_GS) \
+			current->vmctl.read_sreg_base (p, &base); \
+		RIE (read_linearaddr_l (base + (offset), (data))); \
+	} else { \
+		GUESTSEG_READ_L (p, offset, data); \
+	} \
+} while (0)
+
+#define LGUESTSEG_READ_Q(op,p,offset,data) do { \
+	if (op->addrtype == ADDRTYPE_64BIT) { \
+		ulong base = 0; \
+		if (p == SREG_FS || p == SREG_GS) \
+			current->vmctl.read_sreg_base (p, &base); \
+		RIE (read_linearaddr_q (base + (offset), (data))); \
+	} else { \
+		GUESTSEG_READ_Q (p, offset, data); \
+	} \
+} while (0)
+
+#define LGUESTSEG_WRITE_B(op,p,offset,data) do { \
+	if (op->addrtype == ADDRTYPE_64BIT) { \
+		ulong base = 0; \
+		if (p == SREG_FS || p == SREG_GS) \
+			current->vmctl.read_sreg_base (p, &base); \
+		RIE (write_linearaddr_b (base + (offset), (data))); \
+	} else { \
+		GUESTSEG_WRITE_B (p, offset, data); \
+	} \
+} while (0)
+
+#define LGUESTSEG_WRITE_W(op,p,offset,data) do { \
+	if (op->addrtype == ADDRTYPE_64BIT) { \
+		ulong base = 0; \
+		if (p == SREG_FS || p == SREG_GS) \
+			current->vmctl.read_sreg_base (p, &base); \
+		RIE (write_linearaddr_w (base + (offset), (data))); \
+	} else { \
+		GUESTSEG_WRITE_W (p, offset, data); \
+	} \
+} while (0)
+
+#define LGUESTSEG_WRITE_L(op,p,offset,data) do { \
+	if (op->addrtype == ADDRTYPE_64BIT) { \
+		ulong base = 0; \
+		if (p == SREG_FS || p == SREG_GS) \
+			current->vmctl.read_sreg_base (p, &base); \
+		RIE (write_linearaddr_l (base + (offset), (data))); \
+	} else { \
+		GUESTSEG_WRITE_L (p, offset, data); \
+	} \
+} while (0)
+
+#define LGUESTSEG_WRITE_Q(op,p,offset,data) do { \
+	if (op->addrtype == ADDRTYPE_64BIT) { \
+		ulong base = 0; \
+		if (p == SREG_FS || p == SREG_GS) \
+			current->vmctl.read_sreg_base (p, &base); \
+		RIE (write_linearaddr_q (base + (offset), (data))); \
+	} else { \
+		GUESTSEG_WRITE_Q (p, offset, data); \
+	} \
+} while (0)
+
 static enum vmmerr
 read_next_b (struct op *op, u8 *data)
 {
@@ -779,6 +882,8 @@ get_modrm (struct op *op)
 	enum sreg defseg;
 	u32 addr;
 
+	if (op->addrtype == ADDRTYPE_64BIT)
+		panic ("64bit MOD/RM not supported");
 	if (op->modrm.mod == 3) {
 		op->modrm_reg = op->modrm.rm;
 		return VMMERR_SUCCESS;
@@ -854,6 +959,7 @@ clear_prefix (struct prefix *p)
 	p->repe = 0;
 	p->opsize = 0;
 	p->addrsize = 0;
+	p->rex.v.val = 0;
 }
 
 #define DEBUG_UNIMPLEMENTED() do { \
@@ -891,6 +997,8 @@ opcode_pushf (struct op *op)
 	ulong rflags;
 	struct cpu_stack st;
 
+	if (op->addrtype == ADDRTYPE_64BIT)
+		panic ("64bit PUSHF not supported");
 	RIE (cpu_stack_get (&st));
 	current->vmctl.read_flags (&rflags);
 	rflags &= ~(RFLAGS_VM_BIT | RFLAGS_RF_BIT);
@@ -906,6 +1014,8 @@ opcode_popf (struct op *op)
 	ulong rflags, orflags;
 	struct cpu_stack st;
 
+	if (op->addrtype == ADDRTYPE_64BIT)
+		panic ("64bit POPF not supported");
 	RIE (cpu_stack_get (&st));
 	current->vmctl.read_flags (&rflags);
 	orflags = rflags;
@@ -935,6 +1045,8 @@ opcode_iret (struct op *op)
 	u16 cs;
 	struct cpu_stack st;
 
+	if (op->addrtype == ADDRTYPE_64BIT)
+		panic ("64bit IRET not supported");
 	if (op->mode == CPUMODE_REAL) {
 		RIE (cpu_stack_get (&st));
 		current->vmctl.read_flags (&rflags);
@@ -1013,7 +1125,7 @@ static enum vmmerr
 string_instruction (struct op *op, bool rd, bool wr, u32 len, void *execdata,
 		    void (*execinst) (void *execdata, void *data, u32 len))
 {
-	u32 data;
+	u64 data;
 	enum sreg segr, segw;
 	ulong offr, offw;
 	ulong rflags;
@@ -1045,11 +1157,15 @@ reploop:
 		cnt = rcx;
 		if (op->reptype == REPTYPE_16BIT)
 			cnt &= 0xFFFF;
+		else if (op->reptype == REPTYPE_32BIT)
+			cnt &= 0xFFFFFFFF;
 		if (!cnt)
 			goto rcxz;
 		cnt--;
 		if (op->reptype == REPTYPE_16BIT)
 			(*(u16 *)&rcx) = cnt;
+		else if (op->reptype == REPTYPE_32BIT)
+			(*(u32 *)&rcx) = cnt;
 		else
 			rcx = cnt;
 		current->vmctl.write_general_reg (GENERAL_REG_RCX, rcx);
@@ -1059,17 +1175,22 @@ reploop:
 	if (rd) {
 		if (op->addrtype == ADDRTYPE_16BIT)
 			offr = (*(u16 *)&regr);
-		else
+		else if (op->addrtype == ADDRTYPE_32BIT)
 			offr = (*(u32 *)&regr);
+		else
+			offr = regr;
 		switch (len) {
 		case 1:
-			GUESTSEG_READ_B (segr, offr, (u8 *)&data);
+			LGUESTSEG_READ_B (op, segr, offr, (u8 *)&data);
 			break;
 		case 2:
-			GUESTSEG_READ_W (segr, offr, (u16 *)&data);
+			LGUESTSEG_READ_W (op, segr, offr, (u16 *)&data);
 			break;
 		case 4:
-			GUESTSEG_READ_L (segr, offr, (u32 *)&data);
+			LGUESTSEG_READ_L (op, segr, offr, (u32 *)&data);
+			break;
+		case 8:
+			LGUESTSEG_READ_Q (op, segr, offr, (u64 *)&data);
 			break;
 		}
 	}
@@ -1077,17 +1198,22 @@ reploop:
 	if (wr) {
 		if (op->addrtype == ADDRTYPE_16BIT)
 			offw = (*(u16 *)&regw);
-		else
+		else if (op->addrtype == ADDRTYPE_32BIT)
 			offw = (*(u32 *)&regw);
+		else
+			offw = regw;
 		switch (len) {
 		case 1:
-			GUESTSEG_WRITE_B (segw, offw, data);
+			LGUESTSEG_WRITE_B (op, segw, offw, data);
 			break;
 		case 2:
-			GUESTSEG_WRITE_W (segw, offw, data);
+			LGUESTSEG_WRITE_W (op, segw, offw, data);
 			break;
 		case 4:
-			GUESTSEG_WRITE_L (segw, offw, data);
+			LGUESTSEG_WRITE_L (op, segw, offw, data);
+			break;
+		case 8:
+			LGUESTSEG_WRITE_Q (op, segw, offw, data);
 			break;
 		}
 	}
@@ -1107,11 +1233,16 @@ reploop:
 			(*(u16 *)&regr) = offr;
 		if (wr)
 			(*(u16 *)&regw) = offw;
-	} else {
+	} else if (op->addrtype == ADDRTYPE_32BIT) {
 		if (rd)
 			(*(u32 *)&regr) = offr;
 		if (wr)
 			(*(u32 *)&regw) = offw;
+	} else {
+		if (rd)
+			regr = offr;
+		if (wr)
+			regw = offw;
 	}
 	if (cnt && loopcount) {
 		if (rflags & RFLAGS_IF_BIT)
@@ -1170,6 +1301,8 @@ opcode_in_imm (struct op *op)
 	ulong rax;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
+	if (op->optype == OPTYPE_64BIT)
+		op->optype = OPTYPE_32BIT;
 	if (op->optype == OPTYPE_16BIT)
 		call_io (IOTYPE_INW, op->imm & 0xFF, &rax);
 	else
@@ -1199,6 +1332,8 @@ opcode_in_dx (struct op *op)
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
+	if (op->optype == OPTYPE_64BIT)
+		op->optype = OPTYPE_32BIT;
 	if (op->optype == OPTYPE_16BIT)
 		call_io (IOTYPE_INW, rdx & 0xFFFF, &rax);
 	else
@@ -1217,9 +1352,11 @@ opcode_insb (struct op *op)
 static enum vmmerr
 opcode_ins (struct op *op)
 {
+	if (op->optype == OPTYPE_64BIT)
+		op->optype = OPTYPE_32BIT;
 	if (op->optype == OPTYPE_16BIT)
 		return io_str (op, IOTYPE_INW, 2);
-	else
+	else 
 		return io_str (op, IOTYPE_INL, 4);
 }
 
@@ -1240,6 +1377,8 @@ opcode_out_imm (struct op *op)
 	ulong rax;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
+	if (op->optype == OPTYPE_64BIT)
+		op->optype = OPTYPE_32BIT;
 	if (op->optype == OPTYPE_16BIT)
 		call_io (IOTYPE_OUTW, op->imm & 0xFF, &rax);
 	else
@@ -1267,6 +1406,8 @@ opcode_out_dx (struct op *op)
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
+	if (op->optype == OPTYPE_64BIT)
+		op->optype = OPTYPE_32BIT;
 	if (op->optype == OPTYPE_16BIT)
 		call_io (IOTYPE_OUTW, rdx & 0xFFFF, &rax);
 	else
@@ -1284,6 +1425,8 @@ opcode_outsb (struct op *op)
 static enum vmmerr
 opcode_outs (struct op *op)
 {
+	if (op->optype == OPTYPE_64BIT)
+		op->optype = OPTYPE_32BIT;
 	if (op->optype == OPTYPE_16BIT)
 		return io_str (op, IOTYPE_OUTW, 2);
 	else
@@ -1381,6 +1524,8 @@ opcode_lgdt (struct op *op)
 
 	if (op->modrm_reg != REG_NO)
 		return VMMERR_EXCEPTION_UD;
+	if (op->optype == OPTYPE_64BIT)
+		panic ("64bit LGDT not supported");
 	if (op->optype == OPTYPE_16BIT) {
 		RIE (cpu_seg_read_w (op->modrm_seg, op->modrm_off, &limit));
 		RIE (cpu_seg_read_l (op->modrm_seg, op->modrm_off + 2, &base));
@@ -1402,6 +1547,8 @@ opcode_lidt (struct op *op)
 
 	if (op->modrm_reg != REG_NO)
 		return VMMERR_EXCEPTION_UD;
+	if (op->optype == OPTYPE_64BIT)
+		panic ("64bit LIDT not supported");
 	if (op->optype == OPTYPE_16BIT) {
 		RIE (cpu_seg_read_w (op->modrm_seg, op->modrm_off, &limit));
 		RIE (cpu_seg_read_l (op->modrm_seg, op->modrm_off + 2, &base));
@@ -1422,7 +1569,7 @@ opcode_lmsw (struct op *op)
 	ulong cr;
 
 	if (op->modrm_reg == REG_NO)
-		GUESTSEG_READ_W (op->modrm_seg, op->modrm_off, &data);
+		LGUESTSEG_READ_W (op, op->modrm_seg, op->modrm_off, &data);
 	else
 		data = get_reg (op, op->modrm_reg);
 	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr);
@@ -1440,7 +1587,7 @@ opcode_mov_from_sr (struct op *op)
 
 	current->vmctl.read_sreg_sel ((enum sreg)op->modrm.reg, &sel);
 	if (op->modrm_reg == REG_NO)
-		GUESTSEG_WRITE_W (op->modrm_seg, op->modrm_off, sel);
+		LGUESTSEG_WRITE_W (op, op->modrm_seg, op->modrm_off, sel);
 	else
 		set_reg (op, op->modrm_reg, sel);
 	UPDATE_IP (op);
@@ -1467,6 +1614,8 @@ opcode_push_sr (struct op *op, enum sreg seg)
 	u16 sel16;
 	struct cpu_stack st;
 
+	if (op->addrtype == ADDRTYPE_64BIT)
+		panic ("64bit PUSH SREG not supported");
 	current->vmctl.read_sreg_sel (seg, &sel16);
 	sel32 = sel16;
 	RIE (cpu_stack_get (&st));
@@ -1549,8 +1698,10 @@ opcode_stos (struct op *op)
 
 	if (op->optype == OPTYPE_16BIT)
 		len = 2;
-	else
+	else if (op->optype == OPTYPE_32BIT)
 		len = 4;
+	else
+		len = 8;
 	return string_instruction (op, false, true, len, NULL, execinst_stos);
 }
 
@@ -1567,8 +1718,10 @@ opcode_movs (struct op *op)
 
 	if (op->optype == OPTYPE_16BIT)
 		len = 2;
-	else
+	else if (op->optype == OPTYPE_32BIT)
 		len = 4;
+	else
+		len = 8;
 	return string_instruction (op, true, true, len, NULL, execinst_movs);
 }
 
@@ -1641,7 +1794,7 @@ static enum vmmerr
 read_modrm8 (struct op *op, u8 *d8)
 {
 	if (op->modrm_reg == REG_NO)
-		GUESTSEG_READ_B (op->modrm_seg, op->modrm_off, d8);
+		LGUESTSEG_READ_B (op, op->modrm_seg, op->modrm_off, d8);
 	else
 		*d8 = get_reg8 (op, op->modrm_reg);
 	return VMMERR_SUCCESS;
@@ -1651,7 +1804,7 @@ static enum vmmerr
 write_modrm8 (struct op *op, u8 d8)
 {
 	if (op->modrm_reg == REG_NO)
-		GUESTSEG_WRITE_B (op->modrm_seg, op->modrm_off, d8);
+		LGUESTSEG_WRITE_B (op, op->modrm_seg, op->modrm_off, d8);
 	else
 		set_reg8 (op, op->modrm_reg, d8);
 	return VMMERR_SUCCESS;
@@ -1661,7 +1814,7 @@ static enum vmmerr
 read_modrm16 (struct op *op, u16 *d16)
 {
 	if (op->modrm_reg == REG_NO)
-		GUESTSEG_READ_W (op->modrm_seg, op->modrm_off, d16);
+		LGUESTSEG_READ_W (op, op->modrm_seg, op->modrm_off, d16);
 	else
 		*d16 = get_reg (op, op->modrm_reg);
 	return VMMERR_SUCCESS;
@@ -1671,7 +1824,7 @@ static enum vmmerr
 read_modrm (struct op *op, u32 *d)
 {
 	if (op->modrm_reg == REG_NO)
-		GUESTSEG_READ_L (op->modrm_seg, op->modrm_off, d);
+		LGUESTSEG_READ_L (op, op->modrm_seg, op->modrm_off, d);
 	else
 		*d = get_reg (op, op->modrm_reg);
 	return VMMERR_SUCCESS;
@@ -1691,7 +1844,7 @@ static enum vmmerr
 write_modrm16 (struct op *op, u16 d16)
 {
 	if (op->modrm_reg == REG_NO)
-		GUESTSEG_WRITE_W (op->modrm_seg, op->modrm_off, d16);
+		LGUESTSEG_WRITE_W (op, op->modrm_seg, op->modrm_off, d16);
 	else
 		set_reg16 (op, op->modrm_reg, d16);
 	return VMMERR_SUCCESS;
@@ -1701,7 +1854,7 @@ static enum vmmerr
 write_modrm (struct op *op, u32 d)
 {
 	if (op->modrm_reg == REG_NO)
-		GUESTSEG_WRITE_L (op->modrm_seg, op->modrm_off, d);
+		LGUESTSEG_WRITE_L (op, op->modrm_seg, op->modrm_off, d);
 	else
 		set_reg (op, op->modrm_reg, d);
 	return VMMERR_SUCCESS;
@@ -1968,9 +2121,11 @@ cpu_interpreter (void)
 	ulong acr;
 	struct idata idat;
 	ulong cr0;
+	u64 efer;
 
 	op = &op1;
 	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr0);
+	current->vmctl.read_msr (MSR_IA32_EFER, &efer);
 	if (cr0 & CR0_PE_BIT)
 		op->mode = CPUMODE_PROTECTED;
 	else
@@ -2023,7 +2178,17 @@ cpu_interpreter (void)
 	return VMMERR_PREFIX_TOO_LONG;
 parse_opcode:
 	current->vmctl.read_sreg_acr (SREG_CS, &acr);
-	if (acr & ACCESS_RIGHTS_D_B_BIT) {
+	if (((cr0 & CR0_PG_BIT) && (efer & MSR_IA32_EFER_LME_BIT) &&
+	     (acr & ACCESS_RIGHTS_L_BIT))) {
+		if (code >= PREFIX_REX_MIN && code <= PREFIX_REX_MAX) {
+			op->prefix.rex.v.val = code;
+			READ_NEXT_B (op, &code);
+		}
+		op->reptype = REPTYPE_64BIT;
+		op->optype = op->prefix.rex.b.w ? OPTYPE_64BIT :
+			!op->prefix.opsize ? OPTYPE_32BIT : OPTYPE_16BIT;
+		op->addrtype = ADDRTYPE_64BIT;
+	} else if (acr & ACCESS_RIGHTS_D_B_BIT) {
 		op->reptype = REPTYPE_32BIT;
 		op->optype =
 			!op->prefix.opsize ? OPTYPE_32BIT : OPTYPE_16BIT;
@@ -2128,6 +2293,8 @@ parse_opcode:
 	}
 	idat = idata[code];
 grp_special:
+	if (op->addrtype == ADDRTYPE_64BIT)
+		panic ("64bit grp instructions not supported");
 	switch (idat.type) {
 	case I_MODRM:
 		READ_NEXT_B (op, &op->modrm);
@@ -2181,6 +2348,8 @@ grp_special:
 	op->ip_off += 16;
 	return VMMERR_UNSUPPORTED_OPCODE;
 parse_opcode_0x0f:
+	if (op->addrtype == ADDRTYPE_64BIT)
+		panic ("64bit instructions begin with 0x0F not supported");
 	switch (code) {
 	case OPCODE_0x0F_0x01:
 		READ_NEXT_B (op, &op->modrm);

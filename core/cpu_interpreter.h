@@ -40,6 +40,7 @@ enum cpumode {
 enum optype {
 	OPTYPE_16BIT,
 	OPTYPE_32BIT,
+	OPTYPE_64BIT,
 };
 
 enum vmmerr cpu_interpreter (void);

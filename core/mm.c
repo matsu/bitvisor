@@ -46,7 +46,7 @@
 #include "spinlock.h"
 #include "string.h"
 
-#define VMMSIZE_ALL		(32 * 1024 * 1024)
+#define VMMSIZE_ALL		(64 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
 #define MAPMEM_ADDR_START	0x81000000
@@ -306,6 +306,25 @@ mm_page_free (struct page *p)
 	spinlock_unlock (&mm_lock);
 }
 
+/* returns number of available pages */
+int
+num_of_available_pages (void)
+{
+	int i, r, n;
+	struct page *p;
+
+	spinlock_lock (&mm_lock);
+	r = 0;
+	for (i = 0; i < NUM_OF_ALLOCSIZE; i++) {
+		n = 0;
+		LIST1_FOREACH (list1_freepage[i], p)
+			n++;
+		r += n * (allocsize[i] >> PAGESIZE_SHIFT);
+	}
+	spinlock_unlock (&mm_lock);
+	return r;
+}
+
 static void
 move_vmm (void)
 {
@@ -402,10 +421,9 @@ mm_init_global (void)
 	spinlock_init (&mapmem_lock);
 	vmm_start_phys = find_vmm_phys ();
 	if (vmm_start_phys == 0) {
-		panic0 ();
 		printf ("Out of memory.\n");
 		debug_sysmemmap_print ();
-		panic1 ();
+		panic ("Out of memory.");
 	}
 	printf ("%lld bytes (%lld MiB) RAM available.\n",
 		memorysize, memorysize >> 20);
@@ -428,6 +446,14 @@ mm_init_global (void)
 		if ((u64)head <= pagestruct[i].virt &&
 		    pagestruct[i].virt < (u64)end)
 			continue;
+#ifdef FWDBG
+		if (i == 0) {
+			extern char *dbgpage;
+			dbgpage = (char *)pagestruct[i].virt;
+			snprintf (dbgpage, PAGESIZE, "BitVisor dbgpage\n");
+			continue;
+		}
+#endif
 		mm_page_free (&pagestruct[i]);
 	}
 	mapmem_lastvirt = MAPMEM_ADDR_START;
@@ -593,9 +619,10 @@ sym_to_phys (void *sym)
 }
 
 bool
-phys_in_vmm (u32 phys)
+phys_in_vmm (u64 phys)
 {
-	return (phys & 0xFFC00000) == vmm_start_phys ? true : false;
+	return (phys & 0xFFFFFFFFFFC00000ULL) == (u64)vmm_start_phys
+		? true : false;
 }
 
 /*** process ***/
@@ -1165,7 +1192,7 @@ pmap_write (pmap_t *m, u64 e, uint attrmask)
 		attrdef = 0;
 	else if (m->curlevel == 0)
 		attrdef |= PTE_D_BIT;
-	e &= (~0xFFF) | attrmask;
+	e &= (~0xFFFULL) | attrmask;
 	e |= attrdef & ~attrmask;
 	tblattr = m->entry[m->curlevel + 1] & (PDE_PWT_BIT | PDE_PCD_BIT);
 	if (m->levels == 2)
@@ -1175,6 +1202,8 @@ pmap_write (pmap_t *m, u64 e, uint attrmask)
 		fail = pmap_wr64 (m, m->entryaddr[m->curlevel], tblattr,
 				  m->entry[m->curlevel], &e);
 	m->entry[m->curlevel] = e;
+	if (fail)
+		m->readlevel = m->curlevel;
 	return fail;
 }
 

@@ -33,6 +33,7 @@
 #include "cpuid.h"
 #include "current.h"
 #include "panic.h"
+#include "pcpu.h"
 #include "printf.h"
 #include "string.h"
 #include "vmctl.h"
@@ -41,6 +42,7 @@
 #include "vt_io.h"
 #include "vt_main.h"
 #include "vt_msr.h"
+#include "vt_panic.h"
 #include "vt_regs.h"
 
 static void vt_exint_pass (bool enable);
@@ -82,6 +84,7 @@ static struct vmctl_func func = {
 	vt_extern_iopass,
 	vt_init_signal,
 	vt_tsc_offset_changed,
+	vt_panic_dump,
 };
 
 void
@@ -177,4 +180,16 @@ vt_tsc_offset_changed (void)
 	conv64to32 (current->tsc_offset, &l, &h);
 	asm_vmwrite (VMCS_TSC_OFFSET, l);
 	asm_vmwrite (VMCS_TSC_OFFSET_HIGH, h);
+}
+
+void
+vt_vmptrld (u64 ptr)
+{
+	if (currentcpu->vt.vmcs_region_phys == ptr)
+		return;
+	if (currentcpu->vt.vmcs_region_phys != 0)
+		asm_vmptrst (&currentcpu->vt.vmcs_region_phys);
+	currentcpu->vt.vmcs_region_phys = ptr;
+	if (currentcpu->vt.vmcs_region_phys != 0)
+		asm_vmptrld (&currentcpu->vt.vmcs_region_phys);
 }

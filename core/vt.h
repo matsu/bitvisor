@@ -58,7 +58,6 @@ struct vt_intr_data {
 struct vt_vmcs_info {
 	void *vmcs_region_virt;
 	u64 vmcs_region_phys;
-	void *vmm_stack;
 };
 
 struct vt {
@@ -69,17 +68,20 @@ struct vt {
 	enum vt_event_type event;
 	struct vt_io_data io;
 	struct vt_msr msr;
+	bool lme, lma;
 };
 
 struct vt_pcpu_data {
 	u32 vmcs_revision_identifier;
 	void *vmxon_region_virt;
 	u64 vmxon_region_phys;
+	u64 vmcs_region_phys;
 };
 
 void vt_generate_pagefault (ulong err, ulong cr2);
 void vt_generate_external_int (uint num);
 void vt_event_virtual (void);
 void vmctl_vt_init (void);
+void vt_vmptrld (u64 ptr);
 
 #endif

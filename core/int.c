@@ -298,6 +298,12 @@ do_externalint_enable (void)
 void
 int_exceptionHandler (int intnum, void *handler)
 {
+	set_int_handler (intnum, handler);
+}
+
+void
+set_int_handler (int intnum, void *handler)
+{
 	u16 cs;
 
 	asm_rdcs (&cs);
@@ -356,7 +362,8 @@ void
 int_init_ap (void)
 {
 	inthandling = 0;
-	asm_wridtr ((u32)intrdesctbl, sizeof (intrdesctbl[0]) * NUM_OF_INT);
+	asm_wridtr ((u32)(ulong)intrdesctbl,
+		    sizeof (intrdesctbl[0]) * NUM_OF_INT);
 }
 
 static void
@@ -364,7 +371,8 @@ int_init_global (void)
 {
 	idt_init (intrdesctbl);
 	inthandling = 0;
-	asm_wridtr ((u32)intrdesctbl, sizeof (intrdesctbl[0]) * NUM_OF_INT);
+	asm_wridtr ((u32)(ulong)intrdesctbl,
+		    sizeof (intrdesctbl[0]) * NUM_OF_INT);
 	spinlock_init (&int_lock);
 }
 
