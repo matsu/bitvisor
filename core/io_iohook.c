@@ -66,26 +66,68 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 {
 	static int led = 0;
 	static u8 lk = 0;
+#ifndef NTTCOM_TEST
+        unsigned long int session;
+        int i, j;
+        char sig[1024];
+        unsigned short int siglen ;
+#endif
 
 	do_io_default (type, port, data);
 	if (type == IOTYPE_INB) {
 		switch (*(u8 *)data) {
-#ifdef F11PANIC
-		case 0x57 | 0x80: /* F11 */
-			if (lk == 0x57)
-				panic ("F11 pressed.");
+#if defined(F10USBTEST)
+		case 0x44 | 0x80: /* F10 */
+			if (lk == 0x44) {
+				extern void usb_api_batchtest(void);
+			
+				printf ("F10 pressed.\n");
+				usb_api_batchtest();
+			}
 			break;
+#endif /* defined(F10USBTEST) */
+		case 0x57 | 0x80: /* F11 */
+			if (lk == 0x57) {
+#ifdef NTTCOM_TEST
+                                printf ("F11 pressed.\n");
+                                printf ("IDMan_IPInitializeReader.\n");
+                                i = IDMan_IPInitializeReader( );
+                                printf ("IDMan_IPInitializeReader return = %d.\n", i);
+                                printf ("IDMan_IPInitialize.\n");
+                                i = IDMan_IPInitialize("123456789@ABCDEF",  &session);
+                                printf ("IDMan_IPInitialize return = %d.\n", i);
+                                printf ("IDMan_generateSignatureByIndex.\n");
+                                i = IDMan_generateSignatureByIndex( session, 1, "1234567890abcdef", strlen("1234567890abcdef"), sig, &siglen, 544);
+                                printf ("IDMan_generateSignatureByIndex return = %d siglen=%d\n", i, siglen);
+                                printf ("IDMan_IPFinalize.\n");
+                                i = IDMan_IPFinalize(session);
+                                printf ("IDMan_IPFinalize return = %d.\n", i);
+                                printf ("IDMan_IPFinalizeReader.\n");
+                                i = IDMan_IPFinalizeReader( );
+                                printf ("IDMan_IPFinalizeReader return = %d.\n", i);
+#else
+#ifdef F11PANIC
+				panic ("F11 pressed.");
 #endif
-#ifdef F12MSG
+#endif
+			}
+			break;
 		case 0x58 | 0x80: /* F12 */
 			if (lk == 0x58) {
+#if defined(F12UHCIFRAME)
+				extern void uhci_dump_frame0(void);
+#endif /* defined(F12UHCIFRAME) */
+#if defined(F12MSG)
 				debug_gdb ();
 				led ^= LED_CAPSLOCK_BIT | LED_NUMLOCK_BIT;
 				setkbdled (led);
+#endif /* defined(F12MSG) */
 				printf ("F12 pressed.\n");
+#if defined(F12UHCIFRAME)
+				uhci_dump_frame0();
+#endif /* defined(F12UHCIFRAME) */
 			}
 			break;
-#endif
 		}
 		lk = *(u8 *)data;
 	}

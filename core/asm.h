@@ -45,6 +45,12 @@ struct vt_vmentry_regs {
 	} sw;
 };
 
+struct svm_vmrun_regs {
+	ulong cr0, rcx, rdx, rbx, cr4, rbp, rsi, rdi;
+	ulong r8, r9, r10, r11, r12, r13, r14, r15;
+	ulong cr3;
+};
+
 #define SW_SREG_ES_BIT (1 << 0)
 #define SW_SREG_CS_BIT (1 << 1)
 #define SW_SREG_SS_BIT (1 << 2)
@@ -63,6 +69,10 @@ asmlinkage int asm_vmlaunch_regs_32 (struct vt_vmentry_regs *p);
 asmlinkage int asm_vmresume_regs_32 (struct vt_vmentry_regs *p);
 asmlinkage int asm_vmlaunch_regs_64 (struct vt_vmentry_regs *p);
 asmlinkage int asm_vmresume_regs_64 (struct vt_vmentry_regs *p);
+asmlinkage void asm_vmrun_regs_32 (struct svm_vmrun_regs *p, ulong vmcb_phys,
+				   ulong vmcbhost_phys);
+asmlinkage void asm_vmrun_regs_64 (struct svm_vmrun_regs *p, ulong vmcb_phys,
+				   ulong vmcbhost_phys);
 
 static inline void
 asm_cpuid (u32 num, u32 numc, u32 *a, u32 *b, u32 *c, u32 *d)
@@ -188,6 +198,23 @@ asm_wrcr4 (ulong cr4)
 		      :
 		      : "r" (cr4));
 }
+
+#ifdef __x86_64__
+static inline void
+asm_rdcr8 (u64 *cr8)
+{
+	asm volatile ("mov %%cr8,%0"
+		      : "=r" (*cr8));
+}
+
+static inline void
+asm_wrcr8 (ulong cr8)
+{
+	asm volatile ("mov %0,%%cr8"
+		      :
+		      : "r" (cr8));
+}
+#endif
 
 /* f3 0f c7 33             vmxon  (%ebx) */
 static inline void
@@ -794,5 +821,17 @@ asm_lock_ulong_swap (ulong *mem, ulong newval)
 		      : "0" (newval));
 	return oldval;
 }
+
+/* 0f 01 d8                vmrun */
+static inline void
+asm_vmrun_regs (struct svm_vmrun_regs *p, ulong vmcb_phys, ulong vmcbhost_phys)
+{
+#ifdef __x86_64__
+	asm_vmrun_regs_64 (p, vmcb_phys, vmcbhost_phys);
+#else
+	asm_vmrun_regs_32 (p, vmcb_phys, vmcbhost_phys);
+#endif
+}
+
 
 #endif

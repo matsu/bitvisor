@@ -1,0 +1,11 @@
+BUILD=
+CFLAGS= -I../pcsc -I../standardio
+LDFLAGS=
+TARGET=libIDManCcid.so
+IDMAN_PCSC_HEADERS=../pcsc
+IDMAN_STDIO_HEADERS=../standardio
+LIBPATH=/usr/local/IDMan/client/lib
+GDBOPT=-O3
+LOGOPT=
+NOSTDINC=-nostdinc
+NOSTDLIB=-nostdlib

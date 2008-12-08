@@ -1,5 +1,6 @@
 #!/bin/sh
 set --
+LANG=C
 while read line; do
     name="${line%%#*}"
     value="${name#*=}"

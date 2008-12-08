@@ -67,6 +67,7 @@ static void update_cr3 (void);
 static void invalidate_page (ulong virtual_addr);
 static void map_page (u64 v, struct map_page_data1 m1,
 		      struct map_page_data2 m2[5], u64 gfns[5], int glvl);
+static bool extern_mapsearch (struct vcpu *p, phys_t start, phys_t end);
 static void init_global (void);
 static void init_pcpu (void);
 static int init_vcpu (void);
@@ -165,6 +166,31 @@ map_page (u64 v, struct map_page_data1 m1, struct map_page_data2 m2[5],
 	pmap_close (&p);
 }
 
+static bool
+extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
+{
+#ifdef CPU_MMU_SPT_USE_PAE
+	u64 *e, tmp, mask = PTE_ADDR_MASK64;
+	unsigned int n = 512;
+#else
+	u32 *e, tmp, mask = PTE_ADDR_MASK;
+	unsigned int n = 1024;
+#endif
+	unsigned int i, j;
+
+	start &= ~PAGESIZE_MASK;
+	end |= PAGESIZE_MASK;
+	for (i = 0; i < p->spt.cnt; i++) {
+		e = p->spt.tbl[i];
+		for (j = 0; j < n; j++) {
+			tmp = e[j] & mask;
+			if ((e[j] & PTE_P_BIT) && start <= tmp && tmp <= end)
+				return true;
+		}
+	}
+	return false;
+}
+
 static void
 update_cr3 (void)
 {
@@ -182,9 +208,10 @@ update_cr3 (void)
 	current->vmctl.spt_setcr3 (current->spt.cr3tbl_phys);
 }
 
-static void
+static bool
 spt_tlbflush (void)
 {
+	return true;
 }
 
 static void
@@ -291,15 +318,18 @@ pte_and (u64 *pte, u64 mask)
 	return newpte;
 }
 
-static void
+static bool
 update_rwmap (u64 gfn, void *pte)
 {
 	unsigned int i, j, k, kk;
+	bool r = false;
 
 	spinlock_lock (&current->spt.rwmap_lock);
 	i = current->spt.rwmap_fail;
 	j = current->spt.rwmap_normal;
 	k = current->spt.rwmap_free;
+	if (i != j)
+		r = true;
 	while (i != j) {
 		pte_and (current->spt.rwmap[i].pte, ~(PTE_D_BIT | PTE_RW_BIT));
 		i = (i + 1) % NUM_OF_SPTRWMAP;
@@ -326,6 +356,7 @@ update_rwmap (u64 gfn, void *pte)
 skip:
 	current->spt.rwmap_fail = i;
 	spinlock_unlock (&current->spt.rwmap_lock);
+	return r;
 }
 
 static void
@@ -975,6 +1006,32 @@ map_page (u64 v, struct map_page_data1 m1, struct map_page_data2 m2[5],
 	pmap_close (&p);
 }
 
+static bool
+extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
+{
+	u64 *e, tmp, mask = PTE_ADDR_MASK64;
+	unsigned int n = 512;
+	unsigned int i, j, k;
+
+	start &= ~PAGESIZE_MASK;
+	end |= PAGESIZE_MASK;
+	/* lock is not needed because this is called by mmio_register */
+	/* mmio_register uses another lock to avoid conflict */
+	/* with cpu_mmu_spt_pagefault() */
+	i = p->spt.shadow1_modified;
+	k = p->spt.shadow1_free;
+	while (i != k) {
+		e = p->spt.shadow1[i].virt;
+		for (j = 0; j < n; j++) {
+			tmp = e[j] & mask;
+			if ((e[j] & PTE_P_BIT) && start <= tmp && tmp <= end)
+				return true;
+		}
+		i = (i + 1) % NUM_OF_SPTSHADOW1;
+	}
+	return false;
+}
+
 static void
 clear_rwmap (void)
 {
@@ -1054,10 +1111,10 @@ update_cr3 (void)
 	spinlock_unlock (&current->spt.shadow2_lock);
 }
 
-static void
+static bool
 spt_tlbflush (void)
 {
-	update_rwmap (0, NULL);
+	return update_rwmap (0, NULL);
 }
 
 static char *
@@ -1218,10 +1275,11 @@ shadow2_hashm_index (u64 key)
 	return (key >> KEY_GFN_SHIFT) & (HASHSIZE_OF_SPTSHADOW2M - 1);
 }
 
-static void
+static bool
 update_rwmap (u64 gfn, void *pte)
 {
 	struct cpu_mmu_spt_rwmap *p;
+	bool r = false;
 
 	spinlock_lock (&current->spt.rwmap_lock);
 	while ((p = LIST2_POP (current->spt.rwmap_fail, rwmap))) {
@@ -1229,6 +1287,7 @@ update_rwmap (u64 gfn, void *pte)
 			   hash, p);
 		pte_and (p->pte, ~(PTE_D_BIT | PTE_RW_BIT));
 		LIST2_PUSH (current->spt.rwmap_free, rwmap, p);
+		r = true;
 	}
 	if (pte != NULL) {
 		LIST2_FOREACH (current->spt.rwmap_hash[rwmap_hash_index (gfn)],
@@ -1252,6 +1311,7 @@ update_rwmap (u64 gfn, void *pte)
 	}
 skip:
 	spinlock_unlock (&current->spt.rwmap_lock);
+	return r;
 }
 
 static void
@@ -1418,7 +1478,7 @@ find_shadow2 (u64 key, u64 v)
 	unsigned int hn;
 
 	hn = shadow2_hashn_index (key);
-	LIST2_FOREACH (current->spt.shadow2_hashn[hn], shadow, p) {
+	LIST2_FOREACH (current->spt.shadow2_hashn[hn], hash, p) {
 		if (key == (p->key & KEY_CMPMASK))
 			goto found;
 	}
@@ -1901,6 +1961,38 @@ map_page (u64 v, struct map_page_data1 m1, struct map_page_data2 m2[5],
 	pmap_close (&p);
 }
 
+static bool
+extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
+{
+	struct cpu_mmu_spt_shadow *q;
+	u64 *e, tmp, mask = PTE_ADDR_MASK64;
+	unsigned int n = 512;
+	unsigned int j;
+
+	start &= ~PAGESIZE_MASK;
+	end |= PAGESIZE_MASK;
+	/* lock is not needed because this is called by mmio_register */
+	/* mmio_register uses another lock to avoid conflict */
+	/* with cpu_mmu_spt_pagefault() */
+	LIST2_FOREACH (p->spt.shadow1_modified, shadow, q) {
+		e = (u64 *)phys_to_virt (q->phys);
+		for (j = 0; j < n; j++) {
+			tmp = e[j] & mask;
+			if ((e[j] & PTE_P_BIT) && start <= tmp && tmp <= end)
+				return true;
+		}
+	}
+	LIST2_FOREACH (p->spt.shadow1_normal, shadow, q) {
+		e = (u64 *)phys_to_virt (q->phys);
+		for (j = 0; j < n; j++) {
+			tmp = e[j] & mask;
+			if ((e[j] & PTE_P_BIT) && start <= tmp && tmp <= end)
+				return true;
+		}
+	}
+	return false;
+}
+
 static void
 clear_rwmap (void)
 {
@@ -2040,10 +2132,10 @@ update_cr3 (void)
 	spinlock_unlock (&current->spt.shadow2_lock);
 }
 
-static void
+static bool
 spt_tlbflush (void)
 {
-	update_rwmap (0, NULL);
+	return update_rwmap (0, NULL);
 }
 
 static char *
@@ -2162,10 +2254,10 @@ generate_pf_noexec (u32 err, ulong cr2)
 
 /* this function is called when shadow page table entries are cleared
    from TLB. every VM exit in VT. */
-void
+bool
 cpu_mmu_spt_tlbflush (void)
 {
-	spt_tlbflush ();
+	return spt_tlbflush ();
 }
 
 /* this function is called when a guest sets CR3 */
@@ -2275,14 +2367,21 @@ cpu_mmu_spt_pagefault (ulong err, ulong cr2)
 		set_m1 (entries[0], wr, us, wp, &m1);
 		set_m2 (entries, levels, m2);
 		set_gfns (entries, levels, gfns);
-		/* FIXME: MMIO */
+		mmio_lock ();
 		if (!mmio_access_page (gfns[0] << PAGESIZE_SHIFT))
 			map_page (cr2, m1, m2, gfns, levels);
+		mmio_unlock ();
 		current->vmctl.event_virtual ();
 		break;
 	default:
 		panic ("unknown err");
 	}
+}
+
+bool
+cpu_mmu_spt_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
+{
+	return extern_mapsearch (p, start, end);
 }
 
 static void

@@ -39,7 +39,7 @@ static void exint_pass_int_enabled (void);
 static void exint_pass_default (int num);
 static void exint_pass_hlt (void);
 
-struct exint_func func = {
+static struct exint_func func = {
 	exint_pass_int_enabled,
 	exint_pass_default,
 	exint_pass_hlt,

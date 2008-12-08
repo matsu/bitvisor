@@ -2,15 +2,19 @@ ENTRY(entry)
 virt = 0x40100000;
 phys = 0x00100000;
 PHDRS {
-	all PT_LOAD AT(phys);
+	hdrs PT_PHDR PHDRS AT (phys);
+	all PT_LOAD;
 }
 SECTIONS {
-	.text virt : AT (phys) {
+	. = virt;
+	head = .;
+	. = virt + SIZEOF_HEADERS;
+	.text : AT (phys + (code - head)) {
 		code = .;
 		*(.entry)
 		*(.text)
 	} :all
-	.data : AT (phys + (data - code)) {
+	.data : AT (phys + (data - head)) {
 		data = .;
 		*(.data)
 		. = ALIGN (8);
@@ -18,7 +22,7 @@ SECTIONS {
                 *(.initfunc)
                 __initfunc_end = .;
 	}
-	.bss : AT (phys + (bss - code)) {
+	.bss : AT (phys + (bss - head)) {
 		bss = .;
 		*(.bss)
 		*(COMMON)

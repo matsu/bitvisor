@@ -157,20 +157,24 @@ static void core_iofunc(enum iotype iotype, u32 port, void *data)
 	case CORE_IO_RET_DEFAULT:
 	case CORE_IO_RET_NEXT:
 		core_io_handle_default(io, data);
-//		printf("%s: handle_default: %08x:%08x\n", __func__, io, *(u32 *)data);
 		break;
 	case CORE_IO_RET_DONE:
 		break;
 	case CORE_IO_RET_INVALID:
-		panic ("%s: CORE_IO_RET_INVALID: %08x\n",
-		       __func__, *(int *)&io);
+		panic ("%s: CORE_IO_RET_INVALID: %08x\n", __func__, *(int *)&io);
 		break;
-	case CORE_IO_RET_BLOCKED:
-		panic ("%s: CORE_IO_RET_BLOCKED: %08x\n",
-		       __func__, *(int *)&io);
+	case CORE_IO_RET_BLOCK:
+		printf("%s: CORE_IO_RET_BLOCK: %08x\n", __func__, *(int *)&io);
+		if (io.dir == CORE_IO_DIR_IN) {
+			if (io.size == 4)
+				*(u32 *)data = 0xFFFFFFFF;
+			else if (io.size == 2)
+				*(u16 *)data = 0xFFFF;
+			else
+				*(u8 *)data = 0xFF;
+		}
 		break;
 	}
-	
 }
 
 /** 
@@ -219,7 +223,7 @@ int core_io_register_handler(ioport_t start, size_t num, core_io_handler_t handl
 		for (i = 0; i < num; i++)
 			set_iofunc(start + i, core_iofunc);
 
-	printf("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start, end);
+	// printf("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start, end);
 	return hd;
 
 oom:

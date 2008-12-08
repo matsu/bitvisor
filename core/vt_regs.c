@@ -250,47 +250,32 @@ pe_change_enable_sw (bool pe)
 		asm_vmwrite (VMCS_GUEST_FS_SEL, 8);
 		asm_vmwrite (VMCS_GUEST_GS_SEL, 8);
 		/* set segment access rights to proper value */
-		asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS, 0x93);
+		/* the DPL of CS and SS must be zero */
+		asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS, 0xF3);
 		asm_vmwrite (VMCS_GUEST_CS_ACCESS_RIGHTS, 0x9B);
 		asm_vmwrite (VMCS_GUEST_SS_ACCESS_RIGHTS, 0x93);
-		asm_vmwrite (VMCS_GUEST_DS_ACCESS_RIGHTS, 0x93);
-		asm_vmwrite (VMCS_GUEST_FS_ACCESS_RIGHTS, 0x93);
-		asm_vmwrite (VMCS_GUEST_GS_ACCESS_RIGHTS, 0x93);
-		/* if a selector is a multiple of 8, it is usable as it is
-		   without emulation */
-		if ((vr->sw.es & 7) == 0) {
-			asm_vmwrite (VMCS_GUEST_ES_SEL, vr->sw.es);
-			vr->sw.enable &= ~SW_SREG_ES_BIT;
-			if (vr->sw.es == 0)
-				asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS,
-					     ACCESS_RIGHTS_UNUSABLE_BIT);
-		}
-		if ((vr->sw.cs & 7) == 0 && vr->sw.cs != 0) {
+		asm_vmwrite (VMCS_GUEST_DS_ACCESS_RIGHTS, 0xF3);
+		asm_vmwrite (VMCS_GUEST_FS_ACCESS_RIGHTS, 0xF3);
+		asm_vmwrite (VMCS_GUEST_GS_ACCESS_RIGHTS, 0xF3);
+		/* if a selector of CS or SS is a multiple of 4,
+		   it is usable as it is without emulation */
+		/* a null selector is also acceptable */
+		asm_vmwrite (VMCS_GUEST_ES_SEL, vr->sw.es);
+		vr->sw.enable &= ~SW_SREG_ES_BIT;
+		if ((vr->sw.cs & 3) == 0) {
 			asm_vmwrite (VMCS_GUEST_CS_SEL, vr->sw.cs);
 			vr->sw.enable &= ~SW_SREG_CS_BIT;
 		}
-		if ((vr->sw.ss & 7) == 0 && vr->sw.ss != 0) {
+		if ((vr->sw.ss & 3) == 0) {
 			asm_vmwrite (VMCS_GUEST_SS_SEL, vr->sw.ss);
 			vr->sw.enable &= ~SW_SREG_SS_BIT;
 		}
-		if ((vr->sw.ds & 7) == 0 && vr->sw.ds != 0) {
-			asm_vmwrite (VMCS_GUEST_DS_SEL, vr->sw.ds);
-			vr->sw.enable &= ~SW_SREG_DS_BIT;
-		}
-		if ((vr->sw.fs & 7) == 0) {
-			asm_vmwrite (VMCS_GUEST_FS_SEL, vr->sw.fs);
-			vr->sw.enable &= ~SW_SREG_FS_BIT;
-			if (vr->sw.fs == 0)
-				asm_vmwrite (VMCS_GUEST_FS_ACCESS_RIGHTS,
-					     ACCESS_RIGHTS_UNUSABLE_BIT);
-		}
-		if ((vr->sw.gs & 7) == 0) {
-			asm_vmwrite (VMCS_GUEST_GS_SEL, vr->sw.gs);
-			vr->sw.enable &= ~SW_SREG_GS_BIT;
-			if (vr->sw.gs == 0)
-				asm_vmwrite (VMCS_GUEST_GS_ACCESS_RIGHTS,
-					     ACCESS_RIGHTS_UNUSABLE_BIT);
-		}
+		asm_vmwrite (VMCS_GUEST_DS_SEL, vr->sw.ds);
+		vr->sw.enable &= ~SW_SREG_DS_BIT;
+		asm_vmwrite (VMCS_GUEST_FS_SEL, vr->sw.fs);
+		vr->sw.enable &= ~SW_SREG_FS_BIT;
+		asm_vmwrite (VMCS_GUEST_GS_SEL, vr->sw.gs);
+		vr->sw.enable &= ~SW_SREG_GS_BIT;
 	} else {
 		/* protected mode to real address mode */
 		/* set a virtual 8086 mode flag */
@@ -303,16 +288,28 @@ pe_change_enable_sw (bool pe)
 		   if not, it will be panic. */
 		asm_vmread (VMCS_GUEST_ES_BASE, &tmp);
 		asm_vmwrite (VMCS_GUEST_ES_SEL, tmp >> 4);
+		if ((tmp >> 4) == vr->sw.es)
+			vr->sw.enable &= ~SW_SREG_ES_BIT;
 		asm_vmread (VMCS_GUEST_CS_BASE, &tmp);
 		asm_vmwrite (VMCS_GUEST_CS_SEL, tmp >> 4);
+		if ((tmp >> 4) == vr->sw.cs)
+			vr->sw.enable &= ~SW_SREG_CS_BIT;
 		asm_vmread (VMCS_GUEST_SS_BASE, &tmp);
 		asm_vmwrite (VMCS_GUEST_SS_SEL, tmp >> 4);
+		if ((tmp >> 4) == vr->sw.ss)
+			vr->sw.enable &= ~SW_SREG_SS_BIT;
 		asm_vmread (VMCS_GUEST_DS_BASE, &tmp);
 		asm_vmwrite (VMCS_GUEST_DS_SEL, tmp >> 4);
+		if ((tmp >> 4) == vr->sw.ds)
+			vr->sw.enable &= ~SW_SREG_DS_BIT;
 		asm_vmread (VMCS_GUEST_FS_BASE, &tmp);
 		asm_vmwrite (VMCS_GUEST_FS_SEL, tmp >> 4);
+		if ((tmp >> 4) == vr->sw.fs)
+			vr->sw.enable &= ~SW_SREG_FS_BIT;
 		asm_vmread (VMCS_GUEST_GS_BASE, &tmp);
 		asm_vmwrite (VMCS_GUEST_GS_SEL, tmp >> 4);
+		if ((tmp >> 4) == vr->sw.gs)
+			vr->sw.enable &= ~SW_SREG_GS_BIT;
 		/* set segment access rights to proper value */
 		asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS, 0xF3);
 		asm_vmwrite (VMCS_GUEST_CS_ACCESS_RIGHTS, 0xF3);
@@ -483,6 +480,24 @@ vt_read_sreg_acr (enum sreg s, ulong *val)
 void
 vt_read_sreg_base (enum sreg s, ulong *val)
 {
+	ulong tmp;
+
+	switch (s) {
+	case SREG_ES:
+	case SREG_CS:
+	case SREG_SS:
+	case SREG_DS:
+		if (current->u.vt.lma) {
+			vt_read_sreg_acr (SREG_CS, &tmp);
+			if (tmp & ACCESS_RIGHTS_L_BIT) {
+				*val = 0;
+				return;
+			}
+		}
+		break;
+	default:
+		break;
+	}
 	switch (s) {
 	case SREG_ES:
 		asm_vmread (VMCS_GUEST_ES_BASE, val);
@@ -510,6 +525,15 @@ vt_read_sreg_base (enum sreg s, ulong *val)
 void
 vt_read_sreg_limit (enum sreg s, ulong *val)
 {
+	ulong tmp;
+
+	if (current->u.vt.lma) {
+		vt_read_sreg_acr (SREG_CS, &tmp);
+		if (tmp & ACCESS_RIGHTS_L_BIT) {
+			*val = ~0UL;
+			return;
+		}
+	}
 	switch (s) {
 	case SREG_ES:
 		asm_vmread (VMCS_GUEST_ES_LIMIT, val);
@@ -550,6 +574,7 @@ void
 vt_write_ip (ulong val)
 {
 	asm_vmwrite (VMCS_GUEST_RIP, val);
+	current->updateip = true;
 }
 
 void

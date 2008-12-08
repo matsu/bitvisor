@@ -35,18 +35,22 @@ spinlock_lock (spinlock_t *l)
 	char dummy;
 
 	asm volatile ("3: \n"
-		      " xchg  %1, %0 \n" /* %0 と *l を交換する */
-		      " test  %0, %0 \n" /* %0 が 0 かどうか調べる */
-		      " je    1f \n" /* 0 だったらロック獲得成功 */
+		      " xchg  %1, %0 \n" /* exchange %0 and *l */
+		      " test  %0, %0 \n" /* check whether %0 is 0 */
+		      " je    1f \n" /* if 0, succeeded */
 		      "2: \n"
 		      " pause \n" /* spin loop hint */
-		      " cmp   %1, %0 \n" /* %0 と *l を比較する */
-		      " je    2b \n" /* 0 でなかったら spin loop */
-		      " jmp   3b \n" /* 0 だったらもう一度ロック獲得を試みる */
+		      " cmp   %1, %0 \n" /* compare %0 and *l */
+		      " je    2b \n" /* if not 0, do spin loop */
+		      " jmp   3b \n" /* if 0, try again */
 		      "1: \n"
+#ifdef __x86_64__
 		      : "=r" (dummy)
+#else
+		      : "=abcd" (dummy)
+#endif
 		      , "=m" (*l)
-		      : "0" (1)
+		      : "0" ((char)1)
 		      : "cc");
 }
 
@@ -56,9 +60,13 @@ spinlock_unlock (spinlock_t *l)
 	char dummy;
 
 	asm volatile ("xchg %1, %0 \n"
+#ifdef __x86_64__
 		      : "=r" (dummy)
+#else
+		      : "=abcd" (dummy)
+#endif
 		      , "=m" (*l)
-		      : "0" (0));
+		      : "0" ((char)0));
 }
 
 static inline void

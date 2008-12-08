@@ -36,6 +36,7 @@
 #include "io_io.h"
 #include "mmio.h"
 #include "msr.h"
+#include "svm.h"
 #include "types.h"
 #include "vmctl.h"
 #include "vt.h"
@@ -50,14 +51,21 @@ struct nmi_func {
 	unsigned int (*get_nmi_count) (void);
 };
 
+struct apic_func {
+	void (*read_cr8) (u64 *val);
+	void (*write_cr8) (u64 val);
+};
+
 struct vcpu {
 	struct vcpu *next;
 	union {
 		struct vt vt;
+		struct svm svm;
 	} u;
 	bool halt;
 	bool initialized;
 	u64 tsc_offset;
+	bool updateip;
 	struct cpu_mmu_spt_data spt;
 	struct cpuid_data cpuid;
 	struct exint_func exint;
@@ -69,6 +77,7 @@ struct vcpu {
 	struct vcpu *vcpu0;
 	struct mmio_data mmio;
 	struct nmi_func nmi;
+	struct apic_func apic;
 };
 
 void vcpu_list_foreach (bool (*func) (struct vcpu *p, void *q), void *q);

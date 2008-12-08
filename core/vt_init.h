@@ -31,6 +31,7 @@
 #define _CORE_VT_INIT_H
 
 int vt_available (void);
+void vt_reset (void);
 void vt_init (void);
 void vt_vminit (void);
 void vt_vmexit (void);

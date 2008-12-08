@@ -28,108 +28,139 @@
  */
 
 #include <core.h>
-#include <core/bootdata.h>
+#include <core/config.h>
 #include "storage.h"
-#include "aes.h"
+#include "crypto/crypto.h"
 
-unsigned char storage_key[32] = {0x26,0x3f,0xe6,0xcd,0xb7,0xb8,0xd8,0xce,0x32,0x6e,0x13,0xdc,0x08,0xaa,0x69,0x15,0xf9,0xd8,0x1d,0x8a,0xc6,0x20,0xca,0x5c,0x92,0xaa,0x0f,0x73,0x4f,0x74,0x8d,0xed};
-AES_KEY k1_enc, k1_dec, k2;
-
-
-static void
-encode_sector (u8 *p, int len, lba_t sector_num)
-{
-	static u8 in_buf[512];
-	//k1 = (AES_KEY *)storage_key;
-	//k2 = (AES_KEY *)(storage_key+16);
-	//memcpy(k1, storage_key, 16);
-	//memcpy(k2, storage_key+16, 16);
-	memcpy(in_buf, p, 512);
-	AES_xts_encrypt(&k2, &k1_enc, sector_num, len, in_buf, p);
-
-	//int i;	
-	//for (i = 0; i < len; i++)
-	//	p[i] += (u8)i;
-}
-
-static void
-decode_sector (u8 *p, int len, lba_t sector_num)
-{
-	static u8 in_buf[512];
-	//k1 = (AES_KEY *)storage_key;
-	//k2 = (AES_KEY *)(storage_key+16);
-	//memcpy(k1, storage_key, 16);
-	//memcpy(k2, storage_key+16, 16);
-	memcpy(in_buf, p, 512);
-	AES_xts_decrypt(&k2, &k1_dec, sector_num, len, in_buf, p);
-
-	//int i;
-	//for (i = 0; i < len; i++)
-	//	p[i] -= (u8)i;
-}
-
-static bool
-need_encryption (lba_t lba)
-{
-#ifdef STORAGE_ENC
-	if (lba >= 527478210ULL && lba <= 605602304ULL)
-		return true;
-#endif
-	return false;
-}
-
-/**
- * encrypt sectors
- * @param device
- * @param buf
- * @param rw
- * @param lba
- * @param count
+/*
+  FIXME: The key should be erased from memory before shutdown.
+  See the USENIX Security paper "LestWe Remember: Cold Boot Attacks on Encryption Keys"
+  http://www.usenix.org/events/sec08/tech/halderman.html
  */
-int storage_handle_rw_sectors(struct storage_device *device, void *buf, int rw, lba_t lba, count_t count)
-{
-	u64 i;
-	u8 *p;
-	unsigned int n = 0;
 
-	for (i = 0; i < count; i++) {
-		if (need_encryption (lba + i)) {
-			p = (u8 *)buf + i * device->sector_size;
-			if (rw)
-				encode_sector (p, device->sector_size,
-					       lba + i);
-			else
-				decode_sector (p, device->sector_size,
-					       lba + i);
-			n++;
+static struct guid anyguid = STORAGE_GUID_ANY;
+
+#ifdef STORAGE_ENC
+
+static inline int storage_match_guid(struct guid *guid1, struct guid *guid2)
+{
+	return (memcmp(guid1, &anyguid, sizeof(struct guid) == 0) ||
+		memcmp(guid1, guid2, sizeof(struct guid)));
+}
+
+static inline int storage_match_busid(struct storage_device *storage, struct storage_keys_conf *keys_conf)
+{
+	return ((storage->busid.type == STORAGE_TYPE_ANY || storage->busid.type == keys_conf->type) &&
+		(storage->busid.host_id == STORAGE_HOST_ID_ANY || storage->busid.host_id == keys_conf->host_id) &&
+		(storage->busid.device_id == STORAGE_DEVICE_ID_ANY || storage->busid.device_id == keys_conf->device_id));
+}
+
+#include "storage_keys.conf"
+
+static void storage_set_keys(struct storage_device *storage)
+{
+	int i, keyindex = 0;
+
+	for (i = 0; i < lengthof(storage_keys_conf); i++) {
+		if (storage_match_guid(&storage->guid, &storage_keys_conf[i].guid) ||
+		    storage_match_busid(storage, &storage_keys_conf[i])) {
+			struct crypto *crypto = crypto_find(storage_keys_conf[i].crypto_name);
+			u8 *key = storage_keys[storage_keys_conf[i].keyindex];
+			int bits = storage_keys_conf[i].keybits;
+
+			if (crypto == NULL)
+				panic("unknown crypto name: %s\n", storage_keys_conf[i].crypto_name);
+			storage->keys[keyindex].lba_low = storage_keys_conf[i].lba_low;
+			storage->keys[keyindex].lba_high = storage_keys_conf[i].lba_high;
+			storage->keys[keyindex].crypto = crypto;
+			storage->keys[keyindex].keyctx = crypto->setkey(key, bits);
+			keyindex++;
 		}
 	}
-	/*
-	printf("%s: %d, %012llx, %04llx. (%d)\n", __func__, rw, lba, count, n);
-	*/
+	storage->keynum = keyindex;
+}
+
+static void storage_init_boot (void)
+{
+	memcpy(storage_keys[0], config.storage_key, 32);
+}
+INITFUNC ("config0", storage_init_boot);
+
+#else
+static void storage_set_keys(struct storage_device *storage)
+{
+	storage->keynum = 0;
+}
+#endif
+
+
+int storage_handle_sectors(struct storage_device *storage, struct storage_access *access, u8 *src, u8 *dst)
+{
+	int i, sub_count;
+	lba_t lba = access->lba;
+	count_t	count = access->count, size;
+	int sector_size = storage->sector_size;
+	struct crypto *crypto;
+	void (*crypt)(void *dst, void *src, void *keyctx, lba_t lba, int sector_size);
+	void *keyctx;
+
+	for (i = 0; i < storage->keynum; i++) {
+		// if lba < low then memcpy
+		sub_count = storage->keys[i].lba_low - lba;
+		if (sub_count > 0) {
+			sub_count = min(count, sub_count);
+			count -= sub_count;
+			size = sub_count * sector_size;
+			if (dst != src)
+				memcpy(dst, src, size);
+			if (count == 0)
+				break;
+			lba += sub_count;
+			src += size;
+			dst += size;
+		}
+
+		// if low < lba < high then crypt
+		sub_count = storage->keys[i].lba_high - lba;
+		if (sub_count > 0) {
+			keyctx = storage->keys[i].keyctx;
+			crypto = storage->keys[i].crypto;
+			crypt = (access->rw == STORAGE_READ) ? crypto->decrypt : crypto->encrypt;
+			sub_count = min(count, sub_count);
+			count -= sub_count;
+			while (sub_count-- > 0) {
+				crypt(dst, src, keyctx, lba++, sector_size);
+				src += sector_size;
+				dst += sector_size;
+			}
+			if (count == 0)
+				break;
+		}
+	}
+	if (count > 0 && dst != src)
+		memcpy(dst, src, count * sector_size);
 	return 0;
 }
 
-struct storage_device *storage_new()
+/**
+ * allocate and initialize struct storage_device
+ * @param type		device type (STORAGE_TYPE_*)
+ * @param host_id	host id
+ * @param device_id	device id
+ * @param guid		guid of the device (can be NULL)
+ * @param sector_size	sector size of the device
+ */
+struct storage_device *storage_new(int type, int host_id, int device_id, struct guid *guid, int sector_size)
 {
-	return NULL;
-}
+	struct storage_device *storage = alloc(sizeof(*storage));
 
-static void
-storage_init_boot (void)
-{
-	AES_set_encrypt_key (bootdata.storage_key, 128, &k1_enc);
-	AES_set_decrypt_key (bootdata.storage_key, 128, &k1_dec);
-	AES_set_encrypt_key (bootdata.storage_key + 16, 128, &k2);
+	if (guid == NULL)
+		guid = &anyguid;
+	memcpy(&storage->guid, guid, sizeof(*guid));
+	storage->busid.type = type;
+	storage->busid.host_id = host_id;
+	storage->busid.device_id = device_id;
+	storage->sector_size = sector_size;
+	storage_set_keys(storage);
+	return storage;
 }
-
-void storage_init(void) __initcode__
-{
-	AES_set_encrypt_key(storage_key, 128, &k1_enc);
-	AES_set_encrypt_key(storage_key+16, 128, &k2);
-	AES_set_decrypt_key(storage_key, 128, &k1_dec);
-
-	return;
-}
-DRIVER_INIT(storage_init);
-INITFUNC ("bootdat0", storage_init_boot);

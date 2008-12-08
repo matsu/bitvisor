@@ -32,18 +32,12 @@
 
 #include "types.h"
 
-enum crnum {
-	CRNUM_CR0 = 0,
-	CRNUM_CR2 = 2,
-	CRNUM_CR3 = 3,
-	CRNUM_CR4 = 4,
-};
-
 enum control_reg {
 	CONTROL_REG_CR0 = 0,
 	CONTROL_REG_CR2 = 2,
 	CONTROL_REG_CR3 = 3,
 	CONTROL_REG_CR4 = 4,
+	CONTROL_REG_CR8 = 8,
 };
 
 enum general_reg {

@@ -72,6 +72,9 @@ struct vmctl_func {
 	void (*init_signal) (void);
 	void (*tsc_offset_changed) (void);
 	void (*panic_dump) (void);
+	void (*invlpg) (ulong addr);
+	void (*reset) (void);
+	bool (*extern_flush_tlb_entry) (struct vcpu *p, phys_t s, phys_t e);
 };
 
 #endif

@@ -34,8 +34,8 @@
 #include "vmmerr.h"
 
 void cpu_emul_cpuid (void);
-void cpu_emul_rdmsr (void);
-void cpu_emul_wrmsr (void);
+bool cpu_emul_rdmsr (void);
+bool cpu_emul_wrmsr (void);
 void cpu_emul_hlt (void);
 void cpu_emul_cli (void);
 void cpu_emul_sti (void);

@@ -1,0 +1,347 @@
+# Secure VM Project
+# VPN Client Module (IPsec Driver)
+# 
+# University of Tsukuba
+# Developed by Daiyuu Nobori (dnobori@cs.tsukuba.ac.jp)
+
+# config.txt
+# IPsec VPN クライアントモジュール 設定サンプル
+# 
+# <注意>
+# "#", ";" または "//" より後の部分はコメントとみなす
+
+### グローバル設定
+######################################################################
+
+# 動作モード
+#  L2Trans: Layer-2 透過 (ブリッジ)
+#  L3Trans: Layer-3 透過 (透過的ルーティング)
+#  L3IPsec: IPsec 暗号化 (VPN)
+Mode				L3IPsec
+
+# 仮想ネットワーク側の仮想ゲートウェイの持つ MAC アドレス
+#  指定しない場合は乱数が設定される
+#   (この仮想 IF は VM からしか見えないので複数の利用者が
+#    同一の MAC アドレスを指定していても問題無い)
+VirtualGatewayMacAddress	00-88-88-88-88-88
+
+
+### ============================ IPv4 版 =============================
+
+### IPv4 の設定
+######################################################################
+
+# IPv4 を使用するかどうか
+BindV4				true
+
+# ゲスト OS が使用する IPv4 アドレスおよびサブネットマスク
+GuestIpAddressV4	192.168.100.1
+GuestIpSubnetV4		255.255.255.0
+# ゲスト OS が IPv4 で使用する MTU (Ethernet ペイロードサイズ)
+#  (省略可: デフォルト 1400)
+GuestMtuV4			1400
+# ゲスト OS に対して通信サービスを提供する仮想ゲートウェイの IPv4 アドレス
+#  (省略可: 省略した場合はブロードキャストアドレス - 1 が使用される)
+#GuestVirtualGatewayIpAddressV4	192.168.6.254
+
+# ゲスト OS に対して DHCPv4 サービスを提供するかどうか
+DhcpV4				true
+# DHCPv4 サービスで割り当てる IPv4 アドレスの有効期限 (秒)
+#  (省略可: デフォルト 3600 秒)
+DhcpLeaseExpiresV4	3600
+# ゲスト OS に対して DHCPv4 で指定する DNSv4 サーバーアドレス
+#  (省略可)
+DhcpDnsV4			192.168.3.254
+# ゲスト OS に対して DHCPv4 で指定するドメイン名
+DhcpDomainV4		sec.softether.co.jp
+
+# ゲスト OS が送信する TCPv4 SYN パケットの MSS の強制書き換え
+#  (IPsec VPN ゲートウェイによってはこの機能が無い場合があり
+#   Path MTU Discovery が使用できない一部の TCP 接続先ホスト
+#   との間の TCP 通信に支障が出るので書き換え機能を内蔵した)
+AdjustTcpMssV4		1240
+
+# ホスト OS が使用する IPv4 アドレスおよびサブネットマスク
+#  (L3IPsec モードの場合のみ指定)
+HostIpAddressV4		192.168.12.11							# WAN
+//HostIpAddressV4		192.168.4.199								# LAN
+HostIpSubnetV4		255.255.255.0
+# ホスト OS が IPv4 で使用する MTU (Ethernet ペイロードサイズ)
+#  (省略可: デフォルト 1500)
+HostMtuV4			1500
+# ホスト OS が使用するデフォルトゲートウェイの IPv4 アドレス
+HostIpDefaultGatewayV4	192.168.12.254						# Cisco
+
+
+### IPv4 の設定 (オプション)
+######################################################################
+
+# ARP エントリキャッシュの有効期限 (秒)
+# デフォルト: 60 秒
+OptionV4ArpExpires		60
+
+# ARP エントリキャッシュの有効期限を参照される度に増加させないかどうか
+# デフォルト: false
+OptionV4ArpDontUpdateExpires	true
+
+
+### IPv4 用 IPsec の設定
+### ※ Mode が L3IPsec で BindV4 が true の場合以外は省略可
+######################################################################
+
+# 接続先 IPsec VPN ゲートウェイの IP アドレス
+VpnGatewayAddressV4	192.168.11.1
+
+# ユーザー認証方法
+#  Password: パスワード認証 (事前共有鍵認証)
+#  Cert: 証明書認証 (PKI)
+VpnAuthMethodV4		Cert
+
+# パスワード認証を用いる場合の事前共有鍵
+#  パスワード認証を用いない場合は省略可
+#  文字列を指定する場合: その文字列を指定
+#  バイナリデータを指定する場合: 0x に続いて 16 進でバイナリデータを指定
+#                                (例: 0x536563757265564D)
+VpnPasswordV4		password1
+
+# パスワード認証を用いる場合に送出する ID 情報
+#  (パスワード認証を用いない場合は不要)
+VpnIdStringV4		user1@tsukuba.ac.jp
+
+# 証明書認証を用いる場合に使用する X.509 証明書ファイルの名前
+#  (証明書認証を用いない場合は不要)
+VpnCertNameV4		cert3.crt
+
+# 証明書認証を用いる場合に接続先 VPN サーバーから返された X.509 証明書
+# が信頼できるかどうか検証するために用いる CA 証明書ファイルの名前
+#  (証明書認証を用いない場合は不要。指定しない場合は検証しない)
+VpnCaCertNameV4		screen.crt
+
+# VpnCertNameV4 で指定した X.509 証明書に対応した RSA 秘密鍵の
+# 名前 (スマートカード上の名前。テスト版ではハードディスク上のファイル名)
+VpnRsaKeyNameV4		cert3.key
+
+# 証明書認証を用いる場合に証明書要求フィールドに自分の証明書の発行者名を
+# 明記するかどうか (Cisco の場合は true、NetScreen や racoon の場合は false)
+VpnSpecifyIssuerV4	false
+
+# フェーズ 1 における暗号化アルゴリズム
+#  DES または 3DES を指定
+VpnPhase1CryptoV4	3DES
+
+# フェーズ 1 における署名アルゴリズム
+#  SHA-1 のみ指定可能
+VpnPhase1HashV4		SHA-1
+
+# ISAKMP SA の有効期限の値 (単位: 秒)
+#  (省略可: デフォルト 7200)
+VpnPhase1LifeSecondsV4	7200
+
+# ISAKMP SA の有効期限の値 (単位: キロバイト, 0 の場合は無効)
+#  (省略可: デフォルト 0)
+VpnPhase1LifeKilobytesV4	0
+
+# フェーズ 1 完了からフェーズ 2 開始までの間にあける時間 (単位: ミリ秒)
+#  (省略可: デフォルト 0)
+#    一部の VPN ゲートウェイ装置では、この間隔を短くすると
+#    うまく動作しないことがあるので、その場合は 100 ミリ秒程度待機してみる
+VpnWaitPhase2BlankSpanV4	100
+
+# フェーズ 2 における暗号化アルゴリズム
+#  DES または 3DES を指定
+VpnPhase2CryptoV4	3DES
+
+# フェーズ 2 における署名アルゴリズム
+#  SHA-1 のみ指定可
+VpnPhase2HashV4		SHA-1
+
+# IPsec SA の有効期限の値 (単位: 秒)
+#  (省略可: デフォルト 7200)
+VpnPhase2LifeSecondsV4	7200
+
+# IPsec SA の有効期限の値 (単位: キロバイト, 0 の場合は無効)
+#  (省略可: デフォルト 0)
+VpnPhase2LifeKilobytesV4	0
+
+# VPN の接続処理を開始してから接続失敗とみなすまでのタイムアウト (秒)
+#  (省略可: デフォルト 5 秒)
+VpnConnectTimeoutV4	5
+
+# VPN 接続完了後、一定時間無通信の場合にトンネルが消えたと仮定して再接続する
+# までのアイドルタイムアウト (単位: 秒)
+#  (省略可: デフォルト 300 秒)
+VpnIdleTimeoutV4	300
+
+# VPN 接続完了後、定期的に ping を送信する宛先ホストの IP アドレス
+# 接続先 VPN ネットワークで常時存在するホストを指定する
+#  (省略化: 省略時には ping は送信されない)
+VpnPingTargetV4		192.168.3.120
+
+# VpnPingTargetV4 で指定した宛先に ping を送信する間隔 (秒)
+#  (省略可: デフォルト 12 秒)
+VpnPingIntervalV4	12
+
+# VpnPingTargetV4 で指定した宛先に ping を送信する際の
+# ICMP メッセージサイズ (バイト数)
+#  (省略可: デフォルト 32)
+VpnPingMsgSizeV4	32
+
+
+
+
+
+### ============================ IPv6 版 =============================
+
+### IPv6 の設定
+######################################################################
+
+# IPv6 を使用するかどうか
+BindV6				false
+
+# ゲスト OS が使用する IPv6 アドレスプレフィックス
+GuestIpAddressPrefixV6	2000::							# VPN
+//GuestIpAddressPrefixV6	2001:200:564::				# L3Trans Test
+# ゲスト OS が使用する IPv6 アドレスプレフィックスのサブネット長
+GuestIpAddressSubnetV6	64
+# ゲスト OS が IPv6 で使用する MTU (Ethernet ペイロードサイズ)
+#  (省略可: デフォルト 1400)
+GuestMtuV6			1400
+# ゲスト OS に対して通信サービスを提供する仮想ゲートウェイの IPv6 アドレス
+#  (省略可: 省略した場合は EUI-64 で自動生成)
+#GuestVirtualGatewayIpAddressV6	fe80::1:2:3:4
+
+# ゲスト OS に対して Router Advertisement を行うかどうか
+RaV6				true
+# Router Advertisement で指定するプレフィックスの有効期限 (秒)
+#  (省略可: デフォルト 3600 秒)
+RaLifetimeV6		300
+# ゲスト OS が使用すべき DNSv6 サーバーアドレス
+#  (省略化)
+RaDnsV6				2001:dc4::1
+
+# ホスト OS が使用する IPv6 アドレス
+#  (L3IPsec モードの場合のみ指定)
+HostIpAddressV6		5000::1:2:3:4					# WAN
+//HostIpAddressV6		1000::1:2:3:4						# LAN
+# ホスト OS が使用する IPv6 アドレスのサブネット長
+HostIpAddressSubnetV6	64
+# ホスト OS が IPv6 で使用する MTU (Ethernet ペイロードサイズ)
+#  (省略可: デフォルト 1500)
+HostMtuV6			1500
+# ホスト OS が使用するデフォルトゲートウェイの IPv6 アドレス
+HostIpDefaultGatewayV6	5000::254	# Cisco
+//HostIpDefaultGatewayV6	fe80::2e0:29ff:fe22:cc7f	# Wide (L3Trans Test)
+
+
+### IPv6 の設定 (オプション)
+######################################################################
+
+# 近隣エントリキャッシュの有効期限 (秒)
+# デフォルト: 60 秒
+OptionV6NeighborExpires		60
+
+
+### IPv6 用 IPsec の設定
+### ※ Mode が L3IPsec で BindV6 が true の場合以外は省略可
+######################################################################
+
+# 接続先 IPsec VPN ゲートウェイの IP アドレス
+VpnGatewayAddressV6	1000::1
+
+# ユーザー認証方法
+#  Password: パスワード認証 (事前共有鍵認証)
+#  Cert: 証明書認証 (PKI)
+VpnAuthMethodV6		Password
+
+# パスワード認証を用いる場合の事前共有鍵
+#  パスワード認証を用いない場合は省略可
+#  文字列を指定する場合: その文字列を指定
+#  バイナリデータを指定する場合: 0x に続いて 16 進でバイナリデータを指定
+#                                (例: 0x536563757265564D)
+VpnPasswordV6		Akihabara
+
+# パスワード認証を用いる場合に送出する ID 情報
+#  (パスワード認証を用いない場合は不要)
+VpnIdStringV6		testv6@tsukuba.ac.jp
+
+# 証明書認証を用いる場合に使用する X.509 証明書ファイルの名前
+#  (証明書認証を用いない場合は不要)
+VpnCertNameV6		testuser.cer
+
+# VpnCertNameV6 で指定した X.509 証明書に対応した RSA 秘密鍵の
+# 名前 (スマートカード上の名前。テスト版ではハードディスク上のファイル名)
+VpnRsaKeyNameV6		testuser.key
+
+# フェーズ 1 における暗号化アルゴリズム
+#  DES または 3DES を指定
+VpnPhase1CryptoV6	3DES
+
+# フェーズ 1 における署名アルゴリズム
+#  SHA-1 のみ指定可能
+VpnPhase1HashV6		SHA-1
+
+# ISAKMP SA の有効期限の値 (単位: 秒)
+#  (省略可: デフォルト 7200)
+VpnPhase1LifeSecondsV6	7200
+
+# ISAKMP SA の有効期限の値 (単位: キロバイト, 0 の場合は無効)
+#  (省略可: デフォルト 0)
+VpnPhase1LifeKilobytesV6	0
+
+# フェーズ 1 完了からフェーズ 2 開始までの間にあける時間 (単位: ミリ秒)
+#  (省略可: デフォルト 0)
+#    一部の VPN ゲートウェイ装置では、この間隔を短くすると
+#    うまく動作しないことがあるので、その場合は 100 ミリ秒程度待機してみる
+VpnWaitPhase2BlankSpanV6	100
+
+# フェーズ 2 における暗号化アルゴリズム
+#  DES または 3DES を指定
+VpnPhase2CryptoV6	3DES
+
+# フェーズ 2 における署名アルゴリズム
+#  SHA-1 のみ指定可
+VpnPhase2HashV6		SHA-1
+
+# IPsec SA の有効期限の値 (単位: 秒)
+#  (省略可: デフォルト 7200)
+VpnPhase2LifeSecondsV6	7200
+
+# IPsec SA の有効期限の値 (単位: キロバイト, 0 の場合は無効)
+#  (省略可: デフォルト 0)
+VpnPhase2LifeKilobytesV6	0
+
+# フェーズ 2 においてゲスト OS の持つ仮想 IPv6 アドレスを ID として正しく送信
+# するかどうか
+#   YAMAHA ルータの場合は false で良いが、厳密に ID を識別しているような
+#   VPN ゲートウェイを用いている場合は true にする必要がある
+#   VPN ゲートウェイの実装依存である
+#   接続先が racoon (BSD, Linux) の場合は true にする必要があるようであ
+#  (省略化: デフォルト false)
+VpnPhase2StrictIdV6	false
+
+# VPN の接続処理を開始してから接続失敗とみなすまでのタイムアウト (秒)
+#  (省略可: デフォルト 5 秒)
+VpnConnectTimeoutV6	5
+
+# VPN 接続完了後、一定時間無通信の場合にトンネルが消えたと仮定して再接続する
+# までのアイドルタイムアウト (単位: 秒)
+#  (省略可: デフォルト 300 秒)
+VpnIdleTimeoutV6	300
+
+# VPN 接続完了後、定期的に ping を送信する宛先ホストの IP アドレス
+# 接続先 VPN ネットワークで常時存在するホストを指定する
+#  (省略化: 省略時には ping は送信されない)
+VpnPingTargetV6		2001:200:564:0:230:48ff:fe83:cf41
+
+# VpnPingTargetV6 で指定した宛先に ping を送信する間隔 (秒)
+#  (省略可: デフォルト 12 秒)
+VpnPingIntervalV6	12
+
+# VpnPingTargetV6 で指定した宛先に ping を送信する際の
+# ICMP メッセージサイズ (バイト数)
+#  (省略可: デフォルト 32)
+VpnPingMsgSizeV6	32
+
+
+
+

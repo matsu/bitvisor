@@ -7,3 +7,4 @@ core/builtin/lib.a
 bitvisor.elf
 bitvisor.map
 .config*
+drivers/storage_keys.conf

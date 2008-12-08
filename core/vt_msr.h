@@ -47,8 +47,8 @@ struct vt_msr {
 
 void vt_msr_update_lma (void);
 int vt_add_guest_msr (ulong index);
-void vt_read_guest_msr (int i, u64 *data);
-void vt_write_guest_msr (int i, u64 data);
+bool vt_read_guest_msr (int i, u64 *data);
+bool vt_write_guest_msr (int i, u64 data);
 bool vt_read_msr (u32 msrindex, u64 *msrdata);
 bool vt_write_msr (u32 msrindex, u64 msrdata);
 void vt_msr_init (void);

@@ -64,6 +64,7 @@ vt_io (void)
 	switch (eqi.s.str) {
 	case EXIT_QUAL_IO_STR_NOT_STRING:
 		data = &current->u.vt.vr.rax;
+		current->updateip = false;
 		switch (eqi.s.dir) {
 		case EXIT_QUAL_IO_DIR_IN:
 			switch (eqi.s.size) {
@@ -96,7 +97,8 @@ vt_io (void)
 			}
 			break;
 		}
-		add_ip ();
+		if (!current->updateip)
+			add_ip ();
 		break;
 	case EXIT_QUAL_IO_STR_STRING:
 		/* INS/OUTS can be used with an address-size override

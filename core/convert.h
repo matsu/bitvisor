@@ -46,6 +46,19 @@ conv32to64 (u32 src_l, u32 src_h, u64 *dest)
 }
 
 static inline void
+conv32to16 (u32 src, u16 *dest_l, u16 *dest_h)
+{
+	*dest_l = src;
+	*dest_h = src >> 16;
+}
+
+static inline void
+conv16to32 (u16 src_l, u16 src_h, u32 *dest)
+{
+	*dest = src_l | (u32)src_h << 16;
+}
+
+static inline void
 conv16to8 (u16 src, u8 *dest_l, u8 *dest_h)
 {
 	*dest_l = src;

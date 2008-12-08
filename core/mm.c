@@ -57,6 +57,7 @@
 #define ALLOCLIST_DATASIZE(n)	((ALLOCLIST_DATABIT (n) + 7) / 8)
 #define ALLOCLIST_HEADERSIZE(n)	(sizeof (struct allocdata) + \
 				 ALLOCLIST_DATASIZE(n) - 1)
+#define MAXNUM_OF_SYSMEMMAP	256
 
 #ifdef __x86_64__
 #	define PDPE_ATTR		(PDE_P_BIT | PDE_RW_BIT | PDE_US_BIT)
@@ -88,6 +89,11 @@ struct allocdata {
 	u8 n, data[1];
 };
 
+struct sysmemmapdata {
+	u32 n, nn;
+	struct sysmemmap m;
+};
+
 #ifdef USE_PAE
 #	define USE_PAE_BOOL true
 #else
@@ -96,7 +102,7 @@ struct allocdata {
 extern u8 end[];
 
 bool use_pae = USE_PAE_BOOL;
-u64 e820_vmm_base, e820_vmm_fake_len;
+u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
 u16 e801_fake_ax, e801_fake_bx;
 u64 memorysize = 0, vmmsize = 0;
 static u32 vmm_start_phys;
@@ -108,6 +114,8 @@ static int allocsize[NUM_OF_ALLOCSIZE];
 static struct page pagestruct[NUM_OF_PAGES];
 static spinlock_t mapmem_lock;
 static virt_t mapmem_lastvirt;
+static struct sysmemmapdata sysmemmap[MAXNUM_OF_SYSMEMMAP];
+static int sysmemmaplen;
 
 #define E801_16MB 0x1000000
 #define E801_AX_MAX 0x3C00
@@ -118,6 +126,40 @@ struct memsizetmp {
 	void *addr;
 	int ok;
 };
+
+u32
+getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
+{
+	int i;
+
+	for (i = 0; i < sysmemmaplen; i++) {
+		if (sysmemmap[i].n == n) {
+			*base = sysmemmap[i].m.base;
+			*len = sysmemmap[i].m.len;
+			*type = sysmemmap[i].m.type;
+			return sysmemmap[i].nn;
+		}
+	}
+	*base = 0;
+	*len = 0;
+	*type = 0;
+	return 0;
+}
+
+static void
+getallsysmemmap (void)
+{
+	int i;
+	u32 n = 0, nn = 1;
+
+	for (i = 0; i < MAXNUM_OF_SYSMEMMAP && nn; i++, n = nn) {
+		if (callrealmode_getsysmemmap (n, &sysmemmap[i].m, &nn))
+			panic ("getsysmemmap failed");
+		sysmemmap[i].n = n;
+		sysmemmap[i].nn = nn;
+	}
+	sysmemmaplen = i;
+}
 
 static inline void
 debug_sysmemmap_print (void)
@@ -132,14 +174,14 @@ debug_sysmemmap_print (void)
 			printf ("failed\n");
 			break;
 		}
-		if (next == 0)
-			break;
 		printf ("EBX 0x%08X "
 			"BASE 0x%08X%08X LEN 0x%08X%08X TYPE 0x%08X\n",
 			i,
 			((u32 *)&hoge.base)[1], ((u32 *)&hoge.base)[0],
 			((u32 *)&hoge.len)[1], ((u32 *)&hoge.len)[0],
 			hoge.type);
+		if (next == 0)
+			break;
 	}
 	printf ("Done.\n");
 }
@@ -164,31 +206,29 @@ update_e801_fake (u32 limit32)
 static u32
 find_vmm_phys (void)
 {
-	struct sysmemmap m;
-	u32 i;
+	u32 n, nn;
 	u32 base32, limit32, phys;
 	u64 limit64, memsize;
+	u64 base, len;
+	u32 type;
 
-	i = 0;
+	n = 0;
 	phys = 0;
 	e801_fake_ax = 0;
 	e801_fake_bx = 0;
 	memsize = 0;
 	vmmsize = VMMSIZE_ALL;
-	for (;;) {
-		if (callrealmode_getsysmemmap (i, &m, &i))
-			return 0;
-		if (i == 0)
-			break;
-		if (m.type != SYSMEMMAP_TYPE_AVAILABLE)
+	for (nn = 1; nn; n = nn) {
+		nn = getsysmemmap (n, &base, &len, &type);
+		if (type != SYSMEMMAP_TYPE_AVAILABLE)
 			continue; /* only available area can be used */
-		memsize += m.len;
-		if (m.base >= 0x100000000ULL)
+		memsize += len;
+		if (base >= 0x100000000ULL)
 			continue; /* we can't use over 4GB */
-		limit64 = m.base + m.len - 1;
+		limit64 = base + len - 1;
 		if (limit64 >= 0x100000000ULL)
 			limit64 = 0xFFFFFFFFULL; /* ignore over 4GB */
-		base32 = m.base;
+		base32 = base;
 		limit32 = limit64;
 		if (base32 > limit32)
 			continue; /* avoid strange value */
@@ -203,9 +243,10 @@ find_vmm_phys (void)
 		if (limit32 - base32 >= (VMMSIZE_ALL - 1) && /* enough */
 		    phys < limit32 - (VMMSIZE_ALL - 1)) { /* use top of it */
 			phys = limit32 - (VMMSIZE_ALL - 1);
-			e820_vmm_base = m.base;
-			e820_vmm_fake_len = phys - m.base;
-			vmmsize = m.len - e820_vmm_fake_len;
+			e820_vmm_base = base;
+			e820_vmm_fake_len = phys - base;
+			vmmsize = len - e820_vmm_fake_len;
+			e820_vmm_end = base + len;
 		}
 	}
 	memorysize = memsize;
@@ -411,6 +452,15 @@ map_hphys (void)
 }
 
 static void
+unmap_user_area (void)
+{
+	phys_t phys;
+
+	mm_process_alloc (&phys);
+	asm_wrcr3 (phys);
+}
+
+static void
 mm_init_global (void)
 {
 	int i;
@@ -419,6 +469,7 @@ mm_init_global (void)
 	spinlock_init (&mm_lock2);
 	spinlock_init (&mm_lock_process_virt_to_phys);
 	spinlock_init (&mapmem_lock);
+	getallsysmemmap ();
 	vmm_start_phys = find_vmm_phys ();
 	if (vmm_start_phys == 0) {
 		printf ("Out of memory.\n");
@@ -458,6 +509,7 @@ mm_init_global (void)
 	}
 	mapmem_lastvirt = MAPMEM_ADDR_START;
 	map_hphys ();
+	unmap_user_area ();	/* for detecting null pointer */
 }
 
 /* allocate n or more pages */

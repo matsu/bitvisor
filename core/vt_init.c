@@ -57,7 +57,7 @@ check_vmx (void)
 	if (c & CPUID_1_ECX_VMX_BIT) {
 		/* VMX operation is supported. */
 	} else {
-		printf ("ERROR: VMX operation is not supported.\n");
+		printf ("VMX operation is not supported.\n");
 		return -1;
 	}
 
@@ -68,7 +68,7 @@ msr_enable_loop:
 		if (tmp & MSR_IA32_FEATURE_CONTROL_VMXON_BIT) {
 			/* VMXON is enabled. */
 		} else {
-			printf ("ERROR: VMXON is disabled.\n");
+			printf ("VMXON is disabled.\n");
 			return -1;
 		}
 	} else {
@@ -142,6 +142,11 @@ vt__vmxon (void)
 
 	/* VMXON */
 	asm_vmxon (&currentcpu->vt.vmxon_region_phys);
+}
+
+void
+vt_reset (void)
+{
 }
 
 /* Initialize VMCS region

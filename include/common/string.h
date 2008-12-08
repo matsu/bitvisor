@@ -43,19 +43,14 @@ static inline int min (int a, int b) { return a < b ? a : b; }
 
 static inline void *regcpy(void *dst, void *src, int n)
 {
-	switch(n) {
-	case 4:
+	if (n == 8)
+		*(u64 *)dst = *(u64 *)src;
+	else if (n == 4)
 		*(u32 *)dst = *(u32 *)src;
-		break;
-	case 2:
+	else if (n == 2)
 		*(u16 *)dst = *(u16 *)src;
-		break;
-	case 1:
+	else if (n == 1)
 		*(u8 *)dst = *(u8 *)src;
-		break;
-	default:
-		break;
-	}
 	return dst;
 }
 

@@ -1,41 +1,51 @@
-CONFIG        = ../.config
+PWD := $(shell pwd)
 include $(CONFIG)
 
-CONSTANTS-$(CONFIG_ATA_DRIVER) += -DATA_DRIVER
 CONSTANTS-$(CONFIG_STORAGE_ENC) += -DSTORAGE_ENC
+CONSTANTS-$(CONFIG_UHCI_DRIVER) += -DUHCI_DRIVER
+CONSTANTS-$(CONFIG_EHCI_CONCEAL) += -DEHCI_CONCEALER
+CONSTANTS-$(CONFIG_PS2KBD_F10USB) += -DF10USBTEST
+CONSTANTS-$(CONFIG_PS2KBD_F12USB) += -DF12UHCIFRAME
+CONSTANTS-$(CONFIG_USBMSC_HANDLE) += -DUSBMSC_HANDLE
 CONSTANTS-$(CONFIG_IEEE1394_CONCEALER) += -DIEEE1394_CONCEALER
 CONSTANTS-$(CONFIG_FWDBG) += -DFWDBG
+CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
 
-INCLUDE  = ../include
+DRIVERS-$(CONFIG_ATA_DRIVER) += ata/driver.o
+DRIVERS-$(CONFIG_STORAGE_ENC) += crypto/driver.o
+
 TARGET   = drivers.o
-OBJS     = $(patsubst %.c,%.o,$(wildcard *.c)) \
-	   $(patsubst %.s,%.o,$(wildcard *.s))
-HEADERS  = $(wildcard *.h) $(wildcard $(INCLUDE)/*.h) \
-	   $(wildcard $(INCLUDE)/*/*.h)
+OBJS     = $(patsubst %.c,%.o,$(wildcard *.c))
+HEADERS += $(foreach header,$(wildcard *.h),$(PWD)/$(header))
+CFLAGS  += $(CONSTANTS-1) -I$(PWD)
+LDFLAGS += -r
 
-BITS-0	= 32
-BITS-1	= 64
 
-CC	= gcc
-CFLAGS	= -m$(BITS-$(CONFIG_64)) -mno-red-zone -ffreestanding -Wall -nostdinc \
-	  -I$(INCLUDE) -O2 -g $(CONSTANTS-1) -fno-stack-protector
-LDFLG-0	= -Wl,-melf_i386
-LDFLG-1	= -Wl,-melf_x86_64
-LDFLAGS = $(LDFLG-$(CONFIG_64)) -g -nostdlib -Wl,-r
+.PHONY : all clean $(DRIVERS-1) sloc count
 
 all: $(TARGET)
 
 clean: 
-	rm -f $(TARGET) $(OBJS)
+	find . -name '*.o' -type f -exec rm -f {} \;
+
+$(TARGET): $(OBJS) $(DRIVERS-1) $(CONFIG)
+	$(LD) $(LDFLAGS) -o $(TARGET) $(OBJS) $(DRIVERS-1)
+
+$(OBJS): $(HEADERS) $(CONFIG)
+
+$(DRIVERS-1):
+	@drivers="$(DRIVERS-1)";\
+	for driver in $$drivers; do \
+	make -C `dirname $$driver`; \
+	done
+
+storage.o: storage_keys.conf
+
+storage_keys.conf: storage_keys.conf.tmpl
+	if [ \! -e storage_keys.conf ]; then cp storage_keys.conf.tmpl storage_keys.conf; fi
 
 sloc:
 	sloccount .
 
 count:
 	wc *.[ch]
-
-
-$(TARGET): $(OBJS) $(CONFIG)
-	$(CC) $(LDFLAGS) -o $(TARGET) $(OBJS)
-
-$(OBJS): $(HEADERS) $(CONFIG)

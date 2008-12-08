@@ -1,0 +1,101 @@
+#!/bin/sh
+
+cd `dirname $0`
+
+USAGE=0
+BUILD=
+IDMAN_PCSC_HEADERS=../pcsc
+IDMAN_STDIO_HEADERS=../standardio
+IDMAN_STDIO_LIBS=
+TARGET=libIDManCcid.so
+LIBPATH=/usr/local/IDMan/client/lib
+GDB_OPTION=-O3
+LOGOPT=
+NOSTDINC="-nostdinc"
+NOSTDLIB="-nostdlib"
+
+for p in $*; do
+	v=${p#*=}
+	case "$p" in
+		--help)
+			USAGE=1
+		;;
+		--with-pcsc-headers=*)
+			IDMAN_PCSC_HEADERS="$v"
+		;;
+		--with-idman-std-headers=*)
+			IDMAN_STDIO_HEADERS="$v"
+		;;
+		--with-idman-std-libs=*)
+			IDMAN_STDIO_LIBS="$v"
+		;;
+		--build=*)
+			BUILD="$v"
+		;;
+		--name=*)
+			TARGET="$v"
+		;;
+		--library-path=*)
+			LIBPATH="$v"
+		;;
+		--gdb)
+			GDB_OPTION="-g -O0"
+		;;
+		--log)
+			LOGOPT="-DCCID_DEBUG"
+		;;
+	esac
+done
+
+if [ ${USAGE} != 0 ]; then
+	echo -e "usage $0"
+	echo -e "  --help\t\t\tThis help."
+	echo -e "  --build=arch\t\tSet build architacture (gcc prefix), default empty."
+	echo -e "  --name=target-name\tSet CCID library name, default 'libIDManCcid.so'."
+	echo -e "  --with-pcsc-headers=dir\t\tSet manual pcsc headers directory."
+	echo -e "\t\t\tdefault '../pcsc'"
+	echo -e "  --with-idman-std-headers=dir\tSet manual IDMan_StandardIo headers directory."
+	echo -e "\t\t\tdefault '../standardio'"
+	echo -e "  --with-idman-std-libs=dir\tSet manual IDMan_StandardIo library directory, default empty."
+	echo -e "  --library-path=library-path\tSet library-path for IDMan, default '/usr/local/IDMan/client/lib'."
+	echo -e "  --gdb\t\t\tSet Option for GDB debugger."
+	echo -e "  --log\t\t\tSet Option log-file for USB read/write.(use glibc)"
+	exit 1
+fi
+
+if ! [ -z "$LOGOPT" ]; then
+	NOSTDINC=
+	NOSTDLIB=
+fi
+
+if [ -z "$IDMAN_PCSC_HEADERS" ]; then
+	CFLAGS="$CFLAGS"
+else
+	CFLAGS="$CFLAGS -I${IDMAN_PCSC_HEADERS}"
+fi
+
+if [ -z "$IDMAN_STDIO_HEADERS" ]; then
+	CFLAGS="$CFLAGS"
+else
+	CFLAGS="$CFLAGS -I${IDMAN_STDIO_HEADERS}"
+fi
+
+if [ -z "$IDMAN_STDIO_LIBS" ]; then
+	LDFLAGS="$LDFLAGS"
+else
+	LDFLAGS="$LDFLAGS -L${IDMAN_STDIO_LIBS} -lpcsclite"
+fi
+
+echo "BUILD=${BUILD}" > Makefile.inc
+echo "CFLAGS=${CFLAGS}" >> Makefile.inc
+echo "LDFLAGS=${LDFLAGS}" >> Makefile.inc
+echo "TARGET=${TARGET}" >> Makefile.inc
+echo "IDMAN_PCSC_HEADERS=${IDMAN_PCSC_HEADERS}" >> Makefile.inc
+echo "IDMAN_STDIO_HEADERS=${IDMAN_STDIO_HEADERS}" >> Makefile.inc
+echo "LIBPATH=${LIBPATH}" >> Makefile.inc
+echo "GDBOPT=${GDB_OPTION}" >> Makefile.inc
+echo "LOGOPT=${LOGOPT}" >> Makefile.inc
+echo "NOSTDINC=${NOSTDINC}" >> Makefile.inc
+echo "NOSTDLIB=${NOSTDLIB}" >> Makefile.inc
+
+exit 0

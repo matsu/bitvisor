@@ -34,7 +34,7 @@
 	MULTIBOOT_HEADER_FLAGS = (MULTIBOOT_PAGE_ALIGN | MULTIBOOT_MEMORY_INFO)
 	CHECKSUM = -(MULTIBOOT_HEADER_MAGIC + MULTIBOOT_HEADER_FLAGS)
 	PAGESIZE = 4096
-	PHYSHEAD = 0x00100000
+	DIFFPHYS = 0x40000000
 
 	ENTRY_SEL_CODE32 = 0x08
 	ENTRY_SEL_DATA32 = 0x10
@@ -53,6 +53,7 @@
 	CPUID_1_EDX_CX8_BIT = 0x100
 	CPUID_0x80000001_EDX_64_BIT = 0x20000000
 	CR0_PE_BIT = 0x1
+	CR0_TS_BIT = 0x8
 	CR0_PG_BIT = 0x80000000
 	CR4_PSE_BIT = 0x10
 	CR4_PAE_BIT = 0x20
@@ -68,8 +69,6 @@
 	# This section is placed at the start of the .text section.
 	# See the linker script.
 	.section .entry
-	.globl	head
-head:
 
 	# GRUB Multiboot Header
 	.align	4
@@ -83,9 +82,15 @@ head:
 entry:
 	# We must use physical addresses while paging is off
 	# The VMM is loaded at 0x00100000- (Symbols are placed at 0x40100000-)
-	mov	$PHYSHEAD,%ebp		# Difference of physical & virtual addr
-	sub	$head,%ebp		#
+	mov	$-DIFFPHYS,%ebp		# Difference of physical & virtual addr
 	mov	%ebx,entry_ebx(%ebp)	# Save information from grub
+	lea	bss(%ebp),%edi		# Clear BSS
+	lea	end+3(%ebp),%ecx	#
+	sub	%edi,%ecx		#
+	shr	$2,%ecx			#
+	xor	%eax,%eax		#
+	cld				#
+	rep	stosl			#
 	mov	%cr4,%ecx
 	or	$CR4_PAE_BIT,%ecx
 .if longmode
@@ -174,12 +179,12 @@ entry16_2:
 	or	$MSR_IA32_EFER_LME_BIT,%eax
 	wrmsr
 	mov	%cr0,%eax
-	or	$(CR0_PG_BIT|CR0_PE_BIT),%eax
+	or	$(CR0_PG_BIT|CR0_TS_BIT|CR0_PE_BIT),%eax
 	mov	%eax,%cr0
 	ljmpl	$ENTRY_SEL_CODE64,$callmain64
 init32:
 	mov	%cr0,%eax
-	or	$(CR0_PG_BIT|CR0_PE_BIT),%eax
+	or	$(CR0_PG_BIT|CR0_TS_BIT|CR0_PE_BIT),%eax
 	mov	%eax,%cr0
 	ljmpl	$ENTRY_SEL_CODE32,$callmain32
 error16:
@@ -298,7 +303,7 @@ entry_gdtr:
 	.short	0
 entry_gdtr_phys:
 	.short	0x3F
-	.long	entry_gdt-head+PHYSHEAD
+	.long	entry_gdt-DIFFPHYS
 	.align  8
 entry_gdt:	
 	.quad   0
@@ -380,13 +385,17 @@ callmain64:
 	# Provisional page tables
 	.align	PAGESIZE
 entry_pml4:				#   7654321|76543210
-	.quad	entry_pdp-head+PHYSHEAD+0x7 # 0x0000000000000000
+	.long	entry_pdp-DIFFPHYS+0x7	# 0x0000000000000000
+	.long	0			#
 	.space	4096-8*1		# 0x0000008000000000-
 	.globl	entry_pdp
 entry_pdp:
-	.quad	entry_pd0-head+PHYSHEAD+0x7 # 0x0000000000000000
-	.quad	entry_pd0-head+PHYSHEAD+0x7 # 0x0000000040000000
-	.quad	entry_pd0-head+PHYSHEAD+0x7 # 0x0000000080000000
+	.long	entry_pd0-DIFFPHYS+0x7	# 0x0000000000000000
+	.long	0			#
+	.long	entry_pd0-DIFFPHYS+0x7	# 0x0000000040000000
+	.long	0			#
+	.long	entry_pd0-DIFFPHYS+0x7	# 0x0000000080000000
+	.long	0			#
 	.quad	0			# 0x00000000C0000000
 	.space	4096-8*4		# 0x0000000100000000-
 	.globl	entry_pd0

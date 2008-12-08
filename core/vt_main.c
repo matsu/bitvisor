@@ -34,7 +34,6 @@
 #include "current.h"
 #include "exint_pass.h"
 #include "gmm_pass.h"
-#include "guest_bioshook.h"
 #include "guest_boot.h"
 #include "initfunc.h"
 #include "linkage.h"
@@ -112,17 +111,37 @@ do_cpuid (void)
 }
 
 static void
+do_msr_fault (void)
+{
+	struct vt_intr_data *vid = &current->u.vt.intr;
+
+	vid->vmcs_intr_info.s.vector = EXCEPTION_GP;
+	vid->vmcs_intr_info.s.type = INTR_INFO_TYPE_HARD_EXCEPTION;
+	vid->vmcs_intr_info.s.err = INTR_INFO_ERR_VALID;
+	vid->vmcs_intr_info.s.nmi = 0;
+	vid->vmcs_intr_info.s.reserved = 0;
+	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
+	vid->vmcs_exception_errcode = 0;
+	vid->vmcs_instruction_len = 0;
+	current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
+}
+
+static void
 do_rdmsr (void)
 {
-	cpu_emul_rdmsr ();
-	add_ip ();
+	if (cpu_emul_rdmsr ())
+		do_msr_fault ();
+	else
+		add_ip ();
 }
 
 static void
 do_wrmsr (void)
 {
-	cpu_emul_wrmsr ();
-	add_ip ();
+	if (cpu_emul_wrmsr ())
+		do_msr_fault ();
+	else
+		add_ip ();
 }
 
 static void
@@ -242,12 +261,18 @@ do_invlpg (void)
 	add_ip ();
 }
 
+void
+vt_invlpg (ulong addr)
+{
+	cpu_mmu_spt_invalidate (addr);
+}
+
 /* VMCALL: guest calls VMM */
 static void
 do_vmcall (void)
 {
-	vmmcall ();
 	add_ip ();
+	vmmcall ();
 }
 
 static void

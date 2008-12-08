@@ -31,6 +31,7 @@
 #include "constants.h"
 #include "initfunc.h"
 #include "int.h"
+#include "int_handler.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
@@ -54,19 +55,11 @@ struct int_fatal_stack {
 	ulong s[];
 };
 
-#ifdef __x86_64__
-#	define M(N) \
-		void int##N##handler (void); \
-		asm ("int" #N "handler: \n" \
-		     " push $" #N "\n" \
-		     " jmp int_handler64 \n")
-#else
-#	define M(N) \
-		void int##N##handler (void); \
-		asm ("int" #N "handler: \n" \
-		     " push $" #N "\n" \
-		     " jmp int_handler32 \n")
-#endif
+#define M(N) \
+	void int##N##handler (void); \
+	asm ("int" #N "handler: \n" \
+	     " push $" #N "\n" \
+	     " jmp int_handler \n")
 M(0x00); M(0x01); M(0x02); M(0x03); M(0x04); M(0x05); M(0x06); M(0x07);
 M(0x08); M(0x09); M(0x0A); M(0x0B); M(0x0C); M(0x0D); M(0x0E); M(0x0F);
 M(0x10); M(0x11); M(0x12); M(0x13); M(0x14); M(0x15); M(0x16); M(0x17);
@@ -254,31 +247,7 @@ callfunc_and_getint (asmlinkage void (*func)(void *), void *arg)
 	int num;
 
 	spinlock_lock (&int_lock);
-#ifdef __x86_64__
-	asm volatile (" pushq $1f \n"
-		      " movq  %%rsp,%%gs:gs_inthandling \n"
-		      " pushq %1 \n"
-		      " call  *%2 \n"
-		      " addq  $8,%%rsp \n"
-		      " movl  $-1,%0 \n"
-		      "1: \n"
-		      " movq  $0,%%gs:gs_inthandling \n"
-		      : "=a" (num)
-		      : "r" (arg), "r" (func)
-		      : "cc");
-#else
-	asm volatile (" pushl $1f \n"
-		      " movl  %%esp,%%gs:gs_inthandling \n"
-		      " pushl %1 \n"
-		      " call  *%2 \n"
-		      " addl  $8,%%esp \n"
-		      " movl  $-1,%0 \n"
-		      "1: \n"
-		      " movl  $0,%%gs:gs_inthandling \n"
-		      : "=a" (num)
-		      : "r" (arg), "r" (func)
-		      : "cc");
-#endif
+	num = int_callfunc (arg, func);
 	spinlock_unlock (&int_lock);
 	return num;
 }

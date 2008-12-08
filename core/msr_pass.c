@@ -30,23 +30,59 @@
 #include "asm.h"
 #include "current.h"
 #include "initfunc.h"
+#include "int.h"
 #include "mm.h"
 #include "msr.h"
 #include "msr_pass.h"
 #include "panic.h"
 #include "printf.h"
 
+struct msrarg {
+	u32 msrindex;
+	u64 *msrdata;
+};
+
+static asmlinkage void
+do_read_msr_sub (void *arg)
+{
+	struct msrarg *p;
+
+	p = arg;
+	asm_rdmsr64 (p->msrindex, p->msrdata);
+}
+
+static asmlinkage void
+do_write_msr_sub (void *arg)
+{
+	struct msrarg *p;
+
+	p = arg;
+	asm_wrmsr64 (p->msrindex, *p->msrdata);
+}
+
 static bool
 msr_pass_read_msr (u32 msrindex, u64 *msrdata)
 {
-	/* FIXME: Exception handling */
+	int num;
+	struct msrarg m;
+
 	switch (msrindex) {
 	case MSR_IA32_TIME_STAMP_COUNTER:
 		asm_rdmsr64 (MSR_IA32_TIME_STAMP_COUNTER, msrdata);
 		*msrdata += current->tsc_offset;
 		break;
 	default:
-		asm_rdmsr64 (msrindex, msrdata);
+		m.msrindex = msrindex;
+		m.msrdata = msrdata;
+		num = callfunc_and_getint (do_read_msr_sub, &m);
+		switch (num) {
+		case -1:
+			break;
+		case EXCEPTION_GP:
+			return true;
+		default:
+			panic ("msr_pass_read_msr: exception %d", num);
+		}
 	}
 	return false;
 }
@@ -55,6 +91,8 @@ static bool
 msr_pass_write_msr (u32 msrindex, u64 msrdata)
 {
 	u64 tmp;
+	int num;
+	struct msrarg m;
 
 	/* FIXME: Exception handling */
 	switch (msrindex) {
@@ -72,10 +110,20 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 			if (phys_in_vmm (tmp))
 				panic ("relocating APIC Base to VMM address!");
 		}
-		asm_wrmsr64 (msrindex, msrdata);
-		break;
+		goto pass;
 	default:
-		asm_wrmsr64 (msrindex, msrdata);
+	pass:
+		m.msrindex = msrindex;
+		m.msrdata = &msrdata;
+		num = callfunc_and_getint (do_write_msr_sub, &m);
+		switch (num) {
+		case -1:
+			break;
+		case EXCEPTION_GP:
+			return true;
+		default:
+			panic ("msr_pass_write_msr: exception %d", num);
+		}
 	}
 	return false;
 }

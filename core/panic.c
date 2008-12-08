@@ -57,7 +57,9 @@ static volatile int paniccpu;
 static bool do_wakeup = false;
 static bool bios_area_saved;
 static u8 bios_area_orig[BIOS_AREA_SIZE];
+#ifndef TTY_SERIAL
 static u8 bios_area_panic[BIOS_AREA_SIZE];
+#endif
 
 static void
 copy_bios_area (void *save, void *load)

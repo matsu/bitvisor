@@ -211,8 +211,13 @@ inputloop:
 		}
 	prnt:
 		for (ch_tmp = ch_cursor; ch_tmp != T1MAX;
-		     ch_tmp = ch[ch_tmp].next)
+		     ch_tmp = ch[ch_tmp].next) {
+			if (ch[ch_tmp].next == T1MAX)
+				break;
 			msgsendint (dsp, ch[ch_tmp].c);
+		}
+		if (ch_tmp != T1MAX)
+			msgsendint (dsp, ' ');
 		for (ch_tmp = ch_cursor; ch_tmp != T1MAX;
 		     ch_tmp = ch[ch_tmp].next)
 			msgsendint (dsp, '\b');
@@ -290,8 +295,13 @@ inputloop:
 	goto inputloop;
 inputend:
 	for (ch_tmp = ch_cursor; ch_tmp != T1MAX;
-	     ch_tmp = ch[ch_tmp].next)
+	     ch_tmp = ch[ch_tmp].next) {
+		if (ch[ch_tmp].next == T1MAX)
+			break;
 		msgsendint (dsp, ch[ch_tmp].c);
+	}
+	if (ch_tmp != T1MAX)
+		msgsendint (dsp, ' ');
 	msgsendint (dsp, '\b');
 	msgsendint (dsp, '\n');
 	i = 0;

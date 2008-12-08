@@ -62,7 +62,7 @@ typedef struct {
 	enum pmap_type type;
 } pmap_t;
 
-extern u64 e820_vmm_base, e820_vmm_fake_len;
+extern u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
 extern u16 e801_fake_ax, e801_fake_bx;
 extern bool use_pae;
 extern ulong vmm_base_cr3;
@@ -74,6 +74,7 @@ phys_t sym_to_phys (void *sym);
 bool phys_in_vmm (u64 phys);
 virt_t phys_to_virt (phys_t phys);
 int num_of_available_pages (void);
+u32 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type);
 
 /* process */
 int mm_process_alloc (phys_t *phys);

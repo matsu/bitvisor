@@ -33,7 +33,7 @@
 #include <core/types.h>
 
 typedef int (*mmio_handler_t) (void *data, phys_t gphys, bool wr, void *buf,
-			       uint len);
+			       uint len, u32 flags);
 
 void *mmio_register (phys_t gphys, uint len, mmio_handler_t handler,
 		     void *data);

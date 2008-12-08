@@ -40,6 +40,7 @@
 #define MB (1024*KB)
 #define GB (u64)(1024*MB)
 #define PAGESIZE 4096
+#define PAGESHIFT 12
 
 /** I/O handler functions */
 #include <core/io.h>
@@ -71,6 +72,26 @@ static struct type *alloc_##type()		\
 	return alloc(sizeof(struct type));	\
 }
 
+#define DEFINE_ZALLOC_FUNC(type)			\
+static struct type *zalloc_##type()			\
+{							\
+	void *p;					\
+	p = alloc(sizeof(struct type));			\
+	if (p)						\
+		memset(p, 0, sizeof(struct type));	\
+	return p;					\
+}
+
+#define DEFINE_CALLOC_FUNC(type)			\
+static struct type *calloc_##type(int n)		\
+{							\
+	void *p;					\
+	p = alloc(sizeof(struct type) * n);		\
+	if (p)						\
+		memset(p, 0, sizeof(struct type) * n);	\
+	return p;					\
+}
+
 phys_t core_mm_read_guest_phys(phys_t phys, void *buf, int len);
 phys_t core_mm_write_guest_phys(phys_t phys, void *buf, int len);
 static inline u64 core_mm_read_guest_phys64(phys_t phys)
@@ -95,7 +116,23 @@ void	panic_oom() __attribute__ ((noreturn));
 
 /* a function automatically called at initialization */ 
 #define CORE_INIT(func)		INITFUNC ("driver0", func)
-#define DRIVER_INIT(func)	INITFUNC ("driver1", func)
-#define PCI_DRIVER_INIT(func)	INITFUNC ("driver2", func)
+#define CRYPTO_INIT(func)	INITFUNC ("driver1", func)
+#define DRIVER_INIT(func)	INITFUNC ("driver2", func)
+#define PCI_DRIVER_INIT(func)	INITFUNC ("driver3", func)
+#define DEBUG_DRIVER_INIT(func)	INITFUNC ("driver9", func)
+
+static inline void
+asm_rep_and_nop (void)
+{
+	asm volatile ("rep ; nop");
+}
+
+static inline void
+asm_pause (void)
+{
+	asm volatile ("pause");
+}
+
+#define cpu_relax            asm_pause
 
 #endif

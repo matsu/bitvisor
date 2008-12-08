@@ -71,7 +71,9 @@
 #define OPCODE_0x0F_0x01		0x01
 #define OPCODE_0x0F_0x01_LGDT		0x2
 #define OPCODE_0x0F_0x01_LIDT		0x3
+#define OPCODE_0x0F_0x01_SMSW		0x4
 #define OPCODE_0x0F_0x01_LMSW		0x6
+#define OPCODE_0x0F_0x01_INVLPG		0x7
 #define OPCODE_0x0F_RDMSR		0x32
 #define OPCODE_0x0F_WRMSR		0x30
 #define OPCODE_INT			0xCD
@@ -129,14 +131,22 @@ enum reptype {
 
 enum reg {
 	REG_NO = -1,
-	REG_AX = 0,
-	REG_CX = 1,
-	REG_DX = 2,
-	REG_BX = 3,
-	REG_SP = 4,
-	REG_BP = 5,
-	REG_SI = 6,
-	REG_DI = 7,
+	REG_AX = 0,		/* AX/EAX/RAX */
+	REG_CX = 1,		/* CX/ECX/RCX */
+	REG_DX = 2,		/* DX/EDX/RDX */
+	REG_BX = 3,		/* BX/EBX/RBX */
+	REG_SP = 4,		/* SP/ESP/RSP */
+	REG_BP = 5,		/* BP/EBP/RBP */
+	REG_SI = 6,		/* SI/ESI/RSI */
+	REG_DI = 7,		/* DI/EDI/RDI */
+	REG_08 = 8,		/* R8 */
+	REG_09 = 9,		/* R9 */
+	REG_10 = 10,		/* R10 */
+	REG_11 = 11,		/* R11 */
+	REG_12 = 12,		/* R12 */
+	REG_13 = 13,		/* R13 */
+	REG_14 = 14,		/* R14 */
+	REG_15 = 15,		/* R15 */
 };
 
 enum reg8 {
@@ -236,11 +246,11 @@ struct op {
 	struct prefix prefix;
 	struct modrm modrm;
 	struct sib sib;
-	u32 disp;
-	u32 imm;
+	i32 disp;		/* maximum size of a displacement is 32bit */
+	u64 imm;
 	enum reg modrm_reg;
 	enum sreg modrm_seg;
-	u32 modrm_off;
+	u64 modrm_off;
 	enum cpumode mode;
 	enum addrtype addrtype;
 	enum optype optype;
@@ -248,13 +258,15 @@ struct op {
 	ulong ip;
 	uint ip_off;
 	struct realmode_sysregs *rsr;
+	bool longmode;
 };
 
 struct modrm_info {
 	int displen;
 	enum reg reg1, reg2;
 	enum sreg defseg;
-	int sibflag;
+	unsigned int sibflag : 1;
+	unsigned int ripflag : 1;
 };
 
 struct sibbase_info {
@@ -280,117 +292,201 @@ struct idata {
 };
 
 static struct modrm_info modrmmatrix16[3][8] = { /* [mod][rm] */
-	/* displen, reg1, reg2, defseg, sibflag */
+	/* displen, reg1, reg2, defseg, sibflag, ripflag */
 	{
-		{ 0, REG_BX, REG_SI, SREG_DS, 0 },
-		{ 0, REG_BX, REG_DI, SREG_DS, 0 },
-		{ 0, REG_BP, REG_SI, SREG_SS, 0 },
-		{ 0, REG_BP, REG_DI, SREG_SS, 0 },
-		{ 0, REG_SI, REG_NO, SREG_DS, 0 },
-		{ 0, REG_DI, REG_NO, SREG_DS, 0 },
-		{ 2, REG_NO, REG_NO, SREG_DS, 0 },
-		{ 0, REG_BX, REG_NO, SREG_DS, 0 },
+		{ 0, REG_BX, REG_SI, SREG_DS, 0, 0 },
+		{ 0, REG_BX, REG_DI, SREG_DS, 0, 0 },
+		{ 0, REG_BP, REG_SI, SREG_SS, 0, 0 },
+		{ 0, REG_BP, REG_DI, SREG_SS, 0, 0 },
+		{ 0, REG_SI, REG_NO, SREG_DS, 0, 0 },
+		{ 0, REG_DI, REG_NO, SREG_DS, 0, 0 },
+		{ 2, REG_NO, REG_NO, SREG_DS, 0, 0 },
+		{ 0, REG_BX, REG_NO, SREG_DS, 0, 0 },
 	},
 	{
-		{ 1, REG_BX, REG_SI, SREG_DS, 0 },
-		{ 1, REG_BX, REG_DI, SREG_DS, 0 },
-		{ 1, REG_BP, REG_SI, SREG_SS, 0 },
-		{ 1, REG_BP, REG_DI, SREG_SS, 0 },
-		{ 1, REG_SI, REG_NO, SREG_DS, 0 },
-		{ 1, REG_DI, REG_NO, SREG_DS, 0 },
-		{ 1, REG_BP, REG_NO, SREG_SS, 0 },
-		{ 1, REG_BX, REG_NO, SREG_DS, 0 },
+		{ 1, REG_BX, REG_SI, SREG_DS, 0, 0 },
+		{ 1, REG_BX, REG_DI, SREG_DS, 0, 0 },
+		{ 1, REG_BP, REG_SI, SREG_SS, 0, 0 },
+		{ 1, REG_BP, REG_DI, SREG_SS, 0, 0 },
+		{ 1, REG_SI, REG_NO, SREG_DS, 0, 0 },
+		{ 1, REG_DI, REG_NO, SREG_DS, 0, 0 },
+		{ 1, REG_BP, REG_NO, SREG_SS, 0, 0 },
+		{ 1, REG_BX, REG_NO, SREG_DS, 0, 0 },
 	},
 	{
-		{ 2, REG_BX, REG_SI, SREG_DS, 0 },
-		{ 2, REG_BX, REG_DI, SREG_DS, 0 },
-		{ 2, REG_BP, REG_SI, SREG_SS, 0 },
-		{ 2, REG_BP, REG_DI, SREG_SS, 0 },
-		{ 2, REG_SI, REG_NO, SREG_DS, 0 },
-		{ 2, REG_DI, REG_NO, SREG_DS, 0 },
-		{ 2, REG_BP, REG_NO, SREG_SS, 0 },
-		{ 2, REG_BX, REG_NO, SREG_DS, 0 },
-	},
-};
-
-static struct modrm_info modrmmatrix32[3][8] = { /* [mod][rm] */
-	/* displen, reg1, reg2, defseg, sibflag */
-	{
-		{ 0, REG_AX, REG_NO, SREG_DS, 0 },
-		{ 0, REG_CX, REG_NO, SREG_DS, 0 },
-		{ 0, REG_DX, REG_NO, SREG_DS, 0 },
-		{ 0, REG_BX, REG_NO, SREG_DS, 0 },
-		{ 0, REG_NO, REG_NO, SREG_DS, 1 },
-		{ 4, REG_NO, REG_NO, SREG_DS, 0 },
-		{ 0, REG_SI, REG_NO, SREG_DS, 0 },
-		{ 0, REG_DI, REG_NO, SREG_DS, 0 },
-	},
-	{
-		{ 1, REG_AX, REG_NO, SREG_DS, 0 },
-		{ 1, REG_CX, REG_NO, SREG_DS, 0 },
-		{ 1, REG_DX, REG_NO, SREG_DS, 0 },
-		{ 1, REG_BX, REG_NO, SREG_DS, 0 },
-		{ 1, REG_NO, REG_NO, SREG_DS, 1 },
-		{ 1, REG_BP, REG_NO, SREG_SS, 0 },
-		{ 1, REG_SI, REG_NO, SREG_DS, 0 },
-		{ 1, REG_DI, REG_NO, SREG_DS, 0 },
-	},
-	{
-		{ 4, REG_AX, REG_NO, SREG_DS, 0 },
-		{ 4, REG_CX, REG_NO, SREG_DS, 0 },
-		{ 4, REG_DX, REG_NO, SREG_DS, 0 },
-		{ 4, REG_BX, REG_NO, SREG_DS, 0 },
-		{ 4, REG_NO, REG_NO, SREG_DS, 1 },
-		{ 4, REG_BP, REG_NO, SREG_SS, 0 },
-		{ 4, REG_SI, REG_NO, SREG_DS, 0 },
-		{ 4, REG_DI, REG_NO, SREG_DS, 0 },
+		{ 2, REG_BX, REG_SI, SREG_DS, 0, 0 },
+		{ 2, REG_BX, REG_DI, SREG_DS, 0, 0 },
+		{ 2, REG_BP, REG_SI, SREG_SS, 0, 0 },
+		{ 2, REG_BP, REG_DI, SREG_SS, 0, 0 },
+		{ 2, REG_SI, REG_NO, SREG_DS, 0, 0 },
+		{ 2, REG_DI, REG_NO, SREG_DS, 0, 0 },
+		{ 2, REG_BP, REG_NO, SREG_SS, 0, 0 },
+		{ 2, REG_BX, REG_NO, SREG_DS, 0, 0 },
 	},
 };
 
-static struct sibbase_info sibmatrix_base[3][8] = { /* [mod][base] */
+static struct modrm_info modrmmatrix32[3][2][8] = { /* [mod][rex.b][rm] */
+	/* displen, reg1, reg2, defseg, sibflag, ripflag */
+	{
+		{
+			{ 0, REG_AX, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_CX, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_DX, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_BX, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_NO, REG_NO, SREG_DS, 1, 0 },
+			{ 4, REG_NO, REG_NO, SREG_DS, 0, 1 },
+			{ 0, REG_SI, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_DI, REG_NO, SREG_DS, 0, 0 },
+		},
+		{
+			{ 0, REG_08, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_09, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_10, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_11, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_NO, REG_NO, SREG_DS, 1, 0 },
+			{ 4, REG_NO, REG_NO, SREG_DS, 0, 1 },
+			{ 0, REG_14, REG_NO, SREG_DS, 0, 0 },
+			{ 0, REG_15, REG_NO, SREG_DS, 0, 0 },
+		},
+	},
+	{
+		{
+			{ 1, REG_AX, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_CX, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_DX, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_BX, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_NO, REG_NO, SREG_DS, 1, 0 },
+			{ 1, REG_BP, REG_NO, SREG_SS, 0, 0 },
+			{ 1, REG_SI, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_DI, REG_NO, SREG_DS, 0, 0 },
+		},
+		{
+			{ 1, REG_08, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_09, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_10, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_11, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_NO, REG_NO, SREG_DS, 1, 0 },
+			{ 1, REG_13, REG_NO, SREG_SS, 0, 0 },
+			{ 1, REG_14, REG_NO, SREG_DS, 0, 0 },
+			{ 1, REG_15, REG_NO, SREG_DS, 0, 0 },
+		},
+	},
+	{
+		{
+			{ 4, REG_AX, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_CX, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_DX, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_BX, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_NO, REG_NO, SREG_DS, 1, 0 },
+			{ 4, REG_BP, REG_NO, SREG_SS, 0, 0 },
+			{ 4, REG_SI, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_DI, REG_NO, SREG_DS, 0, 0 },
+		},
+		{
+			{ 4, REG_08, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_09, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_10, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_11, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_NO, REG_NO, SREG_DS, 1, 0 },
+			{ 4, REG_13, REG_NO, SREG_SS, 0, 0 },
+			{ 4, REG_14, REG_NO, SREG_DS, 0, 0 },
+			{ 4, REG_15, REG_NO, SREG_DS, 0, 0 },
+		},
+	},
+};
+
+static struct sibbase_info sibmatrix_base[3][2][8] = { /* [mod][rex.b][base] */
 	/* displen (override), reg, defseg (override) */
 	{
-		{ 0, REG_AX, SREG_DS },
-		{ 0, REG_CX, SREG_DS },
-		{ 0, REG_DX, SREG_DS },
-		{ 0, REG_BX, SREG_DS },
-		{ 0, REG_SP, SREG_SS },
-		{ 4, REG_NO, SREG_DS }, /* [*] */
-		{ 0, REG_SI, SREG_DS },
-		{ 0, REG_DI, SREG_DS },
+		{
+			{ 0, REG_AX, SREG_DS },
+			{ 0, REG_CX, SREG_DS },
+			{ 0, REG_DX, SREG_DS },
+			{ 0, REG_BX, SREG_DS },
+			{ 0, REG_SP, SREG_SS },
+			{ 4, REG_NO, SREG_DS }, /* [*] */
+			{ 0, REG_SI, SREG_DS },
+			{ 0, REG_DI, SREG_DS },
+		},
+		{
+			{ 0, REG_08, SREG_DS },
+			{ 0, REG_09, SREG_DS },
+			{ 0, REG_10, SREG_DS },
+			{ 0, REG_11, SREG_DS },
+			{ 0, REG_12, SREG_SS },
+			{ 4, REG_NO, SREG_DS }, /* [*] */
+			{ 0, REG_14, SREG_DS },
+			{ 0, REG_15, SREG_DS },
+		},
 	},
 	{
-		{ 1, REG_AX, SREG_DS },
-		{ 1, REG_CX, SREG_DS },
-		{ 1, REG_DX, SREG_DS },
-		{ 1, REG_BX, SREG_DS },
-		{ 1, REG_SP, SREG_SS },
-		{ 1, REG_BP, SREG_SS },
-		{ 1, REG_SI, SREG_DS },
-		{ 1, REG_DI, SREG_DS },
+		{
+			{ 1, REG_AX, SREG_DS },
+			{ 1, REG_CX, SREG_DS },
+			{ 1, REG_DX, SREG_DS },
+			{ 1, REG_BX, SREG_DS },
+			{ 1, REG_SP, SREG_SS },
+			{ 1, REG_BP, SREG_SS },
+			{ 1, REG_SI, SREG_DS },
+			{ 1, REG_DI, SREG_DS },
+		},
+		{
+			{ 1, REG_08, SREG_DS },
+			{ 1, REG_09, SREG_DS },
+			{ 1, REG_10, SREG_DS },
+			{ 1, REG_11, SREG_DS },
+			{ 1, REG_12, SREG_SS },
+			{ 1, REG_13, SREG_SS },
+			{ 1, REG_14, SREG_DS },
+			{ 1, REG_15, SREG_DS },
+		},
 	},		
 	{
-		{ 4, REG_AX, SREG_DS },
-		{ 4, REG_CX, SREG_DS },
-		{ 4, REG_DX, SREG_DS },
-		{ 4, REG_BX, SREG_DS },
-		{ 4, REG_SP, SREG_SS },
-		{ 4, REG_BP, SREG_SS },
-		{ 4, REG_SI, SREG_DS },
-		{ 4, REG_DI, SREG_DS },
+		{
+			{ 4, REG_AX, SREG_DS },
+			{ 4, REG_CX, SREG_DS },
+			{ 4, REG_DX, SREG_DS },
+			{ 4, REG_BX, SREG_DS },
+			{ 4, REG_SP, SREG_SS },
+			{ 4, REG_BP, SREG_SS },
+			{ 4, REG_SI, SREG_DS },
+			{ 4, REG_DI, SREG_DS },
+		},
+		{
+			{ 4, REG_08, SREG_DS },
+			{ 4, REG_09, SREG_DS },
+			{ 4, REG_10, SREG_DS },
+			{ 4, REG_11, SREG_DS },
+			{ 4, REG_12, SREG_SS },
+			{ 4, REG_13, SREG_SS },
+			{ 4, REG_14, SREG_DS },
+			{ 4, REG_15, SREG_DS },
+		},
 	},		
 };
 
-static struct sibscale_info sib_scale[8] = { /* [index] */
+static struct sibscale_info sib_scale[2][8] = { /* [rex.x][index] */
 	/* reg */
-	{ REG_AX },
-	{ REG_CX },
-	{ REG_DX },
-	{ REG_BX },
-	{ REG_NO },
-	{ REG_BP },
-	{ REG_SI },
-	{ REG_DI },
+	{
+		{ REG_AX },
+		{ REG_CX },
+		{ REG_DX },
+		{ REG_BX },
+		{ REG_NO },
+		{ REG_BP },
+		{ REG_SI },
+		{ REG_DI },
+	},
+	{
+		{ REG_08 },
+		{ REG_09 },
+		{ REG_10 },
+		{ REG_11 },
+		{ REG_12 },
+		{ REG_13 },
+		{ REG_14 },
+		{ REG_15 },
+	},
 };
 
 static struct idata idata[256] = {
@@ -690,10 +786,9 @@ static struct idata grp3[8] = {
 #define UPDATE_IP(op) current->vmctl.write_ip (op->ip + op->ip_off)
 
 #define LGUESTSEG_READ_B(op,p,offset,data) do { \
-	if (op->addrtype == ADDRTYPE_64BIT) { \
-		ulong base = 0; \
-		if (p == SREG_FS || p == SREG_GS) \
-			current->vmctl.read_sreg_base (p, &base); \
+	if (op->longmode) { \
+		ulong base; \
+		current->vmctl.read_sreg_base (p, &base); \
 		RIE (read_linearaddr_b (base + (offset), (data))); \
 	} else { \
 		GUESTSEG_READ_B (p, offset, data); \
@@ -701,10 +796,9 @@ static struct idata grp3[8] = {
 } while (0)
 
 #define LGUESTSEG_READ_W(op,p,offset,data) do { \
-	if (op->addrtype == ADDRTYPE_64BIT) { \
-		ulong base = 0; \
-		if (p == SREG_FS || p == SREG_GS) \
-			current->vmctl.read_sreg_base (p, &base); \
+	if (op->longmode) { \
+		ulong base; \
+		current->vmctl.read_sreg_base (p, &base); \
 		RIE (read_linearaddr_w (base + (offset), (data))); \
 	} else { \
 		GUESTSEG_READ_W (p, offset, data); \
@@ -712,10 +806,9 @@ static struct idata grp3[8] = {
 } while (0)
 
 #define LGUESTSEG_READ_L(op,p,offset,data) do { \
-	if (op->addrtype == ADDRTYPE_64BIT) { \
-		ulong base = 0; \
-		if (p == SREG_FS || p == SREG_GS) \
-			current->vmctl.read_sreg_base (p, &base); \
+	if (op->longmode) { \
+		ulong base; \
+		current->vmctl.read_sreg_base (p, &base); \
 		RIE (read_linearaddr_l (base + (offset), (data))); \
 	} else { \
 		GUESTSEG_READ_L (p, offset, data); \
@@ -723,10 +816,9 @@ static struct idata grp3[8] = {
 } while (0)
 
 #define LGUESTSEG_READ_Q(op,p,offset,data) do { \
-	if (op->addrtype == ADDRTYPE_64BIT) { \
-		ulong base = 0; \
-		if (p == SREG_FS || p == SREG_GS) \
-			current->vmctl.read_sreg_base (p, &base); \
+	if (op->longmode) { \
+		ulong base; \
+		current->vmctl.read_sreg_base (p, &base); \
 		RIE (read_linearaddr_q (base + (offset), (data))); \
 	} else { \
 		GUESTSEG_READ_Q (p, offset, data); \
@@ -734,10 +826,9 @@ static struct idata grp3[8] = {
 } while (0)
 
 #define LGUESTSEG_WRITE_B(op,p,offset,data) do { \
-	if (op->addrtype == ADDRTYPE_64BIT) { \
-		ulong base = 0; \
-		if (p == SREG_FS || p == SREG_GS) \
-			current->vmctl.read_sreg_base (p, &base); \
+	if (op->longmode) { \
+		ulong base; \
+		current->vmctl.read_sreg_base (p, &base); \
 		RIE (write_linearaddr_b (base + (offset), (data))); \
 	} else { \
 		GUESTSEG_WRITE_B (p, offset, data); \
@@ -745,10 +836,9 @@ static struct idata grp3[8] = {
 } while (0)
 
 #define LGUESTSEG_WRITE_W(op,p,offset,data) do { \
-	if (op->addrtype == ADDRTYPE_64BIT) { \
-		ulong base = 0; \
-		if (p == SREG_FS || p == SREG_GS) \
-			current->vmctl.read_sreg_base (p, &base); \
+	if (op->longmode) { \
+		ulong base; \
+		current->vmctl.read_sreg_base (p, &base); \
 		RIE (write_linearaddr_w (base + (offset), (data))); \
 	} else { \
 		GUESTSEG_WRITE_W (p, offset, data); \
@@ -756,10 +846,9 @@ static struct idata grp3[8] = {
 } while (0)
 
 #define LGUESTSEG_WRITE_L(op,p,offset,data) do { \
-	if (op->addrtype == ADDRTYPE_64BIT) { \
-		ulong base = 0; \
-		if (p == SREG_FS || p == SREG_GS) \
-			current->vmctl.read_sreg_base (p, &base); \
+	if (op->longmode) { \
+		ulong base; \
+		current->vmctl.read_sreg_base (p, &base); \
 		RIE (write_linearaddr_l (base + (offset), (data))); \
 	} else { \
 		GUESTSEG_WRITE_L (p, offset, data); \
@@ -767,10 +856,9 @@ static struct idata grp3[8] = {
 } while (0)
 
 #define LGUESTSEG_WRITE_Q(op,p,offset,data) do { \
-	if (op->addrtype == ADDRTYPE_64BIT) { \
-		ulong base = 0; \
-		if (p == SREG_FS || p == SREG_GS) \
-			current->vmctl.read_sreg_base (p, &base); \
+	if (op->longmode) { \
+		ulong base; \
+		current->vmctl.read_sreg_base (p, &base); \
 		RIE (write_linearaddr_q (base + (offset), (data))); \
 	} else { \
 		GUESTSEG_WRITE_Q (p, offset, data); \
@@ -814,6 +902,30 @@ get_reg (struct op *op, enum reg reg)
 	case REG_DI:
 		current->vmctl.read_general_reg (GENERAL_REG_RDI, &tmp);
 		break;
+	case REG_08:
+		current->vmctl.read_general_reg (GENERAL_REG_R8, &tmp);
+		break;
+	case REG_09:
+		current->vmctl.read_general_reg (GENERAL_REG_R9, &tmp);
+		break;
+	case REG_10:
+		current->vmctl.read_general_reg (GENERAL_REG_R10, &tmp);
+		break;
+	case REG_11:
+		current->vmctl.read_general_reg (GENERAL_REG_R11, &tmp);
+		break;
+	case REG_12:
+		current->vmctl.read_general_reg (GENERAL_REG_R12, &tmp);
+		break;
+	case REG_13:
+		current->vmctl.read_general_reg (GENERAL_REG_R13, &tmp);
+		break;
+	case REG_14:
+		current->vmctl.read_general_reg (GENERAL_REG_R14, &tmp);
+		break;
+	case REG_15:
+		current->vmctl.read_general_reg (GENERAL_REG_R15, &tmp);
+		break;
 	case REG_NO:
 		tmp = 0;
 		break;
@@ -821,8 +933,23 @@ get_reg (struct op *op, enum reg reg)
 	return tmp;
 }
 
+static ulong
+get_regl (struct op *op, enum reg reg, int b)
+{
+	ulong tmp = 0;
+
+	if (reg >= 0 && reg <= 7) {
+		if (b)
+			current->vmctl.read_general_reg (reg + 8, &tmp);
+		else
+			current->vmctl.read_general_reg (reg, &tmp);
+	}
+	return tmp;
+			
+}
+
 static void
-set_reg (struct op *op, enum reg reg, u32 data)
+set_reg (struct op *op, enum reg reg, ulong data)
 {
 	switch (reg) {
 	case REG_AX:
@@ -849,27 +976,44 @@ set_reg (struct op *op, enum reg reg, u32 data)
 	case REG_DI:
 		current->vmctl.write_general_reg (GENERAL_REG_RDI, data);
 		break;
+	case REG_08:
+		current->vmctl.write_general_reg (GENERAL_REG_R8, data);
+		break;
+	case REG_09:
+		current->vmctl.write_general_reg (GENERAL_REG_R9, data);
+		break;
+	case REG_10:
+		current->vmctl.write_general_reg (GENERAL_REG_R10, data);
+		break;
+	case REG_11:
+		current->vmctl.write_general_reg (GENERAL_REG_R11, data);
+		break;
+	case REG_12:
+		current->vmctl.write_general_reg (GENERAL_REG_R12, data);
+		break;
+	case REG_13:
+		current->vmctl.write_general_reg (GENERAL_REG_R13, data);
+		break;
+	case REG_14:
+		current->vmctl.write_general_reg (GENERAL_REG_R14, data);
+		break;
+	case REG_15:
+		current->vmctl.write_general_reg (GENERAL_REG_R15, data);
+		break;
 	case REG_NO:
 		break;
 	}
 }
 
-static inline void
-b2l_signed (u32 *data)
+static void
+set_regl (struct op *op, enum reg reg, int b, ulong data)
 {
-	if (*data & 0x80)
-		*data |= 0xFFFFFF00;
-	else
-		*data &= 0x000000FF;
-}
-
-static inline void
-w2l_signed (u32 *data)
-{
-	if (*data & 0x8000)
-		*data |= 0xFFFF0000;
-	else
-		*data &= 0x0000FFFF;
+	if (reg >= 0 && reg <= 7) {
+		if (b)
+			current->vmctl.write_general_reg (reg + 8, data);
+		else
+			current->vmctl.write_general_reg (reg, data);
+	}
 }
 
 static enum vmmerr
@@ -880,10 +1024,10 @@ get_modrm (struct op *op)
 	struct sibscale_info *ss;
 	int displen;
 	enum sreg defseg;
-	u32 addr;
+	u64 addr;
+	i8 tmp1;
+	i16 tmp2;
 
-	if (op->addrtype == ADDRTYPE_64BIT)
-		panic ("64bit MOD/RM not supported");
 	if (op->modrm.mod == 3) {
 		op->modrm_reg = op->modrm.rm;
 		return VMMERR_SUCCESS;
@@ -892,13 +1036,15 @@ get_modrm (struct op *op)
 	if (op->addrtype == ADDRTYPE_16BIT)
 		m = &modrmmatrix16[op->modrm.mod][op->modrm.rm];
 	else
-		m = &modrmmatrix32[op->modrm.mod][op->modrm.rm];
+		m = &modrmmatrix32[op->modrm.mod][op->prefix.rex.b.b]
+			[op->modrm.rm];
 	displen = m->displen;
 	defseg = m->defseg;
 	if (m->sibflag) {
 		READ_NEXT_B (op, &op->sib);
-		sb = &sibmatrix_base[op->modrm.mod][op->sib.base];
-		ss = &sib_scale[op->sib.index];
+		sb = &sibmatrix_base[op->modrm.mod][op->prefix.rex.b.b]
+			[op->sib.base];
+		ss = &sib_scale[op->prefix.rex.b.x][op->sib.index];
 		displen = sb->displen;
 		defseg = sb->defseg;
 		addr = (get_reg (op, ss->reg) << op->sib.scale)
@@ -908,12 +1054,12 @@ get_modrm (struct op *op)
 	}
 	switch (displen) {
 	case 1:
-		READ_NEXT_B (op, &op->disp);
-		b2l_signed (&op->disp);
+		READ_NEXT_B (op, &tmp1);
+		op->disp = tmp1;
 		break;
 	case 2:
-		READ_NEXT_W (op, &op->disp);
-		w2l_signed (&op->disp);
+		READ_NEXT_W (op, &tmp2);
+		op->disp = tmp2;
 		break;
 	case 4:
 		READ_NEXT_L (op, &op->disp);
@@ -922,8 +1068,13 @@ get_modrm (struct op *op)
 		op->disp = 0;
 	}
 	addr += op->disp;
+	if (op->longmode && m->ripflag)
+		addr += op->ip + op->ip_off; /* DONT USE READ_NEXT AFTER
+						THIS */
 	if (op->addrtype == ADDRTYPE_16BIT)
 		addr &= 0xFFFF;
+	else if (op->addrtype == ADDRTYPE_32BIT)
+		addr &= 0xFFFFFFFF;
 	op->modrm_off = addr;
 	if (op->prefix.seg != SREG_DEFAULT)
 		op->modrm_seg = op->prefix.seg;
@@ -997,7 +1148,7 @@ opcode_pushf (struct op *op)
 	ulong rflags;
 	struct cpu_stack st;
 
-	if (op->addrtype == ADDRTYPE_64BIT)
+	if (op->longmode)
 		panic ("64bit PUSHF not supported");
 	RIE (cpu_stack_get (&st));
 	current->vmctl.read_flags (&rflags);
@@ -1014,7 +1165,7 @@ opcode_popf (struct op *op)
 	ulong rflags, orflags;
 	struct cpu_stack st;
 
-	if (op->addrtype == ADDRTYPE_64BIT)
+	if (op->longmode)
 		panic ("64bit POPF not supported");
 	RIE (cpu_stack_get (&st));
 	current->vmctl.read_flags (&rflags);
@@ -1045,7 +1196,7 @@ opcode_iret (struct op *op)
 	u16 cs;
 	struct cpu_stack st;
 
-	if (op->addrtype == ADDRTYPE_64BIT)
+	if (op->longmode)
 		panic ("64bit IRET not supported");
 	if (op->mode == CPUMODE_REAL) {
 		RIE (cpu_stack_get (&st));
@@ -1289,9 +1440,11 @@ opcode_inb_imm (struct op *op)
 	ulong rax;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
+	current->updateip = false;
 	call_io (IOTYPE_INB, op->imm & 0xFF, &rax);
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
-	UPDATE_IP (op);
+	if (!current->updateip)
+		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
 
@@ -1300,15 +1453,20 @@ opcode_in_imm (struct op *op)
 {
 	ulong rax;
 
-	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	if (op->optype == OPTYPE_64BIT)
 		op->optype = OPTYPE_32BIT;
+	if (op->optype == OPTYPE_32BIT)
+		rax = 0;
+	else
+		current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
+	current->updateip = false;
 	if (op->optype == OPTYPE_16BIT)
 		call_io (IOTYPE_INW, op->imm & 0xFF, &rax);
 	else
 		call_io (IOTYPE_INL, op->imm & 0xFF, &rax);
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
-	UPDATE_IP (op);
+	if (!current->updateip)
+		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
 
@@ -1319,9 +1477,11 @@ opcode_inb_dx (struct op *op)
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
+	current->updateip = false;
 	call_io (IOTYPE_INB, rdx & 0xFFFF, &rax);
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
-	UPDATE_IP (op);
+	if (!current->updateip)
+		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
 
@@ -1330,16 +1490,21 @@ opcode_in_dx (struct op *op)
 {
 	ulong rax, rdx;
 
-	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
 	if (op->optype == OPTYPE_64BIT)
 		op->optype = OPTYPE_32BIT;
+	if (op->optype == OPTYPE_32BIT)
+		rax = 0;
+	else
+		current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
+	current->updateip = false;
 	if (op->optype == OPTYPE_16BIT)
 		call_io (IOTYPE_INW, rdx & 0xFFFF, &rax);
 	else
 		call_io (IOTYPE_INL, rdx & 0xFFFF, &rax);
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
-	UPDATE_IP (op);
+	if (!current->updateip)
+		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
 
@@ -1366,8 +1531,10 @@ opcode_outb_imm (struct op *op)
 	ulong rax;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
+	current->updateip = false;
 	call_io (IOTYPE_OUTB, op->imm & 0xFF, &rax);
-	UPDATE_IP (op);
+	if (!current->updateip)
+		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
 
@@ -1379,11 +1546,13 @@ opcode_out_imm (struct op *op)
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	if (op->optype == OPTYPE_64BIT)
 		op->optype = OPTYPE_32BIT;
+	current->updateip = false;
 	if (op->optype == OPTYPE_16BIT)
 		call_io (IOTYPE_OUTW, op->imm & 0xFF, &rax);
 	else
 		call_io (IOTYPE_OUTL, op->imm & 0xFF, &rax);
-	UPDATE_IP (op);
+	if (!current->updateip)
+		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
 
@@ -1394,8 +1563,10 @@ opcode_outb_dx (struct op *op)
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
+	current->updateip = false;
 	call_io (IOTYPE_OUTB, rdx & 0xFFFF, &rax);
-	UPDATE_IP (op);
+	if (!current->updateip)
+		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
 
@@ -1408,11 +1579,13 @@ opcode_out_dx (struct op *op)
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
 	if (op->optype == OPTYPE_64BIT)
 		op->optype = OPTYPE_32BIT;
+	current->updateip = false;
 	if (op->optype == OPTYPE_16BIT)
 		call_io (IOTYPE_OUTW, rdx & 0xFFFF, &rax);
 	else
 		call_io (IOTYPE_OUTL, rdx & 0xFFFF, &rax);
-	UPDATE_IP (op);
+	if (!current->updateip)
+		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
 
@@ -1436,12 +1609,18 @@ opcode_outs (struct op *op)
 static enum vmmerr
 opcode_mov_to_cr (struct op *op)
 {
-	u32 cr;
+	ulong cr;
+	enum control_reg n;
 
 	if (op->modrm.mod != 3)
 		return VMMERR_EXCEPTION_UD;
-	cr = get_reg (op, op->modrm.rm);
-	current->vmctl.write_control_reg (op->modrm.reg, cr);
+	cr = get_regl (op, op->modrm.rm, op->prefix.rex.b.b);
+	if (op->addrtype != ADDRTYPE_64BIT)
+		cr &= 0xFFFFFFFF;
+	n = op->modrm.reg;
+	if (op->prefix.rex.b.r)
+		n += 8;
+	current->vmctl.write_control_reg (n, cr);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1450,11 +1629,15 @@ static enum vmmerr
 opcode_mov_from_cr (struct op *op)
 {
 	ulong cr;
+	enum control_reg n;
 
 	if (op->modrm.mod != 3)
 		return VMMERR_EXCEPTION_UD;
-	current->vmctl.read_control_reg (op->modrm.reg, &cr);
-	set_reg (op, op->modrm.rm, cr);
+	n = op->modrm.reg;
+	if (op->prefix.rex.b.r)
+		n += 8;
+	current->vmctl.read_control_reg (n, &cr);
+	set_regl (op, op->modrm.rm, op->prefix.rex.b.b, cr);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1503,7 +1686,8 @@ opcode_wbinvd (struct op *op)
 static enum vmmerr
 opcode_rdmsr (struct op *op)
 {
-	cpu_emul_rdmsr ();
+	if (cpu_emul_rdmsr ())
+		return VMMERR_MSR_FAULT;
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1511,7 +1695,8 @@ opcode_rdmsr (struct op *op)
 static enum vmmerr
 opcode_wrmsr (struct op *op)
 {
-	cpu_emul_wrmsr ();
+	if (cpu_emul_wrmsr ())
+		return VMMERR_MSR_FAULT;
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1563,6 +1748,20 @@ opcode_lidt (struct op *op)
 }
 
 static enum vmmerr
+opcode_smsw (struct op *op)
+{
+	ulong cr;
+
+	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr);
+	if (op->modrm_reg == REG_NO)
+		LGUESTSEG_WRITE_W (op, op->modrm_seg, op->modrm_off, cr);
+	else
+		set_reg (op, op->modrm_reg, cr);
+	UPDATE_IP (op);
+	return VMMERR_SUCCESS;
+}
+
+static enum vmmerr
 opcode_lmsw (struct op *op)
 {
 	u16 data;
@@ -1581,6 +1780,27 @@ opcode_lmsw (struct op *op)
 }
 
 static enum vmmerr
+opcode_invlpg (struct op *op)
+{
+	ulong base;
+
+	current->vmctl.read_sreg_base (op->modrm_seg, &base);
+	current->vmctl.invlpg (base + op->modrm_off);
+	UPDATE_IP (op);
+	return VMMERR_SUCCESS;
+}
+
+static void
+set_reg16 (struct op *op, enum reg reg, u16 d16)
+{
+	ulong dlong;
+
+	dlong = get_reg (op, reg);
+	*(u16 *)&dlong = d16;
+	set_reg (op, reg, dlong);
+}
+
+static enum vmmerr
 opcode_mov_from_sr (struct op *op)
 {
 	u16 sel;
@@ -1588,8 +1808,10 @@ opcode_mov_from_sr (struct op *op)
 	current->vmctl.read_sreg_sel ((enum sreg)op->modrm.reg, &sel);
 	if (op->modrm_reg == REG_NO)
 		LGUESTSEG_WRITE_W (op, op->modrm_seg, op->modrm_off, sel);
+	else if (op->optype == OPTYPE_16BIT)
+		set_reg16 (op, op->modrm_reg, sel);
 	else
-		set_reg (op, op->modrm_reg, sel);
+		set_regl (op, op->modrm_reg, op->prefix.rex.b.b, sel);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1614,7 +1836,7 @@ opcode_push_sr (struct op *op, enum sreg seg)
 	u16 sel16;
 	struct cpu_stack st;
 
-	if (op->addrtype == ADDRTYPE_64BIT)
+	if (op->longmode)
 		panic ("64bit PUSH SREG not supported");
 	current->vmctl.read_sreg_sel (seg, &sel16);
 	sel32 = sel16;
@@ -1766,28 +1988,28 @@ reg8_dp (enum reg8 r8, ulong *data)
 static u8
 get_reg8 (struct op *op, enum reg8 r8)
 {
-	ulong d32;
+	ulong dlong;
 	enum general_reg reg;
 	u8 *dp;
 
 	reg = reg8_general_reg (r8);
-	dp = reg8_dp (r8, &d32);
-	current->vmctl.read_general_reg (reg, &d32);
+	dp = reg8_dp (r8, &dlong);
+	current->vmctl.read_general_reg (reg, &dlong);
 	return *dp;
 }
 
 static void
 set_reg8 (struct op *op, enum reg8 r8, u8 d8)
 {
-	ulong d32;
+	ulong dlong;
 	enum general_reg reg;
 	u8 *dp;
 
 	reg = reg8_general_reg (r8);
-	dp = reg8_dp (r8, &d32);
-	current->vmctl.read_general_reg (reg, &d32);
+	dp = reg8_dp (r8, &dlong);
+	current->vmctl.read_general_reg (reg, &dlong);
 	*dp = d8;
-	current->vmctl.write_general_reg (reg, d32);
+	current->vmctl.write_general_reg (reg, dlong);
 }
 
 static enum vmmerr
@@ -1828,16 +2050,6 @@ read_modrm (struct op *op, u32 *d)
 	else
 		*d = get_reg (op, op->modrm_reg);
 	return VMMERR_SUCCESS;
-}
-
-static void
-set_reg16 (struct op *op, enum reg reg, u16 d16)
-{
-	u32 d32;
-
-	d32 = get_reg (op, reg);
-	*(u16 *)&d32 = d16;
-	set_reg (op, reg, d32);
 }
 
 static enum vmmerr
@@ -2130,6 +2342,7 @@ cpu_interpreter (void)
 		op->mode = CPUMODE_PROTECTED;
 	else
 		op->mode = CPUMODE_REAL;
+	op->longmode = false;
 	current->vmctl.read_ip (&op->ip);
 	op->ip_off = 0;
 	READ_NEXT_B (op, &code);
@@ -2178,8 +2391,8 @@ cpu_interpreter (void)
 	return VMMERR_PREFIX_TOO_LONG;
 parse_opcode:
 	current->vmctl.read_sreg_acr (SREG_CS, &acr);
-	if (((cr0 & CR0_PG_BIT) && (efer & MSR_IA32_EFER_LME_BIT) &&
-	     (acr & ACCESS_RIGHTS_L_BIT))) {
+	if ((efer & MSR_IA32_EFER_LMA_BIT) && (acr & ACCESS_RIGHTS_L_BIT)) {
+		op->longmode = true;
 		if (code >= PREFIX_REX_MIN && code <= PREFIX_REX_MAX) {
 			op->prefix.rex.v.val = code;
 			READ_NEXT_B (op, &code);
@@ -2187,7 +2400,8 @@ parse_opcode:
 		op->reptype = REPTYPE_64BIT;
 		op->optype = op->prefix.rex.b.w ? OPTYPE_64BIT :
 			!op->prefix.opsize ? OPTYPE_32BIT : OPTYPE_16BIT;
-		op->addrtype = ADDRTYPE_64BIT;
+		op->addrtype =
+			!op->prefix.addrsize ? ADDRTYPE_64BIT : ADDRTYPE_32BIT;
 	} else if (acr & ACCESS_RIGHTS_D_B_BIT) {
 		op->reptype = REPTYPE_32BIT;
 		op->optype =
@@ -2293,7 +2507,7 @@ parse_opcode:
 	}
 	idat = idata[code];
 grp_special:
-	if (op->addrtype == ADDRTYPE_64BIT)
+	if (op->longmode)
 		panic ("64bit grp instructions not supported");
 	switch (idat.type) {
 	case I_MODRM:
@@ -2348,8 +2562,6 @@ grp_special:
 	op->ip_off += 16;
 	return VMMERR_UNSUPPORTED_OPCODE;
 parse_opcode_0x0f:
-	if (op->addrtype == ADDRTYPE_64BIT)
-		panic ("64bit instructions begin with 0x0F not supported");
 	switch (code) {
 	case OPCODE_0x0F_0x01:
 		READ_NEXT_B (op, &op->modrm);
@@ -2376,6 +2588,10 @@ parse_opcode_0x0f:
 		return opcode_rdmsr (op);
 	case OPCODE_0x0F_WRMSR:
 		return opcode_wrmsr (op);
+	}
+	if (op->longmode)
+		panic ("64bit instructions begin with 0x0F not supported");
+	switch (code) {
 	case OPCODE_0x0F_PUSH_FS:
 		return opcode_push_sr (op, SREG_FS);
 	case OPCODE_0x0F_PUSH_GS:
@@ -2399,9 +2615,15 @@ parse_opcode_0x0f_0x01:
 	case OPCODE_0x0F_0x01_LIDT:
 		GET_MODRM (op);
 		return opcode_lidt (op);
+	case OPCODE_0x0F_0x01_SMSW:
+		GET_MODRM (op);
+		return opcode_smsw (op);
 	case OPCODE_0x0F_0x01_LMSW:
 		GET_MODRM (op);
 		return opcode_lmsw (op);
+	case OPCODE_0x0F_0x01_INVLPG:
+		GET_MODRM (op);
+		return opcode_invlpg (op);
 	}
 	op->ip_off += 16;
 	return VMMERR_UNSUPPORTED_OPCODE;

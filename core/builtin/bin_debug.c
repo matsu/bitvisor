@@ -49,7 +49,7 @@ struct memdump_data {
 	ulong virtaddr;
 };
 
-unsigned char memdata[256];
+unsigned char memdata[128];
 enum memdump_type dtype;
 u64 daddr;
 int dinit;
@@ -76,8 +76,10 @@ print_help (char *buf)
 	printf ("dv guest-virtual-address(hex) : dump memory\n");
 	printf ("Dp vmm-physical-address(hex) : dump memory\n");
 	printf ("Dv vmm-virtual-address(hex) : dump memory\n");
+	printf ("h value1(hex) value2(hex) : add/sub\n");
 	printf ("r [register-name register-value(hex)]: print/set guest registers\n");
 	printf ("n : get next guest state from log\n");
+	printf ("! command : call external command\n");
 	printf ("q : quit\n");
 }
 
@@ -345,6 +347,43 @@ guestreg (char *buf)
 	}
 }
 
+void
+hexaddsub (char *buf)
+{
+	u64 val1, val2;
+
+
+	buf++;
+	buf = skip_space (buf);
+	if (!parse_hex (&buf, &val1)) {
+		command_error ();
+		return;
+	}
+	buf = skip_space (buf);
+	if (!parse_hex (&buf, &val2)) {
+		command_error ();
+		return;
+	}
+	printf ("%llX %llX\n", val1 + val2, val1 - val2);
+}
+
+void
+callprog (char *buf)
+{
+	int d;
+
+	buf++;
+	buf = skip_space (buf);
+	d = newprocess (buf);
+	if (d >= 0) {
+		msgsenddesc (d, 0);
+		msgsenddesc (d, 1);
+		msgsendint (d, 0);
+		msgclose (d);
+	} else
+		printf ("%s not found.\n", buf);
+}
+
 int
 _start (int a1, int a2)
 {
@@ -358,6 +397,12 @@ _start (int a1, int a2)
 		lineinput (buf, 100);
 		switch (buf[0]) {
 		case 'h':
+			if (buf[1] != '\0' && buf[1] != 'e') {
+				hexaddsub (buf);
+				break;
+			}
+			/* fall through */
+		case '?':
 			print_help (buf);
 			break;
 		case 'd':
@@ -374,6 +419,9 @@ _start (int a1, int a2)
 			break;
 		case 'n':
 			getnextstate ();
+			break;
+		case '!':
+			callprog (buf);
 			break;
 		default:
 			command_error ();

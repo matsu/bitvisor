@@ -28,6 +28,7 @@
  */
 
 #include "acpi.h"
+#include "acpi_dsdt.h"
 #include "assert.h"
 #include "beep.h"
 #include "constants.h"
@@ -49,6 +50,8 @@
 #define FACP_SIGNATURE		"FACP"
 #define FACS_SIGNATURE		"FACS"
 #define MCFG_SIGNATURE		"MCFG"
+#define PM1_CNT_SLP_TYPX_MASK	0x1C00
+#define PM1_CNT_SLP_TYPX_SHIFT	10
 #define PM1_CNT_SLP_EN_BIT	0x2000
 #define IS_STRUCT_SIZE_OK(l, h, m) \
 	((l) >= ((u8 *)&(m) - (u8 *)(h)) + sizeof (m))
@@ -157,6 +160,7 @@ static bool rsdp_found;
 static struct rsdp rsdp_copy;
 static bool pm1a_cnt_found;
 static u32 pm1a_cnt_ioaddr;
+static u64 facs_addr;
 
 static u8
 acpi_checksum (void *p, int len)
@@ -295,12 +299,64 @@ debug_dump (void *p, int len)
 }
 
 static void
+acpi_pm1_sleep (u32 v)
+{
+	struct facs *facs;
+#ifdef ACPI_DSDT
+	bool m[6];
+	int i;
+	u8 n;
+#endif
+
+#ifdef ACPI_DSDT
+	n = (v & PM1_CNT_SLP_TYPX_MASK) >> PM1_CNT_SLP_TYPX_SHIFT;
+	for (i = 0; i <= 5; i++) {
+		if (acpi_dsdt_system_state[i][0] &&
+		    acpi_dsdt_system_state[i][1] == n)
+			m[i] = true;
+		else
+			m[i] = false;
+	}
+	if (!m[2] && !m[3])
+		return;
+#endif
+	facs = acpi_mapmem (facs_addr, sizeof *facs);
+	if (IS_STRUCT_SIZE_OK (facs->length, facs,
+			       facs->x_firmware_waking_vector))
+		facs->x_firmware_waking_vector = 0;
+	if (IS_STRUCT_SIZE_OK (facs->length, facs,
+			       facs->firmware_waking_vector))
+		facs->firmware_waking_vector = 0xFFFF0;
+	else
+		for (;;); /* FIXME: ERROR */
+	/* DEBUG */
+	/* the computer is going to sleep */
+	/* most devices are suspended */
+	/* vmm can't write anything to a screen here */
+	/* vmm can't input from/output to a keyboard here */
+	/* vmm can beep! */
+	beep_on ();
+	beep_set_freq (880);
+	usleep (500000);
+	beep_set_freq (440);
+	usleep (500000);
+	beep_set_freq (880);
+	usleep (500000);
+	beep_set_freq (440);
+	usleep (500000);
+	beep_set_freq (880);
+	usleep (500000);
+	beep_set_freq (440);
+	usleep (500000);
+	beep_set_freq (880);
+
+	acpi_poweroff ();
+}
+
+static void
 acpi_io_monitor (enum iotype type, u32 port, void *data)
 {
 	u32 v;
-	struct facp *facp;
-	struct facs *facs;
-	u64 facs_addr;
 
 	if (pm1a_cnt_found && port == pm1a_cnt_ioaddr) {
 		switch (type) {
@@ -316,49 +372,9 @@ acpi_io_monitor (enum iotype type, u32 port, void *data)
 		default:
 			goto def;
 		}
-		if (v & PM1_CNT_SLP_EN_BIT) {
-			facp = find_facp ();
-			if (facp == NULL)
-				goto def;
-			if (IS_STRUCT_SIZE_OK (facp->header.length, facp,
-					       facp->x_firmware_ctrl))
-				facs_addr = facp->x_firmware_ctrl;
-			else if (IS_STRUCT_SIZE_OK (facp->header.length, facp,
-						    facp->firmware_ctrl))
-				facs_addr = facp->firmware_ctrl;
-			else
-				for (;;); /* FIXME: ERROR */
-			facs = acpi_mapmem (facs_addr, sizeof *facs);
-			if (IS_STRUCT_SIZE_OK (facs->length, facs,
-					       facs->x_firmware_waking_vector))
-				facs->x_firmware_waking_vector = 0;
-			if (IS_STRUCT_SIZE_OK (facs->length, facs,
-					       facs->firmware_waking_vector))
-				facs->firmware_waking_vector = 0xFFFF0;
-			else
-				for (;;); /* FIXME: ERROR */
-			/* DEBUG */
-			/* the computer is going to sleep */
-			/* most devices are suspended */
-			/* vmm can't write anything to a screen here */
-			/* vmm can't input from/output to a keyboard here */
-			/* vmm can beep! */
-			beep_on ();
-			beep_set_freq (880);
-			usleep (500000);
-			beep_set_freq (440);
-			usleep (500000);
-			beep_set_freq (880);
-			usleep (500000);
-			beep_set_freq (440);
-			usleep (500000);
-			beep_set_freq (880);
-			usleep (500000);
-			beep_set_freq (440);
-			usleep (500000);
-			beep_set_freq (880);
-			goto def;
-		}
+		if (v & PM1_CNT_SLP_EN_BIT)
+			acpi_pm1_sleep (v);
+		goto def;
 	}
 def:
 	do_io_default (type, port, data);
@@ -369,6 +385,54 @@ acpi_iohook (void)
 {
 	if (pm1a_cnt_found)
 		set_iofunc (pm1a_cnt_ioaddr, acpi_io_monitor);
+}
+
+static void
+get_pm1a_cnt_ioaddr (struct facp *q)
+{
+	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->x_pm1a_cnt_blk)) {
+		if (q->x_pm1a_cnt_blk.address_space_id !=
+		    ADDRESS_SPACE_ID_IO)
+			panic ("X_PM1a_CNT_BLK is not I/O address");
+		pm1a_cnt_ioaddr = q->x_pm1a_cnt_blk.address;
+	} else if (IS_STRUCT_SIZE_OK (q->header.length, q, q->pm1a_cnt_blk)) {
+		pm1a_cnt_ioaddr = q->pm1a_cnt_blk;
+	} else {
+		panic ("ACPI FACP is too short");
+	}
+	if (pm1a_cnt_ioaddr > 0xFFFF)
+		panic ("PM1a control port > 0xFFFF");
+}
+
+static void
+get_facs_addr (struct facp *facp)
+{
+	if (IS_STRUCT_SIZE_OK (facp->header.length, facp,
+			       facp->x_firmware_ctrl))
+		facs_addr = facp->x_firmware_ctrl;
+	else if (IS_STRUCT_SIZE_OK (facp->header.length, facp,
+				    facp->firmware_ctrl))
+		facs_addr = facp->firmware_ctrl;
+	else
+		panic ("ACPI FACP is too short");
+}
+
+void
+acpi_poweroff (void)
+{
+	u32 data, typx;
+
+	if (!pm1a_cnt_found)
+		return;
+	if (!acpi_dsdt_system_state[5][0])
+		return;
+	typx = acpi_dsdt_system_state[5][1] << PM1_CNT_SLP_TYPX_SHIFT;
+	/* FIXME: how to handle pm1b_cnt? */
+	asm_inl (pm1a_cnt_ioaddr, &data);
+	data &= ~PM1_CNT_SLP_TYPX_MASK;
+	data |= typx & PM1_CNT_SLP_TYPX_MASK;
+	data |= PM1_CNT_SLP_EN_BIT;
+	asm_outl (pm1a_cnt_ioaddr, data);
 }
 
 static void
@@ -395,18 +459,11 @@ acpi_init_global (void)
 		printf ("ACPI FACP not found.\n");
 		return;
 	}
-	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->x_pm1a_cnt_blk)) {
-		if (q->x_pm1a_cnt_blk.address_space_id !=
-		    ADDRESS_SPACE_ID_IO)
-			panic ("X_PM1a_CNT_BLK is not I/O address");
-		pm1a_cnt_ioaddr = q->x_pm1a_cnt_blk.address;
-	} else if (IS_STRUCT_SIZE_OK (q->header.length, q, q->pm1a_cnt_blk)) {
-		pm1a_cnt_ioaddr = q->pm1a_cnt_blk;
-	} else {
-		panic ("ACPI FACP is too short");
-	}
-	if (pm1a_cnt_ioaddr > 0xFFFF)
-		panic ("PM1a control port > 0xFFFF");
+#ifdef ACPI_DSDT
+	acpi_dsdt_parse (q->dsdt);
+#endif
+	get_pm1a_cnt_ioaddr (q);
+	get_facs_addr (q);
 	if (0)
 		debug_dump (q, q->header.length);
 	if (0)

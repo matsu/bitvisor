@@ -31,5 +31,6 @@
 #define _CORE_ACPI_H
 
 void acpi_iohook (void);
+void acpi_poweroff (void);
 
 #endif

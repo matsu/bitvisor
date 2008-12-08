@@ -37,10 +37,11 @@
 #define MAPMEM_WRITE			0x4
 #define MAPMEM_PWT			0x8
 #define MAPMEM_PCD			0x10
-#define MAPMEM_PAT			0x20
+#define MAPMEM_PAT			0x80
 
 int alloc_pages (void **virt, u64 *phys, int n);
 int alloc_page (void **virt, u64 *phys);
+void free_page (void *virt);
 void *alloc (uint len);
 void free (void *virt);
 

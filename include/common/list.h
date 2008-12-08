@@ -54,4 +54,7 @@ struct list { void *next; };
 
 #define LIST_FOREACH(listname, p) for (p = listname##_head.next; p != NULL; p = p->listname.next)
 
+#define LIST_NEXT(listname, current) current->listname.next
+#define LIST_HEAD(listname) listname##_head.next
+
 #endif

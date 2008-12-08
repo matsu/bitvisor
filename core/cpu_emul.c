@@ -53,7 +53,7 @@ cpu_emul_cpuid (void)
 	current->vmctl.write_general_reg (GENERAL_REG_RDX, od);
 }
 
-void
+bool
 cpu_emul_rdmsr (void)
 {
 	u32 ic, oa, od;
@@ -65,14 +65,13 @@ cpu_emul_rdmsr (void)
 	current->vmctl.read_general_reg (GENERAL_REG_RCX, &lc);
 	ic = lc;
 	err = current->vmctl.read_msr (ic, &msrdata);
-	if (err)
-		panic ("MSR FAULT");
 	conv64to32 (msrdata, &oa, &od);
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, oa);
 	current->vmctl.write_general_reg (GENERAL_REG_RDX, od);
+	return err;
 }
 
-void
+bool
 cpu_emul_wrmsr (void)
 {
 	ulong ic, ia, id;
@@ -85,8 +84,7 @@ cpu_emul_wrmsr (void)
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &id);
 	conv32to64 (ia, id, &msrdata);
 	err = current->vmctl.write_msr (ic, msrdata);
-	if (err)
-		panic ("MSR FAULT");
+	return err;
 }
 
 void

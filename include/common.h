@@ -37,5 +37,6 @@
 #include <common/list.h>
 
 #define offsetof(s,m) (size_t)&(((s *)0)->m)
+#define lengthof(s)   (size_t)sizeof(s)/sizeof(s[0])
 
 #endif

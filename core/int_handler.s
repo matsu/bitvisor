@@ -31,49 +31,16 @@
 	SEG_SEL_PCPU64	= (16 * 8)
 	gs_inthandling	= 0
 
+	.include "longmode.h"
+
 	.text
-	.globl	int_handler32
-	.globl	int_handler64
+	.globl	int_handler
+	.globl	int_callfunc
 
-	.code32
+.if longmode
+	# 64bit
 	.align	8
-int_handler32:
-	push	%gs
-	push	$SEG_SEL_PCPU32
-	pop	%gs
-	cmpl	$0,%gs:gs_inthandling
-	je	1f
-	pop	%eax
-	pop	%eax		# interrupt number
-	mov	%gs:gs_inthandling,%esp
-	ret			# return
-1:
-	push	%es
-	push	%cs
-	push	%ss
-	push	%ds
-	push	%fs
-	pusha
-	push	$0
-	push	$0
-	push	$0
-	push	$0
-	push	$0
-	push	$0
-	push	$0
-	push	$0
-	mov	%ss,%eax
-	mov	%eax,%ds
-	mov	%eax,%es
-	mov	%eax,%fs
-	push	%esp
-	call	int_fatal
-	cli
-	hlt
-
-	.code64
-	.align	8
-int_handler64:
+int_handler:
 	push	%gs
 	push	$SEG_SEL_PCPU64
 	pop	%gs
@@ -121,3 +88,91 @@ int_handler64:
 	call	int_fatal
 	cli
 	hlt
+
+	.align	8
+int_callfunc:
+	push	%rbp
+	push	%rbx
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
+	push	$1f
+	mov	%rsp,%gs:gs_inthandling
+	call	*%rsi
+	add	$56,%rsp
+	mov	$-1,%eax
+	movq	$0,%gs:gs_inthandling
+	ret
+	.align	8
+1:
+	movq	$0,%gs:gs_inthandling
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	pop	%rbx
+	pop	%rbp
+	ret
+.else
+	# 32bit
+	.align	8
+int_handler:
+	push	%gs
+	push	$SEG_SEL_PCPU32
+	pop	%gs
+	cmpl	$0,%gs:gs_inthandling
+	je	1f
+	pop	%eax
+	pop	%eax		# interrupt number
+	mov	%gs:gs_inthandling,%esp
+	ret			# return
+1:
+	push	%es
+	push	%cs
+	push	%ss
+	push	%ds
+	push	%fs
+	pusha
+	push	$0
+	push	$0
+	push	$0
+	push	$0
+	push	$0
+	push	$0
+	push	$0
+	push	$0
+	mov	%ss,%eax
+	mov	%eax,%ds
+	mov	%eax,%es
+	mov	%eax,%fs
+	push	%esp
+	call	int_fatal
+	cli
+	hlt
+
+	.align	8
+int_callfunc:
+	push	%ebp
+	push	%ebx
+	push	%esi
+	push	%edi
+	push	$1f
+	mov	%esp,%gs:gs_inthandling
+	mov	24(%esp),%eax
+	mov	28(%esp),%edx
+	push	%eax
+	call	*%edx
+	add	$24,%esp
+	mov	$-1,%eax
+	movl	$0,%gs:gs_inthandling
+	ret
+	.align	8
+1:
+	movl	$0,%gs:gs_inthandling
+	pop	%edi
+	pop	%esi
+	pop	%ebx
+	pop	%ebp
+	ret
+.endif

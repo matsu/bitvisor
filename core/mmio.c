@@ -42,7 +42,14 @@
 #include "string.h"
 #include "vmmerr.h"
 
-static spinlock_t mmio_adddel_lock;
+struct call_flush_tlb_data {
+	struct vcpu *vcpu0;
+	phys_t start;
+	phys_t end;
+	bool ret;
+};
+
+static rw_spinlock_t mmio_rwlock;
 
 static int
 rangecheck (struct mmio_handle *h, phys_t gphys, uint len, phys_t *gphys2,
@@ -80,11 +87,13 @@ rangecheck (struct mmio_handle *h, phys_t gphys, uint len, phys_t *gphys2,
 }
 
 static void
-mmio_gphys_access (phys_t gphysaddr, bool wr, void *buf, uint len)
+mmio_gphys_access (phys_t gphysaddr, bool wr, void *buf, uint len, u32 flags)
 {
 	void *p;
 
-	p = mapmem_gphys (gphysaddr, len, wr ? MAPMEM_WRITE : 0);
+	if (!len)
+		return;
+	p = mapmem_gphys (gphysaddr, len, (wr ? MAPMEM_WRITE : 0) | flags);
 	ASSERT (p);
 	if (wr)
 		memcpy (p, buf, len);
@@ -94,7 +103,7 @@ mmio_gphys_access (phys_t gphysaddr, bool wr, void *buf, uint len)
 }
 
 int
-mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len)
+mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len, u32 f)
 {
 	struct mmio_list *p;
 	struct mmio_handle *h;
@@ -116,19 +125,19 @@ mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len)
 		if (rangecheck (h, gphysaddr, len, &gphys2, &len2)) {
 			r = 1;
 			tmp = gphys2 - gphysaddr;
-			mmio_gphys_access (gphysaddr, wr, q, tmp);
+			mmio_gphys_access (gphysaddr, wr, q, tmp, f);
 			gphysaddr += tmp;
 			q += tmp;
 			len -= tmp;
-			if (!h->handler (h->data, gphysaddr, wr, q, len2))
-				mmio_gphys_access (gphysaddr, wr, q, len2);
+			if (!h->handler (h->data, gphysaddr, wr, q, len2, f))
+				mmio_gphys_access (gphysaddr, wr, q, len2, f);
 			gphysaddr += len2;
 			q += len2;
 			len -= len2;
 		}
 	}
 	if (r)
-		mmio_gphys_access (gphysaddr, wr, q, len);
+		mmio_gphys_access (gphysaddr, wr, q, len, f);
 	return r;
 }
 
@@ -150,7 +159,7 @@ mmio_access_page (phys_t gphysaddr)
 			e = cpu_interpreter ();
 			if (e == VMMERR_SUCCESS)
 				return 1;
-			panic ("Fatal error: MMIO access");
+			panic ("Fatal error: MMIO access error %d", e);
 		}
 	}
 	return 0;
@@ -212,15 +221,69 @@ scan (phys_t gphys, uint len, void (*func) (int i, void *data), void *data)
 		func (i, data);
 }
 
+static bool
+call_flush_tlb (struct vcpu *p, void *q)
+{
+	struct call_flush_tlb_data *d;
+
+	d = q;
+	if (p->vcpu0 == d->vcpu0)
+		d->ret = p->vmctl.extern_flush_tlb_entry (p, d->start, d->end);
+	if (d->ret)
+		return true;
+	return false;
+}
+
+static bool
+flush_sub (phys_t hpst, phys_t hpend)
+{
+	struct call_flush_tlb_data d;
+
+	d.vcpu0 = current->vcpu0;
+	d.start = hpst;
+	d.end = hpend;
+	d.ret = false;
+	vcpu_list_foreach (call_flush_tlb, &d);
+	return d.ret;
+}
+
+static bool
+flush_tlb_entry (phys_t gpst, phys_t gpend)
+{
+	phys_t hp0, hp1, hp2, gp2;
+
+	hp0 = current->gmm.gp2hp (gpst, NULL);
+	gp2 = (gpst | PAGESIZE_MASK) + 1;
+	hp1 = hp0 | PAGESIZE_MASK;
+	while (gp2 <= gpend) {
+		hp2 = current->gmm.gp2hp (gp2, NULL);
+		if (hp1 + 1 != hp2) {
+			if (flush_sub (hp0, hp1))
+				return true;
+			hp0 = hp2;
+		}
+		hp1 = hp2 | PAGESIZE_MASK;
+		gp2 = (gp2 | PAGESIZE_MASK) + 1;
+	}
+	if (flush_sub (hp0, hp1))
+		return true;
+	return false;
+}
+
 void *
 mmio_register (phys_t gphys, uint len, mmio_handler_t handler, void *data)
 {
 	struct mmio_handle *p;
 
-	spinlock_lock (&mmio_adddel_lock);
+	rw_spinlock_lock_ex (&mmio_rwlock);
 	LIST1_FOREACH (current->vcpu0->mmio.handle, p) {
 		if (rangecheck (p, gphys, len, NULL, NULL))
 			goto fail;
+	}
+	if (flush_tlb_entry (gphys, gphys + len - 1)) {
+		printf ("%s: flush_tlb_entry(0x%llX, 0x%llX) failed\n"
+			, __func__, gphys, gphys + len - 1);
+		goto fail;
 	}
 	p = alloc (sizeof *p);
 	ASSERT (p);
@@ -231,7 +294,7 @@ mmio_register (phys_t gphys, uint len, mmio_handler_t handler, void *data)
 	LIST1_ADD (current->vcpu0->mmio.handle, p);
 	scan (gphys, len, add, p);
 ret:
-	spinlock_unlock (&mmio_adddel_lock);
+	rw_spinlock_unlock_ex (&mmio_rwlock);
 	return p;
 fail:
 	p = NULL;
@@ -243,22 +306,34 @@ mmio_unregister (void *handle)
 {
 	struct mmio_handle *p;
 
-	spinlock_lock (&mmio_adddel_lock);
+	rw_spinlock_lock_ex (&mmio_rwlock);
 	p = handle;
 	LIST1_DEL (current->vcpu0->mmio.handle, p);
 	scan (p->gphys, p->len, del, p);
 	free (p);
-	spinlock_unlock (&mmio_adddel_lock);
+	rw_spinlock_unlock_ex (&mmio_rwlock);
+}
+
+void
+mmio_lock (void)
+{
+	rw_spinlock_lock_sh (&mmio_rwlock);
+}
+
+void
+mmio_unlock (void)
+{
+	rw_spinlock_unlock_sh (&mmio_rwlock);
 }
 
 static int
-mmio_debug_vram (void *data, phys_t gphys, bool wr, void *buf, uint len)
+mmio_debug_vram (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f)
 {
 	uint i;
 	u8 *p, x;
 
 	x = *(u8 *)data;
-	p = mapmem_hphys (gphys, len, wr ? MAPMEM_WRITE : 0);
+	p = mapmem_hphys (gphys, len, (wr ? MAPMEM_WRITE : 0) | f);
 	ASSERT (p);
 	if (wr) {
 		for (i = 0; i < len; i++) {
@@ -300,7 +375,7 @@ mmio_init (void)
 {
 	int i;
 
-	spinlock_init (&mmio_adddel_lock);
+	rw_spinlock_init (&mmio_rwlock);
 	LIST1_HEAD_INIT (current->mmio.handle);
 	for (i = 0; i < 17; i++)
 		LIST1_HEAD_INIT (current->mmio.mmio[i]);

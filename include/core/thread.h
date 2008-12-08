@@ -41,4 +41,7 @@ void thread_exit (void);
 void thread_wakeup (tid_t tid);
 void thread_will_stop (void);
 
+#define VMM_STACKSIZE			(4096 * 4)
+#define VMM_MINSTACKSIZE		1024
+
 #endif

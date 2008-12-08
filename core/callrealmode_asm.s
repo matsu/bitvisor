@@ -228,12 +228,6 @@ paging_off:
 	mov	%cr3,%eax
 	mov	%eax,%cr3
 	ret
-paging_on:
-	# PG BIT (PAGING) ON
-	mov	%cr0,%eax
-	or	$0x80000000,%eax
-	mov	%eax,%cr0
-	ret
 protection_off:
 	cli
 	# PE BIT OFF
@@ -256,16 +250,9 @@ protection_off:
 	ret
 protection_and_paging_on:
 	cli
-	# PE BIT AND PG BIT ON
+	# PE BIT, TS BIT AND PG BIT ON
 	mov	%cr0,%eax
-	or	$0x80000001,%eax
-	mov	%eax,%cr0
-	jmp	1f
-protection_on:
-	cli
-	# PE BIT ON
-	mov	%cr0,%eax
-	or	$1,%eax
+	or	$0x80000009,%eax
 	mov	%eax,%cr0
 	jmp	1f
 1:

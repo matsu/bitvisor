@@ -32,8 +32,8 @@
 #include "callrealmode.h"
 #include "convert.h"
 #include "current.h"
+#include "crypt.h"              /* SoftEther */
 #include "debug.h"
-#include "guest_bioshook.h"
 #include "guest_boot.h"
 #include "initfunc.h"
 #include "linkage.h"
@@ -47,6 +47,8 @@
 #include "process.h" 
 #include "regs.h"
 #include "string.h"
+#include "svm.h"
+#include "svm_init.h"
 #include "types.h"
 #include "vcpu.h"
 #include "vmmcall.h"
@@ -127,6 +129,10 @@ virtualization_init_pcpu (void)
 		vt_init ();
 		currentcpu->fullvirtualize = FULLVIRTUALIZE_VT;
 	}
+	if (svm_available ()) {
+		svm_init ();
+		currentcpu->fullvirtualize = FULLVIRTUALIZE_SVM;
+	}
 }
 
 /* set current vcpu for full virtualization */
@@ -136,10 +142,13 @@ set_fullvirtualize (void)
 	switch (currentcpu->fullvirtualize) {
 	case FULLVIRTUALIZE_NONE:
 		panic ("Fatal error: This processor does not support"
-		       " Intel VT");
+		       " Intel VT or AMD Virtualization");
 		break;
 	case FULLVIRTUALIZE_VT:
 		vmctl_vt_init ();
+		break;
+	case FULLVIRTUALIZE_SVM:
+		vmctl_svm_init ();
 		break;
 	}
 }
@@ -147,8 +156,12 @@ set_fullvirtualize (void)
 static void
 initregs (bool bsp, u8 bios_boot_drive)
 {
-	current->vmctl.write_control_reg (CONTROL_REG_CR0, CR0_PE_BIT);
-	current->vmctl.write_control_reg (CONTROL_REG_CR0, 0);
+	void *p;
+
+	current->vmctl.reset ();
+	current->vmctl.write_control_reg (CONTROL_REG_CR0,
+					  CR0_PE_BIT | CR0_ET_BIT);
+	current->vmctl.write_control_reg (CONTROL_REG_CR0, CR0_ET_BIT);
 	current->vmctl.write_control_reg (CONTROL_REG_CR3, 0);
 	current->vmctl.write_control_reg (CONTROL_REG_CR4, 0);
 	current->vmctl.write_control_reg (CONTROL_REG_CR4, 0);
@@ -170,8 +183,11 @@ initregs (bool bsp, u8 bios_boot_drive)
 	current->vmctl.write_flags (RFLAGS_ALWAYS1_BIT);
 	current->vmctl.write_idtr (0, 0x3FF);
 	if (bsp) {
-		memcpy ((u8 *)GUEST_BOOT_OFFSET, guest_boot_start,
-			guest_boot_end - guest_boot_start);
+		p = mapmem_hphys (GUEST_BOOT_OFFSET, GUEST_BOOT_LENGTH,
+				  MAPMEM_WRITE);
+		ASSERT (p);
+		memcpy (p, guest_boot_start, GUEST_BOOT_LENGTH);
+		unmapmem (p, GUEST_BOOT_LENGTH);
 		current->vmctl.write_general_reg (GENERAL_REG_RCX,
 						  bios_boot_drive);
 		current->vmctl.write_realmode_seg (SREG_CS, 0x0);
@@ -215,9 +231,14 @@ reinitialize_vm (bool bsp, u8 bios_boot_drive)
 		ASSERT (p);
 		memcpy (p, bios_data_area, 0xA0000);
 		unmapmem (p, 0xA0000);
+		call_initfunc ("config0");
+		load_drivers ();
+		call_initfunc ("config1");
+		initregs (bsp, bios_boot_drive);
 		sync_cursor_pos ();
+	} else {
+		panic ("reinitialize_vm: !bsp");
 	}
-	initregs (bsp, bios_boot_drive);
 }
 
 static void
@@ -249,9 +270,12 @@ create_pass_vm (void)
 	current->initialized = true;
 	sync_all_processors ();
 	if (bsp) {
-		load_drivers ();
+		if (!minios_startaddr)
+			load_drivers ();
 		print_startvm_msg ();
 		sync_cursor_pos ();
+
+		crypt_init_crypto_and_vpn();    /* SoftEther */
 	}
 	sync_all_processors ();
 #ifdef DEBUG_GDB
@@ -259,7 +283,7 @@ create_pass_vm (void)
 		for (;;)
 			asm_cli_and_hlt ();
 #endif
-	if (bsp) {
+	if (bsp && minios_startaddr) {
 		current->vmctl.write_general_reg (GENERAL_REG_RSI,
 						  0x10000);
 		current->vmctl.write_general_reg (GENERAL_REG_RDI,

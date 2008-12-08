@@ -36,6 +36,9 @@
 #include <core/types.h>
 
 typedef u8 spinlock_t;
+typedef u32 rw_spinlock_t;
+
+#define SPINLOCK_INITIALIZER ((spinlock_t)0)
 
 #ifdef SPINLOCK_DEBUG
 #define spinlock_lock _spinlock_lock
@@ -127,6 +130,63 @@ static inline void
 spinlock_init (spinlock_t *l)
 {
 	spinlock_unlock (l);
+}
+
+static inline void
+rw_spinlock_lock_sh (rw_spinlock_t *l)
+{
+	asm volatile (" lock addl %2, %0 \n" /* increment *l */
+		      "      jns  1f \n" /* if positive, succeeded */
+		      "2: \n"
+		      "      pause \n" /* spin loop hint */
+		      "      cmpl %1, %0 \n" /* test a sign */
+		      "      js   2b \n" /* if negative, do spin loop */
+		      "1: \n"
+		      : "=m" (*l)
+		      : "ri" ((rw_spinlock_t)0)
+		      , "ri" ((rw_spinlock_t)1)
+		      : "cc");
+}
+
+static inline void
+rw_spinlock_unlock_sh (rw_spinlock_t *l)
+{
+	asm volatile ("lock subl %1, %0"
+		      : "=m" (*l)
+		      : "ri" ((rw_spinlock_t)1)
+		      : "cc");
+}
+
+static inline void
+rw_spinlock_lock_ex (rw_spinlock_t *l)
+{
+	asm volatile (" lock cmpxchgl %2, %0 \n" /* if *l==0, *l=0x80000000 */
+		      "      je       1f \n" /* and succeeded */
+		      "2: \n"
+		      "      xor      %1, %1 \n" /* clear %eax */
+		      "      pause \n" /* spin loop hint */
+		      " lock cmpxchgl %2, %0 \n" /* if *l==0, *l=0x80000000 */
+		      "      jne      2b \n" /* else do spin loop */
+		      "1: \n"
+		      : "=m" (*l)
+		      : "a" (0)
+		      , "r" (0x80000000)
+		      : "cc");
+}
+
+static inline void
+rw_spinlock_unlock_ex (rw_spinlock_t *l)
+{
+	asm volatile ("lock andl %1,%0"
+		      : "=m" (*l)
+		      : "ri" ((rw_spinlock_t)0x7FFFFFFF)
+		      : "cc");
+}
+
+static inline void
+rw_spinlock_init (rw_spinlock_t *l)
+{
+	*l = 0;
 }
 
 #endif

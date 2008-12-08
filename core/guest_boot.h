@@ -31,6 +31,8 @@
 #define _CORE_GUEST_BOOT_H
 
 #define GUEST_BOOT_OFFSET 0x800
+#define GUEST_BOOT_LENGTH (guest_boot_end - guest_boot_start)
+
 extern char guest_boot_start[], guest_boot_end[];
 
 #endif

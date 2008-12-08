@@ -30,8 +30,11 @@
 #include <core.h>
 #include "security.h"
 
-int security_storage_check_lba(struct storage_device *device, lba_t lba, size_t size)
+int security_storage_check_lba(struct storage_device *device, int rw, lba_t lba, size_t size)
 {
-	printf("%s: %08llx\n", __func__, lba);
+	if (lba == LBA_NONE)
+		return SECURITY_ALLOW;
+
+	// printf("%s: rw=%d, lba=%012llx, sector count=%04lx\n", __func__, rw, lba, size);
 	return SECURITY_ALLOW;
 }

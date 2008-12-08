@@ -30,10 +30,14 @@
 #ifndef __CORE_ASSERT_H
 #define __CORE_ASSERT_H
 
+#ifdef ENABLE_ASSERT
 #define ASSERT(x) if (!(x)) \
 	assertion_failed (#x, __FUNCTION__, __FILE__, __LINE__)
 
 void assertion_failed (char *x, const char *funcname, char *filename,
 		       int linenum);
+#else
+#define ASSERT(x)
+#endif
 
 #endif

@@ -33,6 +33,7 @@
 #include "asm.h"
 #include "desc.h"
 #include "seg.h"
+#include "svm.h"
 #include "thread.h"
 #include "types.h"
 #include "vt.h"
@@ -43,6 +44,7 @@
 enum fullvirtualize_type {
 	FULLVIRTUALIZE_NONE,
 	FULLVIRTUALIZE_VT,
+	FULLVIRTUALIZE_SVM,
 };
 
 struct pcpu_func {
@@ -54,6 +56,7 @@ struct pcpu {
 	struct tss32 tss32;
 	struct tss64 tss64;
 	struct vt_pcpu_data vt;
+	struct svm_pcpu_data svm;
 	enum fullvirtualize_type fullvirtualize;
 	int cpunum;
 	int pid;

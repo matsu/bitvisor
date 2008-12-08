@@ -35,6 +35,6 @@
 #define SECURITY_ALLOW	0
 #define SECURITY_DENY	1
 	
-int security_storage_check_lba(struct storage_device *device, lba_t lba, size_t size);
+int security_storage_check_lba(struct storage_device *device, int rw, lba_t lba, size_t size);
 
 #endif

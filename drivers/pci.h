@@ -29,7 +29,7 @@
 
 #ifndef _PCI_H
 #define _PCI_H
-#include <common.h>
+#include <core.h>
 
 struct idmask { u32 id, mask; };
 #define idmask_match(a, b) ((a & b.mask) == b.id)
@@ -37,7 +37,8 @@ struct idmask { u32 id, mask; };
 #define PCI_ID_ANY	0
 #define PCI_ID_ANY_MASK	0
 
-#define PCI_CONFIG_REGS_NUM	256
+#define PCI_CONFIG_REGS8_NUM	256
+#define PCI_CONFIG_REGS32_NUM	(PCI_CONFIG_REGS8_NUM / sizeof(u32))
 
 // configuration address
 typedef struct {
@@ -45,10 +46,10 @@ typedef struct {
 		u32 value;
 		struct {
 			unsigned int type:		2;
-			unsigned int reg_num:		6;
-			unsigned int func_num:		3;
-			unsigned int device_num:	5;
-			unsigned int bus_num:		8;
+			unsigned int reg_no:		6;
+			unsigned int func_no:		3;
+			unsigned int device_no:		5;
+			unsigned int bus_no:		8;
 			unsigned int reserved:		7;
 			unsigned int allow:		1;
 		};
@@ -58,8 +59,8 @@ typedef struct {
 // configuration space
 struct pci_config_space {
 	union {
-		u8 regs8[PCI_CONFIG_REGS_NUM];
-		u32 regs32[PCI_CONFIG_REGS_NUM / sizeof(u32)];
+		u8 regs8[PCI_CONFIG_REGS8_NUM];
+		u32 regs32[PCI_CONFIG_REGS32_NUM];
 		struct {
 			u16 vendor_id;
 			u16 device_id;
@@ -106,12 +107,16 @@ struct pci_config_space {
 #define PCI_CONFIG_BASE_ADDRESS_IOMASK		0x0000FFFC
 #define PCI_CONFIG_BASE_ADDRESS_MEMMASK		0xFFFFFFF0
 
-#define PCI_CONFIG_BASE_ADDRESS0 offsetof(struct pci_config_space, base_address[0])
-#define PCI_CONFIG_BASE_ADDRESS1 offsetof(struct pci_config_space, base_address[1])
-#define PCI_CONFIG_BASE_ADDRESS2 offsetof(struct pci_config_space, base_address[2])
-#define PCI_CONFIG_BASE_ADDRESS3 offsetof(struct pci_config_space, base_address[3])
-#define PCI_CONFIG_BASE_ADDRESS4 offsetof(struct pci_config_space, base_address[4])
-#define PCI_CONFIG_BASE_ADDRESS5 offsetof(struct pci_config_space, base_address[5])
+#define PCI_CONFIG_SPACE_GET_OFFSET(regname) offsetof(struct pci_config_space, regname)
+#define PCI_CONFIG_ADDRESS_GET_REG_NO(regname) (offsetof(struct pci_config_space, regname) / sizeof(u32))
+
+#define PCI_CONFIG_BASE_ADDRESS_NUMS 6
+#define PCI_CONFIG_BASE_ADDRESS0 PCI_CONFIG_SPACE_GET_OFFSET(base_address[0])
+#define PCI_CONFIG_BASE_ADDRESS1 PCI_CONFIG_SPACE_GET_OFFSET(base_address[1])
+#define PCI_CONFIG_BASE_ADDRESS2 PCI_CONFIG_SPACE_GET_OFFSET(base_address[2])
+#define PCI_CONFIG_BASE_ADDRESS3 PCI_CONFIG_SPACE_GET_OFFSET(base_address[3])
+#define PCI_CONFIG_BASE_ADDRESS4 PCI_CONFIG_SPACE_GET_OFFSET(base_address[4])
+#define PCI_CONFIG_BASE_ADDRESS5 PCI_CONFIG_SPACE_GET_OFFSET(base_address[5])
 
 // data structures
 struct pci_device {
@@ -120,6 +125,8 @@ struct pci_device {
 	void *host;
 	struct pci_driver *driver;
 	struct pci_config_space config_space;
+	u32 base_address_mask[PCI_CONFIG_BASE_ADDRESS_NUMS+1];
+	u8 in_base_address_mask_emulation;
 };
 
 struct pci_driver {
@@ -129,12 +136,23 @@ struct pci_driver {
 	void (*new)(struct pci_device *dev);
 	int (*config_read)(struct pci_device *dev, core_io_t ioaddr, u8 offset, union mem *data);
 	int (*config_write)(struct pci_device *dev, core_io_t ioaddr, u8 offset, union mem *data);
+	struct {
+		unsigned int use_base_address_mask_emulation: 1;
+	} options;
 	const char *name, *longname;
 };
 
-void pci_register_driver (struct pci_driver *driver);
-u32 pci_read_config_data_port();
-void pci_write_config_data_port(u32 data);
-void pci_handle_default_config_write(struct pci_device *pci_device, core_io_t ioaddr, u8 offset, union mem *data);
+// exported functions
+extern void pci_register_driver (struct pci_driver *driver);
+extern void pci_handle_default_config_write(struct pci_device *pci_device, core_io_t ioaddr, u8 offset, union mem *data);
+extern u32  pci_read_config_data_port();
+extern void pci_write_config_data_port(u32 data);
+
+extern u8 pci_read_config_data8(pci_config_address_t addr, int offset);
+extern u16 pci_read_config_data16(pci_config_address_t addr, int offset);
+extern u32 pci_read_config_data32(pci_config_address_t addr, int offset);
+extern void pci_write_config_data8(pci_config_address_t addr, int offset, u8 data);
+extern void pci_write_config_data16(pci_config_address_t addr, int offset, u16 data);
+extern void pci_write_config_data32(pci_config_address_t addr, int offset, u32 data);
 
 #endif

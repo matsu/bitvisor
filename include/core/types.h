@@ -57,4 +57,14 @@ union mem {
 	u64 qword;
 };
 
+typedef union {
+	u8 byte;
+	u16 word;
+	u32 dword;
+	u64 qword;
+	u8 bytes[8];
+	u16 words[4];
+	u32 dwords[2];
+} core_mem_t;
+
 #endif

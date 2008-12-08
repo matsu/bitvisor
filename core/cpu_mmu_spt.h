@@ -160,10 +160,13 @@ struct cpu_mmu_spt_data {
 };
 #endif /* CPU_MMU_SPT_3 */
 
-void cpu_mmu_spt_tlbflush (void);
+struct vcpu;
+
+bool cpu_mmu_spt_tlbflush (void);
 void cpu_mmu_spt_updatecr3 (void);
 void cpu_mmu_spt_invalidate (ulong virtual_addr);
 void cpu_mmu_spt_pagefault (ulong err, ulong cr2);
+bool cpu_mmu_spt_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end);
 int cpu_mmu_spt_init (void);
 
 #endif

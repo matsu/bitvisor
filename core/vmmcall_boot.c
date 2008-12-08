@@ -29,7 +29,8 @@
 
 #include "asm.h"
 #include "assert.h"
-#include "bootdata.h"
+#include "config.h"
+#include "current.h"
 #include "initfunc.h"
 #include "main.h"
 #include "mm.h"
@@ -45,28 +46,30 @@
 static bool enable = false;
 static u8 boot_drive;
 
-struct boot_data bootdata;
+struct config_data config;
 
 void
 boot_guest (void)
 {
 	bool bsp = false;
 	u8 bios_boot_drive = 0;
-	struct boot_data *d;
+	struct config_data *d;
+	ulong rbx;
 
 	if (!enable)
 		return;
 
 	if (currentcpu->cpunum != 0)
 		panic ("boot from AP");
-	d = mapmem_hphys (0, sizeof *d, 0);
+	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
+	rbx &= 0xFFFFFFFF;
+	d = mapmem_hphys (rbx, sizeof *d, 0);
 	ASSERT (d);
 	if (d->len != sizeof *d)
-		panic ("bootdata size mismatch: %d, %d\n", d->len,
+		panic ("config size mismatch: %d, %d\n", d->len,
 		       (int)sizeof *d);
-	memcpy (&bootdata, d, sizeof *d);
+	memcpy (&config, d, sizeof *d);
 	unmapmem (d, sizeof *d);
-	call_initfunc ("bootdat");
 	enable = false;
 	bsp = true;
 	bios_boot_drive = boot_drive;
@@ -102,7 +105,8 @@ static void
 vmmcall_boot_init (void)
 {
 	vmmcall_register ("boot", boot_guest);
-	bootdata.len = 0;
+	config.len = 0;
+	enable = false;
 }
 
 INITFUNC ("vmmcal0", vmmcall_boot_init);

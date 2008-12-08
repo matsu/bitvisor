@@ -51,10 +51,10 @@ struct mmio_data {
 	LIST1_DEFINE_HEAD (struct mmio_handle, handle);
 };
 
-int mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len);
+int mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len,
+			u32 flags);
 int mmio_access_page (phys_t gphysaddr);
-void *mmio_register (phys_t gphys, uint len, mmio_handler_t handler,
-		     void *data);
-void mmio_unregister (void *handle);
+void mmio_lock (void);
+void mmio_unlock (void);
 
 #endif

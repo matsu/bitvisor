@@ -48,6 +48,7 @@
 static void vt_exint_pass (bool enable);
 static void vt_exint_pending (bool pending);
 static void vt_tsc_offset_changed (void);
+static bool vt_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e);
 
 static struct vmctl_func func = {
 	vt_vminit,
@@ -85,6 +86,9 @@ static struct vmctl_func func = {
 	vt_init_signal,
 	vt_tsc_offset_changed,
 	vt_panic_dump,
+	vt_invlpg,
+	vt_reset,
+	vt_extern_flush_tlb_entry,
 };
 
 void
@@ -170,6 +174,12 @@ vt_exint_pending (bool pending)
 	else
 		proc &= ~VMCS_PROC_BASED_VMEXEC_CTL_INTRWINEXIT_BIT;
 	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc);
+}
+
+static bool
+vt_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e)
+{
+	return cpu_mmu_spt_extern_mapsearch (p, s, e);
 }
 
 static void
