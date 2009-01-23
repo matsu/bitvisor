@@ -197,7 +197,8 @@ vmcall_dbgsh (int c)
 {
 	int r, n;
 
-	asm volatile ("vmcall" : "=a" (n) : "a" (0), "b" ("dbgsh"));
+	asm volatile ("push (%%ebx); push 4(%%ebx); lea 8(%%esp),%%esp; vmcall"
+		      : "=a" (n) : "a" (0), "b" ("dbgsh"));
 	if (!n)
 		return -1;
 	asm volatile ("vmcall" : "=a" (r) : "a" (n), "b" (c));
@@ -215,7 +216,8 @@ main ()
 {
 	int s, r;
 
-	vmcall_dbgsh (-1);
+	if (vmcall_dbgsh (-1) == -1)
+		exit (1);
 	atexit (e);
 	NOECHO ();
 	s = -1;

@@ -33,9 +33,11 @@
 	.text
 	.globl	mpumul_64_64
 	.globl	mpudiv_128_32
+	.globl	ipchecksum
 
 # void mpumul_64_64 (u64 m1, u64 m2, u64 ans[2]);
 # u32 mpudiv_128_32 (u64 d1[2], u32 d2, u64 quotient[2]);
+# u16 ipchecksum (void *buf, u32 len);
 
 .if longmode
 	.code64
@@ -60,7 +62,65 @@ mpudiv_128_32:
 	mov	%rax,0(%rcx)	# rax -> quotient[0]
 	mov	%rdx,%rax	# return rdx
 	ret
-
+	.align	16
+ipchecksum:
+	mov	%esi,%ecx	# len (32bit) -> rcx
+	mov	%rdi,%rsi	# buf -> rsi
+	mov	$-1,%rdi
+	xor	%rdx,%rdx
+	cld
+1:
+	shr	%ecx		# len bit0 test
+	jnc	1f
+	shl	$8,%rdi
+1:
+	test	$6,%esi		# rsi bit1 and bit2 test
+	je	1f
+	test	%ecx,%ecx
+	je	1f
+	xor	%eax,%eax
+2:
+	lodsw
+	add	%eax,%edx
+	sub	$1,%ecx
+	je	1f
+	test	$6,%esi
+	jne	2b
+1:
+	shr	%ecx		# len bit1 test
+	jnc	1f
+	shl	$16,%rdi
+1:
+	shr	%ecx		# len bit2 test
+	jnc	1f
+	shl	$32,%rdi
+1:
+	not	%rdi
+	test	%ecx,%ecx
+	je	1f
+2:
+	lodsq
+	add	%rax,%rdx
+	adc	$0,%rdx
+	sub	$1,%ecx
+	jne	2b
+1:
+	lodsq
+	and	%rdi,%rax
+	add	%rdx,%rax
+	adc	$0,%rax
+	mov	%eax,%edx
+	shr	$32,%rax
+	add	%edx,%eax
+	adc	$0,%eax
+	mov	%eax,%edx
+	shr	$16,%eax
+	add	%dx,%ax
+	adc	$0,%ax
+1:
+	xor	$~0,%ax
+	je	1b
+	ret
 .else
 	.code32
 	# 0=ret 4=m1l 8=m1h 12=m2l 16=m2h 20=ans[]
@@ -115,5 +175,59 @@ mpudiv_128_32:
 	pop	%esi
 	pop	%edi
 	ret
-
+	.align	16
+ipchecksum:
+	push	%edi
+	push	%esi
+	mov	16(%esp),%ecx	# len -> ecx
+	mov	12(%esp),%esi	# buf -> esi
+	mov	$-1,%edi
+	xor	%edx,%edx
+	cld
+1:
+	shr	%ecx		# len bit0 test
+	jnc	1f
+	shl	$8,%edi
+1:
+	test	$2,%esi		# esi bit1 test
+	je	1f
+	test	%ecx,%ecx
+	je	1f
+	xor	%eax,%eax
+2:
+	lodsw
+	add	%eax,%edx
+	sub	$1,%ecx
+	je	1f
+	test	$2,%esi
+	jne	2b
+1:
+	shr	%ecx		# len bit1 test
+	jnc	1f
+	shl	$16,%edi
+1:
+	not	%edi
+	test	%ecx,%ecx
+	je	1f
+2:
+	lodsl
+	add	%eax,%edx
+	adc	$0,%edx
+	sub	$1,%ecx
+	jne	2b
+1:
+	lodsl
+	and	%edi,%eax
+	add	%edx,%eax
+	adc	$0,%eax
+	mov	%eax,%edx
+	shr	$16,%eax
+	add	%dx,%ax
+	adc	$0,%ax
+1:
+	xor	$~0,%ax
+	je	1b
+	pop	%esi
+	pop	%edi
+	ret
 .endif

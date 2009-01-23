@@ -1,7 +1,5 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
- * Copyright (C) 2007, 2008 
- *      National Institute of Information and Communications Technology
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,52 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Secure VM Project
-// ve (Virtual Ethernet)
-// 
-// By dnobori@cs.tsukuba.ac.jp
+#ifndef __CORE_ARITH_H
+#define __CORE_ARITH_H
 
-#ifndef	VE_COMMON_H
-#define	VE_COMMON_H
+#include <core/linkage.h>
+#include <core/types.h>
 
-// 型
-#ifdef	_MSC_VER
-#ifdef	_WIN64
-typedef	unsigned long long int		intptr;
-#else	// _WIN64
-typedef	unsigned int				intptr;
-#endif	// _WIN64
-#else	// _MSC_VER
-typedef unsigned long int			intptr;
-#endif	// _MSC_VER
+asmlinkage void mpumul_64_64 (u64 m1, u64 m2, u64 ans[2]);
+asmlinkage u32 mpudiv_128_32 (u64 d1[2], u32 d2, u64 quotient[2]);
+asmlinkage u16 ipchecksum (void *buf, u32 len);
 
-// 定数
-#define	VE_BUFSIZE					1600		// 1 回の call で送受信するバッファサイズ
-#define	VE_MAX_PACKET_SIZE			1514		// 最大パケットサイズ
-
-// 構造体
-typedef struct VE_CTL VE_CTL;
-
-struct VE_CTL
-{
-	unsigned int RetValue;			// 戻り値 (1: 成功, 0: 失敗)
-	unsigned int Operation;			// 操作の内容
-	unsigned int EthernetType;		// Ethernet デバイスの種類
-	unsigned int NumQueue;			// パケットを渡す側のキューに残っているパケットの数
-	unsigned int PacketSize;		// パケットサイズ
-	unsigned char PacketData[VE_MAX_PACKET_SIZE];	// パケットデータ
-	unsigned char _padding[66];		// padding
-};
-
-#define	VE_OP_GET_NEXT_SEND_PACKET		0	// 次に送信すべきパケットの取得 (vpn -> vmm -> guest)
-#define	VE_OP_PUT_RECV_PACKET			1	// 受信したパケットの書き込み (guest -> vmm -> vpn)
-#define	VE_OP_GET_LOG					2	// ログを 1 行取得 (vmm -> guest)
-
-#define	VE_TYPE_PHYSICAL				0	// 物理的な LAN カード
-#define	VE_TYPE_VIRTUAL					1	// 仮想的な LAN カード
-
-
-
-#endif	// VE_COMMON_H
-
-
+#endif

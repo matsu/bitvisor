@@ -7,7 +7,9 @@ OBJS-1        = aes_core.o
 OBJS-$(CONFIG_CRYPTO_VPN) = $(patsubst %.c,%.o,$(wildcard *.c))
 OBJS          = $(OBJS-1)
 HEADERS       = $(wildcard *.h)
-CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O -nostdinc -fno-builtin $(CONSTANTS-1) -I../../include/ -I../ -I./ -I../../vpn/
+CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O \
+		-nostdinc -fno-builtin $(CONSTANTS-1) -I../../include/ -I../ \
+		-I./ -I../../vpn/ -fno-stack-protector
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64

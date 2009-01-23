@@ -35,8 +35,8 @@
 #include <core.h>
 #include <core/timer.h>
 #include "pci.h"
-#include "usb.h"
 #include "uhci.h"
+#include "usb.h"
 
 #define UHCI_WALK_QH_SLOW_SPEED    3
 #define UHCI_WALK_TD_SLOW_SPEED    3
@@ -478,8 +478,10 @@ device_found:
 
 	printf("%s: bus->host->iobase = %04x.\n", 
 	       __FUNCTION__, bus->host->iobase);
+	spinlock_lock(&dev->lock_dev);
 	printf("%s: bus->host->device->bDeviceAddress = %d.\n", 
 	       __FUNCTION__, dev->devnum);
+	spinlock_unlock(&dev->lock_dev);
 
 	/*** usb_open ***/
 	handle = usb_open(dev);

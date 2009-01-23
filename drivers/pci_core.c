@@ -162,7 +162,8 @@ void pci_register_driver(struct pci_driver *driver)
 			driver->new(dev);
 		}
 	}
-	printf("%s registered\n", driver->longname);
+	if (driver->longname)
+		printf ("%s registered\n", driver->longname);
 	return;
 }
 

@@ -36,6 +36,7 @@
 #include <core/thread.h>
 #include "pci.h"
 #include "uhci.h"
+#include "usb.h"
 
 static const char driver_name[] = "uhci_generic_driver";
 static const char driver_longname[] = 
@@ -68,6 +69,9 @@ uhci_new(struct pci_device *pci_device)
 #if defined(USBMSC_HANDLE)
 	extern void usbmsc_init_handle(struct uhci_host *host);
 #endif
+#if defined(USBHUB_HANDLE)
+	extern void usbhub_init_handle(struct uhci_host *host);
+#endif
 
 	dprintft(5, "%s invoked.\n", __FUNCTION__);
 
@@ -89,8 +93,40 @@ uhci_new(struct pci_device *pci_device)
 #if defined(USBMSC_HANDLE)
 	usbmsc_init_handle(host);
 #endif
+#if defined(USBHUB_HANDLE)
+	usbhub_init_handle(host);
+#endif
 
 	return;
+}
+
+static int
+check_port_status(struct uhci_host *host, int portno, u16 val16)
+{
+	struct usb_device *dev;
+
+	if (val16 & 0x0002){
+		dprintft(3, "%04x: PORTSC 0-0-0-0-%d: Port status disconnect."
+					"\n", host->iobase, portno + 1);
+		for (dev = host->device; dev; dev = dev->next){
+			if(portno + 1 == dev->portno){
+				dprintft(1, "%04x: PORTNO 0-0-0-0-%d: "
+					"USB device disconnect.\n",
+					host->iobase, dev->portno);
+				free_device(host, dev);
+				break;
+			}
+		}
+						
+		if (val16 & 0x0001){
+			host->last_change_port = portno + 1;
+			dprintft(3, "%04x: PORTSC 0-0-0-0-%d: "
+				"Port Status connect\n", host->iobase, 
+				host->last_change_port);
+		}
+
+	}
+	return 0;
 }
 
 /**
@@ -205,12 +241,12 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 		portno = (io.port - host->iobase - UHCI_REG_PORTSC1) >> 1;
 		if (portno >= UHCI_NUM_PORTS_HC) {
 			dprintft(5, "%04x: PORTSC: illegal port no %d\n",
-				 host->iobase, portno);
+				 host->iobase, portno + 1);
 			break;
 		}
 
 		if (io.dir) {
-			dprintft(5, "%04x: PORTSC%d: WR %04x\n", 
+			dprintft(5, "%04x: PORTSC 0-0-0-0-%d: WR %04x\n", 
 				 host->iobase, portno + 1, 
 				 (*data).dword);
 		} else {
@@ -218,10 +254,12 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 				
 			in16(io.port, &val16);
 			if (val16 != host->portsc[portno]) {
-				dprintft(5, "%04x: PORTSC%d: "
+				dprintft(5, "%04x: PORTSC 0-0-0-0-%d: "
 					 "RD %04x -> %04x\n", 
 					 host->iobase, portno + 1, 
 					 host->portsc[portno], val16);
+				check_port_status(host, portno, val16);
+			
 				host->portsc[portno] = val16;
 			}
 			(*data).dword = val16;

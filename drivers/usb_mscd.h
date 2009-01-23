@@ -52,8 +52,6 @@ struct usbmsc_device {
 	u32        block_len;
 	u32        length;
 	struct shadow_block_list *block_list;
-#define USBMSC_NUM_HOOKS          4
-	struct uhci_hook *hook[USBMSC_NUM_HOOKS];
 #define USBMSC_HOOK_PRE_IN     0
 #define USBMSC_HOOK_POST_IN    1
 #define USBMSC_HOOK_PRE_OUT    2
@@ -283,5 +281,6 @@ struct usb_msc_csw {
 	u32 dCSWDataResidue;
 	u8  bCSWStatus;
 } __attribute__ ((packed));
+
 
 #endif /* _USB_MSCD_H */

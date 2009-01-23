@@ -5,7 +5,9 @@ BITS-0        = 32
 BITS-1        = 64
 OBJS          = $(patsubst %.c,%.o,$(wildcard *.c))
 HEADERS       = $(wildcard *.h)
-CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O -nostdinc -fno-builtin $(CONSTANTS-1) -I../pcsc/ -I./ -I../standardio/ -DIDMAN_CLIENT -DNTTCOM
+CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O \
+		-nostdinc -fno-builtin $(CONSTANTS-1) -I../pcsc/ -I./ \
+		-I../standardio/ -DIDMAN_CLIENT -DNTTCOM -fno-stack-protector
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64

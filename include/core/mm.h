@@ -42,7 +42,9 @@
 int alloc_pages (void **virt, u64 *phys, int n);
 int alloc_page (void **virt, u64 *phys);
 void free_page (void *virt);
+void free_page_phys (phys_t phys);
 void *alloc (uint len);
+void *realloc (void *virt, uint len);
 void free (void *virt);
 
 /* accessing memory */

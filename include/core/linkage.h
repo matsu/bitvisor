@@ -27,12 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_PUTCHAR_H
-#define _CORE_PUTCHAR_H
+#ifndef __CORE_LINKAGE
+#define __CORE_LINKAGE
 
-typedef void (*putchar_func_t) (unsigned char);
-
-void putchar (unsigned char c);
-void putchar_set_func (putchar_func_t newfunc, putchar_func_t *oldfunc);
+#define asmlinkage __attribute__ ((regparm (0)))
 
 #endif

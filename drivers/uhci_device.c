@@ -36,53 +36,14 @@
 #include "uhci.h"
 #include "usb.h"
 
+#if defined(USBHUB_HANDLE)
+#include "usb_hub.h"
+#endif
 
 DEFINE_ZALLOC_FUNC(usb_device);
 DEFINE_ZALLOC_FUNC(usb_device_descriptor);
 DEFINE_ZALLOC_FUNC(usb_endpoint_descriptor);
 DEFINE_ZALLOC_FUNC(usb_interface);
-
-/** 
- * @breif returns the device of the corresponding address
- * @param host struct uhci_host 
- * @param address u8 
- */
-static inline struct usb_device *
-get_device_by_address(struct uhci_host *host, u8 address)
-{
-	struct usb_device *dev = host->device;
-
-	if (!address)
-		return NULL;
-
-	while (dev) {
-		if (dev->devnum == address)
-			break;
-		dev = dev->next;
-	}
-
-	return dev;
-}
-
-/**
- * @brief returns the address from the TD token 
- * @params tdtoken u32
- */
-static inline u8
-get_address_from_tdtoken(u32 tdtoken)
-{
-	return (u8)((tdtoken >> 8) & 0x0000007fU);
-}
-
-/**
- * @brief returns the end point from the TD token 
- * @params tdtoken u32
- */
-static inline u8
-get_endpoint_from_tdtoken(u32 tdtoken)
-{
-	return (u8)((tdtoken >> 15) & 0x0000000fU);
-}
 
 #define DEFINE_GET_U16_FROM_SETUP_FUNC(type) \
 	static inline u16 \
@@ -116,7 +77,7 @@ DEFINE_GET_U16_FROM_SETUP_FUNC(wLength)
  */
 static int 
 device_state_change(struct uhci_host *host, struct uhci_hook *hook,
-		    struct uhci_td_meta *tdm)
+		    struct vm_usb_message *um, struct uhci_td_meta *tdm)
 {
 	struct usb_device *dev;
 	u8 devadr;
@@ -125,7 +86,7 @@ device_state_change(struct uhci_host *host, struct uhci_hook *hook,
 	dprintft(1, "%04x: SetConfiguration(",
 		host->iobase);
 
-	devadr = get_address_from_tdtoken(tdm->td->token);
+	devadr = get_address_from_td(tdm->td);
 	dev = get_device_by_address(host, devadr);
 	confno = get_wValue_from_setup(tdm->td);
 	dprintf(1, "%u, %u) found.\n", devadr, confno);
@@ -427,8 +388,8 @@ free_interface_descriptors(struct usb_interface_descriptor intf[], int n)
  * @param cfg configuration descriptor arrays
  * @param n size of array  
  */
-static inline void
-free_config_descriptors(struct usb_config_descriptor cfg[], int n)
+void
+free_config_descriptors(struct usb_config_descriptor *cfg, int n)
 {
 	int i;
 
@@ -452,7 +413,7 @@ free_config_descriptors(struct usb_config_descriptor cfg[], int n)
  */
 static int 
 parse_descriptor(struct uhci_host *host, struct uhci_hook *hook,
-		 struct uhci_td_meta *tdm)
+		 struct vm_usb_message *um, struct uhci_td_meta *tdm)
 {
 	u8 devadr;
 	u16 desc, len;
@@ -480,7 +441,7 @@ parse_descriptor(struct uhci_host *host, struct uhci_hook *hook,
 	};
 #endif
 
-	devadr = get_address_from_tdtoken(tdm->td->token);
+	devadr = get_address_from_td(tdm->td);
 	dev = get_device_by_address(host, devadr);
 	if (!dev)
 		return UHCI_HOOK_PASS;
@@ -639,10 +600,11 @@ parse_descriptor(struct uhci_host *host, struct uhci_hook *hook,
  */
 static int 
 new_usb_device(struct uhci_host *host, struct uhci_hook *hook,
-	       struct uhci_td_meta *tdm)
+	       struct vm_usb_message *um, struct uhci_td_meta *tdm)
 {
 	struct usb_device *dev;
 	int devadr;
+	struct uhci_hook *dev_hk;
 	struct uhci_hook_pattern *h_pattern_getdesc, *h_pattern_setconfig;
 	const static struct uhci_hook_pattern temp_pattern_getdesc[2] = {
 		{
@@ -702,24 +664,53 @@ new_usb_device(struct uhci_host *host, struct uhci_hook *hook,
 		dev = zalloc_usb_device();
 		if (!dev)
 			return UHCI_HOOK_PASS;
+		spinlock_init(&dev->lock_dev);
+		spinlock_init(&dev->lock_hk);
+
+		spinlock_lock(&dev->lock_dev);
 		dev->devnum = devadr;
 		dev->host = host;
 
+		dev->portno = host->last_change_port;
+
+#if defined(USBHUB_HANDLE)
+		int tmp_port[5];
+		port_change(dev->portno, &tmp_port[0]);
+		dprintft(1, "%04x: PORTNO %d-%d-%d-%d-%d: USB device connect."
+				"\n", host->iobase, tmp_port[4], tmp_port[3],
+				tmp_port[2], tmp_port[1], tmp_port[0]);
+#else
+		dprintft(1, "%04x: PORTNO 0-0-0-0-%d: USB device connect."
+				"\n", host->iobase, dev->portno);
+#endif	
+		spinlock_unlock(&dev->lock_dev);
+
 		dev->bStatus = UD_STATUS_ADDRESSED;
 		dev->next = host->device;
+		if (dev->next)
+			dev->next->prev = dev;
+
 		host->device = dev;
+
+#if defined(USBHUB_HANDLE)
+		int hub_port = (dev->portno & 0xFFF8) >> 3; 
+		if (hub_port) 
+			hub_portdevice_register(host, hub_port, dev);
+#endif	
 
 		/* register a hook for GetDescriptor() */
 		h_pattern_getdesc[0].value.dword |= (0U + devadr) << 8;
-		uhci_register_hook(host, h_pattern_getdesc, 2, 
+		dev_hk = uhci_register_hook(host, h_pattern_getdesc, 2, 
 				   parse_descriptor, UHCI_HOOK_POST);
-		
+		register_devicehook(host,dev,dev_hk);
+
 		/* register a hook for SetConfiguration() */
 		h_pattern_setconfig[0].value.dword |= (0U + devadr) << 8;
-		uhci_register_hook(host, h_pattern_setconfig, 2, 
+		dev_hk = uhci_register_hook(host, h_pattern_setconfig, 2, 
 				   device_state_change, UHCI_HOOK_POST);
+		register_devicehook(host,dev,dev_hk);
 	} else {
-		dprintft(1, "%04x: %s: the same address(%d) found.!\n",
+		dprintft(1, "%04x: %s: the same address(%d) found!\n",
 			 host->iobase, __FUNCTION__, devadr);
 	}
 	return UHCI_HOOK_PASS;
@@ -758,13 +749,13 @@ init_device_monitor(struct uhci_host *host)
  * @param tdtoken u32
  */
 struct usb_endpoint_descriptor *
-uhci_get_endpoint_by_tdtoken(struct uhci_host *host, u32 tdtoken)
+uhci_get_epdesc_by_td(struct uhci_host *host, struct uhci_td *td)
 {
 	struct usb_device *dev;
 	u8 deviceaddress, endpointaddress;
 
-	deviceaddress = get_address_from_tdtoken(tdtoken);
-	endpointaddress = get_endpoint_from_tdtoken(tdtoken);
+	deviceaddress = get_address_from_td(td);
+	endpointaddress = get_endpoint_from_td(td);
 
 	dev = get_device_by_address(host, deviceaddress);
 	if (!dev || !dev->config || !dev->config->interface->altsetting ||
@@ -773,4 +764,41 @@ uhci_get_endpoint_by_tdtoken(struct uhci_host *host, u32 tdtoken)
 		return NULL;
 
 	return &dev->config->interface->altsetting->endpoint[endpointaddress];
+}
+
+int
+free_device(struct uhci_host * host, struct usb_device *device)
+{
+	struct usb_device *nxt_dev, *prv_dev;
+
+	spinlock_lock(&device->lock_hk);
+	unregister_devicehook(host, device, device->hook);
+	spinlock_unlock(&device->lock_hk);
+
+	spinlock_lock(&device->lock_dev);
+	free_config_descriptors(device->config, 1);
+
+	if (device->handle && device->handle->remove){
+		device->handle->remove(device);
+	}
+
+	nxt_dev = device->next;
+	prv_dev = device->prev;
+
+	if (host->device == device){
+		host->device = nxt_dev;
+		if(device->bus)
+			device->bus->device = host->device;
+	}else{
+		prv_dev->next = nxt_dev;
+	}
+	if(nxt_dev)
+		nxt_dev->prev = prv_dev;
+	spinlock_unlock(&device->lock_dev);
+
+	dprintft(1, "%04x: USB Device Address(%d) free.\n",
+		host->iobase, device->devnum);
+
+	free(device);
+	return 0;
 }

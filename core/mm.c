@@ -649,6 +649,76 @@ free (void *virt)
 	spinlock_unlock (&mm_lock2);
 }
 
+static bool
+get_alloc_len (void *virt, uint *len, int *n)
+{
+	uint offset;
+	struct allocdata *p;
+
+	offset = (virt_t)virt & PAGESIZE_MASK;
+	if (offset == 0) {
+		*n = virt_to_page ((virt_t)virt)->allocsize;
+		*len = allocsize[*n];
+		return true;
+	} else {
+		p = (struct allocdata *)((virt_t)virt & ~PAGESIZE_MASK);
+		*n = p->n & ~0x80;
+		*len = ALLOCLIST_SIZE (*n);
+		return false;
+	}
+}
+
+/* realloc n bytes */
+/* FIXME: bad implementation */
+void *
+realloc (void *virt, uint len)
+{
+	void *p;
+	uint oldlen, smaller;
+	int n;
+	bool pagemode;
+
+	if (!virt && !len)
+		return NULL;
+	if (!virt)
+		return alloc (len);
+	if (!len) {
+		free (virt);
+		return NULL;
+	}
+	pagemode = get_alloc_len (virt, &oldlen, &n);
+	if (oldlen == len)	/* len is not changed */
+		return virt;
+	if (oldlen < len) {	/* need to extend */
+		p = alloc (len);
+		if (p) {
+			memcpy (p, virt, oldlen);
+			free (virt);
+		}
+		return p;
+	}
+	/* need to shrink, or not */
+	if (pagemode) {
+		if (n > 0)
+			smaller = allocsize[n - 1];
+		else
+			smaller = ALLOCLIST_SIZE (NUM_OF_ALLOCLIST - 1);
+	} else {
+		if (n > 0)
+			smaller = ALLOCLIST_SIZE (n - 1);
+		else
+			smaller = ALLOCLIST_SIZE (0);
+	}
+	if (smaller < len)	/* not */
+		return virt;
+	p = alloc (len);
+	if (p) {
+		memcpy (p, virt, len);
+		free (virt);
+	}
+	return p;
+}
+
 /* free pages */
 void
 free_page (void *virt)

@@ -68,8 +68,6 @@ extern bool use_pae;
 extern ulong vmm_base_cr3;
 extern u64 memorysize, vmmsize;
 
-void free_page (void *virt);
-void free_page_phys (phys_t phys);
 phys_t sym_to_phys (void *sym);
 bool phys_in_vmm (u64 phys);
 virt_t phys_to_virt (phys_t phys);

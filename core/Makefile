@@ -14,6 +14,7 @@ CONSTANTS-$(CONFIG_PS2KBD_F11PANIC) += -DF11PANIC
 CONSTANTS-$(CONFIG_PS2KBD_F12MSG) += -DF12MSG
 CONSTANTS-$(CONFIG_AUTO_REBOOT) += -DAUTO_REBOOT
 CONSTANTS-$(CONFIG_DBGSH) += -DDBGSH
+CONSTANTS-$(CONFIG_LOG_TO_GUEST) += -DLOG_TO_GUEST
 CONSTANTS-$(CONFIG_CRYPTO_VPN) += -DCRYPTO_VPN
 CONSTANTS-$(CONFIG_PS2KBD_F10USB) += -DF10USBTEST
 CONSTANTS-$(CONFIG_PS2KBD_F12USB) += -DF12UHCIFRAME
@@ -23,6 +24,7 @@ CONSTANTS-$(CONFIG_DISABLE_SLEEP) += -DDISABLE_SLEEP
 CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
 CONSTANTS-$(CONFIG_CARDSTATUS) += -DCARDSTATUS
 CONSTANTS-$(CONFIG_IDMAN) += -DIDMAN
+CONSTANTS-$(CONFIG_VPN_VE) += -DVPN_VE
 
 CONSTANTS-1 += -DUSE_PAE
 
@@ -30,11 +32,11 @@ BITS-0        = 32
 BITS-1        = 64
 OBJS          = $(patsubst %.c,%.o,$(wildcard *.c)) \
 		$(patsubst %.s,%.o,$(wildcard *.s)) ../vpn_config/testfs.o
-HEADERS       = $(wildcard *.h) $(wildcard ../include/core/*.h) $(wildcard ../include/ve/*.h) $(wildcard ../crypto/*.h) $(wildcard ../vpn/*.h) 
+HEADERS       = $(wildcard *.h) $(wildcard ../include/core/*.h) $(wildcard ../crypto/*.h) $(wildcard ../vpn/Se/*.h) 
 OBJ_BUILTIN   = ./builtin/process_builtin.o
 CFLAGS        = -m$(BITS-$(CONFIG_64)) -mno-red-zone -g -O -nostdinc \
-		-fno-builtin -Wall $(CONSTANTS-1) -I../include/ -I../vpn/ -I../vpn_config/ -I../include/ve/ \
-		-fno-stack-protector
+		-fno-builtin -Wall $(CONSTANTS-1) -I../include/ -I../vpn/ \
+		-I../vpn_config/ -fno-stack-protector
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64

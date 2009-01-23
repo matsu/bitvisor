@@ -116,6 +116,8 @@
 #define OPCODE_STOSB			0xAA
 #define OPCODE_STOS			0xAB
 #define OPCODE_0x0F_MOVZX_RM8_TO_R	0xB6
+#define OPCODE_0x0F_MOVZX_RM16_TO_R	0xB7
+#define OPCODE_0xFF_PUSH		0x06
 
 enum addrtype {
 	ADDRTYPE_16BIT,
@@ -2086,6 +2088,41 @@ opcode_movzx_rm8_to_r (struct op *op)
 }
 
 static enum vmmerr
+opcode_movzx_rm16_to_r (struct op *op)
+{
+	u16 d16;
+	u32 d;
+
+	RIE (read_modrm16 (op, &d16));
+	d = d16;
+	set_reg (op, op->modrm.reg, d);
+	UPDATE_IP (op);
+	return VMMERR_SUCCESS;
+}
+
+static enum vmmerr
+opcode_ff_push (struct op *op)
+{
+	u32 data;
+	u16 data16;
+	struct cpu_stack st;
+
+	if (op->longmode)
+		panic ("64bit PUSH not supported");
+	if (op->optype == OPTYPE_16BIT) {
+		RIE (read_modrm16 (op, &data16));
+		data = data16;
+	} else {
+		RIE (read_modrm (op, &data));
+	}
+	RIE (cpu_stack_get (&st));
+	RIE (cpu_stack_push (&st, &data, op->optype));
+	RIE (cpu_stack_set (&st));
+	UPDATE_IP (op);
+	return VMMERR_SUCCESS;
+}
+
+static enum vmmerr
 idata_rd (struct op *op, enum idata_operand operand, int length, void *pointer)
 {
 	switch (operand) {
@@ -2604,6 +2641,10 @@ parse_opcode_0x0f:
 		READ_NEXT_B (op, &op->modrm);
 		GET_MODRM (op);
 		return opcode_movzx_rm8_to_r (op);
+	case OPCODE_0x0F_MOVZX_RM16_TO_R:
+		READ_NEXT_B (op, &op->modrm);
+		GET_MODRM (op);
+		return opcode_movzx_rm16_to_r (op);
 	}
 	op->ip_off += 16;
 	return VMMERR_UNSUPPORTED_OPCODE;
@@ -2631,6 +2672,8 @@ parse_opcode_0xff:
 	switch (op->modrm.reg) {
 	case OPCODE_0xFF_JMP_FAR_INDIRECT:
 		return opcode_jmp_far_indirect (op);
+	case OPCODE_0xFF_PUSH:
+		return opcode_ff_push (op);
 	}
 	op->ip_off += 16;
 	return VMMERR_UNSUPPORTED_OPCODE;

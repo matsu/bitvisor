@@ -34,10 +34,11 @@
  */
 #include <core.h>
 #include "pci.h"
-#include "usb.h"
 #include "uhci.h"
+#include "usb.h"
 
 DEFINE_ZALLOC_FUNC(vm_usb_message);
+DEFINE_ZALLOC_FUNC(usb_buffer_list);
 
 static inline u32
 uhci_td_maxerr(unsigned int n)
@@ -95,6 +96,7 @@ void
 destroy_usb_message(struct uhci_host *host, struct vm_usb_message *um)
 {
 	struct uhci_td_meta *tdm, *nexttdm;
+	struct usb_buffer_list *b;
 
 	if (um->status != UM_STATUS_UNLINKED) {
 		dprintft(2, "%s: the target um(%p) is still linked(%02x)?\n",
@@ -117,10 +119,13 @@ destroy_usb_message(struct uhci_host *host, struct vm_usb_message *um)
 		free(tdm);
 		tdm = nexttdm;
 	}
-	if (um->inbuf) 
-		mfree_pool(host->pool, um->inbuf);
-	if (um->outbuf) 
-		mfree_pool(host->pool, um->outbuf);
+
+	while (um->buffers) {
+		b = um->buffers;
+		mfree_pool(host->pool, b->vadr);
+		um->buffers = b->next;
+		free(b);
+	}
 
 	dprintft(3, "%04x: %s: um(%p) destroyed.\n",
 		 host->iobase, __FUNCTION__, um);
@@ -473,8 +478,8 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 	struct vm_usb_message *um;
 	struct usb_endpoint_descriptor *epdesc;
 	struct uhci_td_meta *tdm;
+	struct usb_buffer_list *b;
 	size_t pktsize;
-	phys_t buf_phys;
 
 	epdesc = usb_epdesc(device, endpoint);
 	if (!epdesc) {
@@ -490,8 +495,11 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 	um = create_usb_message(host);
 	if (!um)
 		return (struct vm_usb_message *)NULL;
-	init_usb_message(um, device->devnum, epdesc, callback, arg);
-
+	if (device){
+		spinlock_lock(&device->lock_dev);
+		init_usb_message(um, device->devnum, epdesc, callback, arg);
+		spinlock_unlock(&device->lock_dev);
+	}
 	/* create a QH */
 	um->qh = uhci_alloc_qh(host, &um->qh_phys);
 	if (!um->qh)
@@ -506,34 +514,52 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 	if (!tdm)
 		goto fail_submit_control;
 	um->qh->element = um->qh_element_copy = tdm->td_phys;
-	um->outbuf = 
-		malloc_from_pool(host->pool, sizeof(*csetup), &buf_phys);
-	if (!um->outbuf)
+	b = zalloc_usb_buffer_list();
+	b->len = sizeof(*csetup);
+	b->vadr = malloc_from_pool(host->pool, b->len, &b->padr);
+		
+	if (!b->vadr) {
+		free(b);
 		goto fail_submit_control;
-	memcpy((void *)um->outbuf, (void *)csetup, sizeof(*csetup));
-	um->outbuf_len = sizeof(*csetup);
+	}
+	um->buffers = b;
+	memcpy((void *)b->vadr, (void *)csetup, b->len);
 
 	tdm->td->status = tdm->status_copy =
 		UHCI_TD_STAT_AC | uhci_td_maxerr(3);
-	tdm->td->token = tdm->token_copy =
-		uhci_td_explen(sizeof(*csetup)) |
-		UHCI_TD_TOKEN_ENDPOINT(epdesc->bEndpointAddress) | 
-		UHCI_TD_TOKEN_DEVADDRESS(device->devnum) |
-		UHCI_TD_TOKEN_PID_SETUP;
-	tdm->td->buffer = (phys32_t)buf_phys;
+	if (device){
+		spinlock_lock(&device->lock_dev);
+		tdm->td->token = tdm->token_copy =
+			uhci_td_explen(sizeof(*csetup)) |
+			UHCI_TD_TOKEN_ENDPOINT(epdesc->bEndpointAddress) | 
+			UHCI_TD_TOKEN_DEVADDRESS(device->devnum) |
+			UHCI_TD_TOKEN_PID_SETUP;
+		spinlock_unlock(&device->lock_dev);
+	}
+	tdm->td->buffer = (phys32_t)b->padr;
 
 	if (csetup->wLength > 0) {
-		/* IN buffer TDs */
-		um->inbuf = malloc_from_pool(host->pool, csetup->wLength, 
-					     &buf_phys);
-		if (!um->inbuf)
+		b = zalloc_usb_buffer_list();
+		b->len = csetup->wLength;
+		b->vadr = malloc_from_pool(host->pool, b->len, &b->padr);
+
+		if (!b->vadr) {
+			free(b);
 			goto fail_submit_control;
-		um->inbuf_len = csetup->wLength;
-		tdm = prepare_buffer_tds(host, (phys32_t)buf_phys, 
-					 csetup->wLength, 
-					 device->devnum, epdesc, 
-					 UHCI_TD_STAT_AC | UHCI_TD_STAT_SP | 
-					 uhci_td_maxerr(3));
+		}
+
+		b->next = um->buffers;
+		um->buffers = b;
+		if(device){
+			spinlock_lock(&device->lock_dev);
+			tdm = prepare_buffer_tds(host, (phys32_t)b->padr, 
+						 b->len,
+						 device->devnum, epdesc, 
+						 UHCI_TD_STAT_AC | 
+						 UHCI_TD_STAT_SP | 
+						 uhci_td_maxerr(3));
+			spinlock_unlock(&device->lock_dev);
+		}
 		if (!tdm)
 			goto fail_submit_control;
 		dprintft(5, "%s: tdm->td_phys = %llx\n", 
@@ -556,10 +582,14 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
         tdm->next->td->status = UHCI_TD_STAT_AC | uhci_td_maxerr(3);
 	if (ioc) 
 		tdm->next->td->status |= UHCI_TD_STAT_IC;
-	tdm->next->td->token = uhci_td_explen(0) |
-		UHCI_TD_TOKEN_ENDPOINT(epdesc->bEndpointAddress) | 
-		UHCI_TD_TOKEN_DEVADDRESS(device->devnum) |
-		UHCI_TD_TOKEN_DT1_TOGGLE;
+	if (device){
+		spinlock_lock(&device->lock_dev);
+		tdm->next->td->token = uhci_td_explen(0) |
+			UHCI_TD_TOKEN_ENDPOINT(epdesc->bEndpointAddress) | 
+			UHCI_TD_TOKEN_DEVADDRESS(device->devnum) |
+			UHCI_TD_TOKEN_DT1_TOGGLE;
+		spinlock_unlock(&device->lock_dev);
+	}
 	tdm->next->td->token |= (csetup->wLength > 0) ? 
 		UHCI_TD_TOKEN_PID_OUT : UHCI_TD_TOKEN_PID_IN;
         tdm->next->td->buffer = 0U;
@@ -598,13 +628,15 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 {
 	struct vm_usb_message *um;
 	size_t pktsize;
-	phys_t buf_phys;
 
 	um = create_usb_message(host);
 	if (!um)
 		return (struct vm_usb_message *)NULL;
-	init_usb_message(um, device->devnum, epdesc, callback, arg);
-
+	if (device){
+		spinlock_lock(&device->lock_dev);
+		init_usb_message(um, device->devnum, epdesc, callback, arg);
+		spinlock_unlock(&device->lock_dev);
+	}
 	/* create a QH */
 	um->qh = uhci_alloc_qh(host, &um->qh_phys);
 	if (!um->qh)
@@ -615,30 +647,37 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 	pktsize = epdesc->wMaxPacketSize;
 
 	/* buffer and TD */
-	if (size == 0) {
-		buf_phys = 0ULL;
-		um->inbuf = um->outbuf = (virt_t)NULL;
-		um->inbuf_len = um->outbuf_len = 0;
-	} else if (USB_EP_DIRECT(epdesc)) {
-		/* IN endpoint */
-		um->inbuf = malloc_from_pool(host->pool, 
-					     size, &buf_phys);
-		if (!um->inbuf)
+	if (size > 0) {
+		struct usb_buffer_list *b;
+
+		b = zalloc_usb_buffer_list();
+		b->len = size;
+		b->vadr = malloc_from_pool(host->pool, b->len, &b->padr);
+		if (!b->vadr) {
+			free(b);
 			goto fail_submit_async;
-		um->inbuf_len = size;
-	} else {
-		/* OUT endpoint */
-		um->outbuf = malloc_from_pool(host->pool, 
-					      size, &buf_phys);
-		if (!um->outbuf)
-			goto fail_submit_async;
-		memcpy((void *)um->outbuf, data, size);
-		um->outbuf_len = size;
+		}
+
+		/* copy data if OUT direction */
+		if (!USB_EP_DIRECT(epdesc))
+			memcpy((void *)b->vadr, data, b->len);
+
+		um->buffers = b;
 	}
-	um->tdm_head = prepare_buffer_tds(host, (phys32_t)buf_phys, size, 
-					device->devnum, epdesc,
-					UHCI_TD_STAT_AC | UHCI_TD_STAT_SP | 
-					uhci_td_maxerr(3));
+
+	if (device){
+		spinlock_lock(&device->lock_dev);
+		um->tdm_head = prepare_buffer_tds(host, 
+						  (um->buffers) ? 
+						  (phys32_t)
+						  um->buffers->padr : 0U,
+						  size, device->devnum, 
+						  epdesc,
+						  UHCI_TD_STAT_AC | 
+						  UHCI_TD_STAT_SP | 
+						  uhci_td_maxerr(3));
+		spinlock_unlock(&device->lock_dev);
+	}
 
 	if (!um->tdm_head)
 		goto fail_submit_async;
@@ -788,11 +827,6 @@ recheck:
 		if (!is_active(um->status) && !is_error(um->status) &&
 		    (uhci_td_actlen(tdm->td) == uhci_td_maxlen(tdm->td)) &&
 		    tdm->next && is_active(tdm->next->status_copy))
-			um->status = UM_STATUS_RUN;
-
-		/* no advance if NAK repeatly in a TD */
-		if ((um->status == UM_STATUS_NAK) &&
-		    (qh_element == um->qh_element_copy))
 			um->status = UM_STATUS_RUN;
 	}
 

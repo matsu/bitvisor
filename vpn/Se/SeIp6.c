@@ -1291,6 +1291,12 @@ void Se6RecvEthPacket(SE_IPV6 *p, void *packet, UINT packet_size)
 
 	pkt = SeParsePacket(packet, packet_size);
 
+	// NULL ポインタチェック
+	if (pkt == NULL)
+	{
+		return;		/* FIXME */
+	}
+
 	// 送信者が自分自身であるパケットは必ず無視する
 	if (SeCmp(p->Eth->MyMacAddress, pkt->MacHeader->SrcAddress, SE_ETHERNET_MAC_ADDR_SIZE) != 0)
 	{

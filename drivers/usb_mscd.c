@@ -38,40 +38,13 @@
 #define ENABLE_ENC
 
 #include <core.h>
+#include "uhci.h"
 #include "usb.h"
 #include "usb_mscd.h"
 
 DEFINE_ALLOC_FUNC(shadow_block_list);
+DEFINE_ALLOC_FUNC(usb_device_handle);
 DEFINE_ZALLOC_FUNC(usbmsc_device);
-
-static inline struct usb_device *
-get_device_by_address(struct uhci_host *host, u8 address)
-{
-	struct usb_device *dev = host->device;
-
-	if (!address)
-		return NULL;
-
-	while (dev) {
-		if (dev->devnum == address)
-			break;
-		dev = dev->next;
-	}
-
-	return dev;
-}
-
-static inline u8
-get_device_address(struct uhci_td_meta *tdm)
-{
-	return (u8)((tdm->td->token >> 8) & 0x0000007fU);
-}
-
-static inline u8
-get_endpoint(struct uhci_td_meta *tdm)
-{
-	return (u8)((tdm->td->token >> 15) & 0x0000000fU);
-}
 
 static inline u32 bswap32(u32 x)
 {
@@ -94,7 +67,7 @@ _usbmsc_cleanup_shadow(struct shadow_block_list **block_list, int copyback)
 {
 	struct shadow_block_list *blk;
 
-	while (*block_list) {
+	while (*block_list){
 		blk = *block_list;
 		if (copyback)
 			memcpy((void *)blk->g_vadr, 
@@ -157,12 +130,13 @@ _usbmsc_shadow_buffer(struct usbmsc_device *mscdev, struct uhci_td_meta *tdm)
 	int n_tdms;
 	int ret;
 
-	ep = get_endpoint(tdm);
+	ep = get_endpoint_from_td(tdm->td);
 	nextblk = tdm->td->buffer;
 	tdm_head = tdm_bhead = tdm;
 	n_tdms = 0;
 	len = blen = offset = 0;
-	while (tdm && is_active_td(tdm->td) && (get_endpoint(tdm) == ep)) {
+	while (tdm && is_active_td(tdm->td) && 
+	       (get_endpoint_from_td(tdm->td) == ep)) {
 		if (tdm->td->buffer != nextblk) {
 			ret = usbmsc_replace_block(mscdev, tdm_bhead, 
 						   n_tdms, offset, blen);
@@ -290,16 +264,24 @@ usbmsc_copy_buffer(struct shadow_block_list *block_list, size_t len)
 
 static int
 usbmsc_shadow_outbuf(struct uhci_host *host, struct uhci_hook *hook,
-		     struct uhci_td_meta *tdm)
+		     struct vm_usb_message *um, struct uhci_td_meta *tdm)
 {
 	u8 devadr;
 	struct usb_device *dev;
 	struct usbmsc_device *mscdev;
 	int ret, n_blocks;
 
-	devadr = get_device_address(tdm);
+	devadr = get_address_from_td(tdm->td);
 	dev = get_device_by_address(host, devadr);
-	mscdev = (struct usbmsc_device *)dev->private_data;
+	if (!dev || !dev->handle) {
+		printf("no device entry\n");
+		return UHCI_HOOK_DISCARD;
+	}
+	mscdev = (struct usbmsc_device *)dev->handle->private_data;
+	if (!mscdev) {
+		printf("no device handling entry\n");
+		return UHCI_HOOK_DISCARD;
+	}
 
 	spinlock_lock(&mscdev->lock);
 	ret = _usbmsc_shadow_buffer(mscdev, tdm);
@@ -347,16 +329,24 @@ usbmsc_shadow_outbuf(struct uhci_host *host, struct uhci_hook *hook,
  ***/
 static int
 usbmsc_shadow_inbuf(struct uhci_host *host, struct uhci_hook *hook,
-		     struct uhci_td_meta *tdm)
+		    struct vm_usb_message *um, struct uhci_td_meta *tdm)
 {
 	u8 devadr;
 	struct usb_device *dev;
 	struct usbmsc_device *mscdev;
 	int ret;
 
-	devadr = get_device_address(tdm);
+	devadr = get_address_from_td(tdm->td);
 	dev = get_device_by_address(host, devadr);
-	mscdev = (struct usbmsc_device *)dev->private_data;
+	if (!dev || !dev->handle) {
+		printf("no device entry\n");
+		return UHCI_HOOK_DISCARD;
+	}
+	mscdev = (struct usbmsc_device *)dev->handle->private_data;
+	if (!mscdev) {
+		printf("no device handling entry\n");
+		return UHCI_HOOK_DISCARD;
+	}
 
 	spinlock_lock(&mscdev->lock);
 	ret = _usbmsc_shadow_buffer(mscdev, tdm);
@@ -370,15 +360,23 @@ usbmsc_shadow_inbuf(struct uhci_host *host, struct uhci_hook *hook,
  ***/
 static int
 usbmsc_cleanup_shadow(struct uhci_host *host, struct uhci_hook *hook,
-		      struct uhci_td_meta *tdm)
+		      struct vm_usb_message *um, struct uhci_td_meta *tdm)
 {
 	u8 devadr;
 	struct usb_device *dev;
 	struct usbmsc_device *mscdev;
 
-	devadr = get_device_address(tdm);
+	devadr = get_address_from_td(tdm->td);
 	dev = get_device_by_address(host, devadr);
-	mscdev = (struct usbmsc_device *)dev->private_data;
+	if (!dev || !dev->handle) {
+		printf("no device entry\n");
+		return UHCI_HOOK_DISCARD;
+	}
+	mscdev = (struct usbmsc_device *)dev->handle->private_data;
+	if (!mscdev) {
+		printf("no device handling entry\n");
+		return UHCI_HOOK_DISCARD;
+	}
 
 	spinlock_lock(&mscdev->lock);
 	_usbmsc_cleanup_shadow(&mscdev->block_list, 0);
@@ -457,7 +455,7 @@ usbmsc_decode_buffer(struct shadow_block_list *block_list,
 
 static int
 usbmsc_copyback_shadow(struct uhci_host *host, struct uhci_hook *hook,
-		       struct uhci_td_meta *tdm)
+		       struct vm_usb_message *um, struct uhci_td_meta *tdm)
 {
 	u8 devadr;
 	struct usb_device *dev;
@@ -466,9 +464,17 @@ usbmsc_copyback_shadow(struct uhci_host *host, struct uhci_hook *hook,
 	size_t len;
 	int i, copyback, n_blocks;
 
-	devadr = get_device_address(tdm);
+	devadr = get_address_from_td(tdm->td);
 	dev = get_device_by_address(host, devadr);
-	mscdev = (struct usbmsc_device *)dev->private_data;
+	if (!dev || !dev->handle) {
+		printf("no device entry\n");
+		return UHCI_HOOK_DISCARD;
+	}
+	mscdev = (struct usbmsc_device *)dev->handle->private_data;
+	if (!mscdev) {
+		printf("no device handling entry\n");
+		return UHCI_HOOK_DISCARD;
+	}
 
 	spinlock_lock(&mscdev->lock);
 
@@ -536,6 +542,22 @@ usbmsc_copyback_shadow(struct uhci_host *host, struct uhci_hook *hook,
 	return UHCI_HOOK_PASS;
 }
 
+
+static void
+usbmsc_remove(struct usb_device *dev)
+{
+	struct usbmsc_device *mscdev;
+
+	mscdev = (struct usbmsc_device *)dev->handle->private_data;
+	if (mscdev && mscdev->block_list)
+		_usbmsc_cleanup_shadow(&mscdev->block_list, 0);
+	free(dev->handle->private_data);
+	free(dev->handle);
+	dev->handle = NULL;
+
+	return;
+}
+
 /*** 
  *** functions for finding USB MSC devices and initializing hooks
  ***/
@@ -551,11 +573,13 @@ static const unsigned char subcls2str[0x07][32] = {
 
 static int 
 usbmsc_init_bulkmon(struct uhci_host *host, struct uhci_hook *hook,
-		    struct uhci_td_meta *tdm)
+		    struct vm_usb_message *um, struct uhci_td_meta *tdm)
 {
 	struct usb_device *dev;
+	struct uhci_hook *mschook;
 	struct usb_endpoint_descriptor *epdesc;
 	struct usbmsc_device *mscdev;
+	struct usb_device_handle *handler;
 	static struct uhci_hook_pattern eppat = {
 		.type = UHCI_PATTERN_32_TDTOKEN,
 		.mask.dword = 0x0007ffffU,
@@ -563,7 +587,7 @@ usbmsc_init_bulkmon(struct uhci_host *host, struct uhci_hook *hook,
 	u8 devadr, type, cls, subcls, proto;
 	int i;
 
-	devadr = get_device_address(tdm);
+	devadr = get_address_from_td(tdm->td);
 	dev = get_device_by_address(host, devadr);
 
 	/* an interface descriptor must exists */
@@ -612,7 +636,7 @@ usbmsc_init_bulkmon(struct uhci_host *host, struct uhci_hook *hook,
 	if ((proto != 0x50) || (subcls != 0x06))
 		return UHCI_HOOK_DISCARD;
 
-	if (dev->private_data) {
+	if (dev->handle) {
 		dprintft(1, "%04x: MSCD(%02x): maybe reset.\n", 
 			 host->iobase, devadr);
 		return UHCI_HOOK_PASS;
@@ -640,14 +664,16 @@ usbmsc_init_bulkmon(struct uhci_host *host, struct uhci_hook *hook,
 						       bEndpointAddress);
 
 			/* register a hook for BULK IN transfers */
-			mscdev->hook[USBMSC_HOOK_PRE_IN] = 
-				uhci_register_hook(host, &eppat, 1, 
+			spinlock_lock(&dev->lock_hk);
+			mschook = uhci_register_hook(host, &eppat, 1, 
 						   usbmsc_shadow_inbuf, 
 						   UHCI_HOOK_PRE);
-			mscdev->hook[USBMSC_HOOK_POST_IN] =
-				uhci_register_hook(host, &eppat, 1, 
+			register_devicehook(host, dev, mschook);
+			mschook = uhci_register_hook(host, &eppat, 1, 
 						   usbmsc_copyback_shadow, 
 						   UHCI_HOOK_POST);
+			register_devicehook(host, dev, mschook);
+			spinlock_unlock(&dev->lock_hk);
 		} else {
 			eppat.value.dword = UHCI_TD_TOKEN_PID_OUT |
 				UHCI_TD_TOKEN_DEVADDRESS(devadr) |
@@ -655,18 +681,23 @@ usbmsc_init_bulkmon(struct uhci_host *host, struct uhci_hook *hook,
 						       bEndpointAddress);
 
 			/* register a hook for BULK OUT transfers */
-			mscdev->hook[USBMSC_HOOK_PRE_OUT] =
-				uhci_register_hook(host, &eppat, 1, 
+			spinlock_lock(&dev->lock_hk);
+			mschook = uhci_register_hook(host, &eppat, 1, 
 						   usbmsc_shadow_outbuf, 
 						   UHCI_HOOK_PRE);
-			mscdev->hook[USBMSC_HOOK_POST_OUT] =
-				uhci_register_hook(host, &eppat, 1, 
+			register_devicehook(host, dev, mschook);
+			mschook = uhci_register_hook(host, &eppat, 1, 
 						   usbmsc_cleanup_shadow, 
 						   UHCI_HOOK_POST);
+			register_devicehook(host, dev, mschook);
+			spinlock_unlock(&dev->lock_hk);
 		}
 	}
 
-	dev->private_data = (void *)mscdev;
+	handler = alloc_usb_device_handle();
+	handler->remove = usbmsc_remove;
+	handler->private_data = (void *)mscdev;
+	dev->handle = handler;
 
 	return UHCI_HOOK_PASS;
 }

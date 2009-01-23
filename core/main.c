@@ -32,7 +32,6 @@
 #include "callrealmode.h"
 #include "convert.h"
 #include "current.h"
-#include "crypt.h"              /* SoftEther */
 #include "debug.h"
 #include "guest_boot.h"
 #include "initfunc.h"
@@ -274,8 +273,6 @@ create_pass_vm (void)
 			load_drivers ();
 		print_startvm_msg ();
 		sync_cursor_pos ();
-
-		crypt_init_crypto_and_vpn();    /* SoftEther */
 	}
 	sync_all_processors ();
 #ifdef DEBUG_GDB

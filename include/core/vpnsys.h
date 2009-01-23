@@ -27,12 +27,26 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_PUTCHAR_H
-#define _CORE_PUTCHAR_H
+#ifndef __CORE_VPNSYS_H
+#define __CORE_VPNSYS_H
 
-typedef void (*putchar_func_t) (unsigned char);
+#include <Se/Se.h>
 
-void putchar (unsigned char c);
-void putchar_set_func (putchar_func_t newfunc, putchar_func_t *oldfunc);
+struct nicfunc {
+	void (*GetPhysicalNicInfo) (SE_HANDLE nic_handle, SE_NICINFO *info);
+	void (*SendPhysicalNic) (SE_HANDLE nic_handle, UINT num_packets,
+				 void **packets, UINT *packet_sizes);
+	void (*SetPhysicalNicRecvCallback) (SE_HANDLE nic_handle,
+					    SE_SYS_CALLBACK_RECV_NIC *callback,
+					    void *param);
+	void (*GetVirtualNicInfo) (SE_HANDLE nic_handle, SE_NICINFO *info);
+	void (*SendVirtualNic) (SE_HANDLE nic_handle, UINT num_packets,
+				void **packets, UINT *packet_sizes);
+	void (*SetVirtualNicRecvCallback) (SE_HANDLE nic_handle,
+					   SE_SYS_CALLBACK_RECV_NIC *callback,
+					   void *param);
+};	
+
+SE_HANDLE vpn_new_nic (SE_HANDLE ph, SE_HANDLE vh, struct nicfunc *func);
 
 #endif

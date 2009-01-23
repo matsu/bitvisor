@@ -134,25 +134,12 @@ struct uhci_td_meta {
 #define UHCI_PATTERN_32_DATA           0x00000004U
 #define UHCI_PATTERN_64_DATA           0x00000008U
 
-struct uhci_hook_pattern {
-	phys32_t        type;
-	union mem	mask;
-	union mem	value;
-	size_t		offset;
-};
-
-#define UHCI_HOOK_PRE                    0x00000001U
-#define UHCI_HOOK_POST                   0x00000002U
-#define UHCI_HOOK_PASS                   0x00010000U
-#define UHCI_HOOK_DISCARD                0x00020000U
-
-struct uhci_hook {
-        int                              process_timing;
-	struct uhci_hook_pattern        *pattern;
-	int                              n_pattern;
-        int (*callback)(struct uhci_host *host, 
-			struct uhci_hook *hook, struct uhci_td_meta *);
-        struct uhci_hook                *next;
+struct usb_buffer_list {
+	virt_t vadr;
+	phys_t padr;
+	size_t offset;
+	size_t len;
+	struct usb_buffer_list *next;
 };
 
 struct vm_usb_message {
@@ -184,13 +171,11 @@ struct vm_usb_message {
 #define UM_MARK_INLINK          0x01U
 #define UM_MARK_NEED_SHADOW     0x10U
 #define UM_MARK_NEED_UPDATE     0x20U
-	phys32_t               qh_element_copy; /* for change notification */
+	phys32_t               td_stat; /* for change notification */
+	phys32_t               qh_element_copy;
 
 	/* for host(vm) messages */
-	virt_t                 inbuf;
-	size_t                 inbuf_len;
-	virt_t                 outbuf;
-	size_t                 outbuf_len;
+	struct usb_buffer_list *buffers;
 	size_t                 actlen;     /* only use for IN/OUT */
 	int (*callback)(struct uhci_host *host, 
 			struct vm_usb_message *um, void *arg);
@@ -203,6 +188,31 @@ struct vm_usb_message {
 #define UD_STATUS_ADDRESSED     0x01U
 #define UD_STATUS_CONFIGURED    0x02U
 #define UD_STATUS_REGISTERED    0x04U /* original for VM */
+
+struct uhci_hook_pattern {
+	phys32_t        type;
+	union mem	mask;
+	union mem	value;
+	size_t		offset;
+};
+
+#define UHCI_HOOK_PRE                    0x00000001U
+#define UHCI_HOOK_POST                   0x00000002U
+#define UHCI_HOOK_PASS                   0x00010000U
+#define UHCI_HOOK_DISCARD                0x00020000U
+
+struct uhci_hook {
+        int                              process_timing;
+	struct uhci_hook_pattern        *pattern;
+	int                              n_pattern;
+        int (*callback)(struct uhci_host *host, 
+			struct uhci_hook *hook, 
+			struct vm_usb_message *um,
+			struct uhci_td_meta *tdm);
+        struct uhci_hook                *next;
+        struct uhci_hook                *prev;
+        struct uhci_hook                *usb_device_list;
+};
 
 struct uhci_host {
 	LIST_DEFINE(uhci_host_list);
@@ -258,6 +268,7 @@ struct uhci_host {
 
 	/* PORTSC */
 	u16                     portsc[UHCI_NUM_PORTS_HC];
+	int			last_change_port;
 };
 
 #define UHCI_REG_USBCMD         0x00
@@ -326,6 +337,27 @@ uhci_td_maxlen(struct uhci_td *td)
 
 #define UHCI_TD_TOKEN_MAXLEN(_td)	uhci_td_maxlen(_td)
 
+#define DEFINE_GET_U16_FROM_SETUP_FUNC(type) \
+	static inline u16 \
+	get_##type##_from_setup(struct uhci_td *td) \
+	{ \
+		\
+		u16 val; \
+		struct usb_ctrl_setup *devrequest; \
+		 \
+		if ((uhci_td_actlen(td) < \
+		     sizeof(struct usb_ctrl_setup)) || \
+		    (td->buffer == 0U)) \
+			return 0U; \
+		devrequest = (struct usb_ctrl_setup *) \
+			mapmem_gphys(td->buffer, \
+				     sizeof(struct usb_ctrl_setup), 0); \
+		val = devrequest->type; \
+		unmapmem(devrequest, sizeof(struct usb_ctrl_setup)); \
+		 \
+		return val; \
+	}
+
 /* uhci.c */
 u16
 uhci_current_frame_number(struct uhci_host *host);
@@ -369,7 +401,7 @@ uhci_force_copyback(struct uhci_host *host, struct vm_usb_message *um);
 
 /* uhci_hook.c */
 int 
-uhci_hook_process(struct uhci_host *host, struct uhci_td_meta *tdm,
+uhci_hook_process(struct uhci_host *host, struct vm_usb_message *um,
 		  int timing);
 void
 uhci_unregister_hook(struct uhci_host *host, void *handle);
@@ -378,14 +410,24 @@ uhci_register_hook(struct uhci_host *host,
 		   const struct uhci_hook_pattern pattern[], 
 		   const int n_pattern,
 		   int (*callback)(struct uhci_host *, 
-				   struct uhci_hook *, struct uhci_td_meta *),
+				   struct uhci_hook *, 
+				   struct vm_usb_message *,
+				   struct uhci_td_meta *),
 		   int timing);
+void
+unregister_devicehook(struct uhci_host *host, struct usb_device *device,
+		      struct uhci_hook *target);
+void
+register_devicehook(struct uhci_host *host, struct usb_device *device,
+		      struct uhci_hook *hook);
 
 /* uhci_device.c */
 void 
 init_device_monitor(struct uhci_host *host);
 struct usb_endpoint_descriptor *
-uhci_get_endpoint_by_tdtoken(struct uhci_host *host, u32 tdtoken);
+uhci_get_epdesc_by_td(struct uhci_host *host, struct uhci_td *td);
+int
+free_device(struct uhci_host * host, struct usb_device *device);
 
 /* uhci_trans.c */
 int
@@ -582,5 +624,16 @@ is_error_td(struct uhci_td *td)
 	return is_error(td->status);
 }
 
+static inline u8
+get_address_from_td(struct uhci_td *td)
+{
+	return (u8)((td->token >> 8) & 0x0000007fU);
+}
+
+static inline u8
+get_endpoint_from_td(struct uhci_td *td)
+{
+	return (u8)((td->token >> 15) & 0x0000000fU);
+}
 
 #endif

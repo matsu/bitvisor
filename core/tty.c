@@ -117,7 +117,7 @@ tty_init_global (void)
 	logflag = true;
 	spinlock_init (&putchar_lock);
 	vramwrite_init_global ((void *)0x800B8000);
-	putchar_init_global (tty_putchar);
+	putchar_set_func (tty_putchar, NULL);
 }
 
 void

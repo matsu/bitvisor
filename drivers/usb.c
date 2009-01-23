@@ -35,8 +35,8 @@
 #include <core.h>
 #include <core/timer.h>
 #include <core/thread.h>
-#include "usb.h"
 #include "uhci.h"
+#include "usb.h"
 
 LIST_DEFINE_HEAD(usb_busses);
 
@@ -286,7 +286,7 @@ _usb_async_receive(usb_dev_handle *dev, struct vm_usb_message *um,
 	case UM_STATUS_ADVANCED:
 		ret = um->actlen;
 		if (bytes && (size > 0))
-			memcpy(bytes, (void *)um->inbuf, size);
+			memcpy(bytes, (void *)um->buffers->vadr, size);
 		break;
 	case UM_STATUS_ERRORS: /* meaningless */
 	default:

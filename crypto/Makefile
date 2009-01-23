@@ -7,7 +7,10 @@ OBJS-$(CONFIG_CRYPTO_VPN) = $(patsubst %.c,%.o,$(wildcard *.c))
 OBJS          = $(OBJS-1)
 HEADERS       = $(wildcard *.h) $(wildcard ../include/core/*.h) $(wildcard ./openssl/*.h) $(wildcard ../vpn/Se/*.h) $(wildcard ../vpn_config/*.h)
 OBJ_OPENSSL   = ./openssl/openssl.o
-CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O -nostdinc -fno-builtin $(CONSTANTS-1) -I../include/ -I./ -I./openssl/ -I../vpn/ -I../core/ -I../vpn_config/
+CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O \
+		-nostdinc -fno-builtin $(CONSTANTS-1) -I../include/ -I./ \
+		-I./openssl/ -I../vpn/ -I../core/ -I../vpn_config/ \
+		-fno-stack-protector
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64

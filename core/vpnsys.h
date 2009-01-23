@@ -27,12 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_PUTCHAR_H
-#define _CORE_PUTCHAR_H
+#ifndef _CORE_VPNSYS_H
+#define _CORE_VPNSYS_H
 
-typedef void (*putchar_func_t) (unsigned char);
-
-void putchar (unsigned char c);
-void putchar_set_func (putchar_func_t newfunc, putchar_func_t *oldfunc);
+#include <core/vpnsys.h>
 
 #endif

@@ -35,6 +35,7 @@
 
 #include <core.h>
 #include "uhci.h"
+#include "usb.h"
 
 DEFINE_ALLOC_FUNC(uhci_hook);
 
@@ -193,19 +194,18 @@ check_td_pattern(struct uhci_host *host, struct uhci_td_meta *tdm,
  */
 static int
 collate_td_list(struct uhci_host *host, struct uhci_hook *hook, 
-		struct uhci_td_meta *tdm)
+		struct vm_usb_message *um)
 {
+	struct uhci_td_meta *tdm;
 	int match = 0, ret = 0;
 
-	while (tdm) {
+	for (tdm = um->tdm_head; tdm; tdm = tdm->next) {
 		match = check_td_pattern(host, tdm, hook);
 		if (match) {
-			ret = (hook->callback)(host, hook, tdm);
+			ret = (hook->callback)(host, hook, um, tdm);
 			break;
 		}
-
-		tdm = tdm->next;
-	};
+	}
 
 	return ret;
 }
@@ -217,7 +217,7 @@ collate_td_list(struct uhci_host *host, struct uhci_hook *hook,
  * @param timing int
  */
 int 
-uhci_hook_process(struct uhci_host *host, struct uhci_td_meta *tdm,
+uhci_hook_process(struct uhci_host *host, struct vm_usb_message *um,
 		  int timing)
 {
 	struct uhci_hook *hook = host->hook;
@@ -225,7 +225,7 @@ uhci_hook_process(struct uhci_host *host, struct uhci_td_meta *tdm,
 
 	while (hook) {
 		if (hook->process_timing & timing) {
-			ret = collate_td_list(host, hook, tdm);
+			ret = collate_td_list(host, hook, um);
 			if (ret == UHCI_HOOK_DISCARD)
 				break;
 		}
@@ -293,10 +293,12 @@ uhci_register_hook(struct uhci_host *host,
 		   const struct uhci_hook_pattern pattern[], 
 		   const int n_pattern,
 		   int (*callback)(struct uhci_host *, 
-				   struct uhci_hook *, struct uhci_td_meta *),
+				   struct uhci_hook *, 
+				   struct vm_usb_message *,
+				   struct uhci_td_meta *),
 		   int timing)
 {
-	struct uhci_hook *handle;
+	struct uhci_hook *handle, *prevhook;
 	int i;
 
 	/* check offset restriction */
@@ -332,10 +334,61 @@ uhci_register_hook(struct uhci_host *host,
 		handle->n_pattern = n_pattern;
 		handle->callback = callback;
 		handle->process_timing = timing;
-		handle->next = host->hook;
+		handle->next = prevhook = host->hook;
 		host->hook = handle;
+		if(prevhook)
+			prevhook->prev = handle;
 	}
 
+	dprintft(3, "%04x: %s: hook address(%04x)\n",
+			 host->iobase, __FUNCTION__, handle);
+
 	return (void *)handle;
+}
+
+void
+unregister_devicehook(struct uhci_host *host, struct usb_device *device,
+		      struct uhci_hook *target)
+{
+	struct uhci_hook *nxt_hk, *prv_hk;
+
+	for (; target; target = target->usb_device_list){
+		nxt_hk = target->next;
+		prv_hk = target->prev;
+		if (host->hook == target){
+			host->hook = nxt_hk;
+		}else{
+			prv_hk->next = nxt_hk;
+		}
+		if (nxt_hk)
+			nxt_hk->prev = prv_hk;
+		free(target->pattern);
+		free(target);
+		device->hooknum--;
+		dprintft(3, "%04x: %s: USB device hook address : %04x,"
+				" count: %d.\n", host->iobase,
+				__FUNCTION__, target, device->hooknum + 1);
+	}
+	return;
+}
+
+void
+register_devicehook(struct uhci_host *host, struct usb_device *device,
+		    struct uhci_hook *hook)
+{
+	if(!device || !hook){
+		dprintft(1, "%04x: USB device or hook not found.\n",
+				host->iobase);
+		return;
+	}
+
+	hook->usb_device_list = device->hook;
+	device->hook = hook;
+	device->hooknum++;
+
+	dprintft(3, "%04x: %s: USB device hook address : %04x, count: %d.\n",
+			 host->iobase, __FUNCTION__, hook, device->hooknum);
+
+	return;
 }
 

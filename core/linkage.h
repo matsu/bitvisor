@@ -30,6 +30,6 @@
 #ifndef _CORE_LINKAGE
 #define _CORE_LINKAGE
 
-#define asmlinkage __attribute__ ((regparm (0)))
+#include <core/linkage.h>
 
 #endif

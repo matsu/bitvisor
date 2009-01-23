@@ -32,6 +32,7 @@
  */
 #ifndef __USB_H__
 #define __USB_H__
+#include "uhci.h"
 
 /*
  * USB spec information
@@ -260,6 +261,11 @@ struct usb_device;
 /* Data types */
 struct usb_bus;
 
+struct usb_device_handle {
+	void *private_data;
+	void (*remove)(struct usb_device *);
+};
+
 /*
  * To maintain compatibility with applications already built with libusb,
  * we must only add entries to the end of this structure. NEVER delete or
@@ -275,6 +281,10 @@ struct usb_device {
 
 	void *dev;		/* unused */
 
+	spinlock_t lock_dev; /* device address lock */
+
+	int portno;
+
 	u8 devnum;
 
 	unsigned char num_children;
@@ -284,8 +294,12 @@ struct usb_device {
 	struct uhci_host *host;
 	u8 bStatus;
 
-	/* device handler use */
-	void *private_data;
+	/* specific device handler if registered */
+	struct usb_device_handle *handle;
+
+	struct uhci_hook *hook;
+	int hooknum;
+	spinlock_t lock_hk; /* device hook lock */
 };
 
 struct usb_bus {
@@ -355,6 +369,23 @@ struct usb_dev_handle {
 	struct usb_device *device;
 	int interface;
 };
+
+static inline struct usb_device *
+get_device_by_address(struct uhci_host *host, u8 address)
+{
+	struct usb_device *dev = host->device;
+
+	if (!address)
+		return NULL;
+
+	while (dev) {
+		if (dev->devnum == address)
+			break;
+		dev = dev->next;
+	}
+
+	return dev;
+}
 
 #endif /* __USB_H__ */
 

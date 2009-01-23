@@ -210,8 +210,7 @@ duplicate_qcontext(struct uhci_host *host, struct vm_usb_message *g_um)
 		td = uhci_gettdbypaddr(host, *td_phys_p, 0);
 		/* get an appropriate endpoint descriptor */
 		if (!n_tds) {
-			um->endpoint = 
-				uhci_get_endpoint_by_tdtoken(host, td->token);
+			um->endpoint = uhci_get_epdesc_by_td(host, td);
 		}
 		*g_tdm_p = uhci_new_td_meta(host, td);
 		(*g_tdm_p)->td_phys = uhci_link(*td_phys_p);
@@ -301,7 +300,7 @@ _copyback_qcontext(struct uhci_host *host,
 		   had been active before activated. */
 		if ((h_tdm->status_copy & UHCI_TD_STAT_AC) &&
 		    (g_tdm->td->status == g_tdm->status_copy))
-			g_tdm->status_copy =
+			g_um->td_stat = g_tdm->status_copy =
 				g_tdm->td->status = h_tdm->td->status;
 
 		/* qh->element still points to a TD 
@@ -317,8 +316,10 @@ _copyback_qcontext(struct uhci_host *host,
 	}
 
 	/* reset qh->element if terminated */
-	if (is_terminate(qh_element))
+	if (is_terminate(qh_element)) {
 		g_um->qh_element_copy = g_um->qh->element = qh_element;
+		g_um->td_stat = 0;	/* copy td status */
+	}
 
 	dprintft(2, "%04x: %s: copybacked TDs.\n",
 		 host->iobase, __FUNCTION__);
@@ -369,7 +370,7 @@ uhci_copyback_qcontext(struct uhci_host *host,
 	spinlock_lock(&host->lock_gfl);
 
 	/* process some interest messages */
-	r = uhci_hook_process(host, um->tdm_head, UHCI_HOOK_POST);
+	r = uhci_hook_process(host, um, UHCI_HOOK_POST);
 	if (r != UHCI_HOOK_DISCARD)
 		_copyback_qcontext(host, um, g_um);
 
@@ -381,7 +382,6 @@ uhci_copyback_qcontext(struct uhci_host *host,
 #else
        um->status = UM_STATUS_FINALIZED;
 #endif
-
 	dprintft(2, "%04x: %s exit.\n", host->iobase, __FUNCTION__);
 
 	return 0;
@@ -397,7 +397,8 @@ remove_and_deactivate_um(struct uhci_host *host,
 			 struct vm_usb_message *um)
 {
 	/* remove the um */
-	if (um->shadow->status != UM_STATUS_FINALIZED) {
+	if ((um->shadow->status != UM_STATUS_FINALIZED) &&
+	    (um->shadow->status != UM_STATUS_NAK)) {
 		struct uhci_td_meta *tdm;
 		phys32_t qh_element;
 		int n, elapse;
@@ -482,6 +483,32 @@ is_updated_td(struct uhci_td_meta *tdm)
 		(tdm->token_copy != tdm->td->token));
 }
 
+static inline u32
+get_toptd_stat(struct uhci_host *host, struct vm_usb_message *um)
+{
+	struct uhci_td *td;
+	u32 tdstat;
+
+	if (!um || !host)
+		return 0;
+	if (!um->qh)
+		return 0;
+
+	tdstat = um->td_stat;
+
+	if (!is_terminate(um->qh->element)) {
+		td = uhci_gettdbypaddr(host, um->qh->element, 0);
+		if (td) {
+			tdstat = td->status;
+			unmapmem(td, sizeof(struct uhci_td));
+		}
+	} else {
+		tdstat = 0;
+	}
+
+	return tdstat;
+}
+
 /** 
  * @brief mark the in linked messages 
  * @param host struct uhci_host 
@@ -491,67 +518,86 @@ is_updated_td(struct uhci_td_meta *tdm)
 static inline int
 mark_inlinked_messages(struct uhci_host *host, 
 		       struct vm_usb_message *umlist,
-		       struct vm_usb_message *skelum)
+		       struct vm_usb_message *skelumlist[],
+		       int interval)
 {
-	struct vm_usb_message *um, *prevum;
+	struct vm_usb_message *um, *prevum, *skelum;
 	phys32_t qh_link_phys, qh_element;
+	u32 tdstat;
 	int n_marked = 0;
 
-	qh_link_phys = uhci_link(skelum->qh->link);
-	prevum = skelum;
-	skelum->mark |= UM_MARK_INLINK;
-	while (!is_terminate(qh_link_phys)) {
-		um = getumbyqh_phys(umlist, qh_link_phys);
-		if (!um) {
-			dprintf(2, "%04x: %s: a new message(%x) "
-				"that follows skelum(%p:%llx) found.\n", 
-				host->iobase, __FUNCTION__, qh_link_phys,
-				skelum, skelum->qh_phys);
-			um = create_usb_message(host);
+	for (; interval < UHCI_NUM_INTERVALS; interval++) {
+		skelum = prevum = skelumlist[interval];
+		/* skip scanning if already marked */
+		if (skelum->mark & UM_MARK_INLINK)
+			continue;
+		
+		skelum->mark |= UM_MARK_INLINK;
+		qh_link_phys = uhci_link(skelum->qh->link);
+		while (!is_terminate(qh_link_phys)) {
+			um = getumbyqh_phys(umlist, qh_link_phys);
 			if (!um) {
-				dprintft(2, "%04x: %s: create_um failed.\n",
-					 host->iobase, __FUNCTION__);
-				break;
+				dprintf(2, "%04x: %s: a new message(%x) "
+					"that follows skelum(%p:%llx) "
+					"found.\n", host->iobase,
+					__FUNCTION__, qh_link_phys,
+					skelum, skelum->qh_phys);
+				um = create_usb_message(host);
+				if (!um) {
+					dprintft(2, "%04x: %s: "
+						 "create_um failed.\n",
+						 host->iobase, __FUNCTION__);
+					break;
+				}
+				um->qh = uhci_getqhbypaddr(host,
+							   qh_link_phys, 0);
+				if (!um->qh) {
+					dprintft(2, "%04x: %s: "
+						 "getqh(%x) failed.\n",
+						 host->iobase, __FUNCTION__,
+						 qh_link_phys);
+					release_usb_message(host, um);
+					break;
+				}
+				um->qh_element_copy = um->qh->element;
+				um->qh_phys = qh_link_phys;
+				um->mark = UM_MARK_NEED_SHADOW;
+				um->td_stat = get_toptd_stat(host, um);
+
+				um->next = prevum->next;
+				prevum->next = um;
+			} else {
+				/* stop marking if already marked. */
+				if (um->mark & UM_MARK_INLINK)
+					break;
 			}
-			um->qh = uhci_getqhbypaddr(host, qh_link_phys, 0);
-			if (!um->qh) {
-				dprintft(2, "%04x: %s: getqh(%x) failed.\n",
-					 host->iobase, __FUNCTION__,
-					qh_link_phys);
-				release_usb_message(host, um);
-				break;
+			um->mark |= UM_MARK_INLINK;
+			qh_element = um->qh->element;
+
+			/* a message must be updated by guest
+			   if active status transition detected */
+			tdstat = get_toptd_stat(host, um);
+			if (is_active(tdstat) != is_active(um->td_stat)) {
+
+				dprintft(2, "%04x: top td's status linked "
+					 "to qh was changed. "
+					 "(saved td_stat =%p, tdstat=%p)\n",
+					 host->iobase, um->td_stat, tdstat);
+
+				um->qh_element_copy = qh_element;
+				um->mark |= UM_MARK_NEED_UPDATE;
+
 			}
-			um->qh_element_copy = um->qh->element;
-			um->qh_phys = qh_link_phys;
-			um->mark = UM_MARK_NEED_SHADOW;
+			um->td_stat = tdstat;
 
-			um->next = prevum->next;
-			prevum->next = um;
-		} else {
-			/* stop marking if already marked. */
-			if (um->mark & UM_MARK_INLINK)
-				break;
+			if (um->shadow)
+				shadow_ioc_in_td(um->tdm_tail, 
+						 um->shadow->tdm_tail);
+
+			n_marked++;
+			qh_link_phys = uhci_link(um->qh->link);
+			prevum = um;
 		}
-		um->mark |= UM_MARK_INLINK;
-		qh_element = um->qh->element;
-		if (um->qh_element_copy != qh_element) {
-			um->mark |= UM_MARK_NEED_UPDATE;
-			dprintft(2, "%04x: QH's element updated.\n", host->iobase);
-			um->qh_element_copy = qh_element;
-		} else if (um->shadow &&
-			   (um->shadow->status == UM_STATUS_FINALIZED) &&
-			   is_updated_td(um->tdm_tail)) {
-			um->mark |= UM_MARK_NEED_UPDATE;
-			dprintft(2, "%04x: The tail TD updated.\n", host->iobase);
-		}
-
-		if (um->shadow)
-			shadow_ioc_in_td(um->tdm_tail, 
-					 um->shadow->tdm_tail);
-
-		n_marked++;
-		qh_link_phys = uhci_link(um->qh->link);
-		prevum = um;
 	}
 		
 	return n_marked;
@@ -564,7 +610,7 @@ mark_inlinked_messages(struct uhci_host *host,
  */
 static inline int
 update_marked_messages(struct uhci_host *host, 
-		      struct vm_usb_message *umlist)
+		       struct vm_usb_message *umlist)
 {
 	struct vm_usb_message *um;
 	struct uhci_td_meta *g_tdm, *h_tdm, *nexttdm;
@@ -629,6 +675,7 @@ update_marked_messages(struct uhci_host *host,
 				break;
 			}
 			newum->qh_element_copy = um->qh_element_copy;
+			newum->td_stat = um->td_stat;
 			newum->qh_phys = um->qh_phys;
 			newum->mark = UM_MARK_NEED_SHADOW | UM_MARK_INLINK;
 
@@ -693,8 +740,7 @@ shadow_marked_messages(struct uhci_host *host,
 		um->shadow->callback_arg = (void *)um;
 
 		/* process some interest messages */
-		r = uhci_hook_process(host, um->shadow->tdm_head, 
-				      UHCI_HOOK_PRE);
+		r = uhci_hook_process(host, um->shadow, UHCI_HOOK_PRE);
 		if (r == UHCI_HOOK_DISCARD) {
 			destroy_usb_message(host, um->shadow);
 			continue;
@@ -915,7 +961,7 @@ uhci_framelist_monitor(void *data)
 
 		/* scan skeltons and the following messages */
 		mark_inlinked_messages(host, host->guest_messages, 
-				       host->guest_skeltons[intvl]);
+				       host->guest_skeltons, intvl);
 		/* update message content link (QH element) if needed */
 		update_marked_messages(host, host->guest_skeltons[intvl]);
 		/* make copies of message and activate it if needed */
@@ -950,6 +996,7 @@ scan_a_frame(struct uhci_host *host,
 
 	int lv, skel_n = 0;
 	struct vm_usb_message *g_um;
+	struct uhci_td *td;
 	phys32_t g_qh_phys;
 
 	/* skip isochronous TDs */
@@ -974,14 +1021,19 @@ scan_a_frame(struct uhci_host *host,
 				break;
 			g_um->qh_element_copy = g_um->qh->element;
 			if (!is_terminate(g_um->qh->element)) {
-				struct uhci_td *td;
 				td = uhci_gettdbypaddr(host, 
 						       g_um->qh->element, 0);
-				if (!td)
+				if (td) {
+					g_um->td_stat=td->status;
+				} else {
 					break;
+				}
+
 				g_um->tdm_head = uhci_new_td_meta(host, td);
 				if (!g_um->tdm_head)
 					break;
+			} else {
+				g_um->td_stat = 0;
 			}
 			g_um->deviceaddress = UM_ADDRESS_SKELTON;
 			dprintf(4, "->(%p)", g_um);

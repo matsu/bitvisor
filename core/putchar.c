@@ -31,28 +31,24 @@
 #include "spinlock.h"
 #include "types.h"
 
-static void (*putchar_func)(unsigned char c);
-static spinlock_t putchar_lock;
+static putchar_func_t putchar_func;
+static spinlock_t putchar_lock = SPINLOCK_INITIALIZER;
 
 void
 putchar (unsigned char c)
 {
-	if (putchar_func == NULL)
-		return;
 	spinlock_lock (&putchar_lock);
-	putchar_func (c);
+	if (putchar_func != NULL)
+		putchar_func (c);
 	spinlock_unlock (&putchar_lock);
 }
 
 void
-putchar_init_global (void (*new_putchar_func)(unsigned char c))
+putchar_set_func (putchar_func_t newfunc, putchar_func_t *oldfunc)
 {
-	spinlock_init (&putchar_lock);
-	putchar_func = new_putchar_func;
-}
-
-void
-putchar_exit_global (void)
-{
-	putchar_func = NULL;
+	spinlock_lock (&putchar_lock);
+	if (oldfunc)
+		*oldfunc = putchar_func;
+	putchar_func = newfunc;
+	spinlock_unlock (&putchar_lock);
 }
