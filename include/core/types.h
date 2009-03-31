@@ -45,6 +45,7 @@ typedef unsigned long int	ulong;
 typedef unsigned long int	size_t;
 typedef unsigned long int	addr_t;
 typedef unsigned long int	virt_t;
+typedef unsigned int		phys32_t;
 typedef unsigned long long int	phys_t;
 typedef enum {
 	false = 0,

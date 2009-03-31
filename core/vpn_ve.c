@@ -31,6 +31,7 @@
 
 #ifdef CRYPTO_VPN
 #ifdef VPN_VE
+#include "config.h"
 #include "cpu_mmu.h"
 #include "crypt.h"
 #include "current.h"
@@ -252,6 +253,8 @@ void crypt_ve_handler()
 	intptr addr;
 	bool ok = true;
 
+	if (!config.vmm.driver.vpn.ve)
+		return;
 	spinlock_lock(&ve_lock);
 
 	current->vmctl.read_general_reg(GENERAL_REG_RBX, &addr);
@@ -395,6 +398,7 @@ void crypt_init_vpn()
 void crypt_sys_log(char *type, char *message)
 {
 	char *lf = "\n";
+	void crypt_add_log_queue(char *type, char *message);
 
 	if (message[strlen(message) - 1] == '\n')
 	{
@@ -628,6 +632,8 @@ void crypt_nic_recv_packet(VPN_NIC *n, UINT num_packets, void **packets, UINT *p
 static void
 vpn_ve_init (void)
 {
+	if (!config.vmm.driver.vpn.ve)
+		return;
 	crypt_init_vpn ();
 }
 

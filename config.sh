@@ -10,7 +10,7 @@ while read line; do
     set -- "$@" "$name" "$help" "$value"
 done < .config
 exec 3>&1
-ret="`whiptail --checklist \"VMM Configuration\" 22 75 15 -- \"$@\" 2>&1 1>&3 3>&-`" || exit 1
+ret="`whiptail --checklist \"VMM Configuration\" 22 75 16 -- \"$@\" 2>&1 1>&3 3>&-`" || exit 1
 exec 3>&-
 set -- $ret
 mv .config .config.bak || exit 1

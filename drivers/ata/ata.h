@@ -166,6 +166,8 @@ struct ata_device {
 		lba_t	lba;
 		u32	sector_count;
 		int	next_state;
+		int	pio_block_size;
+		int	dma_state;
 	} queue[ATA_MAX_QUEUE_DEPTH];
 
 	// ATA
@@ -225,7 +227,7 @@ struct ata_channel {
 		ATA_STATE_DMA_READY,
 		ATA_STATE_DMA_READ,
 		ATA_STATE_DMA_WRITE,
-		ATA_STATE_PACKET_DATA,
+		ATA_STATE_DMA_THROUGH,
 	} state;
 
 	// device, host
@@ -238,6 +240,9 @@ struct ata_channel {
 			u8	bm_ds1, bm_ds3;
 		} mask;
 	} device_specific;
+
+	//atapi
+	struct atapi_device	*atapi_device;
 };
 
 struct ata_host {

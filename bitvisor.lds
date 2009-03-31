@@ -21,8 +21,8 @@ SECTIONS {
                 __initfunc_start = .;
                 *(.initfunc)
                 __initfunc_end = .;
-	}
-	.bss : AT (phys + (bss - head)) {
+	/* }
+	.bss : AT (phys + (bss - head)) { */
 		bss = .;
 		*(.bss)
 		*(COMMON)

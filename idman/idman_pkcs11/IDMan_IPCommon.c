@@ -633,7 +633,92 @@ int IDMan_CmPadding( int  algorithm,
 	memcpy(PaddingData+lBytePosition,HashAlgorithmIdData,HashAlgorithmIdDataLen);
 	lBytePosition+=HashAlgorithmIdDataLen;
 
-	/**パディング後データの次バイト位置よりアッシュアルゴリズムIDを設定する */
+	/**パディング後データの次バイト位置より署名データを設定する */
+	memcpy(PaddingData+lBytePosition,data,len);
+	lBytePosition+=len;
+
+	DEBUG_OutPut("IDMan_CmPadding end\n");
+
+	return iReturn;
+
+}
+/**
+*パディング変換関数 for IPsec
+* @author University of Tsukuba
+* @param algorithm アルゴリズム 0x220：SHA1 0x250：SHA256 0x270：SHA512
+* @param size パディングレングス
+* @param data 対象データ
+* @param len 対象データのレングス
+* @param PaddingData パディング後データ
+* @return   long    0：正常 -6：異常
+* @since 2008.02
+* @version 1.0
+*/
+int IDMan_CmPadding2( int  algorithm,
+					  unsigned long int size,
+					  void * data,
+					  unsigned long int len,
+					  void * PaddingData  )
+{
+	int					iret=0;
+	int					iReturn=RET_IPOK;
+	char				HashAlgorithmIdData[128];	//ハッシュアルゴリズムID
+	unsigned long int 	HashAlgorithmIdDataLen=0;	//ハッシュアルゴリズムIDレングス
+	long				lBytePosition=0;			//バイト位置
+
+	DEBUG_OutPut("IDMan_CmPadding start\n");
+
+	memset(HashAlgorithmIdData,0x00,sizeof(HashAlgorithmIdData));
+
+	/**入力パラメータのチェックを行う。 */
+	iret = IDMan_PaddingParamChk( algorithm, size,  data,  len );
+	/**入力パラメータのチェックエラーの場合、 */
+	if (iret != RET_IPOK) 
+	{
+		/**−異常リターンする。 */
+		iReturn = iret;
+		DEBUG_OutPut("IDMan_CmPadding 入力パラメータのチェック エラー IDMan_PaddingParamChk\n");
+		return iReturn;
+	}
+
+	/**ハッシュアルゴリズムIDを決定する。 */
+	/**引数のalgorithm値を確認してハッシュアルゴリズムIDとレングスを取得する。 */
+	switch(algorithm)
+	{
+		/**−algorithmがSHA1の場合、 */
+		case ALGORITHM_SHA1 :
+			/**−−SHA1のハッシュアルゴリズムIDとレングスを設定する。 */
+			memcpy(HashAlgorithmIdData,ALGORITHM_ID_SHA1,ALGORITHM_IDLEN_SHA1);
+			HashAlgorithmIdDataLen=ALGORITHM_IDLEN_SHA1;
+			break;
+		/**−algorithmがSHA256の場合、 */
+		case ALGORITHM_SHA256 :
+			/**−−SHA256のハッシュアルゴリズムIDとレングスを設定する。 */
+			memcpy(HashAlgorithmIdData,ALGORITHM_ID_SHA256,ALGORITHM_IDLEN_SHA256);
+			HashAlgorithmIdDataLen=ALGORITHM_IDLEN_SHA256;
+			break;
+		/**−algorithmがSHA512の場合、 */
+		case ALGORITHM_SHA512 :
+			/**−−SHA512のハッシュアルゴリズムIDとレングスを設定する。 */
+			memcpy(HashAlgorithmIdData,ALGORITHM_ID_SHA512,ALGORITHM_IDLEN_SHA512);
+			HashAlgorithmIdDataLen=ALGORITHM_IDLEN_SHA512;
+			break;
+	}
+
+
+	/**パディング後データの先頭から0x00 0x01を設定する。 */
+	memcpy(PaddingData,"\x00\x01",2);
+	lBytePosition=2;
+
+	/**パディング後データの次バイト位置よりパディングレングス−（1+ハッシュアルゴリズムIDレングス＋対象データのレングスサイズ）の計算結果バイトサイズ分、0xffを設定する。 */
+	memset(PaddingData+lBytePosition,0xff,size-(2+1+len));
+	lBytePosition+=size-(2+1+len);
+
+	/**パディング後データの次バイト位置より0x00を設定する */
+	memcpy(PaddingData+lBytePosition,"\x00",1);
+	lBytePosition+=1;
+
+	/**パディング後データの次バイト位置より署名データを設定する */
 	memcpy(PaddingData+lBytePosition,data,len);
 	lBytePosition+=len;
 
@@ -1005,7 +1090,7 @@ int IDMan_IPgetCertIdxPKCS( CK_SESSION_HANDLE Sessinhandle,
 						 long* lKeyID,
 						 int getCert)
 {
-	long					lret;								//返り値
+	/*long					lret;*/								//返り値
 	int						iReturn;							//返り値
 	CK_RV					rv;									//返り値
 	int						MatchingFlg;						//マッチングフラグ
@@ -1258,7 +1343,7 @@ int IDMan_IPCheckPKC(	CK_SESSION_HANDLE Sessinhandle,
 	CK_MECHANISM		strMechanismVerify;					//メカニズム情報（Verify）
 	CK_BYTE_PTR				pHash;								//ハッシュデータ
 	CK_ULONG				lHashLen;							//ハッシュデータ長
-	char					SignatureData[1024];				//署名対象フォーマットデータ
+	unsigned char				SignatureData[1024];				//署名対象フォーマットデータ
 	unsigned long int		SignatureDataLen;					//署名対象フォーマットデータ
 
 	iReturn = RET_IPOK;

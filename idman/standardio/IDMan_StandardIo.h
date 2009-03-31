@@ -71,7 +71,7 @@ struct ID_USB_DEV_HANDLE {
   int altsetting;
   void *impl_info;
 };
-#ifndef NTTCOM
+#if 0
 
 struct ID_USB_BUS {
   struct ID_USB_BUS *next, *prev;
@@ -217,11 +217,12 @@ EXTERN void IDMan_StMsleep(unsigned long int );
 /** プロトタイプ宣言 */
 EXTERN void *IDMan_StMalloc ( unsigned long int );
 EXTERN void IDMan_StFree ( void * );
+int IDMan_StReadSetData(char *pMemberName,char *pInfo,unsigned long int* len);
 EXTERN long IDMan_CmMkHash ( void *, long, long, void *, long *);
 EXTERN long IDMan_CmChgRSA(  void *, long , void *, long , void *, long * );
 EXTERN long IDMan_CmGetDN( void *,long ,char *,char *);
 EXTERN long IDMan_CmGetCertificateSign( void *,long ,void *,long *,void *pSign,long *);
-EXTERN long IDMan_CmGetPublicKey ( void *,long ,void *,long *);
+EXTERN long IDMan_CmGetPublicKey ( void *,long ,void *,unsigned long *);
 EXTERN long IDMan_CmSetFileRead( char *,char *,char *);
 EXTERN long IDMan_CmMakeRand( long, void *);
 EXTERN long IDMan_CmCheckCRL(void *, long , void * ,unsigned long int  );

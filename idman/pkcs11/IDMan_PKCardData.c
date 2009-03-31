@@ -39,6 +39,7 @@
 #include "IDMan_PKCardData.h"
 #include "IDMan_PKCardAccess.h"
 #include "IDMan_StandardIo.h"
+#include <core/string.h>
 
 
 
@@ -752,7 +753,7 @@ CK_RV GetOdfDataByTlv(CK_I_HEAD_PTR pTlvDataList, CK_I_TOKEN_DATA_PTR tokenData)
 CK_RV GetTokenDataByTlv(CK_I_HEAD_PTR pTlvDataList, CK_I_TOKEN_DATA_PTR tokenData)
 {
 	CK_RV rv = CKR_OK;
-	CK_ULONG tlvCnt, tmpLen, i, j;
+	CK_ULONG /*tlvCnt,*/ tmpLen, i, j;
 	CK_I_TLV_DATA_PTR pTlvData = CK_NULL_PTR;
 	CK_BYTE tmpBuf[1024];
 	CK_MECHANISM_TYPE mechanismType;
@@ -948,7 +949,7 @@ CK_RV AddObjTblByTlv(CK_I_HEAD_PTR pTlvDataList, CK_I_HEAD_PTR objectTable, CK_U
 	CK_ULONG attrType;
 	CK_VOID_PTR  pAttrValue = CK_NULL_PTR;
 	CK_ULONG ulAttrValueLen;
-	char				LogBuff[1024];		//ログ出力バッファ
+	/*char				LogBuff[1024];*/		//ログ出力バッファ
 	
 	/** TLVデータリストが0x00の場合、*/
 	if (pTlvDataList == CK_NULL_PTR)
@@ -1098,7 +1099,7 @@ CK_RV AddObjTblByTlv(CK_I_HEAD_PTR pTlvDataList, CK_I_HEAD_PTR objectTable, CK_U
 					case CKA_TOKEN:
 					case CKA_PRIVATE:
 					case CKA_LABEL:
-						memcpy(pAttrValue, (const void*)pTlvData->val, pTlvData->len);
+						memcpy(pAttrValue, pTlvData->val, pTlvData->len);
 						break;
 					/** −−−−上記以外、*/
 					default:
@@ -1138,7 +1139,7 @@ CK_RV AddObjTblByTlv(CK_I_HEAD_PTR pTlvDataList, CK_I_HEAD_PTR objectTable, CK_U
 					case CKA_DERIVE:
 					case CKA_LOCAL:
 					case CKA_EFID:
-						memcpy(pAttrValue, (const void*)pTlvData->val, pTlvData->len);
+						memcpy(pAttrValue, pTlvData->val, pTlvData->len);
 						break;
 					/** −−−−上記以外、*/
 					default:
@@ -1180,7 +1181,7 @@ CK_RV AddObjTblByTlv(CK_I_HEAD_PTR pTlvDataList, CK_I_HEAD_PTR objectTable, CK_U
 					case CKA_ALWAYS_AUTHENTICATE:
 					case CKA_WRAP_WITH_TRUSTED:
 					case CKA_EFID:
-						memcpy(pAttrValue, (const void*)pTlvData->val, pTlvData->len);
+						memcpy(pAttrValue, pTlvData->val, pTlvData->len);
 						break;
 					/** −−−−上記以外、*/
 					default:
@@ -1195,7 +1196,7 @@ CK_RV AddObjTblByTlv(CK_I_HEAD_PTR pTlvDataList, CK_I_HEAD_PTR objectTable, CK_U
 					{
 					/** −−−−以下はそのままバイトデータとして取得する。*/
 					case CKA_EFID:
-						memcpy(pAttrValue, (const void*)pTlvData->val, pTlvData->len);
+						memcpy(pAttrValue, pTlvData->val, pTlvData->len);
 						break;
 					/** −−−−上記以外、*/
 					default:
@@ -1352,7 +1353,7 @@ CK_RV AddCertDataByBuf(CK_BYTE_PTR iBuf, CK_I_HEAD_PTR pObject)
 	memset((void*)(pAttrValue), 0, ulAttrValueLen);
 	
 	/** 属性情報の値を取得する。*/
-	memcpy(pAttrValue, (const void*)iBuf, ulAttrValueLen);
+	memcpy(pAttrValue, iBuf, ulAttrValueLen);
 	
 	/** 属性情報の領域を確保する。*/
 	pAttr = (CK_ATTRIBUTE_PTR)IDMan_StMalloc(sizeof(CK_ATTRIBUTE));
@@ -1554,7 +1555,7 @@ CK_RV AddIdPassDataByBuf(CK_BYTE_PTR iBuf, CK_I_HEAD_PTR pObject)
 					memset((void*)(pAttrValue), 0, idLen);
 
 					/** −−−−属性情報の値を取得する。*/
-					memcpy(pAttrValue, (const void*)idPos, idLen);
+					memcpy(pAttrValue, idPos, idLen);
 					/** −−−−属性情報の領域を確保する。*/
 					pAttr = (CK_ATTRIBUTE_PTR)IDMan_StMalloc(sizeof(CK_ATTRIBUTE));
 					/** −−−−失敗の場合、*/
@@ -1594,7 +1595,7 @@ CK_RV AddIdPassDataByBuf(CK_BYTE_PTR iBuf, CK_I_HEAD_PTR pObject)
 					memset((void*)(pAttrValue), 0, passLen);
 
 					/** −−−−属性情報の値を取得する。*/
-					memcpy(pAttrValue, (const void*)passPos, passLen);
+					memcpy(pAttrValue, passPos, passLen);
 					/** −−−−属性情報の領域を確保する。*/
 					pAttr = (CK_ATTRIBUTE_PTR)IDMan_StMalloc(sizeof(CK_ATTRIBUTE));
 					/** −−−−失敗の場合、*/
@@ -1669,7 +1670,7 @@ CK_RV GetValueData(CK_I_HEAD_PTR pObject, CK_ATTRIBUTE_TYPE attrType, CK_I_SLOT_
 	}
 	
 	/** CLASS属性値を取得する。*/
-	memcpy((void*)&classVal, (const void*)pAttr->pValue, sizeof(classVal));
+	memcpy((void*)&classVal, pAttr->pValue, sizeof(classVal));
 	
 	/** CLASS属性がCertificateの場合、*/
 	if (classVal == CKO_CERTIFICATE)
@@ -1752,7 +1753,7 @@ CK_RV GetValueData(CK_I_HEAD_PTR pObject, CK_ATTRIBUTE_TYPE attrType, CK_I_SLOT_
 		
 		/** −LABEL属性値を取得する。*/
 		memset(labelVal, 0, sizeof(labelVal));
-		memcpy(labelVal, (const void*)pAttr->pValue, pAttr->ulValueLen);
+		memcpy(labelVal, pAttr->pValue, pAttr->ulValueLen);
 		
 		/** −LABEL属性が"ID/PASS"の場合、*/
 		if (memcmp(labelVal, CK_LABEL_ID_PASS, pAttr->ulValueLen) == 0)

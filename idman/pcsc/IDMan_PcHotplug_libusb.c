@@ -71,7 +71,10 @@
 #include "core/types.h"
 #include "common/list.h"
 #include "usb.h"
+#include "usb_device.h"
 #include "uhci.h"
+#else
+#include <usb.h>
 #endif
 
 #define ADD_SERIAL_NUMBER
@@ -132,9 +135,17 @@ LONG HPSearchHotPluggables(void)
 	readerTracker.status = READER_ABSENT;
 
 	///全USB BUS検索ループ
+#ifndef NTTCOM
+	for (bus = IDMan_StUsbGetBusses(); bus; bus = bus->next) {
+#else
 	for (bus = IDMan_StUsbGetBusses(); bus; bus = LIST_NEXT(usb_busses, bus)) {
+#endif
 		///−全USBデバイス検索ループ
+#ifndef NTTCOM
+		for (dev = bus->devices; dev; dev = dev->next) {
+#else
 		for (dev = bus->device; dev; dev = dev->next) {
+#endif
 			/* check if the device is supported by one driver */
 			///−−サポートするUSBデバイス検索ループ
 			for (i=0; i<DRIVER_TRACKER_SIZE_STEP; i++) {
@@ -218,6 +229,9 @@ LONG HPSearchHotPluggables(void)
 
 					///−USBデバイスをオープンします。
 					device = IDMan_StUsbOpen(dev);
+					/// SetConfiguration
+					usb_control_msg (device, 0, 9, 1, 0,
+							 NULL, 0, 1000);
 					///−USBデバイスのシリアル番号を文字列として取得します。
 					IDMan_StUsbGetStringSimple(device, dev->descriptor.iSerialNumber,
 						serialNumber, MAX_READERNAME);

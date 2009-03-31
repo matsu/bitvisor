@@ -42,50 +42,53 @@ static struct guid anyguid = STORAGE_GUID_ANY;
 
 #ifdef STORAGE_ENC
 
-static inline int storage_match_guid(struct guid *guid1, struct guid *guid2)
+static inline int
+storage_match_guid (struct guid *guid1, struct guid *guid2)
 {
-	return (memcmp(guid1, &anyguid, sizeof(struct guid) == 0) ||
-		memcmp(guid1, guid2, sizeof(struct guid)));
+	return (memcmp (&anyguid, guid2, sizeof (struct guid)) == 0 ||
+		memcmp (guid1, guid2, sizeof (struct guid)) == 0);
 }
 
-static inline int storage_match_busid(struct storage_device *storage, struct storage_keys_conf *keys_conf)
+static inline int
+storage_match_busid (struct storage_device *storage,
+		     struct storage_keys_conf *keys_conf)
 {
-	return ((storage->busid.type == STORAGE_TYPE_ANY || storage->busid.type == keys_conf->type) &&
-		(storage->busid.host_id == STORAGE_HOST_ID_ANY || storage->busid.host_id == keys_conf->host_id) &&
-		(storage->busid.device_id == STORAGE_DEVICE_ID_ANY || storage->busid.device_id == keys_conf->device_id));
+	return ((STORAGE_TYPE_ANY == keys_conf->type ||
+		 storage->busid.type == keys_conf->type) &&
+		(STORAGE_HOST_ID_ANY == keys_conf->host_id ||
+		 storage->busid.host_id == keys_conf->host_id) &&
+		(STORAGE_DEVICE_ID_ANY == keys_conf->device_id ||
+		 storage->busid.device_id == keys_conf->device_id));
 }
 
-#include "storage_keys.conf"
-
-static void storage_set_keys(struct storage_device *storage)
+static void
+storage_set_keys (struct storage_device *storage)
 {
 	int i, keyindex = 0;
+	struct crypto *crypto;
+	struct storage_keys_conf *keys_conf;
+	u8 *key;
+	int bits;
 
-	for (i = 0; i < lengthof(storage_keys_conf); i++) {
-		if (storage_match_guid(&storage->guid, &storage_keys_conf[i].guid) ||
-		    storage_match_busid(storage, &storage_keys_conf[i])) {
-			struct crypto *crypto = crypto_find(storage_keys_conf[i].crypto_name);
-			u8 *key = storage_keys[storage_keys_conf[i].keyindex];
-			int bits = storage_keys_conf[i].keybits;
-
-			if (crypto == NULL)
-				panic("unknown crypto name: %s\n", storage_keys_conf[i].crypto_name);
-			storage->keys[keyindex].lba_low = storage_keys_conf[i].lba_low;
-			storage->keys[keyindex].lba_high = storage_keys_conf[i].lba_high;
-			storage->keys[keyindex].crypto = crypto;
-			storage->keys[keyindex].keyctx = crypto->setkey(key, bits);
-			keyindex++;
-		}
+	for (i = 0; i < NUM_OF_STORAGE_KEYS_CONF; i++) {
+		keys_conf = &config.storage.keys_conf[i];
+		if (!storage_match_guid (&storage->guid, &keys_conf->guid) &&
+		    !storage_match_busid (storage, keys_conf))
+			continue;
+		crypto = crypto_find (keys_conf->crypto_name);
+		key = config.storage.keys[keys_conf->keyindex];
+		bits = keys_conf->keybits;
+		if (crypto == NULL)
+			panic ("unknown crypto name: %s\n",
+			       keys_conf->crypto_name);
+		storage->keys[keyindex].lba_low = keys_conf->lba_low;
+		storage->keys[keyindex].lba_high = keys_conf->lba_high;
+		storage->keys[keyindex].crypto = crypto;
+		storage->keys[keyindex].keyctx = crypto->setkey (key, bits);
+		keyindex++;
 	}
 	storage->keynum = keyindex;
 }
-
-static void storage_init_boot (void)
-{
-	memcpy(storage_keys[0], config.storage_key, 32);
-}
-INITFUNC ("config0", storage_init_boot);
-
 #else
 static void storage_set_keys(struct storage_device *storage)
 {
@@ -97,6 +100,7 @@ static void storage_set_keys(struct storage_device *storage)
 int storage_handle_sectors(struct storage_device *storage, struct storage_access *access, u8 *src, u8 *dst)
 {
 	int i, sub_count;
+	long long int sub_count2;
 	lba_t lba = access->lba;
 	count_t	count = access->count, size;
 	int sector_size = storage->sector_size;
@@ -106,7 +110,13 @@ int storage_handle_sectors(struct storage_device *storage, struct storage_access
 
 	for (i = 0; i < storage->keynum; i++) {
 		// if lba < low then memcpy
-		sub_count = storage->keys[i].lba_low - lba;
+		sub_count2 = storage->keys[i].lba_low - lba;
+		if (sub_count2 > 2147483647)
+			sub_count = 2147483647;
+		else if (sub_count2 < -2147483648)
+			sub_count = -2147483648;
+		else
+			sub_count = sub_count2;
 		if (sub_count > 0) {
 			sub_count = min(count, sub_count);
 			count -= sub_count;
@@ -121,7 +131,13 @@ int storage_handle_sectors(struct storage_device *storage, struct storage_access
 		}
 
 		// if low < lba < high then crypt
-		sub_count = storage->keys[i].lba_high - lba;
+		sub_count2 = storage->keys[i].lba_high - lba;
+		if (sub_count2 > 2147483647)
+			sub_count = 2147483647;
+		else if (sub_count2 < -2147483648)
+			sub_count = -2147483648;
+		else
+			sub_count = sub_count2;
 		if (sub_count > 0) {
 			keyctx = storage->keys[i].keyctx;
 			crypto = storage->keys[i].crypto;

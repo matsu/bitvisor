@@ -35,6 +35,7 @@
 #ifndef _CORE_H
 #define _CORE_H
 #include <common.h>
+#include <core/config.h>
 
 #define KB 1024
 #define MB (1024*KB)
@@ -120,6 +121,8 @@ void	panic_oom() __attribute__ ((noreturn));
 #define DRIVER_INIT(func)	INITFUNC ("driver2", func)
 #define PCI_DRIVER_INIT(func)	INITFUNC ("driver3", func)
 #define DEBUG_DRIVER_INIT(func)	INITFUNC ("driver9", func)
+#define VTD_INIT(func)          INITFUNC ("driver4", func)
+// #define VTD_INIT(func)          INITFUNC ("driver3", func)
 
 static inline void
 asm_rep_and_nop (void)

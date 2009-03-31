@@ -35,7 +35,7 @@
 /* 標準ライブラリ関数名 */
 
 
-#define READBINSIZE 0xFF		// Read Binary 上限値：0xFF
+#define READBINSIZE 0xF3		// Read Binary 上限値：0xFF(非接触0xF3)
 
 long IDMan_SCardEstablishContext(unsigned long* );
 long IDMan_SCardReleaseContext(unsigned long );

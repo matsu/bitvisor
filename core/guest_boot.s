@@ -41,6 +41,7 @@ GUEST_BOOT_OFFSET = 0x800
 #   DH = CURSOR POSITION (ROW)
 #   DL = CURSOR POSITION (COL)
 #   BH = CURSOR POSITION (PAGE NUMBER)
+#   SI = BOOT AN ACTIVE PARTITION FLAG
 #  EDI = 0
 #  BOOTING 32BIT KERNEL:
 #  ESI = BOOT PARAMS
@@ -59,6 +60,7 @@ guest_boot_start:
 	sti
 	test	%edi,%edi
 	jne	startkernel
+	push	%si
 	push	%cx
 	mov	$0x02,%ah	# SET CURSOR POSITION
 	int	$0x10		# CALL VIDEO BIOS
@@ -144,11 +146,32 @@ notcd:
 	mov	$0x7C00,%bx	# BUFFER AT 0x7C00
 	int	$0x13		# CALL DISK BIOS
 	jnc	1f		# JUMP IF NO ERRORS
+4:
 	call	print_by_bios
 	.string	"Read failed.\n"
 	jmp	error
 1:
+	pop	%si
+	test	%si,%si
+	je	1f
+	mov	$-0x40,%di
+3:
+	testb	$0x80,0x7DFE(%di)
+	je	2f
+	mov	$GUEST_BOOT_OFFSET + (exread1 - guest_boot_start),%si
+	mov	0x7DFE+8(%di),%eax
+	mov	%eax,8(%si)
+	mov     $0x42,%ah	# EXTENDED READ
+	int     $0x13		# CALL DISK BIOS
+	jc	4b
+1:
 	jmp	*%bx		# JUMP TO MASTER BOOT RECORD
+2:
+	add	$0x10,%di
+	jne	3b
+	call	print_by_bios
+	.string	"No active partition."
+	jmp	error
 error:
 	xor	%ax,%ax		# GET KEYSTROKE
 	int	$0x16		# CALL KEYBOARD BIOS

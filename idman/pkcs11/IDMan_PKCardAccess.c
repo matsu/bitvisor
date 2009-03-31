@@ -41,6 +41,7 @@
 #include "IDMan_StandardIo.h"
 #include "IDMan_ICSCard.h"
 #include "IDMan_PcPcsclite.h"
+#include <core/string.h>
 
 
 
@@ -121,7 +122,7 @@ CK_RV CardListReaders(CK_ULONG hContext, CK_BYTE_PTR pmszReaders, CK_ULONG_PTR p
 	
 #ifdef CARD_ACCESS
 	/** ICカード管理層のIDMan_SCardListReadersを呼び、スロットリスト情報を取得する。*/
-	scRv = IDMan_SCardListReaders(hContext, pmszReaders, pdwReaders);
+	scRv = IDMan_SCardListReaders(hContext, (char*)pmszReaders, pdwReaders);
 	/** 失敗の場合、*/
 	if (scRv != SCARD_S_SUCCESS)
 	{
@@ -157,7 +158,7 @@ CK_RV CardConnect(CK_ULONG hContext, CK_BYTE_PTR reader, CK_ULONG_PTR phCard, CK
 	
 #ifdef CARD_ACCESS
 	/** ICカード管理層のIDMan_SCardConnectを呼び、カードに接続する。*/
-	scRv = IDMan_SCardConnect(hContext, reader, SCARD_SHARE_SHARED, phCard, dwActiveProtocol);
+	scRv = IDMan_SCardConnect(hContext, (char*)reader, SCARD_SHARE_SHARED, phCard, dwActiveProtocol);
 	/** リーダが利用不可能の場合、*/
 	if (scRv == SCARD_E_READER_UNAVAILABLE)
 	{
@@ -235,7 +236,7 @@ CK_RV CardStatus(CK_ULONG hCard, CK_BYTE_PTR reader)
 	/** ICカード管理層のIDMan_SCardStatusを呼び、カードのステータス情報を取得する。*/
 	dwAtrLen = sizeof(pbAtr);
 	tmpReaderLen = MAX_READERNAME;
-	scRv = IDMan_SCardStatus(hCard, reader, &tmpReaderLen, &dwState, &dwProt, pbAtr, &dwAtrLen);
+	scRv = IDMan_SCardStatus(hCard, (char*)reader, &tmpReaderLen, &dwState, &dwProt, pbAtr, &dwAtrLen);
 	/** 失敗の場合、*/
 	if (scRv != SCARD_S_SUCCESS)
 	{
@@ -753,7 +754,7 @@ CK_RV UpdateBinary(CK_ULONG hCard, CK_ULONG_PTR dwActiveProtocol, CK_BYTE_PTR da
  */
 CK_RV GetICCardData( CK_ULONG efType, CK_BYTE_PTR rcvBuf, CK_ULONG_PTR rcvLen)
 {
-	CK_RV rv = CKR_OK;
+	/*CK_RV rv = CKR_OK*/;
 	CK_BYTE dummy[4096];
 	CK_ULONG dummyLen = 0;
 	

@@ -34,6 +34,13 @@
 #include <core/vpnsys.h>
 #include "pci.h"
 
+#ifdef VTD_TRANS
+#include "passthrough/vtd.h"
+int add_remap() ;
+u32 vmm_start_inf() ;
+u32 vmm_term_inf() ;
+#endif // of VTD_TRANS
+
 #define BUFSIZE		2048
 #define NUM_OF_TDESC	256
 #define TDESC_SIZE	((NUM_OF_TDESC) * 16)
@@ -1136,6 +1143,14 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	struct data *d;
 
 	printf ("PRO/1000 found.\n");
+
+#ifdef VTD_TRANS
+        if (iommu_detected) {
+                add_remap(pci_device->address.bus_no ,pci_device->address.device_no ,pci_device->address.func_no,
+                          vmm_start_inf() >> 12, (vmm_term_inf()-vmm_start_inf()) >> 12, PERM_DMA_RW) ;
+        }
+#endif // of VTD_TRANS
+
 	d2 = alloc (sizeof *d2);
 	memset (d2, 0, sizeof *d2);
 	spinlock_init (&d2->lock);
@@ -1275,6 +1290,7 @@ static u32 idlist[] = {
 	0x10D68086,
 	0x10D98086,
 	0x10DA8086,
+	0x10F58086,		/* VJ25A/E-6 built-in */
 	0x294C8086,
 	0,
 };
@@ -1284,6 +1300,8 @@ vpn_pro1000_init (void)
 {
 	u32 *id;
 
+	if (!config.vmm.driver.vpn.PRO1000)
+		return;
 	for (id = idlist; *id; id++) {
 		vpn_pro1000_driver.id.id = *id;
 		pci_register_driver (&vpn_pro1000_driver);

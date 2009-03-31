@@ -46,6 +46,7 @@ CK_CUR_THREAD *curthread;
 #include "IDMan_PKList.h"
 #include "IDMan_PKCardData.h"
 #include "IDMan_PKCardAccess.h"
+#include <core/string.h>
 
 
 
@@ -440,7 +441,7 @@ ReGetSlotList:
 					/** −−−−製造者名を取得する。*/
 					memset(manuId,0x00,sizeof(manuId));
 					memcpy(manuId,SLOTINFO_MANUFACTURERID,sizeof(SLOTINFO_MANUFACTURERID));
-					manuIdLen = strlen(manuId);
+					manuIdLen = strlen((char*)manuId);
 					if ((CK_ULONG)manuIdLen < sizeof(pSlotData->slotInfo->manufacturerID))
 					{
 						memcpy(pSlotData->slotInfo->manufacturerID, manuId, manuIdLen);
@@ -453,7 +454,7 @@ ReGetSlotList:
 					/** −−−−ハードウェアバージョンを取得する。*/
 					memset(hardVer,0x00,sizeof(hardVer));
 					memcpy(hardVer,SLOTINFO_HARDWAREVERSION,sizeof(SLOTINFO_HARDWAREVERSION));
-					hardVerLen = strlen(hardVer);
+					hardVerLen = strlen((char*)hardVer);
 					GetVerByTex(hardVer, hardVerLen, &major, &minor);
 					pSlotData->slotInfo->hardwareVersion.major = major;
 					pSlotData->slotInfo->hardwareVersion.minor = minor;
@@ -461,7 +462,7 @@ ReGetSlotList:
 					/** −−−−ファームウェアバージョンを取得する。*/
 					memset(firmVer,0x00,sizeof(firmVer));
 					memcpy(firmVer,SLOTINFO_FIRMWAREVERSION,sizeof(SLOTINFO_FIRMWAREVERSION));
-					firmVerLen = strlen(firmVer);
+					firmVerLen = strlen((char*)firmVer);
 					GetVerByTex(firmVer, firmVerLen, &major, &minor);
 					pSlotData->slotInfo->firmwareVersion.major = major;
 					pSlotData->slotInfo->firmwareVersion.minor = minor;
@@ -665,12 +666,12 @@ CK_RV C_GetTokenInfo(CK_SLOT_ID slotID, CK_TOKEN_INFO_PTR pInfo)
 	CK_I_SLOT_DATA_PTR pSlotData = CK_NULL_PTR;
 	CK_BYTE rcvBuf[4096];
 	CK_BYTE pkcs11DfAid[512], pkcs11DfAidHex[512];
-	CK_ULONG rcvLen, i;
+	CK_ULONG rcvLen/*, i*/;
 	CK_LONG pkcs11DfAidLen, pkcs11DfAidHexLen;
 	CK_I_HEAD_PTR pTlvDataList = CK_NULL_PTR;
-	CK_I_ELEM_PTR elem = CK_NULL_PTR;
-	CK_I_HEAD_PTR pObject = CK_NULL_PTR;
-	CK_BYTE efid[4];
+	/*CK_I_ELEM_PTR elem = CK_NULL_PTR;*/
+	/*CK_I_HEAD_PTR pObject = CK_NULL_PTR;*/
+	/*CK_BYTE efid[4];*/
 	
 	
 	/** 初期化フラグがFALSEの場合、*/
@@ -710,7 +711,7 @@ CK_RV C_GetTokenInfo(CK_SLOT_ID slotID, CK_TOKEN_INFO_PTR pInfo)
 	/** PKCS#11用DFのAIDを取得する。*/
 	memset(pkcs11DfAid,0x00,sizeof(pkcs11DfAid));
 	memcpy(pkcs11DfAid,APPLICATIONID_AID,sizeof(APPLICATIONID_AID));
-	pkcs11DfAidLen = strlen(pkcs11DfAid);
+	pkcs11DfAidLen = strlen((char*)pkcs11DfAid);
 
 	/** 取得したAIDをバイトデータに変換する。*/
 	pkcs11DfAidHexLen = TransTex2Hex(pkcs11DfAid, pkcs11DfAidLen, pkcs11DfAidHex, pkcs11DfAidLen / 2);
@@ -1557,7 +1558,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType, CK_CHAR_PTR pPi
 	CK_ATTRIBUTE_PTR pAttr = CK_NULL_PTR;
 	CK_BBOOL hitFlg = CK_FALSE;
 	CK_BYTE rcvBuf[4096];
-	CK_ULONG rcvLen, i;
+	CK_ULONG rcvLen/*, i*/;
 	CK_ULONG classVal;
 	CK_BYTE labelVal[256], efid[4];
 	char				strMinPinLen[16];
@@ -1610,7 +1611,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType, CK_CHAR_PTR pPi
 	}
 	
 
-#ifdef IDMAN
+#if 1
 	/** 設定情報から最大PIN長を取得する。*/
 	memset(strMaxPinLen,0x00,sizeof(strMaxPinLen));
 	iret = IDMan_StReadSetData(MAXPINLEN, strMaxPinLen,&lMaxPinLen);
@@ -1670,7 +1671,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType, CK_CHAR_PTR pPi
 		}
 		
 		/** −CLASS属性値を取得する。*/
-		memcpy((void*)&classVal, (const void*)pAttr->pValue, sizeof(classVal));
+		memcpy((void*)&classVal, pAttr->pValue, sizeof(classVal));
 		
 		/** −CLASS属性がDataの場合、*/
 		if (classVal == CKO_DATA)
@@ -1686,7 +1687,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType, CK_CHAR_PTR pPi
 			
 			/** −−LABEL属性値を取得する。*/
 			memset(labelVal, 0, sizeof(labelVal));
-			memcpy(labelVal, (const void*)pAttr->pValue, pAttr->ulValueLen);
+			memcpy(labelVal, pAttr->pValue, pAttr->ulValueLen);
 			
 			/** −−LABEL属性がユーザ種別に対応する場合、*/
 			if ((userType == CKU_USER && pAttr->ulValueLen == sizeof(CK_LABEL_USER_PIN)-1 && memcmp(labelVal, CK_LABEL_USER_PIN, pAttr->ulValueLen) == 0) ||
@@ -1747,7 +1748,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType, CK_CHAR_PTR pPi
 	/** セッションデータにPINを格納する。*/
 	pSessionData->ulPinLen = ulPinLen;
 	memset((void*)pSessionData->pin, 0, sizeof(pSessionData->pin));
-	memcpy(pSessionData->pin, (const void*)pPin, ulPinLen);
+	memcpy(pSessionData->pin, pPin, ulPinLen);
 	
 	/** セッション状態フラグをログイン状態に設定する。*/
 	/** SOログインの場合、*/
@@ -2116,10 +2117,13 @@ CK_RV C_FindObjects(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE_PTR phObject, C
 					/** −−−−以下は数字で比較する。*/
 					case ATTR_VAL_TYPE_NUM:
 						/** −−−−−数字の属性値を取得する。*/
-						memcpy((void*)&numVal, (const void*)pAttr->pValue, sizeof(numVal));
-						memcpy((void*)&numValSrch, (const void*)elemAttrVal->pValue, sizeof(numValSrch));
+						/* WORKAROUND: sizeof (ulong) != sizeof (int) bug */
+						numVal = 0;
+						numValSrch = 0;
+						memcpy((void*)&numVal, pAttr->pValue, sizeof(numVal) < pAttr->ulValueLen ? sizeof(numVal) : pAttr->ulValueLen);
+						memcpy((void*)&numValSrch, elemAttrVal->pValue, sizeof(numValSrch) < elemAttrVal->ulValueLen ? sizeof(numValSrch) : elemAttrVal->ulValueLen);
 						/** −−−−−値が一致しない場合、フラグOFF。*/
-						if (pAttr->ulValueLen != elemAttrVal->ulValueLen || numVal != numValSrch)
+						if (/*pAttr->ulValueLen != elemAttrVal->ulValueLen || */numVal != numValSrch)
 						{
 							hitFlg = CK_FALSE;
 						}
@@ -2129,9 +2133,9 @@ CK_RV C_FindObjects(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE_PTR phObject, C
 					case ATTR_VAL_TYPE_BYTE_ARRAY:
 						/** −−−−−バイトデータの属性値を取得する。*/
 						memset(byteVal, 0, sizeof(byteVal));
-						memcpy(byteVal, (const void*)pAttr->pValue, pAttr->ulValueLen);
+						memcpy(byteVal, pAttr->pValue, pAttr->ulValueLen);
 						memset(byteValSrch, 0, sizeof(byteValSrch));
-						memcpy(byteValSrch, (const void*)elemAttrVal->pValue, elemAttrVal->ulValueLen);
+						memcpy(byteValSrch, elemAttrVal->pValue, elemAttrVal->ulValueLen);
 						/** −−−−−値が一致しない場合、フラグOFF。*/
 						if (pAttr->ulValueLen != elemAttrVal->ulValueLen || memcmp(byteVal, byteValSrch, pAttr->ulValueLen) != 0)
 						{
@@ -2160,7 +2164,7 @@ CK_RV C_FindObjects(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE_PTR phObject, C
 			{
 				/** −−−Private属性値を取得する。*/
 				memset(byteVal, 0, sizeof(byteVal));
-				memcpy(byteVal, (const void*)pAttr->pValue, pAttr->ulValueLen);
+				memcpy(byteVal, pAttr->pValue, pAttr->ulValueLen);
 				/** −−−パブリックオブジェクト、またはプライベートオブジェクトかつログイン済みの場合、*/
 				if ( byteVal[0] == CK_FALSE ||
 					( byteVal[0] == CK_TRUE &&
@@ -2200,7 +2204,7 @@ CK_RV C_FindObjects(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE_PTR phObject, C
 		if (rv == CKR_OK)
 		{
 			/** −−CLASS属性値を取得する。*/
-			memcpy((void*)&numVal, (const void*)pAttr->pValue, sizeof(numVal));
+			memcpy((void*)&numVal, pAttr->pValue, sizeof(numVal));
 			/** −−値がDATAでない場合、*/
 			if (numVal != CKO_DATA)
 			{
@@ -2222,7 +2226,7 @@ CK_RV C_FindObjects(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE_PTR phObject, C
 		{
 			/** −−LABEL属性値を取得する。*/
 			memset(byteVal, 0, sizeof(byteVal));
-			memcpy(byteVal, (const void*)pAttr->pValue, pAttr->ulValueLen);
+			memcpy(byteVal, pAttr->pValue, pAttr->ulValueLen);
 			/** −−値がID/パスワードでない場合、*/
 			if (pAttr->ulValueLen != sizeof(CK_LABEL_ID_PASS) - 1 || memcmp(byteVal, CK_LABEL_ID_PASS, pAttr->ulValueLen) != 0)
 			{
@@ -2415,7 +2419,7 @@ CK_RV C_GetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, 
 	{
 		/** −Private属性値を取得する。*/
 		memset(byteVal, 0, sizeof(byteVal));
-		memcpy(byteVal, (const void*)pAttr->pValue, pAttr->ulValueLen);
+		memcpy(byteVal, pAttr->pValue, pAttr->ulValueLen);
 		/** −プライベートオブジェクトかつログイン済みでない場合、*/
 		if ( byteVal[0] == CK_TRUE &&
 				(pSessionData->sessionInfo->state == CKS_RO_PUBLIC_SESSION ||
@@ -2480,7 +2484,7 @@ CK_RV C_GetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, 
 						/** −−−−−属性値の領域が十分確保されている場合、属性値とサイズを設定する。*/
 						if (pTemplate[i].ulValueLen >= pAttr->ulValueLen)
 						{
-							memcpy((void*)pTemplate[i].pValue, (const void*)pAttr->pValue, pAttr->ulValueLen);
+							memcpy((void*)pTemplate[i].pValue, pAttr->pValue, pAttr->ulValueLen);
 							pTemplate[i].ulValueLen = pAttr->ulValueLen;
 						}
 						/** −−−−−属性値の領域が十分確保されていない場合、*/
@@ -2525,7 +2529,7 @@ CK_RV C_GetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, 
 					/** −−−−属性値の領域が十分確保されている場合、属性値とサイズを設定する。*/
 					if (pTemplate[i].ulValueLen >= pAttr->ulValueLen)
 					{
-						memcpy((void*)pTemplate[i].pValue, (const void*)pAttr->pValue, pAttr->ulValueLen);
+						memcpy((void*)pTemplate[i].pValue, pAttr->pValue, pAttr->ulValueLen);
 						pTemplate[i].ulValueLen = pAttr->ulValueLen;
 					}
 					/** −−−−属性値の領域が十分確保されていない場合、*/
@@ -2566,10 +2570,10 @@ CK_RV C_SignInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism, CK_OBJ
 	CK_RV rv = CKR_OK;
 	CK_I_SESSION_DATA_PTR pSessionData = CK_NULL_PTR;
 	CK_I_SLOT_DATA_PTR pSlotData = CK_NULL_PTR;
-	CK_ULONG count = 0;
-	CK_I_ELEM_PTR elem = CK_NULL_PTR;
-	CK_MECHANISM_INFO_PTR mechanismInfo = CK_NULL_PTR;
-	CK_BBOOL hitFlg = CK_FALSE;
+	/*CK_ULONG count = 0;*/
+	/*CK_I_ELEM_PTR elem = CK_NULL_PTR;*/
+	/*CK_MECHANISM_INFO_PTR mechanismInfo = CK_NULL_PTR;*/
+	/*CK_BBOOL hitFlg = CK_FALSE;*/
 	CK_I_HEAD_PTR pObject = CK_NULL_PTR;
 	
 	/** 初期化フラグがFALSEの場合、*/
@@ -2641,8 +2645,8 @@ CK_RV C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData, CK_ULONG ulDataLen, 
 	CK_I_SLOT_DATA_PTR pSlotData = CK_NULL_PTR;
 	CK_I_SESSION_DATA_PTR pSessionData = CK_NULL_PTR;
 	CK_ATTRIBUTE_PTR pAttr = CK_NULL_PTR;
-	CK_BYTE rcvBuf[4096], data[1024], efid[4], tmpSignature[2048];
-	CK_ULONG rcvLen, tmpSignatureLen, i;
+	CK_BYTE rcvBuf[4096], /*data[1024],*/ efid[4], tmpSignature[2048];
+	CK_ULONG rcvLen, tmpSignatureLen/*, i*/;
 	
 	/** 初期化フラグがFALSEの場合、*/
 	if (libInitFlag == CK_FALSE)
@@ -2897,7 +2901,7 @@ CK_RV C_DigestFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pDigest, CK_ULONG_PT
 {
 	CK_RV rv = CKR_OK;
 	CK_I_SESSION_DATA_PTR pSessionData = CK_NULL_PTR;
-	CK_LONG lalgorithm, tmpDataLen, lRet;
+	CK_LONG /*lalgorithm,*/ tmpDataLen, lRet;
 	CK_BYTE tmpData[512];
 	
 	/** 初期化フラグがFALSEの場合、*/
@@ -3062,7 +3066,7 @@ CK_RV C_Verify(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData, CK_ULONG ulDataLen
 	CK_I_SESSION_DATA_PTR pSessionData = CK_NULL_PTR;
 	CK_ATTRIBUTE_PTR pAttr = CK_NULL_PTR;
 	CK_BYTE decData[2048], tmpData[2048];
-	CK_ULONG decDataLen, lRet;
+	CK_LONG decDataLen, lRet;
 
 	
 	/** 初期化フラグがFALSEの場合、*/
@@ -3422,8 +3426,8 @@ CK_RV C_SetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, 
 	CK_ATTRIBUTE_PTR pPassAttr = CK_NULL_PTR;
 	CK_BYTE rcvBuf[1024], data[2048], idPass[2048], tmp[2048], efid[4];
 	CK_ULONG rcvLen, dataLen, idPassLen, tmpLen, num, i;
-	CK_ULONG numVal, numValSrch;
-	CK_BYTE byteVal[256], byteValSrch[256];
+	CK_ULONG numVal/*, numValSrch*/;
+	CK_BYTE byteVal[256]/*, byteValSrch[256]*/;
 	
 	/** 初期化フラグがFALSEの場合、*/
 	if (libInitFlag == CK_FALSE)
@@ -3480,7 +3484,7 @@ CK_RV C_SetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, 
 	{
 		/** −Private属性値を取得する。*/
 		memset(byteVal, 0, sizeof(byteVal));
-		memcpy(byteVal, (const void*)pAttr->pValue, pAttr->ulValueLen);
+		memcpy(byteVal, pAttr->pValue, pAttr->ulValueLen);
 		
 		/** −プライベートオブジェクトかつログイン済みでない場合、*/
 		if ( byteVal[0] == CK_TRUE &&
@@ -3504,7 +3508,7 @@ CK_RV C_SetAttributeValue(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, 
 	if (rv == CKR_OK)
 	{
 		/** −Class属性値を取得する。*/
-		memcpy((void*)&numVal, (const void*)pAttr->pValue, sizeof(numVal));
+		memcpy((void*)&numVal, pAttr->pValue, sizeof(numVal));
 		/** −データクラスでない場合、*/
 		if (numVal != CKO_DATA)
 		{

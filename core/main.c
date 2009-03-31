@@ -30,6 +30,7 @@
 #include "ap.h"
 #include "assert.h"
 #include "callrealmode.h"
+#include "config.h"
 #include "convert.h"
 #include "current.h"
 #include "debug.h"
@@ -119,6 +120,44 @@ copy_minios (void)
 	}
 }
 
+/* the head 640KiB area is saved by save_bios_data_area and */
+/* restored by reinitialize_vm. */
+/* this function clears other RAM space that may contain sensitive data. */
+static void
+clear_guest_pages (void)
+{
+	u64 base, len;
+	u32 type;
+	u32 n, nn;
+	const u32 maxlen = 0x100000;
+	void *p;
+
+	n = 0;
+	for (nn = 1; nn; n = nn) {
+		nn = getfakesysmemmap (n, &base, &len, &type);
+		if (type != SYSMEMMAP_TYPE_AVAILABLE)
+			continue;
+		if (base < 0x100000) /* < 1MiB */
+			continue;
+		if (base + len <= 0x100000) /* < 1MiB */
+			continue;
+		while (len >= maxlen) {
+			p = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE, base, maxlen);
+			ASSERT (p);
+			memset (p, 0, maxlen);
+			unmapmem (p, maxlen);
+			base += maxlen;
+			len -= maxlen;
+		}
+		if (len > 0) {
+			p = mapmem (MAPMEM_HPHYS, base, len);
+			ASSERT (p);
+			memset (p, 0, len);
+			unmapmem (p, len);
+		}
+	}
+}
+
 /* make CPU's virtualization extension usable */
 static void
 virtualization_init_pcpu (void)
@@ -189,6 +228,8 @@ initregs (bool bsp, u8 bios_boot_drive)
 		unmapmem (p, GUEST_BOOT_LENGTH);
 		current->vmctl.write_general_reg (GENERAL_REG_RCX,
 						  bios_boot_drive);
+		if (config.vmm.boot_active)
+			current->vmctl.write_general_reg (GENERAL_REG_RSI, 1);
 		current->vmctl.write_realmode_seg (SREG_CS, 0x0);
 		current->vmctl.write_ip (GUEST_BOOT_OFFSET);
 	} else {
@@ -230,6 +271,7 @@ reinitialize_vm (bool bsp, u8 bios_boot_drive)
 		ASSERT (p);
 		memcpy (p, bios_data_area, 0xA0000);
 		unmapmem (p, 0xA0000);
+		clear_guest_pages ();
 		call_initfunc ("config0");
 		load_drivers ();
 		call_initfunc ("config1");

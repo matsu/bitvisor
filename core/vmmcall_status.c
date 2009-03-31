@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "config.h"
 #include "cpu_mmu.h"
 #include "current.h"
 #include "initfunc.h"
@@ -99,7 +100,8 @@ vmmcall_status_init (void)
 	LIST1_HEAD_INIT (list1_status);
 	spinlock_init (&status_lock);
 #ifdef VMMCALL_STATUS_ENABLE
-	vmmcall_register ("get_status", get_status);
+	if (config.vmm.iccard.status)
+		vmmcall_register ("get_status", get_status);
 #endif
 }
 

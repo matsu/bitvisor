@@ -165,6 +165,12 @@ struct tm
 
 #define	assert(a)
 
+#undef	memcpy
+#undef	memset
+#undef	memcmp
+#undef	memmove
+#undef	memchr
+#undef	qsort
 #define	memcpy(a, b, c)		chelp_memcpy(a, b, (UINT)(c))
 #define	memset(a, b, c)		chelp_memset(a, b, (UINT)(c))
 #define	memcmp(a, b, c)		chelp_memcmp(a, b, (UINT)(c))
@@ -208,6 +214,14 @@ struct tm
 #endif	// _MSC_VER
 
 
+#undef	strlen
+#undef	strchr
+#undef	strncmp
+#undef	strcmp
+#undef	strcat
+#undef	strcpy
+#undef	strncpy
+#undef	strrchr
 #define	strlen				chelp_strlen
 #define	strchr				chelp_strchr
 #define	strncmp				chelp_strncmp
@@ -238,6 +252,7 @@ struct tm
 
 // chelp.c
 extern SE_SYSCALL_TABLE *chelp_syscall;
+void preinit_crypto_library (struct SE_SYSCALL_TABLE *syscall_table);
 void InitCryptoLibrary(struct SE_SYSCALL_TABLE *syscall_table, unsigned char *initial_seed,
 					   int initial_seed_size);
 void chelp_syslog(char *type, char *message);

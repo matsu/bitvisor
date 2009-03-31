@@ -36,11 +36,32 @@ struct packet_device {
 	enum {
 		PACKET_COMMAND,
 		PACKET_DATA,
+		PACKET_SECTOR_SIZE,
+		PACKET_BUFFER_LENGTH,
 	} type;
+
+	int	state;
 	int	rw;
+	int	data_length;
+	int	sector_size;
 	lba_t	lba;
 	u32	sector_count;
+	u8      *pkt_cmd_buf;
 };
+
+typedef enum {
+	PACKET_THROUGH = 0,
+	PACKET_INVALID = 1,
+        PACKET_NONDATA,
+        PACKET_CONF_DATA,
+	PACKET_READ_DATA,
+	PACKET_WRITE_DATA,
+}packet_class_t;
+
+typedef struct {
+	packet_class_t	class:		7;
+	unsigned int	rw:		1;
+} __attribute__ ((packed)) packet_type_t;
 
 extern void packet_handle_command(struct packet_device *device, u8 *buf);
 

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "debug.h"
@@ -119,6 +120,8 @@ dbgsh (void)
 	ulong rbx;
 	int b;
 
+	if (!config.vmm.dbgsh)
+		return;
 	spinlock_lock (&dbgsh_lock);
 	if (!i) {
 		tid = thread_new (dbgsh_thread, NULL, PAGESIZE);

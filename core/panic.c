@@ -29,6 +29,7 @@
 
 #include "ap.h"
 #include "callrealmode.h"
+#include "config.h"
 #include "cpu.h"
 #include "current.h"
 #include "debug.h"
@@ -473,7 +474,7 @@ panic_nomsg (bool w)
 	}
 #endif
 	d = panic_process;
-	if (d >= 0) {
+	if (d >= 0 && config.vmm.shell) {
 		if (!trying) {
 			trying = true;
 			if (!panic_reboot)
@@ -491,6 +492,8 @@ panic_nomsg (bool w)
 			printf ("panic failed.\n");
 		}
 	} else {
+		if (panic_reboot)
+			do_panic_reboot ();
 		printf ("panic: %s\n", panicmsg);
 	}
 	freeze ();

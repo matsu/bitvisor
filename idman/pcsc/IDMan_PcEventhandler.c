@@ -248,7 +248,8 @@ void EHStatusHandler(PREADER_CONTEXT rContext)
 		 * Power and reset the card 
 		 */
 		///−スリープ 200msec
-		usleep(200000);
+		void usleep ();	/* FIXME */
+		usleep(500000);	/*usleep(200000);*/
 		///−コンテキストのカードATR長に最大値を設定
 		rContext->readerState->cardAtrLength = MAX_ATR_SIZE;
 		///−カードへ電源供給します。 IFDHPowerICC()

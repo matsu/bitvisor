@@ -29,20 +29,22 @@
 
 #ifdef CARDSTATUS
 #include "assert.h"
+#include "config.h"
 #include "current.h"
+#include "iccard.h"
 #include "initfunc.h"
 #include "panic.h"
 #include "printf.h"
 #include "timer.h"
 #include "vmmcall.h"
 
-static unsigned long idman_session;
 static enum {
 	IS_OK,
 	IS_NOCARD,
 	IS_SHUTTING_DOWN,
 } iccard_status;
 static int shutdowntime;
+static bool ready;
 
 static void
 iccard (void)
@@ -59,7 +61,18 @@ static void
 iccard_timer (void *handle, void *data)
 {
 	int r;
+	unsigned long idman_session;
 
+	if (!config.vmm.iccard.status)
+		return;
+	if (!get_idman_session (&idman_session)) {
+		timer_set (handle, 1000000);
+		return;
+	}
+	if (!ready) {
+		ready = true;
+		printf ("Starting IC card status monitor\n");
+	}
 	if (!iccard_status) {
 		r = IDMan_CheckCardStatus (idman_session);
 		if (r) {
@@ -81,30 +94,16 @@ iccard_timer (void *handle, void *data)
 }
 
 static void
-iccard_init_timer (void *handle, void *data)
-{
-	int r;
-
-	if (IDMan_IPInitializeReader () == 0) {
-		r = IDMan_IPInitialize ("123456789@ABCDEF",  &idman_session);
-		if (r)
-			panic ("IDMan_IPInitialize returns %d", r);
-		timer_free (handle);
-		handle = timer_new (iccard_timer, NULL);
-		ASSERT (handle);
-		printf ("Starting IC card status monitor\n");
-	}
-	timer_set (handle, 1000000);
-}
-
-static void
 vmmcall_iccard_init (void)
 {
 	void *handle;
 
+	if (!config.vmm.iccard.status)
+		return;
 	iccard_status = IS_OK;
+	ready = false;
 	vmmcall_register ("iccard", iccard);
-	handle = timer_new (iccard_init_timer, NULL);
+	handle = timer_new (iccard_timer, NULL);
 	ASSERT (handle);
 	timer_set (handle, 1000000);
 }

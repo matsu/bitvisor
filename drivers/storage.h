@@ -30,6 +30,8 @@
 #ifndef _STORAGE_H_
 #define _STORAGE_H_
 
+#include <core/config.h>
+
 #define STORAGE_MAX_KEYS_PER_DEVICE 8
 
 #define LBA_INVALID	(~0ULL - 0)
@@ -43,30 +45,10 @@ enum {
 	STORAGE_WRITE = 1,
 };
 
-struct guid {
-	u32 data1;
-	u16 data2;
-	u16 data3;
-	u8  data4[8];
-};
-#define STORAGE_GUID_NULL {0, 0, 0, {0, 0, 0 ,0 ,0, 0, 0, 0}}
-#define STORAGE_GUID_ANY {0xffffffff, 0xffff, 0xffff, {0xff, 0xff, 0xff ,0xff ,0xff, 0xff, 0xff, 0xff}}
-
 struct storage_access {
 	lba_t	lba;
 	count_t	count;
 	int	rw;
-};
-
-struct storage_keys_conf {
-	struct guid	guid;
-	u8		type;
-	u8		host_id;
-	u16		device_id;
-	lba_t		lba_low, lba_high;
-	char		crypto_name[8];
-	u8		keyindex;
-	u16		keybits;
 };
 
 struct storage_keys {
@@ -83,15 +65,6 @@ typedef	union {
 		u8	type;
 	} __attribute__ ((packed));
 } storage_busid_t;
-
-#define STORAGE_DEVICE_ID_ANY	0xffff
-#define STORAGE_HOST_ID_ANY	0xff
-enum {
-	STORAGE_TYPE_ATA,
-	STORAGE_TYPE_ATAPI,
-	STORAGE_TYPE_USB,
-	STORAGE_TYPE_ANY =	0xff,
-};
 
 struct storage_device {
 	struct guid	guid; // globally unique id for a specific device (like VendorID:ProductID:SerialNumber)

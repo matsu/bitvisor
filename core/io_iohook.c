@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "config.h"
 #include "current.h"
 #include "debug.h"
 #include "initfunc.h"
@@ -107,7 +108,8 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
                                 printf ("IDMan_IPFinalizeReader return = %d.\n", i);
 #else
 #ifdef F11PANIC
-				panic ("F11 pressed.");
+				if (config.vmm.f11panic)
+					panic ("F11 pressed.");
 #endif
 #endif
 			}
@@ -118,11 +120,14 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 				extern void uhci_dump_frame0(void);
 #endif /* defined(F12UHCIFRAME) */
 #if defined(F12MSG)
-				debug_gdb ();
-				led ^= LED_CAPSLOCK_BIT | LED_NUMLOCK_BIT;
-				setkbdled (led);
+				if (config.vmm.f12msg) {
+					debug_gdb ();
+					led ^= LED_CAPSLOCK_BIT |
+						LED_NUMLOCK_BIT;
+					setkbdled (led);
+					printf ("F12 pressed.\n");
+				}
 #endif /* defined(F12MSG) */
-				printf ("F12 pressed.\n");
 #if defined(F12UHCIFRAME)
 				uhci_dump_frame0();
 #endif /* defined(F12UHCIFRAME) */
@@ -146,7 +151,8 @@ setiohooks (void)
 	set_iofunc (0x20, io0x20_monitor);
 #endif
 #if defined (F11PANIC) || defined (F12MSG)
-	set_iofunc (0x60, kbdio_dbg_monitor);
+	if (config.vmm.f11panic || config.vmm.f12msg)
+		set_iofunc (0x60, kbdio_dbg_monitor);
 #endif
 }
 

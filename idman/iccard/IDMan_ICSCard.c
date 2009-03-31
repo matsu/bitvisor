@@ -39,6 +39,7 @@
 	#include "IDMan_StandardIo.h"
 	#include "IDMan_PcPcsclite.h"
 	#include "IDMan_PcWinscard.h"
+	#include <core/string.h>
 #else
 	#include <stdio.h>
 	#include <stdlib.h>
@@ -342,7 +343,7 @@ long IDMan_SCardSetBinay(unsigned long hHnd, unsigned long *lPro, unsigned char 
 	long				lSendSize;
 	int					iLoopCnt;
 	int					i;
-	long				lSetLen;
+	unsigned long			lSetLen;
 	unsigned char		szTempBuff[64];
 	unsigned char   	szRecvBuff[READBINSIZE*3+1];
 	DWORD				lRecvSize;

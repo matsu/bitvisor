@@ -400,7 +400,7 @@ int IDMan_getCertificateByIndex ( unsigned long int SessionHandle,
 								  unsigned short int* CertLen)
 {
 
-	long					lret;
+	/*long					lret;*/
 	int						iret;
 	int						iReturn;
 	CK_RV					rv;
@@ -409,9 +409,9 @@ int IDMan_getCertificateByIndex ( unsigned long int SessionHandle,
 	void*					ptrCert;
 	CK_OBJECT_HANDLE		ObjectHandle[OBJECT_HANDLE_MAX];	
 	CK_ULONG				ObjectHandleCnt;
-	unsigned long int		LoopCnt;
-	char					SubjectDN[SUBJECT_DN_MAX];
-	char					IssuerDN[ISSUER_DN_MAX];
+	/*unsigned long int		LoopCnt;*/
+	/*char					SubjectDN[SUBJECT_DN_MAX];*/
+	/*char					IssuerDN[ISSUER_DN_MAX];*/
 	long					class;
 	unsigned char			token;
 	char					Label[1024];

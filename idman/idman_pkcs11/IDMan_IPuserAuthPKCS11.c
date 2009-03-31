@@ -45,7 +45,7 @@ int IDMan_IPgetCertPkeyIdxPKCSx( CK_SESSION_HANDLE, int, void**, unsigned long i
 int IDMan_IPgetCertPkeyPKCSy( char* keyid,unsigned char* ptrPublicKeyY,unsigned long int  * lPublicKeyLenY);
 int IDMan_IPCheckCrlPkcX( char*,unsigned char*,long);
 int IDMan_IPgetMakeRandData( unsigned char*,long* );
-int IDMan_IPMkRandHash( CK_SESSION_HANDLE, int, unsigned char*, long, unsigned char*, long* );
+int IDMan_IPMkRandHash( CK_SESSION_HANDLE, int, unsigned char*, long, unsigned char*, unsigned long* );
 int IDMan_IPgetPrivateKeyPKCSx( CK_SESSION_HANDLE,char*,CK_OBJECT_HANDLE* );
 int IDMan_IPSignatureVerify( CK_SESSION_HANDLE,int, CK_OBJECT_HANDLE, unsigned char*, long, CK_OBJECT_HANDLE );
 
@@ -460,8 +460,8 @@ int IDMan_IPgetCertPkeyIdxPKCSx( CK_SESSION_HANDLE Sessinhandle,
 	CK_ATTRIBUTE		Attributeval[2];					//
 	CK_OBJECT_HANDLE		ObjectHandle[OBJECT_HANDLE_MAX];	//オブジェクトハンドル
 	CK_ULONG				ObjectHandleCnt;					//オブジェクトハンドル件数
-	char					SubjectDN[SUBJECT_DN_MAX];			//SubjectDN取得領域
-	char					IssuerDN[ISSUER_DN_MAX];			//IssuerDN取得領域
+	/*char					SubjectDN[SUBJECT_DN_MAX];*/			//SubjectDN取得領域
+	/*char					IssuerDN[ISSUER_DN_MAX];*/			//IssuerDN取得領域
 	long					class;								//
 	unsigned char			token;								//
 	char					Label[1024];
@@ -645,18 +645,18 @@ int IDMan_IPgetCertPkeyPKCSy( char* keyid,unsigned char* ptrPublicKeyY,unsigned 
 {
 	long				lret;				//戻り値long
 	int					iret;				//戻り値int
-	char*				pret;				//戻り値char*
+	/*char*				pret;*/				//戻り値char*
 	int					iReturn;			//戻り値
 	char				mem1Buff[1024];		//メンババッファ
 	char				PkcYFdirBuff[1024];	//PKC(Y)ファイルパス
-	unsigned char		ReadBuff[1024];
-	long				lReadBuffLen;
-	long				lFileSize;
-	unsigned char*		ptrFile;
-	unsigned char		PemFile[2048];
-	unsigned char		DerFile[2048];
+	/*unsigned char		ReadBuff[1024];*/
+	/*long				lReadBuffLen;*/
+	/*long				lFileSize;*/
+	/*unsigned char*		ptrFile;*/
+	/*unsigned char		PemFile[2048];*/
+	char			DerFile[2048];
 	unsigned long int	lDerFileLen;
-	char				cKeyIdBuff[1024];	//キーIDバッファ
+	/*char				cKeyIdBuff[1024];*/	//キーIDバッファ
 	unsigned char		uKeyIdBuff;			//キーIDバッファ
 
 
@@ -719,10 +719,10 @@ int IDMan_IPCheckCrlPkcX( char* keyid,unsigned char* ptrCertdata,long lCertLen)
 {
 	long				lret;				//戻り値long
 	int					iret;				//戻り値int
-	char*				pret;				//戻り値char*
+	/*char*				pret;*/				//戻り値char*
 	int					iReturn;			//戻り値
 	char				mem1Buff[1024];		//メンババッファ
-	char				mem2Buff[1024];		//メンババッファ
+	/*char				mem2Buff[1024];*/		//メンババッファ
 	char				CRLFdirBuff[4096];	//CRLデータ
 	unsigned long int	CRLFdirLen;			//CRLデータレングス
 	int					iCRLFdirLen;		//CRLデータレングス
@@ -844,9 +844,9 @@ int IDMan_IPMkRandHash(	CK_SESSION_HANDLE Sessinhandle,
 						unsigned char* ptrRandData,
 						long RandDataLen,
 						unsigned char* pHashData,
-						long* iHashDataLen )
+						unsigned long* iHashDataLen )
 {
-	int						iret;								//返り値
+	/*int						iret;*/								//返り値
 	int						iReturn;							//返り値
 	CK_RV					rv;									//返り値
 	CK_MECHANISM		strMechanismDigest;					//メカニズム情報（Digest）
@@ -1156,7 +1156,7 @@ int IDMan_userAuthPKCS11(	 unsigned long int SessionHandle,
 	unsigned char			RandData[1024];						//乱数データ
 	long					RandDataLen;						//乱数データレングス
 	unsigned char			HashData[1024];						//乱数ハッシュデータ
-	long					HashDataLen;						//乱数ハッシュデータレングス
+	unsigned long				HashDataLen;						//乱数ハッシュデータレングス
 	CK_ATTRIBUTE		ObjAttribute[3];					//
 	long					class;								//
 	char					Label[1024];						//
@@ -1418,7 +1418,7 @@ int IDMan_userAuthPKCS11ByIndex( unsigned long int SessionHandle,
 	unsigned char			RandData[1024];						//乱数データ
 	long					RandDataLen;						//乱数データレングス
 	unsigned char			HashData[1024];						//乱数ハッシュデータ
-	long					HashDataLen;						//乱数ハッシュデータレングス
+	unsigned long				HashDataLen;						//乱数ハッシュデータレングス
 	CK_ATTRIBUTE		ObjAttribute[3];					//
 	long					class;								//
 	char					Label[1024];						//
@@ -1535,7 +1535,7 @@ int IDMan_userAuthPKCS11ByIndex( unsigned long int SessionHandle,
 	}
 
 	/**PKC(X）の失効リストチェックを行う。 */
-	iret = IDMan_IPCheckCrlPkcX( (char*) KeyId, (char*) CertX, lCertX);
+	iret = IDMan_IPCheckCrlPkcX( (char*) KeyId, (unsigned char*) CertX, lCertX);
 	/**PKC(X）の失効リストチェックエラーの場合、 */
 	if (iret != RET_IPOK) 
 	{

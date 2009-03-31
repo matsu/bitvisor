@@ -148,6 +148,7 @@ vramwrite_putchar (unsigned char c)
 	u16 cursor;
 	u16 scroll;
 	u8 *p;
+	unsigned int lines;
 
 	if (vram_virtaddr == NULL)
 		return;
@@ -158,7 +159,8 @@ vramwrite_putchar (unsigned char c)
 		if (cursor != 0 && cursor != scroll)
 			cursor--;
 	} else if (c == '\r') {
-		while (cursor != 0 && cursor != scroll && (cursor % 80))
+		while (cursor != 0 && cursor != scroll &&
+		       ((cursor - scroll) % 80))
 			cursor--;
 	} else if (c != '\n') {
 		p[0] = c;
@@ -169,10 +171,13 @@ vramwrite_putchar (unsigned char c)
 		p[1] = 0x07;
 		p += 2;
 		cursor++;
-	} while (cursor % 80);
-	if (cursor - scroll >= 80 * 25) {
+	} while ((cursor - scroll) % 80);
+	if (cursor - scroll >= 80 * 25 && ((cursor - scroll) % 80) == 0) {
+		lines = (cursor - scroll) / 80;
+		while ((scroll << 1) + lines * 160 >= 0x8000)
+			lines--;
 		cursor -= 80;
-		scroll_up (vram_virtaddr + (scroll << 1), 80, 25, 0x0720);
+		scroll_up (vram_virtaddr + (scroll << 1), 80, lines, 0x0720);
 	}
 	move_cursor_pos (cursor);
 }

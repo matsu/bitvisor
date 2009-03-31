@@ -43,6 +43,7 @@
 #include "core/types.h"
 #include "common/list.h"
 #include "usb.h"
+#include "usb_device.h"
 #include "uhci.h"
 
 #include "IDMan_CcAtr.h"

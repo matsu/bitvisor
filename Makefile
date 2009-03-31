@@ -14,12 +14,16 @@ CONFIG_CPU_MMU_SPT_3 ?= 1
 CONFIG_CPU_MMU_SPT_USE_PAE ?= 1
 CONFIG_PS2KBD_F11PANIC ?= 0
 CONFIG_PS2KBD_F12MSG ?= 1
-CONFIG_AUTO_REBOOT ?= 1
-CONFIG_DBGSH ?= 0
+CONFIG_DBGSH ?= 1
 CONFIG_LOG_TO_GUEST ?= 0
-CONFIG_ATA_DRIVER ?= 0
-CONFIG_STORAGE_ENC ?= 0
-CONFIG_CRYPTO_VPN ?= 0
+CONFIG_ATA_DRIVER ?= 1
+CONFIG_STORAGE_ENC ?= 1
+CONFIG_CRYPTO_VPN ?= 1
+CONFIG_USB_DRIVER ?= 1
+CONFIG_SHADOW_UHCI ?= 1
+CONFIG_SHADOW_EHCI ?= 1
+CONFIG_HANDLE_USBMSC ?= 1
+CONFIG_HANDLE_USBHUB ?= 1
 CONFIG_IEEE1394_CONCEALER ?= 1
 CONFIG_FWDBG ?= 0
 CONFIG_ACPI_DSDT ?= 1
@@ -27,11 +31,12 @@ CONFIG_DISABLE_SLEEP ?= 1
 CONFIG_ENABLE_ASSERT ?= 1
 CONFIG_DEBUG_ATA ?= 0
 CONFIG_SELECT_AES_GLADMAN ?= 0
-CONFIG_CARDSTATUS ?= 0
-CONFIG_IDMAN ?= 0
-CONFIG_VPN_PRO100 ?= 0
-CONFIG_VPN_PRO1000 ?= 0
-CONFIG_VPN_VE ?= 0
+CONFIG_CARDSTATUS ?= 1
+CONFIG_IDMAN ?= 1
+CONFIG_VPN_PRO100 ?= 1
+CONFIG_VPN_PRO1000 ?= 1
+CONFIG_VPN_VE ?= 1
+CONFIG_VTD_TRANS ?= 0
 
 # config list
 CONFIGLIST :=
@@ -45,16 +50,16 @@ CONFIGLIST += CONFIG_CPU_MMU_SPT_3=$(CONFIG_CPU_MMU_SPT_3)[Shadow type 3 (faster
 CONFIGLIST += CONFIG_CPU_MMU_SPT_USE_PAE=$(CONFIG_CPU_MMU_SPT_USE_PAE)[Shadow page table uses PAE]
 CONFIGLIST += CONFIG_PS2KBD_F11PANIC=$(CONFIG_PS2KBD_F11PANIC)[Panic when F11 is pressed (PS/2 only)]
 CONFIGLIST += CONFIG_PS2KBD_F12MSG=$(CONFIG_PS2KBD_F12MSG)[Print when F12 is pressed (PS/2 only)]
-CONFIGLIST += CONFIG_AUTO_REBOOT=$(CONFIG_AUTO_REBOOT)[Automatically reboot on guest reboot]
 CONFIGLIST += CONFIG_DBGSH=$(CONFIG_DBGSH)[Debug shell access from guest]
 CONFIGLIST += CONFIG_LOG_TO_GUEST=$(LOG_TO_GUEST)[Log to guest memory]
 CONFIGLIST += CONFIG_ATA_DRIVER=$(CONFIG_ATA_DRIVER)[Enable ATA driver]
 CONFIGLIST += CONFIG_STORAGE_ENC=$(CONFIG_STORAGE_ENC)[Enable storage encryption (DEBUG)]
 CONFIGLIST += CONFIG_CRYPTO_VPN=$(CONFIG_CRYPTO_VPN)[Enable IPsec VPN Client]
-CONFIGLIST += CONFIG_UHCI_DRIVER=$(CONFIG_UHCI_DRIVER)[Enable UHCI driver]
-CONFIGLIST += CONFIG_EHCI_CONCEAL=$(CONFIG_EHCI_CONCEAL)[conceal EHCI host controllers]
-CONFIGLIST += CONFIG_USBMSC_HANDLE=$(CONFIG_USBMSC_HANDLE)[Handle USB Mass Storage Class Devices]
-CONFIGLIST += CONFIG_USBHUB_HANDLE=$(CONFIG_USBHUB_HANDLE)[Handle USB Hub Class Devices]
+CONFIGLIST += CONFIG_USB_DRIVER=$(CONFIG_USB_DRIVER)[Enable USB driver]
+CONFIGLIST += CONFIG_SHADOW_UHCI=$(CONFIG_SHADOW_UHCI)[Shadow UHCI(USB1) transfers]
+CONFIGLIST += CONFIG_SHADOW_EHCI=$(CONFIG_SHADOW_EHCI)[Shadow EHCI(USB2) transfers]
+CONFIGLIST += CONFIG_HANDLE_USBMSC=$(CONFIG_HANDLE_USBMSC)[Handle USB mass storage class devices]
+CONFIGLIST += CONFIG_HANDLE_USBHUB=$(CONFIG_HANDLE_USBHUB)[Handle USB hub class devices]
 CONFIGLIST += CONFIG_PS2KBD_F10USB=$(CONFIG_PS2KBD_F10USB)[Run a test for USB ICCD when F10 pressed]
 CONFIGLIST += CONFIG_PS2KBD_F12USB=$(CONFIG_PS2KBD_F12USB)[Dump UHCI frame list when F12 pressed]
 CONFIGLIST += CONFIG_IEEE1394_CONCEALER=$(CONFIG_IEEE1394_CONCEALER)[Conceal OHCI IEEE 1394 host controllers]
@@ -69,6 +74,7 @@ CONFIGLIST += CONFIG_IDMAN=$(CONFIG_IDMAN)[IDMAN (CRYPTO_VPN must be enabled)]
 CONFIGLIST += CONFIG_VPN_PRO100=$(CONFIG_VPN_PRO100)[Enable VPN for Intel PRO/100]
 CONFIGLIST += CONFIG_VPN_PRO1000=$(CONFIG_VPN_PRO1000)[Intel PRO/1000 driver]
 CONFIGLIST += CONFIG_VPN_VE=$(CONFIG_VPN_VE)[Enable ve (Virtual Ethernet) driver]
+CONFIGLIST += CONFIG_VTD_TRANS=$(CONFIG_VTD_TRANS)[Enable VT-d translation]
 
 NAME	= bitvisor
 FORMAT	= elf32-i386
@@ -110,8 +116,6 @@ clean :
 	$(MAKE) -C core clean
 	$(MAKE) -C drivers clean
 	$(MAKE) -C crypto clean
-	$(MAKE) -C maketestfs clean
-	$(MAKE) -C vpn_config clean
 	$(MAKE) -C vpn clean
 	$(MAKE) -C idman/ccid clean
 	$(MAKE) -C idman/iccard clean
@@ -128,20 +132,20 @@ $(CONFIG) : Makefile
 	echo -n '$(CONFIGLIST)' | tr '[' '#' | tr ']' '\n' | \
 		sed 's/^ //' > $(CONFIG)
 
-$(TARGET) $(MAP) : $(LDS) $(OBJS) $(CONFIG) maketestfs/maketestfs
+$(TARGET) $(MAP) : $(LDS) $(OBJS) $(CONFIG)
 	$(LD) $(LDFLAGS) $(LDFLAGS2) -o $(TARGET) $(OBJS)
 	objcopy --output-format $(FORMAT) $(TARGET)
 
-core/core.o : vpn_config/testfs.c
+core/core.o : defconfig
 	$(MAKE) -C core
 
 drivers/drivers.o :
 	$(MAKE) -C drivers
 
-crypto/crypto.o : vpn_config/testfs.c
+crypto/crypto.o :
 	$(MAKE) -C crypto
 
-vpn/vpn.o : vpn_config/testfs.c
+vpn/vpn.o :
 	$(MAKE) -C vpn
 
 idman/ccid/ccid.o : 
@@ -161,13 +165,9 @@ idman/pkcs11/pkcs11.o :
  
 idman/standardio/standardio.o : 
 	$(MAKE) -C idman/standardio
- 
-maketestfs/maketestfs :
-	$(MAKE) -C maketestfs
 
-vpn_config/testfs.c : maketestfs/maketestfs
-	$(MAKE) -C vpn_config
-
+defconfig :
+	cp defconfig.tmpl defconfig
 
 # generate doxygen documents
 doxygen :

@@ -44,10 +44,10 @@ static const char atapi_virtual_revision[8] = "0.4     ";
 int atapi_handle_interrupt_reason(struct ata_channel *channel, core_io_t io, union mem *data)
 {
 	ata_interrupt_reason_t interrupt_reason;
-
-	if (channel->state != ATA_STATE_PACKET_DATA)
+	
+	if (!channel->atapi_device->atapi_flag)
 		return CORE_IO_RET_DEFAULT;
-
+	
 	core_io_handle_default(io, data);
 	interrupt_reason.value = data->byte;
 	if (interrupt_reason.cd && interrupt_reason.io)
@@ -63,8 +63,18 @@ int atapi_handle_pio_identify_packet(struct ata_channel *channel, int rw)
 {
 	struct ata_identify_packet *identify_packet;
 	struct ata_device *device = ata_get_ata_device(channel);
+	struct storage_device *old_storage_device, *new_storage_device;
 	u8 busid = ata_get_busid(channel);
 	char model[40+1], revision[8+1], serial[20+1];
+	
+	old_storage_device = device->storage_device;
+	new_storage_device = storage_new(STORAGE_TYPE_ATAPI, 
+					old_storage_device->busid.host_id, 
+					old_storage_device->busid.device_id, NULL, 2048);
+	if (old_storage_device && new_storage_device){
+		device->storage_device = new_storage_device;
+		free(old_storage_device);
+	}
 
 	identify_packet = (struct ata_identify_packet *)channel->pio_buf;
 	device->packet_length =
@@ -95,6 +105,28 @@ int atapi_handle_pio_identify_packet(struct ata_channel *channel, int rw)
 /*********************************************************************************************************************
  * ATAPI Packet handler
  ********************************************************************************************************************/
+typedef union {
+	int value;
+	struct {
+		unsigned int	data3:	 8;
+		unsigned int	data2:	 8;
+		unsigned int	data1:	 8;
+		unsigned int	data0:	 8;
+	} __attribute__ ((packed));
+} atapi_config_data_t;
+
+int atapi_handle_config_data(struct ata_channel *channel, core_io_t io, union mem *data)
+{
+	atapi_config_data_t config_data;
+
+	config_data.data0 = channel->pio_buf[4];
+	config_data.data1 = channel->pio_buf[5];
+	config_data.data2 = channel->pio_buf[6];
+	config_data.data3 = channel->pio_buf[7];
+
+	return CORE_IO_RET_DEFAULT;
+}
+
 int atapi_handle_packet_data(struct ata_channel *channel, core_io_t io, union mem *data)
 {
 	/* CAUTION: currently pio packet data is pass-through */
@@ -104,6 +136,12 @@ int atapi_handle_packet_data(struct ata_channel *channel, core_io_t io, union me
 static int atapi_handle_pio_data(struct ata_channel *channel, int rw)
 {
 	// should implement encryption/decryption
+	struct storage_access access;
+	access.lba = channel->lba;
+	access.rw = rw;
+	access.count = 1;
+	storage_handle_sectors(ata_get_storage_device(channel),	&access, channel->pio_buf, channel->pio_buf);
+
 	return CORE_IO_RET_DEFAULT;
 }
 
@@ -115,8 +153,13 @@ static int atapi_handle_pio_packet(struct ata_channel *channel, int rw)
 	ata_interrupt_reason_t interrupt_reason;
 	struct ata_device *device = ata_get_ata_device(channel);
 
+	channel->atapi_device->atapi_flag = 1;
+	packet_device.data_length = channel->atapi_device->data_length;
 	packet_handle_command(&packet_device, channel->pio_buf);
-	if (packet_device.type == PACKET_COMMAND) {
+
+	features.value = channel->features.hob[0];
+	switch (packet_device.type){
+	case PACKET_COMMAND:
 		permission = security_storage_check_lba(ata_get_storage_device(channel),
 							packet_device.rw, packet_device.lba,
 							packet_device.sector_count);
@@ -124,9 +167,20 @@ static int atapi_handle_pio_packet(struct ata_channel *channel, int rw)
 			channel->state = ATA_STATE_ERROR;
 			return CORE_IO_RET_DONE;
 		}
+		channel->pio_buf_handler = atapi_handle_pio_data;
+		channel->atapi_device->dma_state = features.dma ? 
+				ATA_STATE_DMA_READY : ATA_STATE_DMA_THROUGH;
+		break;
+
+	case PACKET_SECTOR_SIZE:
+	case PACKET_BUFFER_LENGTH:
+		channel->pio_buf_handler = atapi_handle_config_data;
+	case PACKET_DATA:
+		//THROUGH
+		channel->atapi_device->dma_state = ATA_STATE_DMA_THROUGH;
+		break;
 	}
 
-	features.value = channel->features.hob[0];
 	if (features.ovl) {
 		interrupt_reason.value = ata_read_reg(channel, ATAPI_InterruptReason);
 		tag = interrupt_reason.tag;
@@ -134,20 +188,30 @@ static int atapi_handle_pio_packet(struct ata_channel *channel, int rw)
 		device->queue[tag].rw = packet_device.rw;
 		device->queue[tag].lba = packet_device.lba;
 		device->queue[tag].sector_count = packet_device.sector_count;
-		// if pio size is known, use ATA_STATE_PIO_READY instead of  ATA_STATE_PACKET_DATA
-		device->queue[tag].next_state = features.dma ? ATA_STATE_DMA_READY : ATA_STATE_PACKET_DATA;
-		channel->pio_buf_handler = atapi_handle_pio_data;
+		device->queue[tag].next_state = features.dma ? ATA_STATE_DMA_READY : packet_device.state;
+		device->queue[tag].pio_block_size = packet_device.sector_size;
+		device->queue[tag].dma_state = channel->atapi_device->dma_state;
 		channel->status_handler = ata_handle_queued_status;
 		channel->state = ATA_STATE_QUEUED;
 	} else {
 		channel->rw = packet_device.rw;
 		channel->lba = packet_device.lba;
 		channel->sector_count = packet_device.sector_count;
-		// if pio size is known, use ATA_STATE_PIO_READY instead of  ATA_STATE_PACKET_DATA
-		channel->state = features.dma ? ATA_STATE_DMA_READY : ATA_STATE_PACKET_DATA;
+		channel->state = features.dma ? ATA_STATE_DMA_READY : packet_device.state;
+		channel->pio_block_size = features.dma ? 512 : packet_device.sector_size;
 	}
 	return CORE_IO_RET_DEFAULT;
 }
+
+struct atapi_data_length_t {
+	union {
+		u16 value;
+		struct {
+			u8 low;
+			u8 high;
+		} __attribute__ ((packed));
+	};
+} __attribute__ ((packed));
 
 /*
  * ATAPI "PACKET" command handler
@@ -158,7 +222,12 @@ static int atapi_handle_pio_packet(struct ata_channel *channel, int rw)
 int atapi_handle_cmd_packet(struct ata_channel *channel, int rw, int hob)
 {
 	struct ata_device *device = ata_get_ata_device(channel);
+	struct atapi_data_length_t length;
 
+	in8(channel->base[ATA_ID_CMD]+4, &length.low);
+	in8(channel->base[ATA_ID_CMD]+5, &length.high);
+
+	channel->atapi_device->data_length = length.value;
 	channel->pio_block_size = device->packet_length;
 	channel->rw = STORAGE_WRITE;
 	channel->lba = LBA_NONE;

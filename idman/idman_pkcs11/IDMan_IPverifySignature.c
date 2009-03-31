@@ -301,7 +301,7 @@ int IDMan_IPMkPublicKeyObj(	 CK_SESSION_HANDLE Sessinhandle,
 	int						iReturn;							//返り値
 	CK_RV					rv;									//返り値
 	unsigned char			PublicKey[1024];					//公開鍵データ
-	long					lPublicKeyLen;						//公開鍵データレングス
+	unsigned long				lPublicKeyLen;						//公開鍵データレングス
 	CK_ATTRIBUTE		ObjAttribute[3];					//
 	long					class;								//
 	char					Label[256];

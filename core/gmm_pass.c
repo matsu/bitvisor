@@ -133,13 +133,7 @@ hooke820:
 		goto errret;
 	if ((u32)rcx < 0x14)
 		goto errret;
-	rbx = getsysmemmap ((u32)rbx, &base, &len, &type);
-	if (type == SYSMEMMAP_TYPE_AVAILABLE) {
-		if (base == e820_vmm_base)
-			len = e820_vmm_fake_len;
-		if (base > e820_vmm_base && base < e820_vmm_end)
-			type = SYSMEMMAP_TYPE_RESERVED;
-	}
+	rbx = getfakesysmemmap ((u32)rbx, &base, &len, &type);
 	/* FIXME: cpu_seg_write fails if ES:[DI] page is not present */
 	/* nor writable (virtual 8086 mode only) */
 	rax = rdx;

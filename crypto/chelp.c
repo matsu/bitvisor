@@ -60,6 +60,13 @@ bool chelp_inited = false;
 
 static const char rnd_seed[] = "string to make the random number generator think it has entropy";
 
+void
+preinit_crypto_library (struct SE_SYSCALL_TABLE *syscall_table)
+{
+	chelp_syscall_copy = *syscall_table;
+	chelp_syscall = &chelp_syscall_copy;
+}
+
 // 暗号化ライブラリの初期化
 void InitCryptoLibrary(struct SE_SYSCALL_TABLE *syscall_table, unsigned char *initial_seed,
 					   int initial_seed_size)

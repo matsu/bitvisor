@@ -30,6 +30,7 @@
 #include "ap.h"
 #include "asm.h"
 #include "callrealmode.h"
+#include "config.h"
 #include "initfunc.h"
 #include "panic.h"
 #include "printf.h"
@@ -61,9 +62,8 @@ do_panic_reboot (void)
 void
 handle_init_to_bsp (void)
 {
-#ifdef AUTO_REBOOT
-	auto_reboot ();
-#endif
+	if (config.vmm.auto_reboot)
+		auto_reboot ();
 	panic ("INIT signal to BSP");
 }
 
@@ -78,6 +78,7 @@ do_reboot (void)
 	asm_outb (0x64, 0xFE);
 	*/
 	if (apic_available ()) {
+		usleep (1 * 1000000);
 		printf ("shutdown\n");
 		asm_wridtr (0, 0);
 		asm volatile ("int3");

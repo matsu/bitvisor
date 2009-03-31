@@ -38,6 +38,13 @@
 #include <core/vpnsys.h>
 #include "../../core/beep.h"	/* DEBUG */
 
+#ifdef VTD_TRANS
+#include "passthrough/vtd.h"
+int add_remap() ;
+u32 vmm_start_inf() ;
+u32 vmm_term_inf() ;
+#endif // of VTD_TRANS
+
 //#define	PRO100_PASS_MODE
 
 //#define	printf(fmt, args...) printf(fmt, ## args); pro100_sleep(70);
@@ -1691,6 +1698,13 @@ void pro100_new(struct pci_device *dev)
 
 	printf ("pro100_new\n");
 
+#ifdef VTD_TRANS
+        if (iommu_detected) {
+                add_remap(dev->address.bus_no ,dev->address.device_no ,dev->address.func_no,
+                          vmm_start_inf() >> 12, (vmm_term_inf()-vmm_start_inf()) >> 12, PERM_DMA_RW) ;
+        }
+#endif // of VTD_TRANS
+
 	ctx->dev = dev;
 	ctx->lock = SeNewLock();
 	dev->host = ctx;
@@ -1722,6 +1736,8 @@ static struct pci_driver vpn_pro100_driver =
 // 初期化
 void pro100_init()
 {
+	if (!config.vmm.driver.vpn.PRO100)
+		return;
 	printf("pro100_init() start.\n");
 
 	pci_register_driver(&vpn_pro100_driver);

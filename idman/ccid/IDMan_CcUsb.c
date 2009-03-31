@@ -224,10 +224,18 @@ bool OpenUSB(ReaderMng* Readers, ReaderMng* gReder)
 	}
 
 	///−全USB BUS検索ループ
+#ifndef NTTCOM
+	for (work_bus = usb_bus; work_bus; work_bus = work_bus->next)
+#else
 	for (work_bus = usb_bus; work_bus; work_bus = LIST_NEXT(usb_busses, work_bus))
+#endif
 	{
 		///−− BUSに接続されているデバイス検索ループ
+#ifndef NTTCOM
+		for (usb_dev = work_bus->devices; usb_dev; usb_dev = usb_dev->next)
+#else
 		for (usb_dev = work_bus->device; usb_dev; usb_dev = usb_dev->next)
+#endif
 		{
 			if (usb_dev->descriptor.idVendor==0 && usb_dev->descriptor.idProduct==0)	continue;
 			///サポートするUSBデバイス検索ループ

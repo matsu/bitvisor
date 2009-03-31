@@ -35,10 +35,7 @@
 #include "types.h"
 #include "../crypto/chelp.h"
 
-bool crypt_sys_save_data(char *name, void *data, UINT data_size);
-bool crypt_sys_load_data(char *name, void **data, UINT *data_size);
-void crypt_sys_free_data(void *data);
-bool crypt_sys_rsa_sign(char *key_name, void *data, UINT data_size, void *sign, UINT *sign_buf_size);
-void crypt_add_log_queue(char *type, char *message);
+bool crypt_sys_rsa_sign (void *key_data, UINT key_size, void *data,
+			 UINT data_size, void *sign, UINT *sign_buf_size);
 
 #endif	// _CORE_CRYPT_H

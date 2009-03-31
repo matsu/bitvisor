@@ -642,7 +642,6 @@
 #define PIT_CONTROL_COUNTER2		0x80
 #define PIT_CONTROL_READBACK		0xC0
 
-#define VMM_STACKSIZE			(4096 * 4)
 #define VMM_MINSTACKSIZE		1024
 
 #endif

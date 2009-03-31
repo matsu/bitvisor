@@ -1021,8 +1021,6 @@ RESPONSECODE IFDHTransmitToICC( DWORD Lun, SCARD_IO_HEADER SendPci,
 	ccid_mng = &(gReaderMng[UnitNum].ccid_mng);
 	///受信バッファサイズ退避
 	rxBufLen = *pRxLength;
-	///受信データ長 \e *pRxLength を 0 に設定
-	*pRxLength = 0;
 
 	/*交換レベルのおける転送方法分類
 	 *	１、T=0 CHAR

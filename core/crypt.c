@@ -34,82 +34,26 @@
 #include "mm.h"
 #include "printf.h"
 #include "string.h"
-#include "testfs.h"
-
-// 提供システムコール: データの書き込み
-bool crypt_sys_save_data(char *name, void *data, UINT data_size)
-{
-	// 実装されていない
-	chelp_printf("crypt.c: SysSaveData() is not implemented.\n");
-
-	return false;
-}
-
-// 提供システムコール: データの読み込み
-bool crypt_sys_load_data(char *name, void **data, UINT *data_size)
-{
-	UCHAR *tmp_data;
-	UINT tmp_size;
-	// 引数チェック
-	if (name == NULL || data == NULL || data_size == NULL)
-	{
-		return false;
-	}
-
-	// testfs からデータを読み込み
-	if (testfs_loaddata(name, (void **)&tmp_data, &tmp_size) == 0)
-	{
-		return false;
-	}
-
-	*data = alloc(tmp_size);
-	memcpy(*data, tmp_data, tmp_size);
-
-	*data_size = tmp_size;
-
-	return true;
-}
-
-// 提供システムコール: 読み込んだデータの解放
-void crypt_sys_free_data(void *data)
-{
-	// 引数チェック
-	if (data == NULL)
-	{
-		return;
-	}
-
-	free(data);
-}
 
 // 提供システムコール: RSA 署名操作
-bool crypt_sys_rsa_sign(char *key_name, void *data, UINT data_size, void *sign, UINT *sign_buf_size)
+bool
+crypt_sys_rsa_sign (void *key_data, UINT key_size, void *data, UINT data_size,
+		    void *sign, UINT *sign_buf_size)
 {
 	SE_BUF *ret_buf;
 	SE_KEY *key;
 	SE_BUF *key_file_buf;
 	SE_BUF *tmp_buf;
-	void *tmp;
-	UINT tmp_size;
+
 	// 引数チェック
-	if (key_name == NULL || data == NULL || data_size == 0 || sign == NULL || sign_buf_size == NULL)
+	if (key_data == NULL || data == NULL || data_size == 0 || sign == NULL || sign_buf_size == NULL)
 	{
 		return false;
 	}
 
-	chelp_printf("crypt.c: SysRsaSign() is called for key \"%s\".\n", key_name);
-
-	// 秘密鍵ファイルの読み込み
-	if (crypt_sys_load_data(key_name, &tmp, &tmp_size) == false)
-	{
-		chelp_printf("crypt.c: key \"%s\" not found.\n", key_name);
-		*sign_buf_size = 0;
-		return false;
-	}
-
+	// 秘密鍵データのコピー
 	key_file_buf = SeNewBuf();
-	SeWriteBuf(key_file_buf, tmp, tmp_size);
-	crypt_sys_free_data(tmp);
+	SeWriteBuf(key_file_buf, key_data, key_size);
 
 	tmp_buf = SeMemToBuf(key_file_buf->Buf, key_file_buf->Size);
 	SeFreeBuf(key_file_buf);

@@ -42,6 +42,7 @@
 #include "sleep.h"
 #include "spinlock.h"
 #include "string.h"
+#include "thread.h"
 
 #define APINIT_ADDR		((APINIT_SEGMENT << 4) + APINIT_OFFSET)
 #define APINIT_SIZE		(cpuinit_end - cpuinit_start)

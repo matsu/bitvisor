@@ -72,10 +72,10 @@ extern "C"
 {
 #endif
 
-typedef long SCARDCONTEXT;
+typedef unsigned long SCARDCONTEXT;
 typedef SCARDCONTEXT *PSCARDCONTEXT;
 typedef SCARDCONTEXT *LPSCARDCONTEXT;
-typedef long SCARDHANDLE;
+typedef unsigned long SCARDHANDLE;
 typedef SCARDHANDLE *PSCARDHANDLE;
 typedef SCARDHANDLE *LPSCARDHANDLE;
 

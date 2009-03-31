@@ -37,6 +37,7 @@
 #include "IDMan_PKPkcs11i.h"
 #include "IDMan_PKList.h"
 #include "IDMan_StandardIo.h"
+#include <core/string.h>
 
 
 
@@ -524,7 +525,7 @@ CK_RV DestroySessionData(CK_I_SESSION_DATA_PTR pSessionData)
  */
 CK_RV DestroyList(CK_I_HEAD_PTR pList)
 {
-	CK_ULONG i;
+	/*CK_ULONG i;*/
 	CK_I_ELEM_PTR next = CK_NULL_PTR;
 	CK_I_ELEM_PTR tmp = CK_NULL_PTR;
 	

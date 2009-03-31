@@ -83,3 +83,16 @@
 #else
 #define DEBUG_OutPut(message);
 #endif
+
+int IDMan_IPRetJudgment (CK_RV prv);
+int IDMan_IPgetCertPKCS (CK_SESSION_HANDLE Sessinhandle, char *subjectDN,
+			 char *issuerDN, void **ptrCert, long *lCert,
+			 void **ptrKeyID, long *lKeyID, int getCert);
+int IDMan_IPgetCertIdxPKCS (CK_SESSION_HANDLE Sessinhandle, int iPkcIndex,
+			    void **ptrCert, long *lCert, void **ptrKeyID,
+			    long *lKeyID, int getCert);
+int IDMan_IPIdPassListMalloc (idPasswordList **list, unsigned long int IDLen,
+			      unsigned long int passwordLen);
+int IDMan_IPCheckPKC (CK_SESSION_HANDLE Sessinhandle, unsigned char *pPKC,
+		      unsigned short int PKCLen, int Algorithm,
+		      CK_OBJECT_HANDLE *pKeyObjectHandle);

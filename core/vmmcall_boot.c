@@ -42,37 +42,21 @@
 #include "vmmcall.h"
 #include "vmmcall_boot.h"
 #include "vramwrite.h"
+#include "../crypto/decryptcfg.h"
+
+struct loadcfg_data {
+	u32 len;
+	u32 pass, passlen;
+	u32 data, datalen;
+};
 
 static bool enable = false;
 static u8 boot_drive;
 
-struct config_data config;
-
-void
-boot_guest (void)
+static void
+do_boot_guest (void)
 {
-	bool bsp = false;
-	u8 bios_boot_drive = 0;
-	struct config_data *d;
-	ulong rbx;
-
-	if (!enable)
-		return;
-
-	if (currentcpu->cpunum != 0)
-		panic ("boot from AP");
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	rbx &= 0xFFFFFFFF;
-	d = mapmem_hphys (rbx, sizeof *d, 0);
-	ASSERT (d);
-	if (d->len != sizeof *d)
-		panic ("config size mismatch: %d, %d\n", d->len,
-		       (int)sizeof *d);
-	memcpy (&config, d, sizeof *d);
-	unmapmem (d, sizeof *d);
 	enable = false;
-	bsp = true;
-	bios_boot_drive = boot_drive;
 	/* clear screen */
 	vramwrite_clearscreen ();
 	/* printf ("init pic\n"); */
@@ -91,7 +75,78 @@ boot_guest (void)
 	/* printf ("sleep 1 sec\n"); */
 	usleep (1000000);
 	/* printf ("Starting\n"); */
-	reinitialize_vm (bsp, bios_boot_drive);
+	reinitialize_vm (true, boot_drive);
+}
+
+static void
+boot_guest (void)
+{
+	struct config_data *d;
+	ulong rbx;
+
+	if (!enable)
+		return;
+
+	if (currentcpu->cpunum != 0)
+		panic ("boot from AP");
+	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
+	rbx &= 0xFFFFFFFF;
+	d = mapmem_hphys (rbx, sizeof *d, 0);
+	ASSERT (d);
+	if (d->len != sizeof *d)
+		panic ("config size mismatch: %d, %d\n", d->len,
+		       (int)sizeof *d);
+	memcpy (&config, d, sizeof *d);
+	unmapmem (d, sizeof *d);
+	do_boot_guest ();
+}
+
+static void
+loadcfg (void)
+{
+	struct loadcfg_data *d;
+	u8 *pass, *data;
+	ulong rbx;
+	struct config_data *tmpbuf;
+
+	if (!enable)
+		return;
+
+	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
+	rbx &= 0xFFFFFFFF;
+	d = mapmem_hphys (rbx, sizeof *d, 0);
+	ASSERT (d);
+	if (d->len != sizeof *d)
+		panic ("size mismatch: %d, %d\n", d->len,
+		       (int)sizeof *d);
+	pass = mapmem_hphys (d->pass, d->passlen, 0);
+	ASSERT (pass);
+	data = mapmem_hphys (d->data, d->datalen, 0);
+	ASSERT (data);
+	tmpbuf = alloc (d->datalen);
+	ASSERT (tmpbuf);
+#ifdef CRYPTO_VPN
+	decryptcfg (pass, d->passlen, data, d->datalen, tmpbuf);
+#else
+	panic ("cannot decrypt");
+#endif
+	unmapmem (pass, d->passlen);
+	unmapmem (data, d->datalen);
+	unmapmem (d, sizeof *d);
+	config.len = 0;
+	if ((tmpbuf->len + 15) / 16 == d->datalen / 16) {
+		if (tmpbuf->len != sizeof config)
+			panic ("config size mismatch: %d, %d\n", tmpbuf->len,
+			       (int)sizeof config);
+		data = mapmem_hphys (d->data, sizeof config, MAPMEM_WRITE);
+		ASSERT (data);
+		memcpy (data, tmpbuf, sizeof config);
+		unmapmem (data, d->datalen);
+		current->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
+	} else {
+		current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
+	}
+	free (tmpbuf);
 }
 
 void
@@ -105,6 +160,7 @@ static void
 vmmcall_boot_init (void)
 {
 	vmmcall_register ("boot", boot_guest);
+	vmmcall_register ("loadcfg", loadcfg);
 	config.len = 0;
 	enable = false;
 }

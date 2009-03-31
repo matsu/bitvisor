@@ -35,7 +35,14 @@
 
 #include <core.h>
 #include "ata.h"
+#include "atapi.h"
 #include "ata_init.h"
+#ifdef VTD_TRANS
+#include "passthrough/vtd.h"
+int add_remap() ;
+u32 vmm_start_inf() ; // test
+u32 vmm_term_inf() ;  // test
+#endif // of VTD_TRANS
 
 const char ata_driver_name[] = "ata_generic_driver";
 const char ata_driver_longname[] = "Generic ATA/ATAPI para pass-through driver 0.4";
@@ -46,6 +53,7 @@ static unsigned int device_id = 0;
 /* FIXME: should use slab allocator ? */
 DEFINE_ALLOC_FUNC(ata_host)
 DEFINE_ALLOC_FUNC(ata_channel)
+DEFINE_ALLOC_FUNC(atapi_device)
 
 int ata_init_io_handler(ioport_t start, size_t num, core_io_handler_t handler, void *arg)
 {
@@ -107,6 +115,7 @@ static void ata_init_ata_device(struct ata_device *ata_device)
 static struct ata_channel *ata_new_channel(struct ata_host* host)
 {
 	struct ata_channel *channel;
+	struct atapi_device *atapi_device;
 
 	channel = alloc_ata_channel();
 	memset(channel, 0, sizeof(*channel));
@@ -120,6 +129,14 @@ static struct ata_channel *ata_new_channel(struct ata_host* host)
 	channel->state = ATA_STATE_READY;
 	ata_init_prd(channel);
 	host_id++; device_id = 0;
+
+	/* atapi device */
+	atapi_device = alloc_atapi_device();
+	memset(atapi_device, 0, sizeof(*atapi_device));
+	channel->atapi_device = atapi_device;
+	channel->atapi_device->atapi_flag = 0;
+	channel->atapi_device->dma_state = ATA_STATE_DMA_THROUGH;
+
 	return channel;
 }
 
@@ -146,6 +163,34 @@ static void ata_new(struct pci_device *pci_device)
 
 	/* vendor specific init */
 	ata_init_vendor(host);
+
+#ifdef VTD_TRANS
+	// printf("ATA : %x:%x:%x\n",pci_device->address.bus_no ,pci_device->address.device_no ,pci_device->address.func_no) ;
+
+	if (iommu_detected) {
+		u32 *phys ;
+		  
+		add_remap(pci_device->address.bus_no
+			  ,pci_device->address.device_no
+			  ,pci_device->address.func_no
+			  ,host->channel[0]->shadow_prd_phys >> 12,1,PERM_DMA_RO) ;
+		phys=(u32 *)host->channel[0]->shadow_prd ;
+		add_remap(pci_device->address.bus_no
+			  ,pci_device->address.device_no
+			  ,pci_device->address.func_no
+			  ,*phys >> 12,ATA_BM_TOTAL_BUFSIZE / PAGESIZE, PERM_DMA_RW) ;
+		add_remap(pci_device->address.bus_no
+			  ,pci_device->address.device_no
+			  ,pci_device->address.func_no
+			  ,host->channel[1]->shadow_prd_phys >> 12,1,PERM_DMA_RO) ;
+		phys=(u32 *)host->channel[1]->shadow_prd ;
+		add_remap(pci_device->address.bus_no
+			  ,pci_device->address.device_no
+			  ,pci_device->address.func_no
+			  ,*phys >> 12,ATA_BM_TOTAL_BUFSIZE / PAGESIZE, PERM_DMA_RW) ;
+	}
+#endif // of VTD_TRANS
+	
 	return;
 }
 
@@ -161,6 +206,8 @@ static struct pci_driver ata_driver = {
 
 static void ata_init(void)
 {
+	if (!config.vmm.driver.ata)
+		return;
 	ASSERT(CORE_IO_DIR_IN == STORAGE_READ);
 	pci_register_driver(&ata_driver);
 	/* may need to initialize the compatible host even if no PCI ATA device exists */

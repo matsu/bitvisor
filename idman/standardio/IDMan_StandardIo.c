@@ -34,11 +34,14 @@
 
 #include <core/types.h>
 #include <common/list.h>
+#include <usb.h>
+#ifdef NTTCOM
 #include <core/mm.h>
 
 #define CHELP_OPENSSL_SOURCE	
 #include <chelp.h>
 #undef OPENSSL_NO_ENGINE
+#endif
 
 /* 外部ライブラリ関数名 */
 #include <openssl/rsa.h>
@@ -49,7 +52,9 @@
 #include <openssl/crypto.h>
 #include <openssl/sha.h>
 #include <openssl/pem.h>
-#include <usb.h>
+#ifndef NTTCOM
+#include <string.h>
+#endif
 
 
 /* 作成ライブラリ関数名 */
@@ -96,8 +101,11 @@ void *IDMan_StMalloc (unsigned long int siSize)
 	else
 	{
 		/** メモリの確保を行う。 */
-//		pMem = (void *)malloc(siSize);
+#ifndef NTTCOM
+		pMem = (void *)malloc(siSize);
+#else
 		pMem = (void *)alloc(siSize);
+#endif
 		if(pMem != 0x00)
 		{
 			IDMan_StMemset(pMem, 0, siSize);
@@ -129,6 +137,7 @@ void IDMan_StFree (void *ptr)
 	return;
 }
 
+#if 0
 /**
 * ファイルシステム読込関数
 * @author University of Tsukuba
@@ -155,8 +164,9 @@ int IDMan_StReadSetData(char *pMemberName,char *pInfo,unsigned long int* len)
 #endif
 	return 0;
 }
+#endif
 
-#ifndef NTTCOM
+#if 0
 /**
 * USBの初期化処理（usb_initのパススルー関数）
 * @author University of Tsukuba
@@ -1272,7 +1282,7 @@ long IDMan_CmGetCertificateSign(void *ptr,long lLen,void *pCertificate,long *lCe
 * @since 2008.02
 * @version 1.0
 */
-long IDMan_CmGetPublicKey(void *ptr,long lLen,void *pPublicKey,long *lPublicKeyLen)
+long IDMan_CmGetPublicKey(void *ptr,long lLen,void *pPublicKey,unsigned long *lPublicKeyLen)
 {
 	long 			lRet = -1L;
 	X509_PUBKEY 	*pubkey=0x00;
@@ -1437,7 +1447,7 @@ long IDMan_CmMakeRand(long lLen,  void *pData )
 long IDMan_CmCheckCRL(void *pInData, long lInLen, void * data,unsigned long int len )
 {
 	long 			lRet=-1L;
-	FILE 			*fp;
+	/*FILE 			*fp;*/
 	X509 			*x509=0x00;
 	X509_CRL 		*x509crl=0x00;
 	X509_NAME 		*x509crlissuer = 0x00;

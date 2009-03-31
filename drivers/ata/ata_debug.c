@@ -35,18 +35,17 @@
 
 #include "debug.h"
 #include <core.h>
-#include <core/time.h>
 #include "security.h"
 #include "ata.h"
 #include "atapi.h"
 #include "ata_debug.h"
+#include "ata_time.h"
 
 #define DEBUG_ATA_PUTLOG(fmt, name, value, title, ...) do		\
 	{								\
-		u64 cputime = get_cpu_time();				\
-		printf("ATA  : %06lld.%06lld ata%02x %-8s %02xh %-32s" fmt, \
-		       cputime / 1000000, cputime % 1000000,		\
-		       ata_get_busid(channel),				\
+		struct time_t cputime  = ata_get_time(0ULL);		\
+		printf("ATA  : %06lld.%06lld  ata%02x %-8s %02xh %-32s" fmt, \
+		       cputime.sec, cputime.us, ata_get_busid(channel),	\
 		       name, value, title, __VA_ARGS__);		\
 	} while(0)
 
@@ -192,8 +191,9 @@ static int debug_ata_handle_data(struct ata_channel *channel, core_io_t io, unio
 	ret = debug_saved_ata_handle_data(channel, io, data);
 
 #ifdef DEBUG_ATAPI_PACKET
-	if (is_packet && channel->pio_buf_index == 0) {
+	if (is_packet && channel->pio_buf_index == 0 && channel->atapi_device->atapi_flag != 2) {
 		int command = channel->pio_buf[0];
+		channel->atapi_device->atapi_flag = 2;
 
 		DEBUG_ATA_PUTLOG("[%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x]\n",
 				 "packet", command, atapi_cmd_name[command],
@@ -214,11 +214,10 @@ static int debug_atapi_handle_interrupt_reason(struct ata_channel *channel, core
 	ata_interrupt_reason_t interrupt_reason;
 
 	ret = debug_saved_atapi_handle_interrupt_reason(channel, io, data);
-	if (channel->state == ATA_STATE_PACKET_DATA)
+
+	if (channel->atapi_device->atapi_flag)
 		goto end;
-
 	interrupt_reason.value = data->byte;
-
 #ifdef DEBUG_ATA_OMIT_REPEATED_INTERRUPT_REASON
 	DEBUG_ATA_CHECK_REPEAT("interrupt reason", interrupt_reason.value);
 #endif

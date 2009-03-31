@@ -46,7 +46,8 @@
 #include "spinlock.h"
 #include "string.h"
 
-#define VMMSIZE_ALL		(64 * 1024 * 1024)
+// #define VMMSIZE_ALL		(64 * 1024 * 1024)
+#define VMMSIZE_ALL		(128 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
 #define MAPMEM_ADDR_START	0x81000000
@@ -102,9 +103,9 @@ struct sysmemmapdata {
 extern u8 end[];
 
 bool use_pae = USE_PAE_BOOL;
-u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
 u16 e801_fake_ax, e801_fake_bx;
 u64 memorysize = 0, vmmsize = 0;
+static u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
 static u32 vmm_start_phys;
 static spinlock_t mm_lock, mm_lock2;
 static spinlock_t mm_lock_process_virt_to_phys;
@@ -144,6 +145,21 @@ getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
 	*len = 0;
 	*type = 0;
 	return 0;
+}
+
+u32
+getfakesysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
+{
+	u32 r;
+
+	r = getsysmemmap (n, base, len, type);
+	if (*type == SYSMEMMAP_TYPE_AVAILABLE) {
+		if (*base == e820_vmm_base)
+			*len = e820_vmm_fake_len;
+		if (*base > e820_vmm_base && *base < e820_vmm_end)
+			*type = SYSMEMMAP_TYPE_RESERVED;
+	}
+	return r;
 }
 
 static void
@@ -286,6 +302,16 @@ static phys_t
 page_to_phys (struct page *p)
 {
 	return p->phys;
+}
+
+u32 vmm_start_inf()
+{
+        return vmm_start_phys ;
+}
+
+u32 vmm_term_inf()
+{
+        return vmm_start_phys+VMMSIZE_ALL ;
 }
 
 struct page *

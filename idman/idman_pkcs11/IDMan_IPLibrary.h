@@ -120,6 +120,11 @@ int IDMan_CmPadding( int  algorithm,
 					  void * data,
 					  unsigned long int len,
 					  void * PaddingData  );
+int IDMan_CmPadding2( int  algorithm,
+					  unsigned long int size,
+					  void * data,
+					  unsigned long int len,
+					  void * PaddingData  );
 
  void IDMan_getMemoryFree ( unsigned char* data,
 			 idPasswordList ** list );

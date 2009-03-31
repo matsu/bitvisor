@@ -1,4 +1,5 @@
 /*
+void atapi_packet_handle_rw(struct packet_device *packet_device, packet_type_t type)
  * Copyright (c) 2007, 2008 University of Tsukuba
  * All rights reserved.
  *
@@ -38,6 +39,13 @@
 
 #define ATAPI_MAX_PACKET_QUEUE  32
 
+struct atapi_device {
+	int data_length;
+	int atapi_flag;
+	int sector_size;
+	int dma_state;
+};
+
 struct atapi_status {
 	union {
 		u8 value;
@@ -63,17 +71,6 @@ struct atapi_features {
 		} __attribute__ ((packed));
 	};
 } __attribute__ ((packed));
-
-struct atapi_command_packet {
-	u8	operation_code;
-	u8	reserved1;
-	u32	lba;
-	u8	reserved2;
-	u8	length;
-	u8	reserved3;
-	u8	reserved4;
-	u8	reserved5;
-};
 
 enum atapi_packet_length {
 	ATAPI_PACKET_LENGTH_12BYTES = 0x0,

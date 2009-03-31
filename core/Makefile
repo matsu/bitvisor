@@ -31,12 +31,12 @@ CONSTANTS-1 += -DUSE_PAE
 BITS-0        = 32
 BITS-1        = 64
 OBJS          = $(patsubst %.c,%.o,$(wildcard *.c)) \
-		$(patsubst %.s,%.o,$(wildcard *.s)) ../vpn_config/testfs.o
+		$(patsubst %.s,%.o,$(wildcard *.s))
 HEADERS       = $(wildcard *.h) $(wildcard ../include/core/*.h) $(wildcard ../crypto/*.h) $(wildcard ../vpn/Se/*.h) 
 OBJ_BUILTIN   = ./builtin/process_builtin.o
 CFLAGS        = -m$(BITS-$(CONFIG_64)) -mno-red-zone -g -O -nostdinc \
 		-fno-builtin -Wall $(CONSTANTS-1) -I../include/ -I../vpn/ \
-		-I../vpn_config/ -fno-stack-protector
+		-fno-stack-protector
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64
@@ -58,3 +58,6 @@ $(OUT_OBJ) : $(OBJS) $(OBJ_BUILTIN) $(CONFIG)
 	$(CC) $(LDFLAGS) -o $(OUT_OBJ) $(OBJS) $(OBJ_BUILTIN)
 
 $(OBJS) : $(HEADERS) $(CONFIG)
+
+config.o : config.c ../defconfig
+	$(CC) $(CFLAGS) -c config.c

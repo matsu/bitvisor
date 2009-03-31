@@ -39,6 +39,8 @@
 #include "printf.h"
 #include "sleep.h"
 #include "string.h"
+#include "passthrough/vtd.h"
+#include "passthrough/iodom.h"
 
 #define FIND_RSDP_NOT_FOUND	0xFFFFFFFFFFFFFFFFULL
 #define RSDP_SIGNATURE		"RSD PTR"
@@ -50,6 +52,7 @@
 #define FACP_SIGNATURE		"FACP"
 #define FACS_SIGNATURE		"FACS"
 #define MCFG_SIGNATURE		"MCFG"
+#define DMAR_SIGNATURE		"DMAR"
 #define PM1_CNT_SLP_TYPX_MASK	0x1C00
 #define PM1_CNT_SLP_TYPX_SHIFT	10
 #define PM1_CNT_SLP_EN_BIT	0x2000
@@ -441,6 +444,8 @@ acpi_init_global (void)
 	u64 rsdp;
 	struct rsdp *p;
 	struct facp *q;
+	struct acpi_ent_dmar *r;
+	struct domain *create_dom() ;
 
 	rsdp_found = false;
 	pm1a_cnt_found = false;
@@ -453,6 +458,21 @@ acpi_init_global (void)
 	p = acpi_mapmem (rsdp, sizeof *p);
 	memcpy (&rsdp_copy, p, sizeof *p);
 	rsdp_found = true;
+
+	r=find_entry(DMAR_SIGNATURE);
+	if (!r) {
+		printf ("ACPI DMAR not found.\n");
+		iommu_detected=0;
+	} else {
+		int i ;
+		printf ("ACPI DMAR found.\n");
+		iommu_detected=1;
+		
+		parse_dmar_bios_report(r) ;
+		num_dom=0 ;
+		for (i=0 ; i<MAX_IO_DOM ; i++)
+			dom_io[i]=create_dom(i) ;
+	}
 
 	q = find_facp ();
 	if (!q) {

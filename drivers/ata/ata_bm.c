@@ -36,6 +36,7 @@
 #include "debug.h"
 #include <core.h>
 #include "ata.h"
+#include "atapi.h"
 #include "ata_bm.h"
 #include "ata_error.h"
 
@@ -50,7 +51,14 @@ static void ata_dma_handle_rw_sectors(struct ata_channel *channel, int rw)
 	access.rw = rw;
 	access.lba = channel->lba;
 	access.count = channel->sector_count;
+	if (channel->atapi_device->atapi_flag != 0 && 
+			channel->atapi_device->dma_state != ATA_STATE_DMA_READY)
+		goto end;
+
 	storage_handle_sectors(ata_get_storage_device(channel), &access, channel->shadow_buf, channel->shadow_buf);
+	channel->atapi_device->dma_state = ATA_STATE_DMA_THROUGH;
+
+ end:	return;
 }
 
 static int ata_copy_shadow_buf(struct ata_channel *channel, int dir)

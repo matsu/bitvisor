@@ -178,7 +178,6 @@ static int ata_handle_data(struct ata_channel *channel, core_io_t io, union mem 
 
 		if (channel->pio_buf_index >= channel->pio_block_size) {
 			channel->pio_buf_index = 0;
-			channel->lba += channel->pio_block_size;
 			channel->sector_count--;
 			channel->state = (channel->sector_count > 0) ? ATA_STATE_PIO_READY : ATA_STATE_READY;
 			if (io.dir == CORE_IO_DIR_IN)
@@ -188,11 +187,9 @@ static int ata_handle_data(struct ata_channel *channel, core_io_t io, union mem 
 				if (ret == CORE_IO_RET_DEFAULT)
 					outsn(io.port, channel->pio_buf, io.size, channel->pio_block_size);
 			}
+			channel->lba += 1;
 		}
 		return CORE_IO_RET_DONE;
-
-	case ATA_STATE_PACKET_DATA:
-		return atapi_handle_packet_data(channel, io, data);
 
 	case ATA_STATE_THROUGH:
 		return CORE_IO_RET_DEFAULT;
@@ -375,7 +372,10 @@ static int ata_handle_cmd_nondata(struct ata_channel *channel, int rw, int ext)
 {	return CORE_IO_RET_DEFAULT;	}
 
 static int ata_handle_cmd_invalid(struct ata_channel *channel, int rw, int ext)
-{	panic("%s: unknown command: %02xh\n", __func__, channel->command);	}
+{	
+printf("%s: unknown command: %02xh\n", __func__, channel->command);
+/*panic("%s: unknown command: %02xh\n", __func__, channel->command);*/
+}
 
 /**********************************************************************************************************************
  * ATA Command handler
@@ -481,6 +481,7 @@ static int ata_handle_command(struct ata_channel *channel, core_io_t io, union m
 	channel->command = command;
 	channel->device_reg = ata_read_device(channel);
 	channel->state = ata_cmd_handler_table[type.class].next_state;
+	channel->atapi_device->atapi_flag = 0;
 	return ata_cmd_handler_table[type.class].handler(channel, type.rw, type.ext);
 }
 

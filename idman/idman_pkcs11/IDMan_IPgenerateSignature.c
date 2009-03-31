@@ -226,7 +226,7 @@ int IDMan_IPgetPrivateKey(	CK_SESSION_HANDLE Sessinhandle,
 							CK_OBJECT_HANDLE* pKeyObjectHandle )
 {
 
-	int						iret;								//返り値
+	/*int						iret;*/								//返り値
 	int						iReturn;							//返り値
 	CK_RV					rv;									//返り値
 	CK_ATTRIBUTE		Obj2Attribute[4];					//オブジェクトハンドル
@@ -336,7 +336,7 @@ int IDMan_IPgetHash( CK_SESSION_HANDLE Sessinhandle,
 					 CK_BYTE_PTR* pHash,
 					 CK_ULONG* lHashLen)
 {
-	int						iret;								//返り値
+	/*int						iret;*/								//返り値
 	int						iReturn;							//返り値
 	CK_RV					rv;									//返り値
 	CK_MECHANISM		strMechanismDigest;					//メカニズム情報（Digest）
@@ -436,8 +436,8 @@ int IDMan_IPCrSignature (	CK_SESSION_HANDLE Sessinhandle,
 	int						iReturn;							//返り値
 	CK_RV					rv;									//返り値
 	CK_MECHANISM		strMechanismSign;					//メカニズム情報（Sign）
-	CK_BYTE_PTR				pDigest;							//ダイジェストデータポインタ
-	CK_ULONG				lDigestLen;							//ダイジェストデータ長
+	/*CK_BYTE_PTR				pDigest;*/							//ダイジェストデータポインタ
+	/*CK_ULONG				lDigestLen;*/							//ダイジェストデータ長
 	CK_BYTE_PTR				pSignature;							//署名データポインタ
 	unsigned char			SignatureData[2048];				//パディング後署名対象データ
 	long					SignatureDataLen;					//パディング後署名対象データレングス
@@ -549,8 +549,8 @@ int IDMan_IPCrSignature (	CK_SESSION_HANDLE Sessinhandle,
 {
 	int						iret;								//返り値
 	int						iReturn;							//返り値
-	CK_RV					rv;									//返り値
-	CK_MECHANISM		strMechanismSign;					//メカニズム情報（Sign）
+	/*CK_RV					rv;*/									//返り値
+	/*CK_MECHANISM		strMechanismSign;*/					//メカニズム情報（Sign）
 	void					*ptrCert;							//証明書確保領域ポインタ
 	long					lCert;								//証明書レングス
 	void					*KeyId;								//鍵ペアID確保領域ポインタ
@@ -558,7 +558,7 @@ int IDMan_IPCrSignature (	CK_SESSION_HANDLE Sessinhandle,
 	CK_OBJECT_HANDLE		KeyObjectHandle;	
 	CK_BYTE_PTR				pDigest;							//ダイジェストデータポインタ
 	CK_ULONG				lDigestLen;							//ダイジェストデータ長
-	CK_BYTE_PTR				pSignature;							//署名データポインタ
+	/*CK_BYTE_PTR				pSignature;*/							//署名データポインタ
 
 	DEBUG_OutPut("IDMan_generateSignature start\n");
 
@@ -660,8 +660,8 @@ int IDMan_IPCrSignature (	CK_SESSION_HANDLE Sessinhandle,
 {
 	int						iret;								//返り値
 	int						iReturn;							//返り値
-	CK_RV					rv;									//返り値
-	CK_MECHANISM		strMechanismSign;					//メカニズム情報（Sign）
+	/*CK_RV					rv;*/									//返り値
+	/*CK_MECHANISM		strMechanismSign;*/					//メカニズム情報（Sign）
 	void					*KeyId;								//鍵ペアID確保領域ポインタ
 	long					lKeyId;								//鍵ペアIDレングス
 	void					*Cert;								//証明書確保領域ポインタ
@@ -669,7 +669,7 @@ int IDMan_IPCrSignature (	CK_SESSION_HANDLE Sessinhandle,
 	CK_OBJECT_HANDLE		KeyObjectHandle;	
 	CK_BYTE_PTR				pDigest;							//ダイジェストデータポインタ
 	CK_ULONG				lDigestLen;							//ダイジェストデータ長
-	CK_BYTE_PTR				pSignature;							//署名データポインタ
+	/*CK_BYTE_PTR				pSignature;*/							//署名データポインタ
 
 	DEBUG_OutPut("IDMan_generateSignatureByIndex start\n");
 
@@ -773,14 +773,16 @@ int IDMan_IPCrSignature (	CK_SESSION_HANDLE Sessinhandle,
 {
 	int						iret;								//返り値
 	int						iReturn;							//返り値
-	CK_RV					rv;									//返り値
-	CK_MECHANISM		strMechanismSign;					//メカニズム情報（Sign）
+	/*CK_RV					rv;*/									//返り値
+	/*CK_MECHANISM		strMechanismSign;*/					//メカニズム情報（Sign）
 	void					*KeyId;								//鍵ペアID確保領域ポインタ
 	long					lKeyId;								//鍵ペアIDレングス
 	void					*Cert;								//証明書確保領域ポインタ
 	long					lCert;								//証明書レングス
 	CK_OBJECT_HANDLE		KeyObjectHandle;	
-	CK_BYTE_PTR				pSignature;							//署名データポインタ
+	/*CK_BYTE_PTR				pSignature;*/							//署名データポインタ
+	unsigned char			SignatureData[2048];				//パディング後署名対象データ
+	long					SignatureDataLen;					//パディング後署名対象データレングス
 
 	DEBUG_OutPut("IDMan_EncryptByIndex start\n");
 
@@ -821,8 +823,20 @@ int IDMan_IPCrSignature (	CK_SESSION_HANDLE Sessinhandle,
 	}
 	IDMan_StFree (KeyId);
 
+	/**−パディング実施の場合、署名対象データ（ハッシュ値）にパディング追加を行う。 */
+	memset(SignatureData,0x00, sizeof(SignatureData));
+	SignatureDataLen = CERSIG_PADDING_SIZE;
+	iret = IDMan_CmPadding2( algorithm ,SignatureDataLen, data, dataLen ,SignatureData );
+	/**−署名対象データ（ハッシュ値）パディング追加エラーの場合、 */
+	if (iret != RET_IPOK) 
+	{
+		/**−−異常リターンする。 */
+		iReturn = RET_IPNG;
+		DEBUG_OutPut("IDMan_EncryptByIndex 署名生成 エラー IDMan_CmPadding2\n");
+		return iReturn;
+	}
 	/**署名生成を行う。 */
-	iret = IDMan_IPCrSignature( SessionHandle,KeyObjectHandle, algorithm, data, dataLen, 1, signature, signatureLen);
+	iret = IDMan_IPCrSignature( SessionHandle,KeyObjectHandle, algorithm, SignatureData, SignatureDataLen, 1, signature, signatureLen);
 	/**−署名生成エラーの場合、 */
 	if (iret != RET_IPOK) 
 	{
