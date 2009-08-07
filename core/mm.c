@@ -314,7 +314,7 @@ u32 vmm_term_inf()
         return vmm_start_phys+VMMSIZE_ALL ;
 }
 
-struct page *
+static struct page *
 mm_page_alloc (int n)
 {
 	int s;
@@ -341,7 +341,7 @@ mm_page_alloc (int n)
 	return p;
 }
 
-void
+static void
 mm_page_free (struct page *p)
 {
 	int s, n;
@@ -650,6 +650,23 @@ found:
 	}
 	LIST1_PUSH (alloclist[i], p);
 	spinlock_unlock (&mm_lock2);
+	return r;
+}
+
+/* allocate n bytes */
+void *
+alloc2 (uint len, u64 *phys)
+{
+	void *r;
+	virt_t v;
+	struct page *p;
+
+	r = alloc (len);
+	if (r) {
+		v = (virt_t)r;
+		p = virt_to_page (v);
+		*phys = page_to_phys (p) + (v & (PAGESIZE - 1));
+	}
 	return r;
 }
 

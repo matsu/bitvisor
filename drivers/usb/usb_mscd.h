@@ -39,7 +39,7 @@ struct usbmsc_device {
 	u32        n_blocks;
 	u32        lba;
 	u32        lba_max;
-	u32        block_len;
+	u16        profile;
 	size_t     length;
 	struct storage_device *storage;
 };
@@ -113,7 +113,7 @@ static const unsigned char scsi_op2str[SCSI_OPID_MAX][32] = {
 	"(command(0x3f) not supported)  ", /* 0x3f */
 	"(command(0x40) not supported)  ", /* 0x40 */
 	"(command(0x41) not supported)  ", /* 0x41 */
-	"(command(0x42) not supported)  ", /* 0x42 */
+	"READ SUBCHANNEL                ", /* 0x42 */
 	"READ TOC/PMA/ATIP              ", /* 0x43 */
 	"(command(0x44) not supported)  ", /* 0x44 */
 	"(command(0x45) not supported)  ", /* 0x45 */
@@ -229,15 +229,15 @@ static const unsigned char scsi_op2str[SCSI_OPID_MAX][32] = {
 	"(command(0xb3) not supported)  ", /* 0xb3 */
 	"(command(0xb4) not supported)  ", /* 0xb4 */
 	"(command(0xb5) not supported)  ", /* 0xb5 */
-	"(command(0xb6) not supported)  ", /* 0xb6 */
+	"SET STREAMING                  ", /* 0xb6 */
 	"(command(0xb7) not supported)  ", /* 0xb7 */
 	"(command(0xb8) not supported)  ", /* 0xb8 */
-	"(command(0xb9) not supported)  ", /* 0xb9 */
+	"READ CD MSF                    ", /* 0xb9 */
 	"(command(0xba) not supported)  ", /* 0xba */
 	"(command(0xbb) not supported)  ", /* 0xbb */
 	"(command(0xbc) not supported)  ", /* 0xbc */
 	"(command(0xbd) not supported)  ", /* 0xbd */
-	"(command(0xbe) not supported)  ", /* 0xbe */
+	"READ CD                        ", /* 0xbe */
 	"(command(0xbf) not supported)  ", /* 0xbf */
 };
 
@@ -268,5 +268,33 @@ struct usb_msc_csw {
 	u8  bCSWStatus;
 } __attribute__ ((packed));
 
+
+/* media profile name */
+#define	USBMSC_PROF_NOPROF	0x0000
+#define	USBMSC_PROF_NORMDISK	0x0001
+#define	USBMSC_PROF_RMDISK	0x0002
+#define	USBMSC_PROF_MOERASE	0x0003
+#define	USBMSC_PROF_MOWRONEC	0x0004
+#define	USBMSC_PROF_ASMO	0x0005
+#define	USBMSC_PROF_CDROM	0x0008
+#define	USBMSC_PROF_CDR		0x0009
+#define	USBMSC_PROF_CDRW	0x000a
+#define	USBMSC_PROF_DVDROM	0x0010
+#define	USBMSC_PROF_DVDR	0x0011
+#define	USBMSC_PROF_DVDRAM	0x0012
+#define	USBMSC_PROF_DVDRW_RO	0x0013
+#define	USBMSC_PROF_DVDRW_SR	0x0014
+#define	USBMSC_PROF_DVDR_DLSR	0x0015
+#define	USBMSC_PROF_DVDR_DLJR	0x0016
+#define	USBMSC_PROF_DVD_P_RW	0x001a
+#define	USBMSC_PROF_DVD_P_R	0x001b
+#define	USBMSC_PROF_BLURAYROM	0x0040
+#define	USBMSC_PROF_BDR_SRM	0x0041
+#define	USBMSC_PROF_BDR_RRM	0x0042
+#define	USBMSC_PROF_BDR_RE	0x0043
+#define	USBMSC_PROF_HDDVDROM	0x0050
+#define	USBMSC_PROF_HDDVDR	0x0051
+#define	USBMSC_PROF_HDDVDRAM	0x0052
+#define	USBMSC_PROF_NOTCONFORM	0xffff
 
 #endif /* _USB_MSCD_H */

@@ -34,6 +34,7 @@
  */
 #include <core.h>
 #include <core/mmio.h>
+#include <core/timer.h>
 #include "pci.h"
 #include "usb.h"
 #include "usb_device.h"
@@ -51,85 +52,41 @@ DEFINE_ALLOC_FUNC(ehci_host);
 
 static struct usb_operations ehciop = {
 	.shadow_buffer = ehci_shadow_buffer,
+	.submit_control = ehci_submit_control,
+	.submit_bulk = ehci_submit_bulk,
+	.submit_interrupt = ehci_submit_interrupt,
+	.check_advance = ehci_check_urb_advance,
+	.deactivate_urb = ehci_deactivate_urb,
 };
 
 static void 
 ehci_new(struct pci_device *pci_device)
 {
 	struct ehci_host *host;
+#if defined(HANDLE_USBMSC)
+	extern void usbmsc_init_handle(struct usb_host *host);
+#endif
+#if defined(HANDLE_USBHUB)
+	extern void usbhub_init_handle(struct usb_host *host);
+#endif
 
 	dprintft(2, "A EHCI found.\n");
 	host = alloc_ehci_host();
 	memset(host, 0, sizeof(*host));
 	spinlock_init(&host->lock);
-	host->pool = create_mem_pool(MEMPOOL_ALIGN);
 	pci_device->host = host;
 	host->usb_host = 
 		usb_register_host((void *)host, &ehciop, USB_HOST_TYPE_EHCI);
 	ASSERT(host->usb_host != NULL);
 	usb_init_device_monitor(host->usb_host);
+#if defined(HANDLE_USBMSC)
+	usbmsc_init_handle(host->usb_host);
+#endif
+#if defined(HANDLE_USBHUB)
+	usbhub_init_handle(host->usb_host);
+#endif
 
 	return;
-}
-
-static int
-handle_port_reset(struct ehci_host *host, int portno, u32 status)
-{
-	struct usb_device *dev;
-
-	/* check the port reset flag */
-	if (!(status & 0x00000100U))
-		return 0;
-
-	ASSERT(host->usb_host != NULL);
-	host->usb_host->last_changed_port = portno + 1;
-
-	dev = get_device_by_port(host->usb_host, portno + 1);
-	if (!dev) {
-		dprintft(2, "PORT[%d]: reset.\n", portno + 1);
-		return 1;
-	}
-
-	dprintft(1, "PORT[%d]: reset for a stalled device(%d).\n", 
-		 portno + 1, dev->devnum);
-	dev->bStatus = UD_STATUS_RESET;
-
-	return 0;
-}
-
-
-static int
-handle_connect_status(struct ehci_host *host, int portno)
-{
-	u32 status;
-
-	status = host->portsc[portno];
-
-	/* check the connect status change flag */
-	if (!(status & 0x00000002U))
-		return 0;
-
-	ASSERT(host->usb_host != NULL);
-	if (status & 0x00000001U) {
-		/* connected: keep the last-status-changed port */
-		host->usb_host->last_changed_port = portno + 1;
-		dprintft(1, "PORT[%d]: a device connected.\n", portno + 1);
-	} else {
-		/* disconnected: clean up an appropriate device data */
-		struct usb_device *dev;
-
-		dev = get_device_by_port(host->usb_host, portno + 1);
-		dprintft(1, "PORT[%d]: device", portno + 1);
-		if (dev) {
-			dprintf(1, "(%d)", dev->devnum);
-			/* FIXME: clean up device data */
-			dev->bStatus = UD_STATUS_POWERED;
-		}
-		dprintf(1, " disconnected.\n");
-		host->usb_host->last_changed_port = 0;
-	}
-
-	return 1;
 }
 
 static int
@@ -138,7 +95,9 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 {
 	struct ehci_host *host = (struct ehci_host *)data;
 	phys_t offset;
-	u32 *reg, val, portno;
+	u32 *reg, val;
+	u64 portno = 0;
+	int ret = 0;
 
 	if (!host)
 		return 0;
@@ -203,7 +162,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 		default:
 			REGPRN(2, wr, "adr");
 			dprintft(3, ": %x + %02x\n", 
-				 (u32)data, offset); 
+				 host->iobase, offset);
 		}
 	} else {
 		switch (offset - 0x20) {
@@ -244,16 +203,26 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 						*(u32 *)buf = 
 							cmd & ~(0x00000020U);
 #endif /* defined(ENABLE_DELAYED_START) */
+						spinlock_lock(&host->lock);
 						host->enable_async = 1;
+						spinlock_unlock(&host->lock);
 					}
 				} else {
+					spinlock_lock(&host->lock);
 					host->enable_async = 0;
+					spinlock_unlock(&host->lock);
 				}
 				if (cmd & 0x00000040) {
 					dprintf(3, "DBELL,");
-					host->doorbell = 1;
+					spinlock_lock(&host->lock);
+					if (host->doorbell)
+						host->doorbell = 0;
+					spinlock_unlock(&host->lock);
 				} else {
-					host->doorbell = 0;
+					spinlock_lock(&host->lock);
+					if (host->doorbell)
+						*(u32 *)buf |= 0x00000040U;
+					spinlock_unlock(&host->lock);
 				}
 				if (cmd & 0x00000080)
 					dprintf(3, "LHCRESET,");
@@ -277,8 +246,9 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				if (*reg & 0x00000020) {
 					dprintf(3, "ASADV,");
 					spinlock_lock(&host->lock);
-					ehci_cleanup_urbs(host->pool,
-							  &host->
+					if (host->doorbell)
+					host->doorbell = 0;
+					ehci_cleanup_urbs(&host->
 							  unlink_messages);
 					spinlock_unlock(&host->lock);
 				}
@@ -333,6 +303,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 			REGPRN(2, wr, "ASYNCLISTADDR");
 			if (wr) {
 				dprintf(3, ": %08x", *(u32 *)buf);
+				spinlock_lock(&host->lock);
 				if (host->headqh_phys[0] &&
 				    (host->headqh_phys[0] != 
 				     (*(u32 *)buf & 0xffffffe0U)))
@@ -347,17 +318,20 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				}
 #if defined(ENABLE_SHADOW)
 				*reg = host->headqh_phys[1] | 0x00000002U;
+				spinlock_unlock(&host->lock);
 				dprintf(3, " -> %08x\n", *reg);
-				return 1;
+				ret = 1;
 #else
 				dprintf(3, "\n");
 #endif
 			} else {
+				spinlock_lock(&host->lock);
 				*(u32 *)buf = 
 					host->headqh_phys[0] | 0x00000002U;
+				spinlock_unlock(&host->lock);
 				dprintf(3, ": %08x == %08x\n", 
 					*(u32 *)buf, *(u32 *)reg);
-				return 1;
+				ret = 1;
 			}
 			break;
 		case 0x40: /* CONFIGFLAG */
@@ -388,6 +362,8 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 			ASSERT(portno < EHCI_MAX_N_PORTS);
 			if (!wr) {
 				u32 status;
+				u32 mask = 0x0000ffff;
+				u16 port_sc;
 				
 				status = *reg; /* atomic */
 				if (host->portsc[portno] == status)
@@ -395,7 +371,9 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 
 				spinlock_lock(&host->lock);
 				host->portsc[portno] = status;
-				handle_connect_status(host, portno);
+				port_sc = status & mask;
+				handle_connect_status(host->usb_host, 
+							portno, port_sc);
 				spinlock_unlock(&host->lock);
 
 				dprintft(4, "read(PORTSC%d, %d) = %08x[", 
@@ -440,7 +418,11 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 					dprintf(4, "WOOC,");
 				dprintf(4, "]\n");
 			} else {
-				handle_port_reset(host, portno, *(u32 *)buf);
+				u16 port_sc;
+				port_sc = *(u32 *)buf & 0x0000FFFF;
+
+				handle_port_reset(host->usb_host, portno,
+							port_sc, 8);
 				dprintft(3, "write(PORTSC%d, %08x, %d)\n", 
 					 portno + 1, *(u32 *)buf, len);
 			}
@@ -448,12 +430,12 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 		default:
 			REGPRN(2, wr, "adr");
 			dprintf(3, ":%x + %02x\n", 
-				 (u32)data, offset); 
+				 host->iobase, offset);
 		}
 	}
 	unmapmem(reg, sizeof(u32));
 
-	return 0;
+	return ret;
 }
 
 static int 
@@ -521,10 +503,53 @@ static struct pci_driver ehci_driver = {
 	.config_write	= ehci_config_write,
 };
 
+void
+ehci_conceal_portroute(void *handle, void *data)
+{
+	u32 *reg = data;
+
+	if (*reg) {
+		*reg = 0U;
+		dprintft(0, "EHCI: Set PORT ROUTE "
+			 "TO COMPANION HC (UHCI)\n");
+	}
+
+	timer_set(handle, 1000 * 1000);
+}
+
 static void 
 ehci_conceal_new(struct pci_device *pci_device)
 {
+	u32 *reg;
+	phys_t iobase;
+	void *handle;
+
 	printf("An EHCI host controller found. Disable it.\n");
+	iobase = pci_device->config_space.base_address[0];
+	if ((iobase == 0) || (iobase >= 0xffffffdeU))
+		return;
+
+	/* CONFIGFLAG */
+	reg = (u32 *)mapmem_gphys(iobase + 0x20U + 0x40U, sizeof(u32), 0);
+	printf("EHCI: CONFIGFLAG: %08x -> ", *reg);
+	if (*reg) {
+		*reg = 0U;
+		printf("%08x\n", *reg);
+	}
+
+	handle = timer_new(ehci_conceal_portroute, reg);
+	timer_set(handle, 1000 * 1000);
+
+	/* HCSPARAMS */
+	reg = (u32 *)mapmem_gphys(iobase + 0x04U, sizeof(u32), 0);
+	printf("EHCI: HCSPARAMS: %08x\n", *reg);
+	unmapmem(reg, sizeof(u32));
+
+	/* HCSP-PORTROUTE */
+	reg = (u32 *)mapmem_gphys(iobase + 0x0cU, sizeof(u32), 0);
+	printf("EHCI: HCSP-PORTROUTE: %08x\n", *reg);
+	unmapmem(reg, sizeof(u32));
+
 	return;
 }
 

@@ -76,6 +76,14 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 
 	do_io_default (type, port, data);
 	if (type == IOTYPE_INB) {
+#ifdef CARDSTATUS
+		extern int ps2_locked;
+		if (ps2_locked) {
+			printf ("Ignoring PS/2 input\n");
+			*(u8 *)data = 0;
+			return;
+		}
+#endif
 		switch (*(u8 *)data) {
 #if defined(F10USBTEST)
 		case 0x44 | 0x80: /* F10 */
@@ -116,9 +124,9 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 			break;
 		case 0x58 | 0x80: /* F12 */
 			if (lk == 0x58) {
-#if defined(F12UHCIFRAME)
-				extern void uhci_dump_frame0(void);
-#endif /* defined(F12UHCIFRAME) */
+#if defined(F12DUMPEHCI)
+				extern void ehci_dump_all(int, void *);
+#endif /* defined(F12DUMPEHCI) */
 #if defined(F12MSG)
 				if (config.vmm.f12msg) {
 					debug_gdb ();
@@ -128,9 +136,9 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 					printf ("F12 pressed.\n");
 				}
 #endif /* defined(F12MSG) */
-#if defined(F12UHCIFRAME)
-				uhci_dump_frame0();
-#endif /* defined(F12UHCIFRAME) */
+#if defined(F12DUMPEHCI)
+				ehci_dump_all(0, NULL);
+#endif /* defined(F12DUMPEHCI) */
 			}
 			break;
 		}

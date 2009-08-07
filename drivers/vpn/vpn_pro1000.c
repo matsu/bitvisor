@@ -167,7 +167,10 @@ struct rdesc_ext1 {
 
 struct desc_shadow {
 	bool initialized;
-	u64 base;
+	union {
+		u64 ll;
+		u32 l[2];
+	} base;
 	u32 len;
 	u32 head, tail;
 	union {
@@ -217,6 +220,10 @@ struct data {
 	phys_t mapaddr;
 	struct data2 *d;
 };
+
+#ifdef TTY_PRO1000
+static struct data2 *putchar_d2;
+#endif
 
 static int
 iohandler (core_io_t io, union mem *data, void *arg)
@@ -384,7 +391,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 		return;
 	i = s->head;
 	j = s->tail;
-	k = s->base;
+	k = s->base.ll;
 	l = s->len;
 	pktlen += asize;
 	while (pktlen > 0) {
@@ -869,7 +876,7 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 
 	i = s->head;
 	j = s->tail;
-	k = s->base;
+	k = s->base.ll;
 	l = s->len;
 	while (i != j) {
 		td = mapmem_gphys (k + i * 16, sizeof *td, MAPMEM_WRITE);
@@ -947,16 +954,16 @@ handle_desc (uint off1, uint len1, bool wr, union mem *buf, bool recv,
 		/* Transmit/Receive Descriptor Base Low */
 		init_desc (s, d2, off2, !recv);
 		if (wr)
-			*((u32 *)(void *)&s->base + 0) = buf->dword & ~0xF;
+			s->base.l[0] = buf->dword & ~0xF;
 		else
-			buf->dword = *((u32 *)(void *)&s->base + 0);
+			buf->dword = s->base.l[0];
 	} else if (rangecheck (off1, len1, off2 + 0x04, 4)) {
 		/* Transmit/Receive Descriptor Base High */
 		init_desc (s, d2, off2, !recv);
 		if (wr)
-			*((u32 *)(void *)&s->base + 1) = buf->dword;
+			s->base.l[1] = buf->dword;
 		else
-			buf->dword = *((u32 *)(void *)&s->base + 1);
+			buf->dword = s->base.l[1];
 	} else if (rangecheck (off1, len1, off2 + 0x08, 4)) {
 		/* Transmit/Receive Descriptor Length */
 		init_desc (s, d2, off2, !recv);
@@ -1135,6 +1142,88 @@ reghook (struct data *d, int i, u32 a, u32 b)
 	d->e = 1;
 }
 
+#ifdef TTY_PRO1000
+static void
+wshort (char *off, unsigned short x)
+{
+	off[0] = (x >> 8);
+	off[1] = x;
+}
+
+static u16
+udpsum (char *buf, int len, u16 val)
+{
+	u16 *p = (void *)buf;
+	u32 r = val;
+	int i;
+
+	for (i = len / 2; i; i--) {
+		r += *p++;
+		if (r > 0xFFFF)
+			r -= 0xFFFF;
+	}
+	if (len & 1) {
+		r += *(u8 *)p;
+		if (r > 0xFFFF)
+			r -= 0xFFFF;
+	}
+	return (u16)r;
+}
+
+static int
+mkudp (char *buf, char *src, int sport, char *dst, int dport,
+       char *data, int datalen)
+{
+	u16 ipchecksum (void *buf, u32 len);
+	u16 sum;
+
+	memcpy (buf, "\x45\x00\x00\x00\x00\x01\x00\x00\x01\x11\x00\x00", 12);
+	wshort (buf + 2,  datalen + 8 + 20);
+	memcpy (buf + 12, src, 4);
+	memcpy (buf + 16, dst, 4);
+	wshort (buf + 20, sport);
+	wshort (buf + 22, dport);
+	wshort (buf + 24, datalen + 8);
+	memcpy (buf + 26, "\x00\x11", 2);
+	memcpy (buf + 28, data, datalen);
+	sum = udpsum (buf + 20, datalen + 8, 0);
+	sum = udpsum (buf + 24, 2, sum);
+	sum = udpsum (buf + 12, 8, sum);
+	sum = ~sum;
+	if (!sum)
+		sum = ~sum;
+	memcpy (buf + 26, &sum, 2);
+	sum = udpsum (buf, 20, 0);
+	sum = ~sum;
+	if (!sum)
+		sum = ~sum;
+	memcpy (buf + 10, &sum, 2);
+	return datalen + 8 + 20;
+}
+
+/* how to receive the messages:
+   perl -e '$|=1;use Socket;
+   socket(S, PF_INET, SOCK_DGRAM, 0);
+   bind(S, pack_sockaddr_in(10101,INADDR_ANY));
+   while(recv(S,$buf,1,0)){print $buf;}' */
+void
+pro1000_putchar (int c)
+{
+	static char pkt[64];
+	static void *pkts = pkt;
+	static UINT pktsiz;
+
+	if (!putchar_d2)
+		return;
+	memcpy (pkt + 0, config.vmm.tty_pro1000_mac_address, 6);
+	memcpy (pkt + 6, putchar_d2->macaddr, 6);
+	memcpy (pkt + 12, "\x08\x00", 2);
+	pktsiz = mkudp (pkt + 14, "\x0A\x0A\x0A\x0A", 10,
+			"\xE0\x00\x00\x01", 10101, (char *)&c, 1) + 14;
+	send_physnic ((SE_HANDLE)putchar_d2, 1, &pkts, &pktsiz);
+}
+#endif
+
 static void 
 vpn_pro1000_new (struct pci_device *pci_device)
 {
@@ -1165,6 +1254,119 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	get_macaddr (d2, d2->macaddr);
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
+#ifdef TTY_PRO1000
+	if (config.vmm.tty_pro1000) {
+		/* Disable interrupts */
+		{
+			/* Interrupt Mask Clear Register */
+			volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
+			*imc = 0;
+		}
+		/* Issue a Global Reset */
+		{
+			void usleep (u32);
+
+			/* Device Control Register */
+			volatile u32 *ctrl = (void *)(u8 *)d2->d1[0].map + 0x0;
+			*ctrl = 0x00100800 | 0x84000000;
+			usleep (1000000);
+			*ctrl = 0x40;//0x00100800;
+		}
+		/* Disable interrupts */
+		{
+			/* Interrupt Mask Clear Register */
+			volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
+			*imc = 0;
+		}
+		/* Initialization for 82571EB/82572EI */
+		{
+			/* Transmit Arbitration Counter Queue 0 */
+			volatile u32 *tarc0 = (void *)(u8 *)d2->d1[0].map +
+				0x3840;
+			*tarc0 = 0;	/* 0x07800000 */
+		}
+		{
+			/* Transmit Arbitration Counter Queue 1 */
+			volatile u32 *tarc1 = (void *)(u8 *)d2->d1[0].map +
+				0x3940;
+			*tarc1 = 0;	/* 0x07400000; */
+		}
+		{
+			/* Transmit Descriptor Control */
+			volatile u32 *txdctl = (void *)(u8 *)d2->d1[0].map +
+				0x3828;
+			*txdctl = (*txdctl & 0x400000) | 0x1010000;
+		}
+		{
+			/* Transmit Descriptor Control 1 */
+			volatile u32 *txdctl1 = (void *)(u8 *)d2->d1[0].map +
+				0x3928;
+			*txdctl1 = (*txdctl1 & 0x400000) | 0x1010000;
+		}
+		/* Receive Initialization */
+		{
+			int i;
+			void *tmp1;
+			phys_t tmp2;
+			struct desc_shadow *s = &d2->rdesc[0];
+			bool transmit = false;
+			uint off2 = 0x2800;
+
+			alloc_pages (&tmp1, &tmp2, NUM_OF_RDESC_PAGES);
+			s->u.r.rd = tmp1;
+			s->u.r.rd_phys = tmp2;
+			memset (s->u.r.rd, 0, RDESC_SIZE);
+			for (i = 0; i < NUM_OF_RDESC; i++) {
+				alloc_page (&tmp1, &tmp2);
+				s->u.r.rbuf[i] = tmp1;
+				s->u.r.rd[i].addr = tmp2;
+			}
+			write_mydesc (s, d2, off2, transmit);
+		}
+		{
+			/* Receive Control Register */
+			volatile u32 *rctl = (void *)(u8 *)d2->d1[0].map +
+				0x100;
+			*rctl = 0 |	/* receiver disabled */
+				((RBUF_SIZE & 0x3300) ? 0x20000 : 0) |
+				((RBUF_SIZE & 0x5500) ? 0x10000 : 0) |
+				((RBUF_SIZE & 0x7000) ? 0x2000000 : 0);
+		}
+		/* Transmit Initialization */
+		{
+			int i;
+			void *tmp1;
+			phys_t tmp2;
+			struct desc_shadow *s = &d2->tdesc[0];
+			bool transmit = true;
+			uint off2 = 0x3800;
+
+			alloc_pages (&tmp1, &tmp2, NUM_OF_TDESC_PAGES);
+			s->u.t.td = tmp1;
+			s->u.t.td_phys = tmp2;
+			memset (s->u.t.td, 0, TDESC_SIZE);
+			for (i = 0; i < NUM_OF_TDESC; i++) {
+				alloc_page (&tmp1, &tmp2);
+				s->u.t.tbuf[i] = tmp1;
+				s->u.t.td[i].addr = tmp2;
+			}
+			write_mydesc (s, d2, off2, transmit);
+		}
+		{
+			/* Transmit Control Register */
+			volatile u32 *tctl = (void *)(u8 *)d2->d1[0].map +
+				0x400;
+			*tctl = 0x3F0FA;	/* Transmit Enable */
+		}
+		{
+			/* Transmit IPG Register */
+			volatile u32 *tipg = (void *)(u8 *)d2->d1[0].map +
+				0x410;
+			*tipg = 0x00702008;
+		}
+		putchar_d2 = d2;
+	}
+#endif
 	return;
 }
 
@@ -1172,6 +1374,12 @@ static int
 vpn_pro1000_config_read (struct pci_device *pci_device, 
 			 core_io_t io, u8 offset, union mem *data)
 {
+#ifdef TTY_PRO1000
+	if (config.vmm.tty_pro1000) {
+		data->dword = 0UL;
+		return CORE_IO_RET_DONE;
+	}
+#endif
 	return CORE_IO_RET_DEFAULT;
 }
 
@@ -1183,6 +1391,10 @@ vpn_pro1000_config_write (struct pci_device *pci_device,
 	u32 tmp;
 	int i;
 
+#ifdef TTY_PRO1000
+	if (config.vmm.tty_pro1000)
+		return CORE_IO_RET_DONE;
+#endif
 	if (offset + io.size - 1 >= 0x10 && offset <= 0x24) {
 		if ((offset & 3) || io.size != 4)
 			panic ("%s: io:%08x, offset=%02x, data:%08x\n",

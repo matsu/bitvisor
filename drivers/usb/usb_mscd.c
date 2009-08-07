@@ -41,9 +41,8 @@
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_log.h"
+#include "usb_hook.h"
 #include "usb_mscd.h"
-#include "uhci.h"
-#include "uhci_hook.h"
 
 DEFINE_ALLOC_FUNC(usb_device_handle);
 DEFINE_ZALLOC_FUNC(usbmsc_device);
@@ -96,7 +95,7 @@ prepare_buffers(struct usb_buffer_list *src_ub,
 
 		/* copy source buffer data 
 		   into the source temporary buffer */
-		for (i=0; i<concat; i++) {
+		for (i = 0; i < concat; i++) {
 			if (src_ub->vadr)
 				vadr = src_ub->vadr;
 			else
@@ -212,7 +211,7 @@ usbmsc_code_buffers(struct usbmsc_device *mscdev,
 		storage_handle_sectors(mscdev->storage, &access, 
 				       (u8 *)src_vadr, (u8 *)dest_vadr);
 
-		dprintft(1, "MSCD(  ):           "
+		dprintft(2, "MSCD(  ):           "
 			 "%d blocks(LBA:%08x) encoded\n", 
 			 access.count, access.lba);
 
@@ -220,7 +219,7 @@ usbmsc_code_buffers(struct usbmsc_device *mscdev,
 		access.lba += access.count;
 		n_blocks += access.count;
 		if (length < (block_len * access.count)) {
-			dprintft(1, "MSCD(  ): WARNING : "
+			dprintft(2, "MSCD(  ): WARNING : "
 				 "%d bytes over coded\n",
 				 block_len * access.count - length);
 			length = 0;
@@ -255,7 +254,7 @@ usbmsc_cbw_parser(u8 devadr,
 	mscdev->tag = cbw->dCBWTag;
 	mscdev->command = cbw->CBWCB[0];
 	mscdev->length = (size_t)cbw->dCBWDataTransferLength;
-	dprintft(1, "MSCD(%02x): %08x: %s\n",
+	dprintft(2, "MSCD(%02x): %08x: %s\n",
 		 devadr, cbw->dCBWTag,
 		 (cbw->CBWCB[0] < SCSI_OPID_MAX) ? 
 		 scsi_op2str[cbw->CBWCB[0]] : opstr);
@@ -266,8 +265,8 @@ usbmsc_cbw_parser(u8 devadr,
 			bswap32(*(u32 *)&cbw->CBWCB[2]); /* big endian */
 		mscdev->n_blocks = 
 			bswap16(*(u16 *)&cbw->CBWCB[7]); /* big endian */
-		dprintft(1, "MSCD(%02x):           ", devadr);
-		dprintf(1, "[LBA=%08x, NBLK=%04x]\n", 
+		dprintft(2, "MSCD(%02x):           ", devadr);
+		dprintf(2, "[LBA=%08x, NBLK=%04x]\n", 
 			mscdev->lba, mscdev->n_blocks);
 		break;
 	case 0xa8: /* READ(12)  */
@@ -276,9 +275,12 @@ usbmsc_cbw_parser(u8 devadr,
 			bswap32(*(u32 *)&cbw->CBWCB[2]); /* big endian */
 		mscdev->n_blocks =
 			bswap32(*(u32 *)&cbw->CBWCB[6]); /* big endian */
-		dprintft(1, "MSCD(%02x):           ", devadr);
-		dprintf(1, "[LBA=%08x, NBLK=%04x]\n",
+		dprintft(2, "MSCD(%02x):           ", devadr);
+		dprintf(2, "[LBA=%08x, NBLK=%04x]\n",
 			mscdev->lba, mscdev->n_blocks);
+		break;
+	case 0x46: /* GET CONFIGURATION */
+		mscdev->profile = USBMSC_PROF_NOPROF;
 		break;
 	default:
 		break;
@@ -331,19 +333,23 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 	dev = urb->dev;
 	if (!dev || !dev->handle) {
 		printf("no device entry\n");
-		return UHCI_HOOK_DISCARD;
+		return USB_HOOK_DISCARD;
 	}
 	mscdev = (struct usbmsc_device *)dev->handle->private_data;
 	if (!mscdev) {
 		printf("no device handling entry\n");
-		return UHCI_HOOK_DISCARD;
+		return USB_HOOK_DISCARD;
 	}
 
 	/* all buffers should be shadowed for security */
-	ASSERT(usbhc->op != NULL);
-	ASSERT(usbhc->op->shadow_buffer != NULL);
-	ret = usbhc->op->shadow_buffer(usbhc, urb->shadow /* guest urb */, 
-				       0 /* just allocate, no content copy */);
+	if (urb->shadow->buffers) {
+		ASSERT(usbhc->op != NULL);
+		ASSERT(usbhc->op->shadow_buffer != NULL);
+		ret = usbhc->op->shadow_buffer(usbhc, 
+					       urb->shadow /* guest urb */, 
+					       0 /* just allocate, 
+						    no content copy */);
+	}
 
 	spinlock_lock(&mscdev->lock);
 	gub = urb->shadow->buffers;
@@ -380,7 +386,7 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 	/* no more buffer to be cared */
 	if (!gub || !hub) {
 		spinlock_unlock(&mscdev->lock);
-		return UHCI_HOOK_PASS;
+		return USB_HOOK_PASS;
 	}
 
 shadow_data:
@@ -404,24 +410,25 @@ shadow_data:
 		mscdev->lba += n_blocks;
 
 		spinlock_unlock(&mscdev->lock);
-		return UHCI_HOOK_PASS;
+		return USB_HOOK_PASS;
 
+	case 0xb6: /* SET STREAMING (For Vista CD format) */
 	case 0x55: /* MODE SELECT (For setting the device param to CD ) */
 	case 0x5d: /* SEND CUE SHEET (For writing CD as DAO )*/
 	case 0x04: /* FORMAT UNIT (For formatting CD as the packet writing ) */
+	case 0x1b: /* START/STOP UNIT */
 		/* pass though */
 		usbmsc_copy_buffer(hub, gub, mscdev->length);
 		mscdev->length = 0;
 		spinlock_unlock(&mscdev->lock);
-		return UHCI_HOOK_PASS;
-
+		return USB_HOOK_PASS;
 	default:
 		break;
 	}
 	
 	/* unknown transfer should be denied */
 	spinlock_unlock(&mscdev->lock);
-	return UHCI_HOOK_DISCARD; 
+	return USB_HOOK_DISCARD;
 }
 
 /***
@@ -433,27 +440,33 @@ usbmsc_shadow_inbuf(struct usb_host *usbhc,
 {
 	struct usb_device *dev;
 	struct usbmsc_device *mscdev;
-	int ret;
+	int ret = 0;
 
 	dev = urb->dev;
 	if (!dev || !dev->handle) {
 		printf("no device entry\n");
-		return UHCI_HOOK_DISCARD;
+		return USB_HOOK_DISCARD;
 	}
 	mscdev = (struct usbmsc_device *)dev->handle->private_data;
 	if (!mscdev) {
 		printf("no device handling entry\n");
-		return UHCI_HOOK_DISCARD;
+		return USB_HOOK_DISCARD;
 	}
 
 	ASSERT(usbhc->op);
 	ASSERT(usbhc->op->shadow_buffer);
 	spinlock_lock(&mscdev->lock);
-	ret = usbhc->op->shadow_buffer(usbhc, urb->shadow /* guest urb */, 
-				       0 /* just allocate, no content copy */);
+	if (urb->shadow->buffers) {
+		ASSERT(usbhc->op != NULL);
+		ASSERT(usbhc->op->shadow_buffer != NULL);
+		ret = usbhc->op->shadow_buffer(usbhc, 
+					       urb->shadow /* guest urb */, 
+					       0 /* just allocate, 
+						    no content copy */);
+	}
 	spinlock_unlock(&mscdev->lock);
 
-	return (ret) ? UHCI_HOOK_DISCARD : UHCI_HOOK_PASS;
+	return (ret) ? USB_HOOK_DISCARD : USB_HOOK_PASS;
 }
 
 /***
@@ -467,12 +480,12 @@ usbmsc_csw_parser(u8 devadr,
 
 	/* read a CSW(Command Status Wrapper) */
 	if (mscdev->tag != csw->dCSWTag) {
-		dprintft(1, "%08x: ==> tag(%08x) unmatched.\n",
+		dprintft(2, "%08x: ==> tag(%08x) unmatched.\n",
 			 mscdev->tag, csw->dCSWTag);
-		return UHCI_HOOK_DISCARD;
+		return USB_HOOK_DISCARD;
 	}
 	if (csw->bCSWStatus) 
-		dprintft(1, "MSCD(%02x): %08x: ==> %s(%d)\n",
+		dprintft(2, "MSCD(%02x): %08x: ==> %s(%d)\n",
 			 devadr, csw->dCSWTag,
 			 (csw->bCSWStatus < USBMSC_STAT_MAX) ? 
 			 st2str[csw->bCSWStatus] : ststr, 
@@ -495,25 +508,29 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 	dev = urb->dev;
 	if (!dev || !dev->handle) {
 		printf("no device entry\n");
-		return UHCI_HOOK_DISCARD;
+		return USB_HOOK_DISCARD;
 	}
 	mscdev = (struct usbmsc_device *)dev->handle->private_data;
 	if (!mscdev) {
 		printf("no device handling entry\n");
-		return UHCI_HOOK_DISCARD;
+		return USB_HOOK_DISCARD;
 	}
-
-	spinlock_lock(&mscdev->lock);
 
 	gub = urb->shadow->buffers;
 	hub = urb->buffers;
+
+	if (!hub)
+		return USB_HOOK_PASS;
+
+	spinlock_lock(&mscdev->lock);
 
 	/* The extra buffer may be a CSW */
 	if (memcmp((void *)hub->vadr, "USBS", 4) == 0) {
 
 		/* double check */
-		if (hub->len != sizeof(struct usb_msc_csw))
+		if (urb->actlen != sizeof(struct usb_msc_csw))
 			goto copyback_data;
+
 		if (mscdev->length > 0)
 			dprintft(0, "MSCD(%02x): WARNING: "
 				 "%d bytes not transferred.\n",
@@ -528,7 +545,11 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 			switch (mscdev->command) {
 			case 0x25: /* READ CAPACITY(10) */
 				mscdev->lba_max = 0;
-				mscdev->block_len = 16;
+				ASSERT(mscdev->storage != NULL);
+				mscdev->storage->sector_size = 1;
+				break;
+			case 0x46: /* GET CONFIGURATION */
+				mscdev->profile = USBMSC_PROF_NOPROF;
 				break;
 			default:
 				break;
@@ -552,14 +573,22 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 	} else {
 	copyback_data:
 		switch (mscdev->command) {
+		case 0x46: /* GET CONFIGURATION */
+		{
+			u16 cur_prf = bswap16(*(u16 *)(hub->vadr + 6));
+			if ( cur_prf != USBMSC_PROF_NOPROF ) {
+				mscdev->profile = cur_prf;
+			}
+		}
+		/* through */
 		case 0x03: /* REQUEST SENSE */
 		case 0x12: /* INQUIRY */
 		case 0x1a: /* MOSE SENSE(6) */
 		case 0x23: /* READ FORMAT CAPACITIES */
 		case 0x3c: /* READ BUFFER */
 		case 0x4a: /* GET EVENT/STATUS NOTIFICATION */
+		case 0x42: /* READ SUBCHANNEL */
 		case 0x43: /* READ TOC/PMA/ATIP */
-		case 0x46: /* GET CONFIGURATION */
 		case 0x51: /* READ DISC INFORMATION */
 		case 0x52: /* READ TRACK INFORMATION */
 		case 0x5a: /* MODE SENSE(10) */
@@ -567,10 +596,12 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
  		case 0xa4: /* REPORT KEY */
  		case 0xac: /* GET PERFORMANCE */
 		case 0xad: /* READ DISC STRUCTURE */
-			dprintft(1, "MSCD(%02x):           [", devadr);
-			for (i=0; i<urb->actlen; i++)
-				dprintf(1, "%02x", *(u8 *)(hub->vadr + i));
-			dprintf(1, "]\n");
+		case 0xb9: /* READ CD MSF */
+		case 0xbe: /* READ CD */
+			dprintft(2, "MSCD(%02x):           [", devadr);
+			for (i = 0; i < urb->actlen; i++)
+				dprintf(2, "%02x", *(u8 *)(hub->vadr + i));
+			dprintf(2, "]\n");
  			usbmsc_copy_buffer(gub, hub, mscdev->length);
  			mscdev->length = 0;
 			break;
@@ -579,7 +610,7 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 			ASSERT(mscdev->storage != NULL);
 			mscdev->storage->sector_size = 
 				bswap32(*(u32 *)(hub->vadr + 4));
-			dprintft(1, "MSCD(%02x):           "
+			dprintft(2, "MSCD(%02x):           "
 				 "[LBAMAX=%08x, BLKLEN=%08x]\n",
 				 devadr, mscdev->lba_max, 
 				 mscdev->storage->sector_size);
@@ -616,7 +647,7 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 	}
 			
 	spinlock_unlock(&mscdev->lock);
-	return UHCI_HOOK_PASS;
+	return USB_HOOK_PASS;
 }
 
 
@@ -654,9 +685,7 @@ static int
 usbmsc_init_bulkmon(struct usb_host *usbhc, 
 		    struct usb_request_block *urb, void *arg)
 {
-	struct uhci_host *uhcihc = (struct uhci_host *)usbhc->private;
 	struct usb_device *dev;
-	struct uhci_hook *mschook;
 	struct usb_endpoint_descriptor *epdesc;
 	struct usbmsc_device *mscdev;
 	struct usb_device_handle *handler;
@@ -669,15 +698,15 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	/* an interface descriptor must exists */
 	if (!dev || !dev->config || !dev->config->interface || 
 	    !dev->config->interface->altsetting) {
-		dprintft(1, "MSCD(%02x): interface descriptor not found.\n",
+		dprintft(2, "MSCD(%02x): interface descriptor not found.\n",
 			 devadr);
-		return UHCI_HOOK_PASS;
+		return USB_HOOK_PASS;
 	}
 
 	/* only MSC devices interests */
 	cls = dev->config->interface->altsetting->bInterfaceClass;
 	if (cls != 0x08)
-		return UHCI_HOOK_PASS;
+		return USB_HOOK_PASS;
 	
 	dprintft(1, "MSCD(%02x): "
 		 "A Mass Storage Class device found\n", devadr);
@@ -712,22 +741,23 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	if ((proto != 0x50) ||			  /* Bulk only */
 	    ((subcls != 0x06) && (subcls != 0x02) &&  /* 8020 & SCSI */
 	     (subcls != 0x05)))			  /* 8070        */
-		return UHCI_HOOK_DISCARD;
+		return USB_HOOK_DISCARD;
 
 	if (dev->handle) {
 		dprintft(1, "MSCD(%02x): maybe reset.\n",  devadr);
-		return UHCI_HOOK_PASS;
+		return USB_HOOK_PASS;
 	}
 
 	/* create msc device entry */
 	mscdev = zalloc_usbmsc_device();
 	spinlock_init(&mscdev->lock);
-	mscdev->block_len = 16; /* fix me: If host is reset, */
-				/*    align to proper value for crypting */
 	mscdev->command = USBMSC_COM_SCSI_NONE;
+	mscdev->profile = USBMSC_PROF_NOPROF;
 
 	mscdev->storage = storage_new(STORAGE_TYPE_USB, usb_host_id,
 				      usb_device_id, NULL, 512);
+	ASSERT(mscdev->storage != NULL);
+	mscdev->storage->sector_size = 1;
 
 	/* register a hook for BULK IN transfers */
 	for (i = 1; i <= dev->config->interface->
@@ -740,36 +770,38 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 
 		if (epdesc->bEndpointAddress & USB_ENDPOINT_IN) {
 			/* register a hook for BULK IN transfers */
-			spinlock_lock(&dev->lock_hk);
-			mschook = uhci_hook_register(uhcihc, USB_HOOK_REQUEST,
-						     USB_HOOK_MATCH_ADDR |
-						     USB_HOOK_MATCH_ENDP,
-						     devadr, 
-						     epdesc->bEndpointAddress,
-						     NULL,
-						     usbmsc_shadow_inbuf);
-			register_devicehook(uhcihc, dev, mschook);
-			mschook = uhci_hook_register(uhcihc, USB_HOOK_REPLY,
-						     USB_HOOK_MATCH_ADDR |
-						     USB_HOOK_MATCH_ENDP,
-						     devadr, 
-						     epdesc->bEndpointAddress,
-						     NULL,
-						     usbmsc_copyback_shadow);
-			register_devicehook(uhcihc, dev, mschook);
-			spinlock_unlock(&dev->lock_hk);
+			spinlock_lock(&usbhc->lock_hk);
+			usb_hook_register(usbhc, USB_HOOK_REQUEST,
+					  USB_HOOK_MATCH_ADDR |
+					  USB_HOOK_MATCH_ENDP,
+					  devadr, 
+					  epdesc->bEndpointAddress,
+					  NULL,
+					  usbmsc_shadow_inbuf,
+					  NULL, dev);
+			usb_hook_register(usbhc, USB_HOOK_REPLY,
+					  USB_HOOK_MATCH_ADDR |
+					  USB_HOOK_MATCH_ENDP,
+					  devadr, 
+					  epdesc->bEndpointAddress,
+					  NULL,
+					  usbmsc_copyback_shadow,
+					  NULL, 
+					  dev);
+			spinlock_unlock(&usbhc->lock_hk);
 		} else {
 			/* register a hook for BULK OUT transfers */
-			spinlock_lock(&dev->lock_hk);
-			mschook = uhci_hook_register(uhcihc, USB_HOOK_REQUEST,
-						     USB_HOOK_MATCH_ADDR |
-						     USB_HOOK_MATCH_ENDP,
-						     devadr, 
-						     epdesc->bEndpointAddress,
-						     NULL,
-						     usbmsc_shadow_outbuf);
-			register_devicehook(uhcihc, dev, mschook);
-			spinlock_unlock(&dev->lock_hk);
+			spinlock_lock(&usbhc->lock_hk);
+			usb_hook_register(usbhc, USB_HOOK_REQUEST,
+					  USB_HOOK_MATCH_ADDR |
+					  USB_HOOK_MATCH_ENDP,
+					  devadr, 
+					  epdesc->bEndpointAddress,
+					  NULL,
+					  usbmsc_shadow_outbuf,
+					  NULL,
+					  dev);
+			spinlock_unlock(&usbhc->lock_hk);
 		}
 	}
 
@@ -778,13 +810,14 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	handler->private_data = (void *)mscdev;
 	dev->handle = handler;
 
-	return UHCI_HOOK_PASS;
+	return USB_HOOK_PASS;
 }
 
 void 
-usbmsc_init_handle(struct uhci_host *host)
+usbmsc_init_handle(struct usb_host *host)
 {
 	const struct usb_hook_pattern pat_setconf = {
+		.pid = USB_PID_SETUP,
 		.mask = 0x000000000000ffffULL,
 		.pattern = 0x0000000000000900ULL,
 		.offset = 0,
@@ -792,9 +825,10 @@ usbmsc_init_handle(struct uhci_host *host)
 	};
 
 	/* Look a device class whenever SetConfigration() issued. */
-	uhci_hook_register(host, USB_HOOK_REPLY, 
-			   USB_HOOK_MATCH_ENDP | USB_HOOK_MATCH_DATA,
-			   0, 0, &pat_setconf, usbmsc_init_bulkmon);
+	usb_hook_register(host, USB_HOOK_REPLY, 
+			  USB_HOOK_MATCH_ENDP | USB_HOOK_MATCH_DATA,
+			  0, 0, &pat_setconf, usbmsc_init_bulkmon, 
+			  NULL, NULL);
 	printf("USB Mass Storage Class handler registered.\n");
 
 	return;

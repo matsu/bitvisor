@@ -44,7 +44,7 @@
 #include "passthrough/vtd.h"
 int add_remap() ;
 u32 vmm_start_inf() ;
-u32 vmm_term_inf() ; 
+u32 vmm_term_inf() ;
 #endif // of VTD_TRANS
 
 static const char driver_name[] = "uhci_generic_driver";
@@ -54,8 +54,8 @@ static const char virtual_model[40] =
 	"BitVisor Virtual USB Host Controller   ";
 static const char virtual_revision[8] = "1.0    "; // 8 chars
 
-phys32_t uhci_monitor_boost_hc = 0;
-DEFINE_ZALLOC_FUNC(uhci_host)
+phys32_t uhci_monitor_boost_hc = 0U;
+DEFINE_ZALLOC_FUNC(uhci_host);
 
 /**
  * @brief get current frame number
@@ -72,6 +72,11 @@ uhci_current_frame_number(struct uhci_host *host)
 
 static struct usb_operations uhciop = {
 	.shadow_buffer = uhci_shadow_buffer,
+	.submit_control = uhci_submit_control,
+	.submit_bulk = uhci_submit_bulk,
+	.submit_interrupt = uhci_submit_interrupt,
+	.check_advance = uhci_check_urb_advance,
+	.deactivate_urb = uhci_deactivate_urb
 };
 
 static void 
@@ -79,10 +84,10 @@ uhci_new(struct pci_device *pci_device)
 {
 	struct uhci_host *host;
 #if defined(HANDLE_USBMSC)
-	extern void usbmsc_init_handle(struct uhci_host *host);
+	extern void usbmsc_init_handle(struct usb_host *host);
 #endif
 #if defined(HANDLE_USBHUB)
-	extern void usbhub_init_handle(struct uhci_host *host);
+	extern void usbhub_init_handle(struct usb_host *host);
 #endif
 
 #ifdef VTD_TRANS
@@ -103,51 +108,21 @@ uhci_new(struct pci_device *pci_device)
 	host->pci_device = pci_device;
 	host->interrupt_line = pci_device->config_space.interrupt_line;
 	pci_device->host = host;
-	host->pool = create_mem_pool(MEMPOOL_ALIGN);
 	/* initializing host->frame_number with UHCI_NUM_FRAMES -1 
 	   lets the uhci_framelist_monitor start at no.0 frame. */
-	host->frame_number = UHCI_NUM_FRAMES - 1; 
+	host->frame_number = UHCI_NUM_FRAMES - 1;
  	host->hc = usb_register_host((void *)host, &uhciop, 
 				     USB_HOST_TYPE_UHCI);
 	ASSERT(host->hc != NULL);
 	usb_init_device_monitor(host->hc);
 #if defined(HANDLE_USBMSC)
-	usbmsc_init_handle(host);
+	usbmsc_init_handle(host->hc);
 #endif
 #if defined(HANDLE_USBHUB)
-	usbhub_init_handle(host);
+	usbhub_init_handle(host->hc);
 #endif
 
 	return;
-}
-
-static int
-check_port_status(struct uhci_host *host, int portno, u16 val16)
-{
-	struct usb_device *dev;
-
-	if (val16 & 0x0002){
-		dprintft(3, "%04x: PORTSC 0-0-0-0-%d: Port status disconnect."
-					"\n", host->iobase, portno + 1);
-		for (dev = host->hc->device; dev; dev = dev->next){
-			if(portno + 1 == dev->portno){
-				dprintft(1, "%04x: PORTNO 0-0-0-0-%d: "
-					"USB device disconnect.\n",
-					host->iobase, dev->portno);
-				free_device(host->hc, dev);
-				break;
-			}
-		}
-						
-		if (val16 & 0x0001){
-			host->hc->last_changed_port = portno + 1;
-			dprintft(3, "%04x: PORTSC 0-0-0-0-%d: "
-				"Port Status connect\n", host->iobase, 
-				host->hc->last_changed_port);
-		}
-
-	}
-	return 0;
 }
 
 /**
@@ -193,10 +168,14 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 				/* get the current frame number */
 				uhci_current_frame_number(host);
 
+				/* down IOC flag in the terminate TD */
+				if (host->term_tdm->td->status & 
+				    UHCI_TD_STAT_IC)
+					host->term_tdm->td->status &= 
+						~UHCI_TD_STAT_IC;
+
 				/* check advance forcibly */
-				check_advance(host);
-				while (host->incheck)
-					schedule();
+				uhci_check_advance(host->hc);
 				dprintft(4, "%04x: USBSTS: An interrupt might "
 					"have been occured(%04x).\n", 
 					host->iobase, val16);
@@ -270,17 +249,17 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 			dprintft(5, "%04x: PORTSC 0-0-0-0-%d: WR %04x\n", 
 				 host->iobase, portno + 1, 
 				 (*data).dword);
+			handle_port_reset(host->hc, portno, (*data).dword, 9);
 		} else {
 			u16 val16;
-				
+
 			in16(io.port, &val16);
 			if (val16 != host->portsc[portno]) {
 				dprintft(5, "%04x: PORTSC 0-0-0-0-%d: "
 					 "RD %04x -> %04x\n", 
 					 host->iobase, portno + 1, 
 					 host->portsc[portno], val16);
-				check_port_status(host, portno, val16);
-			
+				handle_connect_status(host->hc, portno, val16);
 				host->portsc[portno] = val16;
 			}
 			(*data).dword = val16;

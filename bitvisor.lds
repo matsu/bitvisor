@@ -13,6 +13,7 @@ SECTIONS {
 		code = .;
 		*(.entry)
 		*(.text)
+		codeend = .;
 	} :all
 	.data : AT (phys + (data - head)) {
 		data = .;

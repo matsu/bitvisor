@@ -35,24 +35,27 @@
 #include "initfunc.h"
 #include "panic.h"
 #include "printf.h"
+#include "spinlock.h"
 #include "timer.h"
 #include "vmmcall.h"
 
 static enum {
+	IS_NOT_READY,
 	IS_OK,
 	IS_NOCARD,
-	IS_SHUTTING_DOWN,
-} iccard_status;
+} iccard_status, guest_status;
 static int shutdowntime;
-static bool ready;
+static rw_spinlock_t cardtest;
+int ps2_locked = 0;
 
 static void
 iccard (void)
 {
-	if (iccard_status) {
-		iccard_status = IS_SHUTTING_DOWN;
+	if (iccard_status == IS_NOCARD && shutdowntime >= 3) {
+		guest_status = IS_NOCARD;
 		current->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
 	} else {
+		guest_status = IS_OK;
 		current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
 	}
 }
@@ -69,28 +72,47 @@ iccard_timer (void *handle, void *data)
 		timer_set (handle, 1000000);
 		return;
 	}
-	if (!ready) {
-		ready = true;
+	if (iccard_status == IS_NOT_READY) {
+		iccard_status = IS_OK;
 		printf ("Starting IC card status monitor\n");
 	}
-	if (!iccard_status) {
+	if (iccard_status == IS_OK) {
 		r = IDMan_CheckCardStatus (idman_session);
 		if (r) {
 			shutdowntime = 0;
 			iccard_status = IS_NOCARD;
-			printf ("Stopping IC card status monitor\n");
+			printf ("No card\n");
+			/* printf ("Stopping IC card status monitor\n"); */
 		}
 	}
-	if (iccard_status) {
+	if (iccard_status == IS_NOCARD) {
 		shutdowntime++;
-		if (shutdowntime > 10 && iccard_status == IS_NOCARD)
+		idman_reinit2 ();
+		get_idman_session (&idman_session);
+		r = IDMan_CheckCardStatus (idman_session);
+		if (r) {
+			if (shutdowntime == 6) {
+				printf ("Wait for card ready\n");
+				if (guest_status == IS_OK)
+					panic ("helper program"
+					       " not responding");
+				else
+					ps2_locked = 1;
+			}
+		}
+		if (!r) {
+			ps2_locked = 0;
+			iccard_status = IS_OK;
+			printf ("Card is OK now\n");
+		}
+#if 0
+		if (shutdowntime > 10)
 			panic ("no response from guest helper program");
 		if (shutdowntime > 60)
 			panic ("shutdown time out");
-		timer_set (handle, 1000000);
-	} else {
-		timer_set (handle, 5000000);
+#endif
 	}
+	timer_set (handle, 1000000);
 }
 
 static void
@@ -100,8 +122,8 @@ vmmcall_iccard_init (void)
 
 	if (!config.vmm.iccard.status)
 		return;
-	iccard_status = IS_OK;
-	ready = false;
+	rw_spinlock_init (&cardtest);
+	iccard_status = IS_NOT_READY;
 	vmmcall_register ("iccard", iccard);
 	handle = timer_new (iccard_timer, NULL);
 	ASSERT (handle);
@@ -112,6 +134,7 @@ INITFUNC ("driver5", vmmcall_iccard_init);
 #endif
 
 /************************************************************
+#define _WIN32_WINNT 0x500
 #include <windows.h>
 
 static int
@@ -137,6 +160,8 @@ timerproc (HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
 
 	r = vmcall_iccard ();
 	if (r > 0) {
+		LockWorkStation ();
+#if 0
 		if (OpenProcessToken (GetCurrentProcess(),
 				      TOKEN_ADJUST_PRIVILEGES, &t)) {
 			if (LookupPrivilegeValue (NULL, SE_SHUTDOWN_NAME,
@@ -158,6 +183,7 @@ timerproc (HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
 		}
 		ExitWindowsEx (EWX_REBOOT | EWX_FORCE, 0);
 		ExitProcess (0);
+#endif
 	}
 	if (r < 0) {
 		KillTimer (hwnd, 1);

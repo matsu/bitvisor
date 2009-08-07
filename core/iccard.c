@@ -27,6 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+int prohibit_iccard_init;
+
 #ifdef IDMAN
 #include <IDMan.h>
 #include "assert.h"
@@ -50,13 +52,20 @@ idman_init_session (void)
 
 	spinlock_lock (&idman_lock);
 	if (!idman_ready) {
+		if (prohibit_iccard_init)
+			goto ret;
 		r = IDMan_IPInitializeReader ();
 		if (r)
 			goto ret; /* card reader or uhci not ready */
 		r = IDMan_IPInitialize (config.idman.pin,  &idman_session);
-		if (r)
-			panic ("IC card error");
-		idman_ready = true;
+		if (r) {
+			/* panic ("IC card error"); */
+			printf ("IC card error\n");
+			r = IDMan_IPFinalize (idman_session);
+			r = IDMan_IPFinalizeReader ();
+		} else {
+			idman_ready = true;
+		}
 	}
 ret:
 	spinlock_unlock (&idman_lock);
@@ -85,6 +94,15 @@ idman_reinit_session (void)
 {
 	idman_finish_session ();
 	idman_init_session ();
+}
+
+void
+idman_reinit2 (void)
+{
+	int r;
+
+	r = IDMan_IPFinalize (idman_session);
+	r = IDMan_IPInitialize (config.idman.pin,  &idman_session);
 }
 
 bool

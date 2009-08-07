@@ -7,7 +7,8 @@ CFLAGS_IDMAN = -Wall \
 	-idirafter idmaninc
 LDFLAGS = -static -s
 LDLIBS = -lusb -lssl -lcrypto
-OBJS   = boot.o minios_init.o passinput.o usbmem.o idman.o configparser.o dl.o
+OBJS   = boot.o minios_init.o passinput.o usbmem.o idman.o configparser.o \
+	dl.o keymapload.o
 BIN    = minios_init
 INC    = ../../../include/core/config.h
 IDMAN_SRC = ../../../idman/ccid/IDMan_CcAtr.c \
@@ -36,7 +37,7 @@ IDMAN_SRC = ../../../idman/ccid/IDMan_CcAtr.c \
 
 .PHONY : all clean
 
-all : $(BIN)
+all : $(BIN) keymapdump
 
 clean :
 	rm -f $(OBJS) $(BIN) core-idman.o idman.o

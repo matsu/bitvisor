@@ -31,17 +31,26 @@
 #define _UHCI_H
 
 #include <core.h>
+#include <core/mm.h>
 #include "pci.h"
 #include "usb.h"
-#include "usb_mpool.h"
 
 struct uhci_host;
+
+#define UHCI_MEM_ALIGN          (16)
+/* function for allocating an aligned memory */
+static inline void *
+alloc2_aligned(uint len, u64 *phys)
+{
+	if (len < UHCI_MEM_ALIGN)
+		len = UHCI_MEM_ALIGN;
+	return alloc2(len, phys);
+}
 
 #define UHCI_NUM_FRAMES         (1024)
 #define UHCI_NUM_INTERVALS      (11) /* log2(1024) + 1 */
 #define UHCI_NUM_SKELTYPES      (8)
 #define UHCI_NUM_TRANSTYPES     (4) /* iso(1), intr(3), cont(0), and bulk(2) */
-#define UHCI_NUM_POOLPAGES      (4)
 #define UHCI_NUM_PORTS_HC       (2) /* how many port a HC has */
 #define UHCI_MAX_TD             (256)
 #define UHCI_DEFAULT_PKTSIZE    (8)
@@ -137,8 +146,7 @@ struct uhci_host {
 	int			interrupt_line;
         u32                     iobase;
 	int                     iohandle_desc[2];
-	struct mem_pool        *pool;
-	spinlock_t              lock_pmap;  
+	spinlock_t              lock_pmap;
 #define MAP_DEMAND           0x00000001U
 #define MAP_HPHYS            0x00000002U
 
@@ -148,10 +156,10 @@ struct uhci_host {
 	/* frame list informantion */
 	u16                     frame_number;
 	/* guest */
-	phys_t                  gframelist; 
+	phys_t                  gframelist;
 	phys32_t               *gframelist_virt;
 	/* host(vm) */
-	phys_t                  hframelist; 
+	phys_t                  hframelist;
 	phys32_t               *hframelist_virt;
 
 	struct uhci_hook       *hook;        /* hook handlers */
@@ -272,36 +280,38 @@ void
 uhci_framelist_monitor(void *data);
 int 
 scan_gframelist(struct uhci_host *host);
-int
-uhci_force_copyback(struct uhci_host *host, struct usb_request_block *urb);
 
 /* uhci_trans.c */
 int
 init_hframelist(struct uhci_host *host);
+u8 
+uhci_check_urb_advance(struct usb_host *usbhc, struct usb_request_block *urb);
 int 
-check_advance(struct uhci_host *host);
+uhci_check_advance(struct usb_host *usbhc);
 u8
 uhci_activate_urb(struct uhci_host *host, struct usb_request_block *urb);
 u8
-uhci_deactivate_urb(struct uhci_host *host, struct usb_request_block *urb);
+uhci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *urb);
 u8
 uhci_reactivate_urb(struct uhci_host *host, 
 		    struct usb_request_block *urb, struct uhci_td_meta *tdm);
 struct usb_request_block *
-uhci_submit_control(struct uhci_host *host, struct usb_device *device, 
-		    u8 endpoint, struct usb_ctrl_setup *csetup,
+uhci_submit_control(struct usb_host *usbhc, struct usb_device *device, 
+		    u8 endpoint, u16 pktsz, struct usb_ctrl_setup *csetup,
 		    int (*callback)(struct usb_host *,
 				    struct usb_request_block *, void *), 
 		    void *arg, int ioc);
 struct usb_request_block *
-uhci_submit_interrupt(struct uhci_host *host, struct usb_device *device,
-		      u8 endpoint, void *data, u16 size,
+uhci_submit_interrupt(struct usb_host *usbhc, struct usb_device *device,
+		      struct usb_endpoint_descriptor *epdesc,
+		      void *data, u16 size,
 		      int (*callback)(struct usb_host *,
 				      struct usb_request_block *, void *), 
 		      void *arg, int ioc);
 struct usb_request_block *
-uhci_submit_bulk(struct uhci_host *host, struct usb_device *device,
-		 u8 endpoint, void *data, u16 size,
+uhci_submit_bulk(struct usb_host *usbhc, struct usb_device *device,
+		 struct usb_endpoint_descriptor *epdesc,
+		 void *data, u16 size,
 		 int (*callback)(struct usb_host *,
 				 struct usb_request_block *, void *), 
 		 void *arg, int ioc);
@@ -398,9 +408,7 @@ uhci_new_td_meta(struct uhci_host *host, struct uhci_td *td)
 		new_tdm->token_copy = td->token;
 	} else {
 		td = (struct uhci_td *)
-			malloc_from_pool(host->pool,
-					 sizeof(struct uhci_td), 
-					 &td_phys);
+			alloc2_aligned(sizeof(struct uhci_td), &td_phys);
 		new_tdm->td_phys = td_phys;
 	}
 	new_tdm->td = td;
@@ -414,7 +422,7 @@ uhci_alloc_qh(struct uhci_host *host, phys_t *phys_addr)
 	struct uhci_qh *new_qh;
 
 	new_qh = (struct uhci_qh *)
-		malloc_from_pool(host->pool, sizeof(*new_qh), phys_addr);
+		alloc2_aligned(sizeof(*new_qh), phys_addr);
 
 	return new_qh;
 }

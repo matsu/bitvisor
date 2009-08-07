@@ -43,7 +43,9 @@
 #include "core/types.h"
 #include "common/list.h"
 #include "usb.h"
+#ifdef NTTCOM
 #include "usb_device.h"
+#endif
 #include "uhci.h"
 
 #include "IDMan_CcAtr.h"

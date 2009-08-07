@@ -130,6 +130,7 @@ typedef struct
 	bool guest_cu_started;				// ゲスト OS によって CU が開始されたかどうか
 	bool guest_cu_suspended;			// ゲスト OS によって CU がサスペンドされたかどうか
 	UINT guest_last_general_pointer;	// ゲスト OS によって最後にポインタに書かれたデータ
+	UINT guest_last_counter_pointer;	// ゲスト OS によって最後にカウンタデータアドレスが書かれたデータ
 	phys_t guest_cu_start_pointer;		// 先頭のゲスト OS によるオペレーションへのポインタ
 	phys_t guest_cu_current_pointer;	// 現在のゲスト OS によるオペレーションへのポインタ
 	phys_t guest_cu_next_pointer;		// 次のゲスト OS によるオペレーションへのポインタ (Suspend 時)

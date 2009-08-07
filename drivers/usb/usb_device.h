@@ -77,6 +77,16 @@
 #define USB_DT_ENDPOINT_AUDIO_SIZE	9	/* Audio extension */
 #define USB_DT_HUB_NONVAR_SIZE		7
 
+/*
+ * Portno manage
+ */
+#define USB_HUB_LIMIT			5
+#define USB_PORT_LIMIT			127
+#define USB_HUB_SHIFT			8
+#define USB_PORT_MASK			0x00000000000000FFULL
+#define USB_HUB_MASK			0xFFFFFFFFFFFFFF00ULL
+
+
 /* All standard descriptors have these 2 fields in common */
 struct usb_descriptor_header {
 	u8  bLength;
@@ -216,7 +226,7 @@ struct usb_device {
 
 	spinlock_t lock_dev; /* device address lock */
 
-	int portno;
+	u64 portno;
 
 	u8 devnum;
 
@@ -237,7 +247,6 @@ struct usb_device {
 
 	struct uhci_hook *hook; /* FIXME */
 	int hooknum;
-	spinlock_t lock_hk; /* device hook lock */
 };
 
 void
@@ -246,6 +255,13 @@ int
 free_device(struct usb_host *host, struct usb_device *dev);
 void 
 usb_init_device_monitor(struct usb_host *host);
+int
+handle_connect_status(struct usb_host *ub_host, u64 portno, u16 status);
+int
+handle_port_reset(struct usb_host *ub_host, 
+		  u64 portno, u16 status, u8 offset);
+void
+dprintf_port(int level, u64 portno);
 
 static inline struct usb_device *
 get_device_by_address(struct usb_host *host, u8 address)
@@ -267,7 +283,7 @@ get_device_by_address(struct usb_host *host, u8 address)
 }
 
 static inline struct usb_device *
-get_device_by_port(struct usb_host *host, int portno)
+get_device_by_port(struct usb_host *host, u64 portno)
 {
 	struct usb_device *dev;
 
@@ -283,6 +299,34 @@ get_device_by_port(struct usb_host *host, int portno)
 	}
 
 	return dev;
+}
+
+/**
+ * @brief returns the end point descriptor of the enpoint 
+ * @param device struct usb_device 
+ * @param endpoint address u8
+ */
+static inline struct usb_endpoint_descriptor *
+get_edesc_by_address(struct usb_device *device, u8 endpoint)
+{
+	struct usb_endpoint_descriptor *edesc;
+	int n_eps;
+
+	if (!device || !device->config || !device->config->interface ||
+	    !device->config->interface->altsetting ||
+	    !device->config->interface->altsetting->endpoint)
+		return NULL;
+
+	n_eps = device->config->interface->altsetting->bNumEndpoints;
+	
+	edesc = device->config->interface->altsetting->endpoint;
+	do {
+		if (edesc[n_eps].bEndpointAddress == endpoint)
+			break;
+		n_eps--;
+	} while (n_eps >= 0);
+
+	return (n_eps >= 0) ? &edesc[n_eps] : NULL;
 }
 
 #endif /* __USB_DEIVE_H__ */

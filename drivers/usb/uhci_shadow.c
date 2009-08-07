@@ -37,9 +37,9 @@
 #include "pci.h"
 #include "usb.h"
 #include "usb_device.h"
+#include "usb_hook.h"
 #include "usb_log.h"
 #include "uhci.h"
-#include "uhci_hook.h"
 
 extern phys32_t uhci_monitor_boost_hc;
 
@@ -147,6 +147,10 @@ release_urb(struct uhci_host *host, struct usb_request_block *urb)
 		urb->buffers = next_buffer;
 	}
 
+	if (urb->shadow)
+		urb->shadow->shadow = NULL;
+
+	free(urb->hcpriv);
 	free(urb);
 
 	return;
@@ -245,7 +249,6 @@ int
 uhci_shadow_buffer(struct usb_host *usbhc,
 		   struct usb_request_block *gurb, u32 flag)
 {
-	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 	struct usb_request_block *hurb = gurb->shadow;
 	struct usb_buffer_list *gub, *hub, *ub_tail;
 	struct uhci_td_meta *tdm;
@@ -264,8 +267,8 @@ uhci_shadow_buffer(struct usb_host *usbhc,
 		hub->pid = gub->pid;
 		hub->offset = gub->offset;
 		hub->len = gub->len;
-		hub->vadr = malloc_from_pool(host->pool, 
-					     hub->len, &hub->padr);
+		hub->vadr = (virt_t)alloc2_aligned(hub->len, &hub->padr);
+
 		ASSERT(hub->vadr);
 		if (flag) {
 			gvadr = (virt_t)mapmem_gphys(gub->padr, gub->len, 0);
@@ -286,7 +289,7 @@ uhci_shadow_buffer(struct usb_host *usbhc,
 	/* fit buffer pointer in shadow TDs with the duplicated buffers */
 	for (tdm = URB_UHCI(hurb)->tdm_head; tdm; tdm = tdm->next) {
 		/* identificate which buffer a TD's buffer points to. */
-		if (!tdm->td->buffer)
+		if (!tdm->td->buffer || !is_active_td(tdm->td))
 			continue;
 
 		gub = gurb->buffers;
@@ -308,28 +311,6 @@ uhci_shadow_buffer(struct usb_host *usbhc,
 	}
 
 	return 0;
-}
-
-/**
- * @brief returns an endpont for the corresponding TD token 
- * @param host 
- * @param tdtoken u32
- */
-static struct usb_endpoint_descriptor *
-uhci_get_epdesc_by_td(struct uhci_host *host, struct uhci_td *td)
-{
-	struct usb_device *dev;
-	u8 devadr, epadr;
-
-	devadr = get_address_from_td(td);
-	epadr = get_endpoint_from_td(td);
-
-	dev = get_device_by_address(host->hc, devadr);
-	if (!dev || !dev->config || !dev->config->interface->altsetting ||
-	    (epadr > dev->config->interface->altsetting->bNumEndpoints))
-		return NULL;
-
-	return &dev->config->interface->altsetting->endpoint[epadr];
 }
 
 /**
@@ -375,10 +356,6 @@ duplicate_qcontext(struct uhci_host *host, struct usb_request_block *g_urb)
 	n_tds = 0;
 	while (!is_terminate(*td_phys_p)) {
 		td = uhci_gettdbypaddr(host, *td_phys_p, 0);
-		/* get an appropriate endpoint descriptor */
-		if (!n_tds) {
-			urb->endpoint = uhci_get_epdesc_by_td(host, td);
-		}
 		*g_tdm_p = uhci_new_td_meta(host, td);
 		(*g_tdm_p)->td_phys = uhci_link(*td_phys_p);
 		*h_tdm_p = uhci_new_td_meta(host, NULL);
@@ -430,11 +407,20 @@ duplicate_qcontext(struct uhci_host *host, struct usb_request_block *g_urb)
 	g_urb->shadow = urb;
 
 	/* fix up the shadow urb */
-	if (URB_UHCI(urb)->tdm_head)
-		urb->address = 
+	if (URB_UHCI(urb)->tdm_head) {
+		u8 endpoint, pid;
+
+		urb->address = g_urb->address =
 			get_address_from_td(URB_UHCI(urb)->tdm_head->td);
-	if (urb->address > 0x0U)
-		urb->dev = get_device_by_address(host->hc, urb->address);
+		urb->dev = g_urb->dev =
+			get_device_by_address(host->hc, urb->address);
+		endpoint = get_endpoint_from_td(URB_UHCI(urb)->tdm_head->td);
+		pid = get_pid_from_td(URB_UHCI(urb)->tdm_head->td);
+		if (pid == USB_PID_IN)
+			endpoint |= 0x80U;
+		urb->endpoint = g_urb->endpoint = 
+			get_edesc_by_address(urb->dev, endpoint);
+	}
 	
 	dprintft(2, "%04x: %s: %d TDs in a urb(%p:%p)\n",
 		 host->iobase, __FUNCTION__, n_tds, urb, g_urb);
@@ -505,30 +491,6 @@ not_copyback:
 }
 
 /**
- * @brief force copy back 
- * @brief host struct uhci_host
- * @brief urb usb_request_block 
- */
-int
-uhci_force_copyback(struct uhci_host *host, struct usb_request_block *urb)
-{
-	struct usb_request_block *g_urb = urb->shadow;
-
-	if (!g_urb)
-		return 0;
-
-	spinlock_lock(&host->lock_gfl);
-	_copyback_qcontext(host, urb, g_urb);
-	spinlock_unlock(&host->lock_gfl);
-
-	dprintft(2, "%04x: %s: copybacked [%p:%llx] to "
-		 "[%p:%llx] forcibly.\n", host->iobase, __FUNCTION__, 
-		 urb, URB_UHCI(urb)->qh_phys, g_urb, URB_UHCI(g_urb)->qh_phys);
-
-	return 1;
-}
-
-/**
  * @brief copyback qcontext 
  * @param host struct uhci_host 
  * @param urb struct usb_request_block 
@@ -540,7 +502,7 @@ uhci_copyback_qcontext(struct usb_host *hc,
 {
 	struct uhci_host *host = (struct uhci_host *)hc->private;
 	struct usb_request_block *g_urb = (struct usb_request_block *)arg;
-	int r, r2;
+	int r;
 
 	dprintft(2, "%04x: %s(%p, %p) invoked.\n", 
 		 host->iobase, __FUNCTION__, urb, g_urb);
@@ -548,16 +510,15 @@ uhci_copyback_qcontext(struct usb_host *hc,
 	spinlock_lock(&host->lock_gfl);
 
 	/* process some interest urbs */
-	r = uhci_hook_process(host, urb, UHCI_HOOK_POST);
-	r2 = usb_hook_process(host->hc, urb, USB_HOOK_REPLY);
-	if ((r != UHCI_HOOK_DISCARD) && (r2 != USB_HOOK_DISCARD))
+	r = usb_hook_process(host->hc, urb, USB_HOOK_REPLY);
+	if (r != USB_HOOK_DISCARD)
 		_copyback_qcontext(host, urb, g_urb);
 
 	spinlock_unlock(&host->lock_gfl);
 
 #if 0
        /* unlink the urb from frame list */
-       uhci_deactivate_urb(host, urb);
+       uhci_deactivate_urb(host->hc, urb);
 #else
        urb->status = URB_STATUS_FINALIZED;
 #endif
@@ -573,35 +534,41 @@ uhci_copyback_qcontext(struct usb_host *hc,
  */
 static inline int
 remove_and_deactivate_urb(struct uhci_host *host,
-			 struct usb_request_block *urb)
+			  struct usb_request_block *urb)
 {
 	/* remove the urb */
-	if ((urb->shadow->status != URB_STATUS_FINALIZED) &&
-	    (urb->shadow->status != URB_STATUS_NAK)) {
-		struct uhci_td_meta *tdm;
-		phys32_t qh_element;
-		int n, elapse;
+	if (urb->shadow) {
+		if ((urb->shadow->status != URB_STATUS_FINALIZED) &&
+		    (urb->shadow->status != URB_STATUS_NAK)) {
+			struct uhci_td_meta *tdm;
+			phys32_t qh_element;
+			int n, elapse;
 
-		qh_element = URB_UHCI(urb->shadow)->qh_element_copy;
-		dprintft(0, "%04x: WARNING: An active(%02x) "
-			 "urb removed.\n", host->iobase, 
-			 urb->shadow->status);
+			qh_element = URB_UHCI(urb->shadow)->qh_element_copy;
+			dprintft(0, "%04x: WARNING: An active(%02x) "
+				 "urb removed.\n", host->iobase, 
+				 urb->shadow->status);
 		
-		elapse = (host->frame_number + UHCI_NUM_FRAMES - 
-			  URB_UHCI(urb)->frnum_issued) & (UHCI_NUM_FRAMES - 1); 
+			elapse = (host->frame_number + UHCI_NUM_FRAMES - 
+				  URB_UHCI(urb)->frnum_issued) & 
+				(UHCI_NUM_FRAMES - 1);
 
-		for (tdm = URB_UHCI(urb->shadow)->tdm_head, n = 1; 
-		     tdm; tdm = tdm->next, n++) {
-			if (qh_element == (phys32_t)tdm->td_phys)
-				dprintft(0, "%04x:       %4d(stat=%02x)/",
-					 host->iobase, n,
-					 UHCI_TD_STAT_STATUS(tdm->td));
+			for (tdm = URB_UHCI(urb->shadow)->tdm_head, n = 1; 
+			     tdm; tdm = tdm->next, n++) {
+				if (qh_element == (phys32_t)tdm->td_phys)
+					dprintft(0, "%04x:       "
+						 "%4d(stat=%02x)/",
+						 host->iobase, n,
+						 UHCI_TD_STAT_STATUS(tdm->td));
+			}
+			dprintf(0, "%4d TDs completed "
+				"for %4d ms.\n", n-1, elapse);
 		}
-		dprintf(0, "%4d TDs completed for %4d ms.\n", n-1, elapse);
-	}
 
-	/* uhci_deactivate_urb() does nothing if already unlinked */
-	uhci_deactivate_urb(host, urb->shadow);
+		/* uhci_deactivate_urb() does nothing 
+		   if already unlinked */
+		uhci_deactivate_urb(host->hc, urb->shadow);
+	}
 
 	remove_urb(&host->guest_urbs, urb);
 	release_urb(host, urb);
@@ -807,7 +774,7 @@ update_marked_urbs(struct uhci_host *host,
 			continue;
 
 		if (!urb->shadow)
-			continue;
+			goto create_new;
 
 		n_updated++;
 		urb->mark &= ~URB_MARK_NEED_UPDATE;
@@ -841,7 +808,7 @@ update_marked_urbs(struct uhci_host *host,
 				free(urb->buffers);
 				urb->buffers = next_buffer;
 			}
-			make_buffer_list(urb); 
+			make_buffer_list(urb);
 
 			h_tdm->td->status = g_tdm->td->status;
 			uhci_reactivate_urb(host, urb->shadow, h_tdm);
@@ -853,6 +820,7 @@ update_marked_urbs(struct uhci_host *host,
 		} else {
 			struct usb_request_block *newurb;
 
+		create_new:
 			/* must be replaced with new TDs */
 			dprintft(2, "%04x: %s: TDs replaced with new one.\n", 
 				 host->iobase, __FUNCTION__);
@@ -947,14 +915,12 @@ shadow_marked_urbs(struct uhci_host *host,
 		urb->shadow->cb_arg = (void *)urb;
 
 		/* process some interest urbs */
-		r = uhci_hook_process(host, urb->shadow, UHCI_HOOK_PRE);
-		if (r == UHCI_HOOK_DISCARD) {
-			destroy_urb(host, urb->shadow);
-			continue;
-		}
 		r = usb_hook_process(host->hc, urb->shadow, USB_HOOK_REQUEST);
 		if (r == USB_HOOK_DISCARD) {
+			/* discarded shadow must be never activated. */
+			urb->shadow->status = URB_STATUS_UNLINKED;
 			destroy_urb(host, urb->shadow);
+			urb->shadow = NULL;
 			continue;
 		}
 		
@@ -1031,7 +997,7 @@ update_iso_urb(struct uhci_host *host,
 
 		host->hframelist_virt[frame_number] = tdm->td->link;
 
-		mfree_pool(host->pool, (virt_t)tdm->td);
+		free(tdm->td);
 		unmapmem(tdm->shadow_td, sizeof(struct uhci_td));
 		free(tdm);
 
@@ -1155,8 +1121,8 @@ uhci_framelist_monitor(void *data)
 	        while (host->frame_number != cur_frnum) {
 			host->frame_number = 
 				(host->frame_number + 1) & 
-				(UHCI_NUM_FRAMES - 1); 
-			for (i=0, mask=UHCI_NUM_FRAMES-1; 
+				(UHCI_NUM_FRAMES - 1);
+			for (i = 0, mask = UHCI_NUM_FRAMES - 1; 
 			     mask; mask = mask >> 1, i++) {
 				if (!(host->frame_number & mask)) {
 					intvl = (intvl > i) ? i : intvl;
@@ -1184,7 +1150,7 @@ uhci_framelist_monitor(void *data)
 		spinlock_unlock(&host->lock_gfl);
 
 		/* look for any advance in host's framelist */
-		if ((n = check_advance(host)) > 0)
+		if ((n = uhci_check_advance(host->hc)) > 0)
 			dprintft(3, "%04x: %s: "
 				 "%d urb(s) advanced.\n", 
 				 host->iobase, __FUNCTION__, n);
@@ -1314,7 +1280,7 @@ sort_skeltons(struct usb_request_block *skeltons,
 
 		if (!list && index[order]) {
 			list = index[order];
-			for (i=order-1; i>=0; i--)
+			for (i = order - 1; i >= 0 ; i--)
 				index[i] = list;
 		}
 	}

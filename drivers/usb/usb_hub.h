@@ -13,15 +13,9 @@ struct device_list {
 	struct usb_device *device;
 };
 
-
 void
-usbhub_init_handle(struct uhci_host *host);
+usbhub_init_handle(struct usb_host *host);
 void
-hub_device_register(struct uhci_host *host, int hub_port,
-                    struct usb_device *dev);
-void
-port_change(int port, int *tmp);
-void
-hub_portdevice_register(struct uhci_host *host, int hub_port, 
-		    struct usb_device *dev);
+hub_portdevice_register(struct usb_host *host, u64 hub_port, 
+			struct usb_device *dev);
 #endif /* _USB_HUB_H */

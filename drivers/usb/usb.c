@@ -38,9 +38,10 @@
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_log.h"
-#if defined(ENABLE_USB_RW_API)
-#include "uhci.h"
-#endif
+#if defined(SHADOW_UHCI)
+#include "uhci.h" /* just for reactivating transaction 
+		     if SPD in usb_control_msg() */
+#endif /* defined(SHADOW_UHCI) */
 
 LIST_DEFINE_HEAD(usb_busses);
 LIST_DEFINE_HEAD(usb_hc_list);
@@ -91,7 +92,7 @@ usb_find_busses(void)
 			if (!bus)
 				return n_busses;
 			bus->host = host;
-			bus->device = NULL; 
+			bus->device = NULL;
 
 			/* determine bus id */
 			bus->busnum = 1;
@@ -192,14 +193,9 @@ usb_open(struct usb_device *dev)
 	struct usb_dev_handle *handle;
 
 	ASSERT(dev->host != NULL);
-	if (dev->host->type != USB_HOST_TYPE_UHCI) {
-		dprintft(0, "%s: host controller type %d unsupported.\n",
-			 __FUNCTION__, dev->host->type);
-		return NULL;
-	}
 	dprintft(3, "%s invoked.\n", __FUNCTION__);
 	handle = alloc_usb_dev_handle();
-	handle->host = (struct uhci_host *)dev->host->private;
+	handle->host = dev->host;
 	handle->device = dev;
 
 	return handle;
@@ -274,7 +270,6 @@ usb_release_interface(usb_dev_handle *dev, int interface)
 	return 0;
 }
 
-#if defined(ENABLE_USB_RW_API)
 /**
  * @brief receive the asynchronous data and return the status
  * @param dev usb_dev_handle
@@ -288,6 +283,8 @@ static inline int
 _usb_async_receive(usb_dev_handle *dev, struct usb_request_block *urb, 
 		   void *bytes, size_t size, u64 start, int timeout)
 {
+	struct usb_buffer_list *ub;
+	size_t len;
 	int ret;
 	u64 t;
 
@@ -295,7 +292,7 @@ _usb_async_receive(usb_dev_handle *dev, struct usb_request_block *urb,
 	dprintft(3, "%s: waiting for completion ...\n", __FUNCTION__);
 	while (urb->status & URB_STATUS_RUN) {
 		/* update urb->status */
-		check_advance(dev->host);
+		dev->host->op->check_advance(dev->host, urb);
 
 		if (!(urb->status & URB_STATUS_RUN))
 			break;
@@ -317,8 +314,29 @@ _usb_async_receive(usb_dev_handle *dev, struct usb_request_block *urb,
 	switch (urb->status) {
 	case URB_STATUS_ADVANCED:
 		ret = urb->actlen;
-		if (bytes && (size > 0))
-			memcpy(bytes, (void *)urb->buffers->vadr, size);
+
+		/* shrink size under the actual */
+		if (size > urb->actlen)
+			size = urb->actlen;
+
+		if (!bytes || (size <= 0))
+			break;
+
+		for (ub = urb->buffers; ub; ub = ub->next) {
+
+			/* skip uninterest buffers */
+			if (ub->pid != USB_PID_IN)
+				continue;
+
+			len = (size > ub->len) ? ub->len : size;
+			ASSERT(ub->vadr);
+			memcpy(bytes, (void *)ub->vadr, len);
+
+			size -= len;
+			bytes += len;
+			if (size <= 0)
+				break;
+		}
 		break;
 	case URB_STATUS_ERRORS: /* meaningless */
 	default:
@@ -340,7 +358,7 @@ _usb_async_receive(usb_dev_handle *dev, struct usb_request_block *urb,
  * @param timeout int 
  */
 static inline int 
-_usb_control_msg(usb_dev_handle *dev, int ep, 
+_usb_control_msg(usb_dev_handle *dev, int ep, u16 pktsz,
 		 int requesttype, int request, int value, int index, 
 		 char *bytes, int size, int timeout)
 {
@@ -359,31 +377,39 @@ _usb_control_msg(usb_dev_handle *dev, int ep,
 
 	dprintft(3, "%s: submitting a control [%02x%02x%04x%04x%04x] ...\n", 
 		__FUNCTION__, requesttype, request, value, index, size);
-	urb = uhci_submit_control(dev->host, dev->device, ep, 
-				 &csetup, NULL, NULL, 0 /* no IOC */);
+	urb = dev->host->op->
+		submit_control(dev->host, dev->device, ep, pktsz,
+			       &csetup, NULL, NULL, 0 /* no IOC */);
 	if (!urb)
 		return -1;
 
 	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout);
 
-	/* reactivate the urb for status stage if SPD */
-	if (!is_terminate(URB_UHCI(urb)->qh->element)) {
+#if defined(SHADOW_UHCI)
+	/* only if UHCI, short packet detection (SPD) requires 
+	   reactivating a transaction for the status stage. */
+	if ((dev->host->type == USB_HOST_TYPE_UHCI) &&
+	    (!is_terminate(URB_UHCI(urb)->qh->element))) {
 		struct uhci_td_meta *tdm;
 
 		/* look for a final TD for the status stage */
-		for (tdm = URB_UHCI(urb)->tdm_head; tdm->next; tdm = tdm->next);
-		if (URB_UHCI(urb)->qh->element != (phys32_t)tdm->td_phys) {
+		for (tdm = URB_UHCI(urb)->tdm_head; 
+		     tdm->next; tdm = tdm->next);
+		if (URB_UHCI(urb)->qh->element != 
+		    (phys32_t)tdm->td_phys) {
 			int ret2;
 
-			uhci_reactivate_urb(dev->host, urb, tdm);
+			uhci_reactivate_urb(dev->host->private, 
+					    urb, tdm);
 			ret2 = _usb_async_receive(dev, urb, NULL, 0, 
 						  start, timeout);
 			if (ret2 < 0)
 				ret = ret2;
 		}
 	}
+#endif /* defined(SHADOW_UHCI) */
 
-	uhci_deactivate_urb(dev->host, urb);
+	dev->host->op->deactivate_urb(dev->host, urb);
 
 	return ret;
 }
@@ -396,7 +422,7 @@ _usb_control_msg(usb_dev_handle *dev, int ep,
 int 
 usb_set_configuration(usb_dev_handle *dev, int configuration)
 {
-	return _usb_control_msg(dev, 0, USB_ENDPOINT_OUT, 
+	return _usb_control_msg(dev, 0, 0, USB_ENDPOINT_OUT,
 				USB_REQ_SET_CONFIGURATION, 
 				configuration, 0x0000, NULL, 0, 5000);
 }
@@ -409,7 +435,7 @@ usb_set_configuration(usb_dev_handle *dev, int configuration)
 int 
 usb_set_altinterface(usb_dev_handle *dev, int alternate)
 {
-	return _usb_control_msg(dev, 0, 0x01,
+	return _usb_control_msg(dev, 0, 0, 0x01, 
 				USB_REQ_SET_INTERFACE,
 				alternate, dev->interface, 
 				NULL, 0, 5000);
@@ -430,7 +456,7 @@ int
 usb_control_msg(usb_dev_handle *dev, int requesttype, int request,
 		int value, int index, char *bytes, int size, int timeout)
 {
-	return _usb_control_msg(dev, 0, requesttype, request,
+	return _usb_control_msg(dev, 0, 0, requesttype, request,
 				value, index, bytes, size, timeout);
 }
 
@@ -448,12 +474,11 @@ usb_get_string(usb_dev_handle *dev, int index, int langid, char *buf,
 {
 	u16 value = (USB_DT_STRING << 8) + index;
 
-	return _usb_control_msg(dev, 0, USB_ENDPOINT_IN, 
+	return _usb_control_msg(dev, 0, 0, USB_ENDPOINT_IN,
 				USB_REQ_GET_DESCRIPTOR, 
 				value, langid, buf, buflen, 5000);
 }
 
-/* the following was copied from libusb-0.1.12/usb.c */
 int 
 usb_get_string_simple(usb_dev_handle *dev, int index, 
 		      char *buf, size_t buflen)
@@ -515,7 +540,19 @@ usb_get_descriptor(usb_dev_handle *udev, unsigned char type,
 {
 	u16 value = ((u16)type << 8) + index;
 
-	return _usb_control_msg(udev, 0, USB_ENDPOINT_IN, 
+	return _usb_control_msg(udev, 0, 0, USB_ENDPOINT_IN, 
+				USB_REQ_GET_DESCRIPTOR, 
+				value, 0x0000, buf, size, 5000);
+}
+
+int 
+usb_get_descriptor_early(usb_dev_handle *udev, int ep, u16 pktsz,
+			 unsigned char type, unsigned char index, 
+			 void *buf, int size)
+{
+	u16 value = ((u16)type << 8) + index;
+
+	return _usb_control_msg(udev, ep, pktsz, USB_ENDPOINT_IN, 
 				USB_REQ_GET_DESCRIPTOR, 
 				value, 0x0000, buf, size, 5000);
 }
@@ -527,7 +564,7 @@ usb_get_descriptor_by_endpoint(usb_dev_handle *udev, int ep,
 {
 	u16 value = ((u16)type << 8) + index;
 
-	return _usb_control_msg(udev, ep, USB_ENDPOINT_IN, 
+	return _usb_control_msg(udev, ep, 0, USB_ENDPOINT_IN, 
 				USB_REQ_GET_DESCRIPTOR, 
 				value, 0x0000, buf, size, 5000);
 }
@@ -537,20 +574,22 @@ usb_bulk_write(usb_dev_handle *dev, int ep, char *bytes, int size,
 	       int timeout) 
 {
 	struct usb_request_block *urb;
+	struct usb_endpoint_descriptor *epdesc;
 	u64 start;
 	int ret;
 
 	start = get_cpu_time() / 1024; /* ms */
 
-	urb = uhci_submit_bulk(dev->host, dev->device, ep, 
-			      bytes, size, NULL, NULL, 
-			      0 /* no IOC */);
+	epdesc = get_edesc_by_address(dev->device, ep);
+	urb = dev->host->op->
+		submit_bulk(dev->host, dev->device, epdesc, 
+			    bytes, size, NULL, NULL, 0 /* no IOC */);
 	if (!urb)
 		return -1;
 
 	ret = _usb_async_receive(dev, urb, NULL, 0, start, timeout);
 
-	uhci_deactivate_urb(dev->host, urb);
+	dev->host->op->deactivate_urb(dev->host, urb);
 
 	return ret;
 }
@@ -560,20 +599,22 @@ usb_interrupt_write(usb_dev_handle *dev, int ep, char *bytes, int size,
 		    int timeout)
 {
 	struct usb_request_block *urb;
+	struct usb_endpoint_descriptor *epdesc;
 	u64 start;
 	int ret;
 
 	start = get_cpu_time() / 1024; /* ms */
 
-	urb = uhci_submit_interrupt(dev->host, dev->device, ep, 
-				   bytes, size, NULL, NULL, 
-				   0 /* no IOC */);
+	epdesc = get_edesc_by_address(dev->device, ep);
+	urb = dev->host->op->
+		submit_interrupt(dev->host, dev->device, epdesc, 
+				 bytes, size, NULL, NULL, 0 /* no IOC */);
 	if (!urb)
 		return -1;
 
 	ret = _usb_async_receive(dev, urb, NULL, 0, start, timeout);
 
-	uhci_deactivate_urb(dev->host, urb);
+	dev->host->op->deactivate_urb(dev->host, urb);
 
 	return ret;
 }
@@ -583,20 +624,22 @@ usb_bulk_read(usb_dev_handle *dev, int ep, char *bytes, int size,
 	      int timeout)
 {
 	struct usb_request_block *urb;
+	struct usb_endpoint_descriptor *epdesc;
 	u64 start;
 	int ret;
 
 	start = get_cpu_time() / 1024; /* ms */
 
-	urb = uhci_submit_bulk(dev->host, dev->device, ep, 
-			      NULL, size, NULL, NULL, 
-			      0 /* no IOC */);
+	epdesc = get_edesc_by_address(dev->device, ep);
+	urb = dev->host->op->
+		submit_bulk(dev->host, dev->device, epdesc, 
+			    NULL, size, NULL, NULL, 0 /* no IOC */);
 	if (!urb)
 		return -1;
 
 	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout);
 
-	uhci_deactivate_urb(dev->host, urb);
+	dev->host->op->deactivate_urb(dev->host, urb);
 
 	return ret;
 }
@@ -606,22 +649,22 @@ usb_interrupt_read(usb_dev_handle *dev, int ep, char *bytes, int size,
 		   int timeout)
 {
 	struct usb_request_block *urb;
+	struct usb_endpoint_descriptor *epdesc;
 	u64 start;
 	int ret;
 
 	start = get_cpu_time() / 1024; /* ms */
 
-	urb = uhci_submit_interrupt(dev->host, dev->device, ep, 
-				   NULL, size, NULL, NULL, 
-				   0 /* no IOC */);
+	epdesc = get_edesc_by_address(dev->device, ep);
+	urb = dev->host->op->
+		submit_interrupt(dev->host, dev->device, epdesc, 
+				 NULL, size, NULL, NULL, 0 /* no IOC */);
 	if (!urb)
 		return -1;
 
 	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout);
 
-	uhci_deactivate_urb(dev->host, urb);
+	dev->host->op->deactivate_urb(dev->host, urb);
 
 	return ret;
 }
-
-#endif /* defined(ENABLE_USB_RW_API) */

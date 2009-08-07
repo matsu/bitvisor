@@ -10,7 +10,7 @@ all : initrd.gz
 clean :
 	rm -f initrd.gz
 
-initrd.gz : $(MINIOS_INIT)
+initrd.gz : $(MINIOS_INIT) $(MINIOS_CONF)/bitvisor.conf
 	rm -rf work
 	mkdir work
 	cat dev.tar.gz | gzip -dc | (cd work/ && tar xf -)

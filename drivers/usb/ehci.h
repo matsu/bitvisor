@@ -30,11 +30,21 @@
 #ifndef _EHCI_H
 #define _EHCI_H
 #include "usb.h"
-#include "usb_mpool.h"
 #include "usb_log.h"
   
 #define ENABLE_SHADOW
-  
+
+/* function for allocating an aligned memory */
+#define EHCI_MEM_ALIGN               (32)
+static inline void *
+alloc2_aligned(uint len, u64 *phys)
+{
+	if (len < EHCI_MEM_ALIGN)
+		len = EHCI_MEM_ALIGN;
+	return alloc2(len, phys);
+}
+
+#define EHCI_DEFAULT_PACKETSIZE      (64)  
 
 struct ehci_qtd {
 	phys32_t next;
@@ -65,12 +75,14 @@ struct ehci_qtd_meta {
 	u16 total_len;
 	struct ehci_qtd      *qtd;
 	phys_t                qtd_phys;
+	struct ehci_qtd_meta *shadow;
 	struct ehci_qtd_meta *next;
-	struct ehci_qtd_meta *alt;
+	struct ehci_qtd_meta *altnext;
 };
 
 struct ehci_qh {
 	phys32_t link;
+#define EHCI_LINK_TE (0x00000001U)
 	u32      epcap[2];
 	u32      qtd_cur;
  	struct ehci_qtd qtd_ovlay;
@@ -95,7 +107,6 @@ struct ehci_qh {
 struct ehci_host {
 	spinlock_t lock;
 	phys_t iobase;
-	struct mem_pool *pool;
 	phys_t headqh_phys[2];
 	struct usb_request_block *unlink_messages;
 	struct usb_request_block *head_gurb;
@@ -116,11 +127,8 @@ struct urb_private_ehci {
 	struct ehci_qtd_meta    *qtdm_head;
 	struct ehci_qtd_meta    *qtdm_tail;
 
-	/* cache for qTD overlay */
-	phys32_t                 link_copy;
-	phys32_t                 curqtd_copy;
-	phys32_t                 nextqtd_copy;
-	phys32_t                 token_copy;
+	/* cache of qTD overlay */
+	struct ehci_qh          qh_copy;
 };
 
 #define URB_EHCI(_urb)					\
@@ -128,6 +136,12 @@ struct urb_private_ehci {
 
 phys32_t
 ehci_shadow_async_list(struct ehci_host *host);
+
+static inline phys_t
+ehci_link(phys32_t link)
+{
+	return (phys_t)(link & 0xffffffe0U);
+}
   	
 static inline u8
 ehci_qtd_pid(struct ehci_qtd *qtd)
@@ -183,10 +197,28 @@ ehci_qtdm_actlen(struct ehci_qtd_meta *qtdm)
 	return qtdm->total_len - ehci_qtd_len(qtdm->qtd);
 }
 	
+static inline u8
+is_halt(u8 status)
+{
+	return (status & EHCI_QTD_STAT_HL);
+}
+	
+static inline u8
+is_error(u8 status)
+{
+	return (status & EHCI_QTD_STAT_ERRS);
+}
+	
+static inline u8
+is_active(u8 status)
+{
+	return (status & EHCI_QTD_STAT_AC);
+}
+	
 static inline u32
 is_active_qtd(struct ehci_qtd *qtd)
 {
-	return (qtd->token & 0x00000080U);
+	return (qtd->token & EHCI_QTD_STAT_AC);
 }
 	
 static inline u32
@@ -246,7 +278,37 @@ int
 ehci_shadow_buffer(struct usb_host *usbhc,
 		   struct usb_request_block *gurb, u32 flag);
 void
-ehci_cleanup_urbs(struct mem_pool *mpool, 
-		  struct usb_request_block **urblist);
+ehci_cleanup_urbs(struct usb_request_block **urblist);
+
+int 
+ehci_check_advance(struct usb_host *usbhc);
+u8 
+ehci_check_urb_advance(struct usb_host *usbhc, struct usb_request_block *urb);
+u8
+ehci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *hurb);
+struct usb_request_block *
+ehci_submit_control(struct usb_host *host,
+		    struct usb_device *device, u8 endp, u16 pktsz,
+		    struct usb_ctrl_setup *csetup,
+		    int (*callback)(struct usb_host *,
+				    struct usb_request_block *, void *), 
+		    void *arg, int ioc);
+struct usb_request_block *
+ehci_submit_bulk(struct usb_host *host,
+		 struct usb_device *device, 
+		 struct usb_endpoint_descriptor *epdesc, 
+		 void *data, u16 size,
+		 int (*callback)(struct usb_host *,
+				 struct usb_request_block *, void *), 
+		 void *arg, int ioc);
+struct usb_request_block *
+ehci_submit_interrupt(struct usb_host *host, 
+		      struct usb_device *device,
+		      struct usb_endpoint_descriptor *epdesc, 
+		      void *data, u16 size,
+		      int (*callback)(struct usb_host *,
+				      struct usb_request_block *, 
+				      void *), 
+		      void *arg, int ioc);
 
 #endif /* _EHCI_H */

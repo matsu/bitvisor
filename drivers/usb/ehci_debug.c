@@ -15,12 +15,17 @@ _ehci_dump_qtd(int loglvl, int indent, struct ehci_qtd *qtd, phys_t qtd_phys)
 	u32 pid;
 	int i;
 	phys32_t adr;
+	size_t len;
 
 	adr = (phys32_t)qtd_phys;
 
 	dprintft(loglvl, "");
-	for(i=0; i<indent; i++)
+	for (i = 0; i < indent; i++)
 		dprintf(loglvl, "  ");
+
+	/* total bytes of transfer in the transaction */
+	len = ehci_qtd_len(qtd);
+
 #if 0
 	dprintf(loglvl, "qTD(%08x): %08x %08x %08x\n",
 		 adr & 0xfffffffe, qtd->next, qtd->altnext, qtd->token);
@@ -28,10 +33,9 @@ _ehci_dump_qtd(int loglvl, int indent, struct ehci_qtd *qtd, phys_t qtd_phys)
 	dprintf(loglvl, "qTD(%08x): NEXT:%08x/ALT:%08x",
 		adr & 0xfffffffe, qtd->next, qtd->altnext);
 	dprintf(loglvl, "/DT:%d", (qtd->token >> 31));
-	dprintf(loglvl, "/TOTAL:%04d\n", 
-		((qtd->token & 0x07ff0000) >> 16));
+	dprintf(loglvl, "/TOTAL:%04d\n", len);
 	dprintft(loglvl, "");
-	for(i=0; i<indent; i++)
+	for (i = 0; i < indent; i++)
 		dprintf(loglvl, "  ");
 	dprintf(loglvl, "qTD          : IOC:%d", 
 		((qtd->token & 0x00008000) ? 1 : 0));
@@ -66,24 +70,36 @@ _ehci_dump_qtd(int loglvl, int indent, struct ehci_qtd *qtd, phys_t qtd_phys)
 #endif
 	
 	dprintft(loglvl, "");
-	for(i=0; i<indent; i++)
+	for (i = 0; i < indent; i++)
 		dprintf(loglvl, "  ");
 	dprintf(loglvl, "qTD          : %08x %08x %08x %08x %08x\n",
 		 qtd->buffer[0], qtd->buffer[1], qtd->buffer[2], 
 		 qtd->buffer[3], qtd->buffer[4]);
-	if (qtd->buffer[0]) {
+
+	/* MEMO: the overlay qTD in QH may have NULL address 
+	   for buffer even if the transfer length is not zero. */
+	/* 0x10U means offset from the QH head */
+	if (adr & 0x00000010U) 
+		return;
+
+	/* dump the 1st buffer */
+	if (!is_in_qtd(qtd) && is_active_qtd(qtd) && (len > 0)) {
 		u8 *buf;
-		size_t sz = (qtd->token & 0x7ff0000) >> 16;
+		size_t off;
+
+		off = qtd->buffer[0] & (PAGESIZE - 1);
+
+		if (len > (PAGESIZE - off))
+			len = PAGESIZE - off;
 		dprintft(loglvl, "");
-		for(i=0; i<indent; i++)
+		for (i = 0; i < indent; i++)
 			dprintf(loglvl, "  ");
-		dprintf(loglvl, "buf[%8d]: ", sz);
-		if (pid != 1 /* IN */) {
-			buf = mapmem_gphys(qtd->buffer[0], sz, 0);
-			for (i=0; i<sz; i++)
-				dprintf(loglvl, "%02x", *(buf + i));
-			unmapmem(buf, sz);
-		}
+		dprintf(loglvl, "buf0[%7d]: ", len);
+
+		buf = (u8 *)mapmem_gphys(qtd->buffer[0], len, 0);
+		for (i = 0; i < len; i++)
+			dprintf(loglvl, "%02x", *(buf + i));
+		unmapmem(buf, len);
 		dprintf(loglvl, "\n");
 	}
 		
@@ -141,7 +157,7 @@ ehci_dump_alist(int loglvl, phys_t headqh_phys, int shadow)
 				"\n%08x is storagne address!!\n", qh_link);
 			break;
 		}
-		qh_link &= 0xffffffe0;
+		qh_link = (phys32_t)ehci_link(qh_link);
 	} while (qh_link != (phys32_t)headqh_phys);
 	dprintf(loglvl, "\n");
 
@@ -151,9 +167,21 @@ ehci_dump_alist(int loglvl, phys_t headqh_phys, int shadow)
 void
 ehci_dump_urblist(int loglvl, struct usb_request_block *urb)
 {
+	phys_t shadow_qh_phys;
+	u8 shadow_status;
+
 	while (urb) {
-		dprintf(loglvl, "[%llx:%08x]-", URB_EHCI(urb)->qh_phys, 
-		       URB_EHCI(urb)->qh->qtd_ovlay.token);
+		if (urb->shadow) {
+			shadow_qh_phys = URB_EHCI(urb->shadow)->qh_phys;
+			shadow_status = urb->shadow->status;
+		} else {
+			shadow_qh_phys = 0ULL;
+			shadow_status = 0U;
+		}
+		dprintf(loglvl, "[%llx:%02x:%x:%llx:%02x]-", 
+			URB_EHCI(urb)->qh_phys, urb->status, 
+			URB_EHCI(urb)->qh_copy.qtd_ovlay.next, 
+			shadow_qh_phys, shadow_status);
 		urb = urb->next;
 	}
 	dprintf(loglvl, "\n");
@@ -197,7 +225,7 @@ ehci_dump_urb(int loglvl, struct usb_request_block *urb)
 	dprintf(loglvl, "/CurTD:%08x", qh->qtd_cur);
 	dprintf(loglvl, "/LINK:%08x\n", qh->link);
 #if 0
-	dprintft(loglvl, "QH(%08x): %08x %08x %08x %08x\n", adr & 0xffffffe0,
+	dprintft(loglvl, "QH(%llx): %08x %08x %08x %08x\n", ehci_link(adr),
 		 qh->link, qh->epcap[0], qh->epcap[1], qh->ovlay[0]);
 	dprintft(loglvl, "            : %08x %08x %08x %08x \n", 
 		 qh->ovlay[1], qh->ovlay[2], qh->ovlay[3], qh->ovlay[4]);
@@ -233,13 +261,40 @@ ehci_dump_urb(int loglvl, struct usb_request_block *urb)
 	return;
 }
 
+static int
+seen_previously(phys32_t target, int *n_caches, phys32_t *caches)
+{
+	int i;
+
+	for (i = 0; i < *n_caches; i++) {
+		if (target == *(caches + i))
+			return 1;
+	}
+
+	if (*n_caches >= (PAGESIZE / sizeof(phys32_t))) {
+		dprintft(0, "%s: cache overflow.\n", __FUNCTION__);
+		return 0;
+	}
+
+	*(caches + *n_caches) = target;
+	(*n_caches)++;
+
+	return 0;
+}
+	
 void
 ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 {
 	phys32_t nextqtd, altqtd;
 	struct usb_request_block *urb;
+	phys32_t *physlist;
+	int n_phys;
 
 	urb = new_urb_ehci();
+
+	/* initialized for phys cache */
+	physlist = alloc(PAGESIZE);
+	ASSERT(physlist != NULL);
 
 	if (which & 0x01) {
 		/* dump a guest async list */
@@ -254,14 +309,21 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 			ehci_dump_urb(loglvl, urb);
 			nextqtd = (phys32_t)URB_EHCI(urb)->qh_phys + 0x10U;
 		
+			n_phys = 0;
 			/* dump qTDs */
 			do {
+				if (seen_previously(nextqtd, 
+						    &n_phys, physlist))
+					break;
 				nextqtd = ehci_dump_qtd(loglvl, 0, 
 							nextqtd, &altqtd);
-			} while (nextqtd && !(nextqtd & 0x00000001U));
+			} while (nextqtd && !(nextqtd & EHCI_LINK_TE));
 		
 			/* dump altenative qTDs */
-			while (altqtd && !(altqtd & 0x00000001U)) {
+			while (altqtd && !(altqtd & EHCI_LINK_TE)) {
+				if (seen_previously(altqtd, 
+						    &n_phys, physlist))
+					break;
 				altqtd = ehci_dump_qtd(loglvl, 1, 
 						       altqtd, NULL);
 			}
@@ -272,7 +334,8 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 			if (!URB_EHCI(urb)->qh_phys || 
 			    (URB_EHCI(urb)->qh_phys & 0x0000001dU))
 				break;
-			URB_EHCI(urb)->qh_phys &= 0xffffffe0U;
+			URB_EHCI(urb)->qh_phys = 
+				ehci_link((phys32_t)URB_EHCI(urb)->qh_phys);
 		} while (URB_EHCI(urb)->qh_phys != host->headqh_phys[0]);
 	}
 
@@ -283,6 +346,8 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 
 		URB_EHCI(urb)->qh_phys = host->headqh_phys[1];
 		do {
+			struct ehci_qtd *qtd;
+
 			URB_EHCI(urb)->qh = 
 				mapmem_hphys(URB_EHCI(urb)->qh_phys,
 					     sizeof(struct ehci_qh), 0);
@@ -290,15 +355,33 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 			nextqtd = URB_EHCI(urb)->qh_phys + 0x10;
 		
 			/* dump qTDs */
+			n_phys = 0;
 			do {
-				nextqtd = ehci_dump_qtd(loglvl, 0, 
-							nextqtd, &altqtd);
-			} while (nextqtd && !(nextqtd & 0x00000001));
+				if (seen_previously(nextqtd,
+						    &n_phys, physlist))
+					break;
+
+				/* MEMO: the overlay may be located at 
+				   unusual offset (0x10). So ehci_link() 
+				   cannot be used here. */
+				qtd = mapmem_hphys(nextqtd,
+						   sizeof(struct ehci_qtd), 
+						   0);
+				_ehci_dump_qtd(loglvl, 0, qtd, nextqtd);
+				
+				altqtd = qtd->altnext;
+				nextqtd = qtd->next;
+				unmapmem(qtd, sizeof(struct ehci_qtd));
+			} while (nextqtd && !(nextqtd & EHCI_LINK_TE));
 		
 			/* dump altenative qTDs */
-			while (altqtd && !(altqtd & 0x00000001))
+			while (altqtd && !(altqtd & EHCI_LINK_TE)) {
+				if (seen_previously(altqtd,
+						    &n_phys, physlist))
+					break;
 				altqtd = ehci_dump_qtd(loglvl, 1, 
 						       altqtd, NULL);
+			}
 
 			/* set the next QH address */
 			URB_EHCI(urb)->qh_phys = URB_EHCI(urb)->qh->link;
@@ -306,11 +389,13 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 			if (!URB_EHCI(urb)->qh_phys || 
 			    (URB_EHCI(urb)->qh_phys & 0x0000001dU))
 				break;
-			URB_EHCI(urb)->qh_phys &= 0xffffffe0U;
+			URB_EHCI(urb)->qh_phys =
+				ehci_link((phys32_t)URB_EHCI(urb)->qh_phys);
 		} while (URB_EHCI(urb)->qh_phys != host->headqh_phys[1]);
 	}
 
 	delete_urb_ehci(urb);
+	free(physlist);
 
 	return;
 }
@@ -408,6 +493,8 @@ ehci_dump_all(int loglvl, struct ehci_host *host)
 	ehci_print_usbcmd(loglvl, *reg_usbcmd);
 	dprintft(loglvl, "USBSTS = ");
 	ehci_print_usbsts(loglvl, *reg_usbsts);
+	dprintft(loglvl, "URBLIST: ");
+	ehci_dump_urblist(loglvl, host->head_gurb);
 	ehci_dump_async(loglvl, host, 1);
 	ehci_dump_async(loglvl, host, 2);
 

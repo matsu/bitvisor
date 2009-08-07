@@ -61,6 +61,7 @@ static u8 bios_area_orig[BIOS_AREA_SIZE];
 #ifndef TTY_SERIAL
 static u8 bios_area_panic[BIOS_AREA_SIZE];
 #endif
+static void *panicmem;
 
 static void
 copy_bios_area (void *save, void *load)
@@ -117,12 +118,21 @@ backtrace (void)
 #ifdef __x86_64__
 	ulong *p;
 	register ulong start_rsp asm ("%rsp");
-	int i;
+	int i, j;
+	extern u8 code[], codeend[];
 
 	printf ("stackdump: ");
 	p = (ulong *)start_rsp;
 	for (i = 0; i < 32; i++)
 		printf ("%lX ", p[i]);
+	printf ("\n");
+	printf ("backtrace: ");
+	for (i = j = 0; i < 256 && j < 32; i++) {
+		if ((ulong)code <= p[i] && p[i] < (ulong)codeend) {
+			printf ("%lX ", p[i]);
+			j++;
+		}
+	}
 	printf ("\n");
 #else
 	ulong rbp, caller, newrbp, *p;
@@ -477,6 +487,10 @@ panic_nomsg (bool w)
 	if (d >= 0 && config.vmm.shell) {
 		if (!trying) {
 			trying = true;
+			if (panicmem) {
+				free (panicmem);
+				panicmem = NULL;
+			}
 			if (!panic_reboot)
 				printf ("panic: %s\n", panicmsg);
 			keyboard_reset ();
@@ -545,6 +559,7 @@ panic_init_global (void)
 	spinlock_init (&panic_lock);
 	panic_process = -1;
 	bios_area_saved = false;
+	panicmem = NULL;
 }
 
 static void
@@ -552,6 +567,7 @@ panic_init_global3 (void)
 {
 	copy_bios_area (bios_area_orig, NULL);
 	bios_area_saved = true;
+	panicmem = alloc (1048576);
 }
 
 static void

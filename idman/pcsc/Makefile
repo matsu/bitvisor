@@ -9,7 +9,7 @@ CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O \
 		-nostdinc -fno-builtin $(CONSTANTS-1) -I../pcsc/ -I./ \
 		-I../standardio/  -I../../drivers/ -I../../drivers/usb/ \
 		-I../../include/ -I../../core/  -I../../include/core/ \
-		-DNTTCOM -fno-stack-protector
+		-DNTTCOM -fno-stack-protector -mno-sse
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64

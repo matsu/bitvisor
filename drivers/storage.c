@@ -113,8 +113,8 @@ int storage_handle_sectors(struct storage_device *storage, struct storage_access
 		sub_count2 = storage->keys[i].lba_low - lba;
 		if (sub_count2 > 2147483647)
 			sub_count = 2147483647;
-		else if (sub_count2 < -2147483648)
-			sub_count = -2147483648;
+		else if (sub_count2 < (-2147483647 - 1))
+			sub_count = -2147483647 - 1;
 		else
 			sub_count = sub_count2;
 		if (sub_count > 0) {
@@ -134,8 +134,8 @@ int storage_handle_sectors(struct storage_device *storage, struct storage_access
 		sub_count2 = storage->keys[i].lba_high - lba;
 		if (sub_count2 > 2147483647)
 			sub_count = 2147483647;
-		else if (sub_count2 < -2147483648)
-			sub_count = -2147483648;
+		else if (sub_count2 < (-2147483647 - 1))
+			sub_count = -2147483647 - 1;
 		else
 			sub_count = sub_count2;
 		if (sub_count > 0) {

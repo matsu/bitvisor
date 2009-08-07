@@ -109,10 +109,39 @@ struct usb_device_handle {
  ***/
 struct usb_host;
 struct usb_request_block;
+struct usb_endpoint_descriptor;
 
 struct usb_operations {
 	int (*shadow_buffer)(struct usb_host *host,
 			     struct usb_request_block *gurb, u32 flag);
+	struct usb_request_block *
+	(*submit_control)(struct usb_host *host,
+			  struct usb_device *device, u8 endp, u16 pktsz,
+			  struct usb_ctrl_setup *csetup,
+			  int (*callback)(struct usb_host *,
+					  struct usb_request_block *, void *), 
+			  void *arg, int ioc);
+	struct usb_request_block *
+	(*submit_bulk)(struct usb_host *host,
+			struct usb_device *device, 
+			struct usb_endpoint_descriptor *epdesc, 
+			void *data, u16 size,
+			int (*callback)(struct usb_host *,
+					struct usb_request_block *, void *), 
+			void *arg, int ioc);
+	struct usb_request_block *
+	(*submit_interrupt)(struct usb_host *host, 
+			    struct usb_device *device,
+			    struct usb_endpoint_descriptor *epdesc, 
+			    void *data, u16 size,
+			    int (*callback)(struct usb_host *,
+					    struct usb_request_block *, 
+					    void *), 
+			    void *arg, int ioc);
+	u8
+	(*check_advance)(struct usb_host *, struct usb_request_block *);
+	u8
+	(*deactivate_urb)(struct usb_host *, struct usb_request_block *urb);
 };
 
 
@@ -123,11 +152,12 @@ struct usb_host {
 #define USB_HOST_TYPE_UHCI     0x01U
 #define USB_HOST_TYPE_OHCI     0x02U
 #define USB_HOST_TYPE_EHCI     0x04U
-	int last_changed_port;
+	u64 last_changed_port;
 	void *private;
 	struct usb_device *device;
 	struct usb_operations *op;
 #define USB_HOOK_NUM_PHASE     2
+	spinlock_t lock_hk;
 	struct usb_hook *hook[USB_HOOK_NUM_PHASE];
 };
 
@@ -149,7 +179,7 @@ struct usb_dev_handle;
 typedef struct usb_dev_handle usb_dev_handle;
 
 struct usb_dev_handle {
-	struct uhci_host  *host;
+	struct usb_host  *host;
 	struct usb_device *device;
 	int interface;
 };
@@ -171,12 +201,12 @@ struct usb_buffer_list {
 
 struct usb_request_block {
 	/* destination device address */
-	u8 address; 
+	u8 address;
 #define URB_ADDRESS_SKELTON     0x80U
 	/* destination endpoint */
 	struct usb_endpoint_descriptor *endpoint;
 	/* processing status */
-	u8 status; 
+	u8 status;
 #define URB_STATUS_RUN          0x80U  /* 10000000 issued, now processing */
 #define URB_STATUS_NAK          0x88U  /* 10001000 receive NAK (still active) */
 #define URB_STATUS_ADVANCED     0x00U  /* 00000000 advanced (completed) */
@@ -184,7 +214,7 @@ struct usb_request_block {
 #define URB_STATUS_FINALIZED    0x01U  /* 00000001 finalized */
 #define URB_STATUS_UNLINKED     0x7fU  /* 01111111 unlinked, ready to delete  */
 	/* maker (used by shadow monitor) */
-	u8 mark;   
+	u8 mark;
 #define URB_MARK_INLINK          0x01U
 #define URB_MARK_NEED_SHADOW     0x10U
 #define URB_MARK_UPDATE_REPLACED 0x20U
@@ -192,16 +222,16 @@ struct usb_request_block {
 #define URB_MARK_NEED_UPDATE     ( URB_MARK_UPDATE_REPLACED | \
 				   URB_MARK_UPDATE_ADDED )
 	/* host controller */
-	struct usb_host *host; 
+	struct usb_host *host;
 	/* destination device */
-	struct usb_device *dev; 
+	struct usb_device *dev;
 	/* xhci dependent data such as QH and TD */
 	void *hcpriv;
 
 	/* fragmented buffer blocks */
-	struct usb_buffer_list *buffers; 
+	struct usb_buffer_list *buffers;
 	/* actual length of transferred data */
-	size_t actlen; 
+	size_t actlen;
 
 	/* callback when urb completed */
 	int (*callback)(struct usb_host *host,
@@ -232,15 +262,21 @@ extern "C" {
 /* usb.c */
 	usb_dev_handle *usb_open(struct usb_device *dev);
 	int usb_close(usb_dev_handle *dev);
-#if defined(ENABLE_USB_RW_API)
 	int usb_get_string(usb_dev_handle *dev, int index, int langid, 
 			   char *buf, size_t buflen);
 	int usb_get_string_simple(usb_dev_handle *dev, int index, char *buf,
 				  size_t buflen);
 
 /* descriptors.c */
+	int usb_get_descriptor_early(usb_dev_handle *udev, 
+				     int ep, u16 pktsz,
+				     unsigned char type, 
+				     unsigned char index, 
+				     void *buf, int size);
 	int usb_get_descriptor_by_endpoint(usb_dev_handle *udev, int ep,
-					   unsigned char type, unsigned char index, void *buf, int size);
+					   unsigned char type, 
+					   unsigned char index, 
+					   void *buf, int size);
 	int usb_get_descriptor(usb_dev_handle *udev, unsigned char type,
 			       unsigned char index, void *buf, int size);
 
@@ -258,7 +294,6 @@ extern "C" {
 			    int size, int timeout);
 	int usb_set_configuration(usb_dev_handle *dev, int configuration);
 	int usb_set_altinterface(usb_dev_handle *dev, int alternate);
-#endif /* defined(ENABLE_USB_RW_API) */
 	int usb_claim_interface(usb_dev_handle *dev, int interface);
 	int usb_release_interface(usb_dev_handle *dev, int interface);
 	int usb_resetep(usb_dev_handle *dev, unsigned int ep);
@@ -292,6 +327,7 @@ usb_register_host(void *host, struct usb_operations *op, u8 type)
 	hc->type = type;
 	hc->private = host;
 	hc->op = op;
+	spinlock_init(&hc->lock_hk);
 	LIST_APPEND(usb_hc_list, hc);
 
 	return hc;

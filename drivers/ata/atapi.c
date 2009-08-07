@@ -115,7 +115,7 @@ typedef union {
 	} __attribute__ ((packed));
 } atapi_config_data_t;
 
-int atapi_handle_config_data(struct ata_channel *channel, core_io_t io, union mem *data)
+int atapi_handle_config_data(struct ata_channel *channel, int rw)
 {
 	atapi_config_data_t config_data;
 
@@ -156,6 +156,10 @@ static int atapi_handle_pio_packet(struct ata_channel *channel, int rw)
 	channel->atapi_device->atapi_flag = 1;
 	packet_device.data_length = channel->atapi_device->data_length;
 	packet_handle_command(&packet_device, channel->pio_buf);
+	/* MEMO: the 1st ATA DATA PIO packet may be used 
+	   for ATAPI command. So the LBA counter should be 
+	   decremented for the packet. */
+	packet_device.lba -= 1;
 
 	features.value = channel->features.hob[0];
 	switch (packet_device.type){

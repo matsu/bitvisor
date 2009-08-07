@@ -47,7 +47,10 @@ u32 vmm_term_inf() ;
 
 //#define	PRO100_PASS_MODE
 
-//#define	printf(fmt, args...) printf(fmt, ## args); pro100_sleep(70);
+//#define	debugprint(fmt, args...) printf(fmt, ## args); pro100_sleep(70);
+
+#define	debugprint(fmt, args...)
+
 
 static PRO100_CTX *pro100_ctx = NULL;
 
@@ -145,7 +148,7 @@ PRO100_CTX *pro100_get_ctx()
 {
 	if (pro100_ctx == NULL)
 	{
-		printf("Error: No PRO/100 Devices!\n");
+		debugprint("Error: No PRO/100 Devices!\n");
 		pro100_beep(1234, 10000);
 		while (true);
 	}
@@ -497,7 +500,7 @@ void pro100_exec_cu_op(PRO100_CTX *ctx, PRO100_OP_BLOCK_MAX *op, UINT size)
 		char tmp[4096];
 
 		SeBinToStrEx(tmp, sizeof(tmp), (void *)b, size);
-		printf("%s\n", tmp);
+		debugprint("%s\n", tmp);
 	}
 
 	pro100_write(ctx, PRO100_CSR_OFFSET_SCB_GENERAL_POINTER, (UINT)ptr, 4);
@@ -506,7 +509,7 @@ void pro100_exec_cu_op(PRO100_CTX *ctx, PRO100_OP_BLOCK_MAX *op, UINT size)
 	pro100_flush(ctx);
 
 	// NIC がコマンドを完了するまで待機
-	//printf("[");
+	//debugprint("[");
 	start_tick = SeTick64();
 	timeouted = true;
 	while ((start_tick + 1000ULL) >= SeTick64())
@@ -517,7 +520,7 @@ void pro100_exec_cu_op(PRO100_CTX *ctx, PRO100_OP_BLOCK_MAX *op, UINT size)
 			break;
 		}
 	}
-	//printf("%u] ", b->c);
+	//debugprint("%u] ", b->c);
 	//b->c = true;
 
 	if (false)
@@ -525,7 +528,7 @@ void pro100_exec_cu_op(PRO100_CTX *ctx, PRO100_OP_BLOCK_MAX *op, UINT size)
 		UINT t = pro100_read(ctx, PRO100_CSR_OFFSET_SCB_STATUS_WORD_0, 1);
 		PRO100_SCB_STATUS_WORD_BIT *b = (PRO100_SCB_STATUS_WORD_BIT *)(void *)&t;
 
-		printf("STATUS  CU=%u, RU=%u\n", b->cu_status, b->ru_status);
+		debugprint("STATUS  CU=%u, RU=%u\n", b->cu_status, b->ru_status);
 	}
 
 	// 結果を書き戻す
@@ -595,7 +598,7 @@ void pro100_wait_cu_ru_accepable(PRO100_CTX *ctx)
 		return;
 	}
 
-	//printf("{B");
+	//debugprint("{B");
 	while (true)
 	{
 		UINT t = pro100_read(ctx, PRO100_CSR_OFFSET_SCB_COMMAND_WORD_0, 1);
@@ -609,11 +612,11 @@ void pro100_wait_cu_ru_accepable(PRO100_CTX *ctx)
 		{
 			flag = true;
 
-//			printf(" ** CU=%u, RU=%u **  \n",
+//			debugprint(" ** CU=%u, RU=%u **  \n",
 //				PRO100_GET_CU_COMMAND(t), PRO100_GET_RU_COMMAND(t));
 		}
 	}
-//	printf("} ");
+//	debugprint("} ");
 }
 
 // 物理的にパケットを送信する
@@ -653,7 +656,7 @@ void pro100_send_packet_to_line(PRO100_CTX *ctx, void *buf, UINT size)
 		char tmp[8000];
 		SeBinToStrEx(tmp, sizeof(tmp), (void *)b, size + sizeof(PRO100_OP_TRANSMIT));
 
-		printf("%s\n\n", tmp);
+		debugprint("%s\n\n", tmp);
 	}
 
 	pro100_init_cu_base_addr(ctx);
@@ -663,9 +666,9 @@ void pro100_send_packet_to_line(PRO100_CTX *ctx, void *buf, UINT size)
 		PRO100_MAKE_CU_RU_COMMAND(PRO100_CU_CMD_START, PRO100_RU_CMD_NOOP), 1);
 	pro100_flush(ctx);
 
-	//printf("1\n");
+	//debugprint("1\n");
 	while (b->c == false);
-	//printf("2\n");
+	//debugprint("2\n");
 
 	pro100_free_page((void *)b, ptr);
 }
@@ -816,7 +819,7 @@ void pro100_proc_guest_op(PRO100_CTX *ctx)
 
 			if (false)
 			{
-				printf("flexible_mode=%u, raw_packet=%u, cid=%u, array=0x%x, thres=%u, tcount=%u, size=%u\n",
+				debugprint("flexible_mode=%u, raw_packet=%u, cid=%u, array=0x%x, thres=%u, tcount=%u, size=%u\n",
 					t->op_block.transmit_flexible_mode,
 					t->op_block.transmit_raw_packet,
 					t->op_block.transmit_cid,
@@ -826,14 +829,14 @@ void pro100_proc_guest_op(PRO100_CTX *ctx)
 					t->data_bytes);
 			}
 
-			//printf("SEND\n");
+			//debugprint("SEND\n");
 
 			if (false)
 			{
 				char tmp[4096];
 
 				SeBinToStrEx(tmp, sizeof(tmp), &b, 24);
-				printf("%s\n", tmp);
+				debugprint("%s\n", tmp);
 			}
 
 			if (true)
@@ -871,7 +874,7 @@ void pro100_proc_guest_op(PRO100_CTX *ctx)
 			// 送信以外の処理
 			UINT size = pro100_get_op_size(b.op_block.op, &b);
 
-			//printf("0x%x: OP: %u  Size=%u\n", (UINT)ptr, b.op_block.op, size);
+			//debugprint("0x%x: OP: %u  Size=%u\n", (UINT)ptr, b.op_block.op, size);
 
 			switch (b.op_block.op)
 			{
@@ -898,7 +901,7 @@ void pro100_proc_guest_op(PRO100_CTX *ctx)
 			ctx->guest_cu_started = false;
 			ctx->guest_cu_current_pointer = 0;
 			ctx->guest_cu_suspended = false;
-			//printf("EL\n");
+			//debugprint("EL\n");
 			pro100_generate_int(ctx);
 			break;
 		}
@@ -907,7 +910,7 @@ void pro100_proc_guest_op(PRO100_CTX *ctx)
 			// サスペンドフラグ
 			ctx->guest_cu_suspended = true;
 			ctx->guest_cu_next_pointer = b.op_block.link_address;
-			//printf("SUSPEND\n");
+			//debugprint("SUSPEND\n");
 			pro100_generate_int(ctx);
 			break;
 		}
@@ -957,6 +960,10 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 	switch (offset)
 	{
 	case PRO100_CSR_OFFSET_SCB_COMMAND_WORD_0:	// RU Command, CU Command
+		if (size != 1)
+		{
+			debugprint("pro100_hook_write: PRO100_CSR_OFFSET_SCB_COMMAND_WORD_0: BAD SIZE: %u\n", size);
+		}
 		if (size == 1)
 		{
 			UCHAR b = (UCHAR)data;
@@ -970,7 +977,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 
 			if (s1 != NULL || s2 != NULL)
 			{
-				//printf("[%s, %s]  ", s1, s2);
+				//debugprint("[%s, %s]  ", s1, s2);
 			}
 
 			switch (cu)
@@ -979,7 +986,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			case PRO100_CU_CMD_START:
-				//printf("GUEST PRO100_CU_CMD_START: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
+				//debugprint("GUEST PRO100_CU_CMD_START: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
 				ctx->guest_cu_started = true;
 				ctx->guest_cu_suspended = false;
 				ctx->guest_cu_start_pointer = (phys_t)ctx->guest_last_general_pointer;
@@ -992,7 +999,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			case PRO100_CU_CMD_RESUME:
-				//printf("GUEST PRO100_CU_CMD_RESUME\n");
+				//debugprint("GUEST PRO100_CU_CMD_RESUME\n");
 				pro100_proc_guest_op(ctx);
 
 				cu = PRO100_CU_CMD_NOOP;
@@ -1000,7 +1007,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			case PRO100_CU_CMD_LOAD_CU_BASE:
-				//printf("GUEST PRO100_CU_CMD_LOAD_CU_BASE: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
+				//debugprint("GUEST PRO100_CU_CMD_LOAD_CU_BASE: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
 
 				cu = PRO100_CU_CMD_NOOP;
 
@@ -1009,36 +1016,48 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			case PRO100_CU_CMD_LOAD_DUMP_ADDR:
-				//printf("GUEST PRO100_CU_CMD_LOAD_DUMP_ADDR: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
+				debugprint("GUEST PRO100_CU_CMD_LOAD_DUMP_ADDR: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
 
 				cu = PRO100_CU_CMD_NOOP;
 				//pro100_write(ctx, PRO100_CSR_OFFSET_SCB_GENERAL_POINTER, (UINT)ctx->guest_last_general_pointer, 4);
 
+				ctx->guest_last_counter_pointer = ctx->guest_last_general_pointer;
+
 				break;
 
 			case PRO100_CU_CMD_DUMP_STAT:
-				//printf("GUEST PRO100_CU_CMD_DUMP_STAT\n");
-
-				cu = PRO100_CU_CMD_NOOP;
-
-				break;
-
 			case PRO100_CU_CMD_DUMP_AND_RESET_STAT:
-				//printf("GUEST PRO100_CU_CMD_DUMP_AND_RESET_STAT\n");
+				debugprint(cu == PRO100_CU_CMD_DUMP_STAT ? "GUEST PRO100_CU_CMD_DUMP_STAT\n" : "GUEST PRO100_CU_CMD_DUMP_AND_RESET_STAT\n");
+
+				if (ctx->guest_last_counter_pointer != 0)
+				{
+					UINT dummy_data[21];
+					// ゲスト OS がカウンタデータのダンプを要求しているのでウソのデータを返す
+					// (これをしないと Windows 版ドライバの一部で 2 秒間のビジーループによる待ちが発生してしまう)
+					memset(dummy_data, 0, sizeof(dummy_data));
+
+					dummy_data[16] = dummy_data[19] = dummy_data[20] = (cu == PRO100_CU_CMD_DUMP_STAT ? 0xa005 : 0xa007);
+
+					pro100_mem_write((phys_t)ctx->guest_last_counter_pointer, dummy_data, sizeof(dummy_data));
+				}
+				else
+				{
+					debugprint("error: ctx->guest_last_counter_pointer == 0\n");
+				}
 
 				cu = PRO100_CU_CMD_NOOP;
 
 				break;
 
 			case PRO100_CU_CMD_HPQ_START:
-				//printf("GUEST PRO100_CU_CMD_HPQ_START: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
+				//debugprint("GUEST PRO100_CU_CMD_HPQ_START: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
 
 				cu = PRO100_CU_CMD_NOOP;
 
 				break;
 
 			case PRO100_CU_CMD_CU_STAT_RESUME:
-				//printf("GUEST PRO100_CU_CMD_CU_STAT_RESUME\n");
+				//debugprint("GUEST PRO100_CU_CMD_CU_STAT_RESUME\n");
 
 				//pro100_write(ctx, PRO100_CSR_OFFSET_SCB_GENERAL_POINTER, (UINT)ctx->guest_last_general_pointer, 4);
 				//cu = PRO100_CU_CMD_NOOP;
@@ -1046,7 +1065,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			case PRO100_CU_CMD_HPQ_RESUME:
-				//printf("GUEST PRO100_CU_CMD_HPQ_RESUME\n");
+				//debugprint("GUEST PRO100_CU_CMD_HPQ_RESUME\n");
 
 				cu = PRO100_CU_CMD_NOOP;
 
@@ -1063,7 +1082,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			case PRO100_RU_CMD_START:
-				//printf("GUEST PRO100_RU_CMD_START: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
+				//debugprint("GUEST PRO100_RU_CMD_START: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
 
 				ru = PRO100_CU_CMD_NOOP;
 
@@ -1075,7 +1094,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			case PRO100_RU_CMD_RESUME:
-				//printf("GUEST PRO100_RU_CMD_RESUME\n");
+				//debugprint("GUEST PRO100_RU_CMD_RESUME\n");
 
 				ru = PRO100_CU_CMD_NOOP;
 
@@ -1086,14 +1105,14 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			case PRO100_RU_CMD_LOAD_HEADER_DATA_SIZE:
-				//printf("GUEST PRO100_RU_CMD_LOAD_HEADER_DATA_SIZE: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
+				//debugprint("GUEST PRO100_RU_CMD_LOAD_HEADER_DATA_SIZE: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
 
 				ru = PRO100_CU_CMD_NOOP;
 
 				break;
 
 			case PRO100_RU_CMD_LOAD_RU_BASE:
-				//printf("GUEST PRO100_RU_CMD_LOAD_RU_BASE: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
+				//debugprint("GUEST PRO100_RU_CMD_LOAD_RU_BASE: 0x%x\n", (UINT)ctx->guest_last_general_pointer);
 
 				ru = PRO100_CU_CMD_NOOP;
 
@@ -1102,7 +1121,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 				break;
 
 			default:
-				printf("!!!! GUEST SEND UNKNOWN RU CMD: %u\n", cu);
+				printf("!!!! GUEST SEND UNKNOWN RU CMD: %u\n", ru);
 				break;
 			}
 
@@ -1112,14 +1131,14 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 
 			if ((cu != 0 || ru != 0) && (cu == 0 || ru == 0))
 			{
-				//printf("<P");
+				debugprint("<P");
 				pro100_wait_cu_ru_accepable(ctx);
-				//printf(">");
+				debugprint(">");
 				pro100_write(ctx, PRO100_CSR_OFFSET_SCB_GENERAL_POINTER, (UINT)ctx->guest_last_general_pointer, 4);
 				pro100_write(ctx, PRO100_CSR_OFFSET_SCB_COMMAND_WORD_0, b, 1);
-				//printf("<Y");
+				debugprint("<Y");
 				pro100_wait_cu_ru_accepable(ctx);
-				//printf(">");
+				debugprint(">");
 			}
 
 			return true;
@@ -1127,6 +1146,10 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 		break;
 
 	case PRO100_CSR_OFFSET_SCB_COMMAND_WORD_1:	// 割り込み制御ビット
+		if (size != 1)
+		{
+			debugprint("pro100_hook_write: PRO100_CSR_OFFSET_SCB_COMMAND_WORD_1: BAD SIZE: %u\n", size);
+		}
 		if (size == 1)
 		{
 			ctx->int_mask_guest_set = data;
@@ -1135,7 +1158,7 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 			{
 				//PRO100_INT_BIT *ib = (PRO100_INT_BIT *)&ctx->int_mask_guest_set;
 
-				//printf("int mask: M=%u   0x%x\n", (UINT)ib->mask_all, (UINT)ctx->int_mask_guest_set);
+				//debugprint("int mask: M=%u   0x%x\n", (UINT)ib->mask_all, (UINT)ctx->int_mask_guest_set);
 
 				/*
 
@@ -1154,17 +1177,21 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 		break;
 
 	case PRO100_CSR_OFFSET_SCB_GENERAL_POINTER:	// 汎用ポインタ
+		if (size != 4)
+		{
+			debugprint("pro100_hook_write: PRO100_CSR_OFFSET_SCB_GENERAL_POINTER: BAD SIZE: %u\n", size);
+		}
 		if (size == 4)
 		{
 			ctx->guest_last_general_pointer = data;
-			//printf("GUEST WRITES POINTER: 0x%x\n", data);
+			//debugprint("GUEST WRITES POINTER: 0x%x\n", data);
 		}
 		return true;
 
 	case PRO100_CSR_OFFSET_SCB_STATUS_WORD_1:	// STAT/ACK
 		/*if (size == 1)
 		{
-			printf("<ACK>");
+			debugprint("<ACK>");
 			if (data != 0)
 			{
 				pro100_write(ctx, PRO100_CSR_OFFSET_SCB_STATUS_WORD_1, 0xff, 1);
@@ -1182,7 +1209,21 @@ bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 		break;
 
 	default:
-		//printf("*** ACCESS TO   0x%x  size=%u   data=0x%x\n", offset, size, data);
+		if (offset == 0 && size == 2)
+		{
+			UCHAR buf[4];
+			*((UINT *)buf) = data;
+			pro100_hook_write(ctx, 1, buf[1], 1);
+
+			return true;
+		}
+		else
+		{
+			if (offset < 0x10)
+			{
+				printf("*** WRITE ACCESS TO   0x%x  size=%u   data=0x%x\n", offset, size, data);
+			}
+		}
 		break;
 	}
 
@@ -1201,6 +1242,10 @@ bool pro100_hook_read(PRO100_CTX *ctx, UINT offset, UINT size, UINT *data)
 	switch (offset)
 	{
 	case PRO100_CSR_OFFSET_SCB_COMMAND_WORD_0:	// コマンド実行状態
+		if (size != 1)
+		{
+			debugprint("pro100_hook_read: PRO100_CSR_OFFSET_SCB_COMMAND_WORD_0: BAD SIZE: %u\n", size);
+		}
 		if (size == 1)
 		{
 			UINT t = pro100_read(ctx, PRO100_CSR_OFFSET_SCB_COMMAND_WORD_0, 1);
@@ -1214,6 +1259,29 @@ bool pro100_hook_read(PRO100_CTX *ctx, UINT offset, UINT size, UINT *data)
 		break;
 
 	case PRO100_CSR_OFFSET_SCB_STATUS_WORD_0:	// RU と CU のステータス
+		if (size != 1)
+		{
+			if (size != 2)
+			{
+				debugprint("pro100_hook_read: PRO100_CSR_OFFSET_SCB_STATUS_WORD_0: BAD SIZE: %u\n", size);
+			}
+			else
+			{
+				UINT data1 = 0, data2 = 0;
+				UCHAR data3[4];
+				pro100_hook_read(ctx, PRO100_CSR_OFFSET_SCB_STATUS_WORD_0, 1, &data1);
+				pro100_hook_read(ctx, PRO100_CSR_OFFSET_SCB_STATUS_WORD_1, 1, &data2);
+				data3[0] = (UCHAR)data1;
+				data3[1] = (UCHAR)data2;
+				data3[2] = data3[3] = 0;
+
+				*data = *((UINT *)data3);
+
+				//debugprint("*data = 0x%x\n", *data);
+
+				return true;
+			}
+		}
 		if (size == 1)
 		{
 			UINT t = pro100_read(ctx, PRO100_CSR_OFFSET_SCB_STATUS_WORD_0, 1);
@@ -1229,12 +1297,16 @@ bool pro100_hook_read(PRO100_CTX *ctx, UINT offset, UINT size, UINT *data)
 	case PRO100_CSR_OFFSET_SCB_STATUS_WORD_1:	// STAT/ACK
 		pro100_poll_ru(ctx);
 
+		if (size != 1)
+		{
+			debugprint("pro100_hook_read: PRO100_CSR_OFFSET_SCB_STATUS_WORD_1: BAD SIZE: %u\n", size);
+		}
 		if (size == 1)
 		{
 			UINT t;
 			PRO100_STAT_ACK *sa;
 
-			//printf("<INT>");
+			//debugprint("<INT>");
 
 			pro100_proc_guest_op(ctx);
 
@@ -1254,6 +1326,10 @@ bool pro100_hook_read(PRO100_CTX *ctx, UINT offset, UINT size, UINT *data)
 		break;
 
 	case PRO100_CSR_OFFSET_SCB_COMMAND_WORD_1:	// 割り込み制御ビット
+		if (size != 1)
+		{
+			debugprint("pro100_hook_read: PRO100_CSR_OFFSET_SCB_COMMAND_WORD_1: BAD SIZE: %u\n", size);
+		}
 		if (size == 1)
 		{
 			UINT t = ctx->int_mask_guest_set;
@@ -1267,10 +1343,21 @@ bool pro100_hook_read(PRO100_CTX *ctx, UINT offset, UINT size, UINT *data)
 		break;
 
 	case PRO100_CSR_OFFSET_SCB_GENERAL_POINTER:	// 汎用ポインタ
+		if (size != 4)
+		{
+			debugprint("pro100_hook_read: PRO100_CSR_OFFSET_SCB_GENERAL_POINTER: BAD SIZE: %u\n", size);
+		}
 		if (size == 4)
 		{
 			*data = ctx->guest_last_general_pointer;
 			return true;
+		}
+		break;
+
+	default:
+		if (offset < 0x10)
+		{
+			printf("*** READ ACCESS TO   0x%x  size=%u\n", offset, size);
 		}
 		break;
 	}
@@ -1336,7 +1423,7 @@ void pro100_generate_int(PRO100_CTX *ctx)
 
 	ib.si = 1;
 
-	//printf("*");
+	//debugprint("*");
 	pro100_write(ctx, PRO100_CSR_OFFSET_SCB_COMMAND_WORD_1, *((UINT *)(void *)&ib), 1);
 }
 
@@ -1522,11 +1609,7 @@ char *pro100_get_ru_command_string(UINT ru)
 // I/O ハンドラ: 未使用
 int pro100_io_handler(core_io_t io, union mem *data, void *arg)
 {
-	// I/O アクセスは発生しないはずだが、一応発生を監視して beep 音を出す。
-
-	//printf("IO port=%u, size=%u, dir=%u\n", (UINT)io.port, (UINT)io.size, (UINT)io.dir);
-
-	pro100_beep(880, 200);
+	debugprint("IO port=%u, size=%u, dir=%u\n", (UINT)io.port, (UINT)io.size, (UINT)io.dir);
 
 	return CORE_IO_RET_DEFAULT;
 }
@@ -1572,7 +1655,7 @@ int pro100_config_write(struct pci_device *dev, core_io_t io, u8 offset, union m
 	{
 	case 1:
 		addr = dev->config_space.regs32[PRO100_PCI_CONFIG_32_CSR_MMAP_ADDR_REG / sizeof(UINT)] & PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-		if (addr < 0xF0000000)
+		//if (addr < 0xF0000000)
 		{
 			if (ctx->csr_mm_addr != addr)
 			{
@@ -1592,7 +1675,7 @@ int pro100_config_write(struct pci_device *dev, core_io_t io, u8 offset, union m
 				ctx->csr_mm_handler = mmio_register((phys_t)ctx->csr_mm_addr, 64,
 					pro100_mm_handler, ctx);
 
-				printf("vpn_pro100: mmio_register 0x%x\n", ctx->csr_mm_addr);
+				debugprint("vpn_pro100: mmio_register 0x%x\n", ctx->csr_mm_addr);
 			}
 		}
 		break;
@@ -1696,7 +1779,7 @@ void pro100_new(struct pci_device *dev)
 {
 	PRO100_CTX *ctx = SeZeroMalloc(sizeof(PRO100_CTX));
 
-	printf ("pro100_new\n");
+	debugprint ("pro100_new\n");
 
 #ifdef VTD_TRANS
         if (iommu_detected) {
@@ -1708,6 +1791,7 @@ void pro100_new(struct pci_device *dev)
 	ctx->dev = dev;
 	ctx->lock = SeNewLock();
 	dev->host = ctx;
+	dev->driver->options.use_base_address_mask_emulation = 1;
 
 	pro100_alloc_recv_buffer(ctx);
 
@@ -1717,7 +1801,7 @@ void pro100_new(struct pci_device *dev)
 	}
 	else
 	{
-		printf("Error: Two or more pro100 devices found.\n");
+		debugprint("Error: Two or more pro100 devices found.\n");
 		pro100_beep(1234, 5000);
 	}
 }
@@ -1738,11 +1822,11 @@ void pro100_init()
 {
 	if (!config.vmm.driver.vpn.PRO100)
 		return;
-	printf("pro100_init() start.\n");
+	debugprint("pro100_init() start.\n");
 
 	pci_register_driver(&vpn_pro100_driver);
 
-	printf("pro100_init() end.\n");
+	debugprint("pro100_init() end.\n");
 }
 
 

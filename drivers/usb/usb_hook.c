@@ -66,29 +66,44 @@ usb_match_buffers(const struct usb_hook_pattern *data,
 			/* the target may be placed accoss buffer boundary */
 			/* former */
 			len = be->offset + be->len - data->offset;
-			vadr = (virt_t)mapmem_gphys(be->padr, be->len, 0);
+			if (be->vadr)
+				vadr = be->vadr;
+			else
+				vadr = (virt_t)
+					mapmem_gphys(be->padr, be->len, 0);
 			ASSERT(vadr);
-			for (i=len; i > 0; i--)
+			for (i = len; i > 0; i--)
 				c[i-1] = *(u8 *)(vadr + data->offset - 
 					       be->offset + i);
-			unmapmem((void *)vadr, be->len);
+			if (!be->vadr)
+				unmapmem((void *)vadr, be->len);
 			/* latter */
 			be = be->next;
 			if (!be || (be->pid != data->pid))
 				return -1;
-			vadr = (virt_t)mapmem_gphys(be->padr, be->len, 0);
+			if (be->vadr)
+				vadr = be->vadr;
+			else
+				vadr = (virt_t)
+					mapmem_gphys(be->padr, be->len, 0);
 			ASSERT(vadr);
 			for (i = len; i < sizeof(u64); i++)
 				c[i] = *(u8 *)(vadr + data->offset - 
 					       be->offset + i);
-			unmapmem((void *)vadr, be->len);
+			if (!be->vadr)
+				unmapmem((void *)vadr, be->len);
 			target = *(u64 *)c;
 		} else {
 			/* */
-			vadr = (virt_t)mapmem_gphys(be->padr, be->len, 0);
+			if (be->vadr)
+				vadr = be->vadr;
+			else
+				vadr = (virt_t)
+					mapmem_gphys(be->padr, be->len, 0);
 			ASSERT(vadr);
 			target = *(u64 *)(vadr + data->offset);
-			unmapmem((void *)vadr, be->len);
+			if (!be->vadr)
+				unmapmem((void *)vadr, be->len);
 		}
 
 		/* match the pattern */
@@ -132,7 +147,8 @@ usb_hook_process(struct usb_host *host,
 		   so guest urb buffers can be used for the pattern match. */
 		ASSERT(urb->shadow);
 		if ((hook->match & USB_HOOK_MATCH_DATA) &&
-		    usb_match_buffers(hook->data, urb->shadow->buffers)) 
+		    usb_match_buffers(hook->data, (urb->buffers != NULL) ?
+				      urb->buffers : urb->shadow->buffers))
 			continue;
 
 		/* reach here if the urb content 
@@ -193,6 +209,7 @@ usb_hook_unregister(struct usb_host *host, int phase, void *handle)
 {
 	ASSERT(phase <= USB_HOOK_NUM_PHASE);
 	usb_hook_delete(&host->hook[phase - 1], handle);
+	free(handle);
 
 	return;
 }

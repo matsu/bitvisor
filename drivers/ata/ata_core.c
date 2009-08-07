@@ -42,7 +42,7 @@
 #include "security.h"
 
 #ifdef STORAGE_ENC
-static const char ata_virtual_model[40] = "BitVisor Virtual Encrypted ATA Drive    ";
+static const char ata_virtual_model[40] = "BitVisor Encrypted ATA Drive            ";
 #else
 static const char ata_virtual_model[40] = "BitVisor Virtual ATA Drive              ";
 #endif
@@ -375,6 +375,7 @@ static int ata_handle_cmd_invalid(struct ata_channel *channel, int rw, int ext)
 {	
 printf("%s: unknown command: %02xh\n", __func__, channel->command);
 /*panic("%s: unknown command: %02xh\n", __func__, channel->command);*/
+return CORE_IO_RET_DEFAULT;
 }
 
 /**********************************************************************************************************************

@@ -111,14 +111,14 @@ destroy_urb(struct uhci_host *host, struct usb_request_block *urb)
 	if (URB_UHCI(urb)->qh) {
 		URB_UHCI(urb)->qh->link = 
 			URB_UHCI(urb)->qh->element = UHCI_QH_LINK_TE;
-		mfree_pool(host->pool, (virt_t)URB_UHCI(urb)->qh);
+		free(URB_UHCI(urb)->qh);
 	}
-	tdm = URB_UHCI(urb)->tdm_head; 
+	tdm = URB_UHCI(urb)->tdm_head;
 	while (tdm) {
 		if (tdm->td) {
 			tdm->td->link = UHCI_TD_LINK_TE;
 			tdm->td->buffer = 0U;
-			mfree_pool(host->pool, (virt_t)tdm->td);
+			free(tdm->td);
 		}
 		nexttdm = tdm->next;
 		free(tdm);
@@ -128,7 +128,7 @@ destroy_urb(struct uhci_host *host, struct usb_request_block *urb)
 	while (urb->buffers) {
 		b = urb->buffers;
 		if (b->vadr)
-			mfree_pool(host->pool, b->vadr);
+			free((void *)b->vadr);
 		urb->buffers = b->next;
 		free(b);
 	}
@@ -136,28 +136,10 @@ destroy_urb(struct uhci_host *host, struct usb_request_block *urb)
 	dprintft(3, "%04x: %s: urb(%p) destroyed.\n",
 		 host->iobase, __FUNCTION__, urb);
 
+	free(urb->hcpriv);
 	free(urb);
 
 	return;
-}
-
-/**
- * @brief returns the end point descriptor of the enpoint 
- * @param device struct usb_device 
- * @param endpoint u8
- */
-static inline struct usb_endpoint_descriptor *
-usb_epdesc(struct usb_device *device, u8 endpoint)
-{
-	endpoint &= USB_ENDPOINT_ADDRESS_MASK;
-
-	if (!device || !device->config || !device->config->interface ||
-	    !device->config->interface->altsetting ||
-	    !device->config->interface->altsetting->endpoint ||
-	    (device->config->interface->altsetting->bNumEndpoints < endpoint))
-		return NULL;
-		
-	return &device->config->interface->altsetting->endpoint[endpoint];
 }
 
 static inline u32
@@ -176,43 +158,51 @@ uhci_pid_from_ep(struct usb_endpoint_descriptor *epdesc)
  * @param size size_t 
  * @param deviceaddress u8 
  * @param epdesc struct usb_endpoint_descriptor
+ * @param maxpktsz size_t
  * @param status u32 
  */		
 static struct uhci_td_meta *
 prepare_buffer_tds(struct uhci_host *host, phys32_t buf_phys, size_t size, 
 		   u8 deviceaddress, struct usb_endpoint_descriptor *epdesc,
-		   u32 status)
+		   size_t maxpktsz, u32 status)
 {
 	struct uhci_td_meta *tdm = NULL, *next_tdm = NULL;
 	int                  n_td, i;
-	size_t               pktsize, maxlen;
+	size_t pktsz;
 
-	pktsize = epdesc->wMaxPacketSize;
-	n_td = (size + (pktsize - 1)) / pktsize;
-	maxlen = (size % pktsize) ? (size % pktsize) : pktsize;
-	if (!size) {
-		/* for ZERO OUT */
-		n_td += 1; 
-		maxlen = 0;
+	n_td = size / maxpktsz;
+	pktsz = size % maxpktsz;
+	/* rounding them for the final one */
+	if (pktsz == 0) {
+		pktsz = maxpktsz;
+	} else {
+		n_td += 1;
 	}
-	buf_phys += pktsize * n_td;
-	for (i=n_td; i>0; i--) {
+	if (size == 0) {
+		/* for ZERO OUT */
+		n_td += 1;
+		pktsz = 0;
+	}
+	/* create TDs in reverse (from the final to the 1st) */
+	buf_phys += maxpktsz * n_td;
+	for (i = n_td; i > 0; i--) {
 		tdm = uhci_new_td_meta(host, NULL);
 		if (!tdm)
 			return 0ULL;
 		tdm->td->link = 
 			(next_tdm) ? next_tdm->td_phys : UHCI_TD_LINK_TE;
-		tdm->next = next_tdm; 
+		tdm->next = next_tdm;
 		tdm->td->status = tdm->status_copy = status;
 		tdm->td->token = tdm->token_copy =
-			uhci_td_explen(maxlen) |
+			uhci_td_explen(pktsz) |
 			UHCI_TD_TOKEN_ENDPOINT(epdesc->bEndpointAddress) | 
 			UHCI_TD_TOKEN_DEVADDRESS(deviceaddress) |
 			uhci_pid_from_ep(epdesc);
-		buf_phys = tdm->td->buffer = buf_phys - pktsize;
+		buf_phys = tdm->td->buffer = buf_phys - maxpktsz;
 
 		next_tdm = tdm;
-		maxlen = pktsize;
+		pktsz = maxpktsz; /* for other packets, 
+				     except for the final */
 	}
 
 	return tdm;
@@ -241,8 +231,9 @@ uhci_fixup_toggles(struct uhci_td_meta *tdm, u32 toggle)
  * @param urb struct usb_request_block
  */
 u8
-uhci_deactivate_urb(struct uhci_host *host, struct usb_request_block *urb)
+uhci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *urb)
 {
+	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 	u8 status, type;
 
 	/* nothing to do if already unlinked */
@@ -457,7 +448,7 @@ uhci_reactivate_urb(struct uhci_host *host,
 	/* clean up completed TDs */
 	while (comptdm != tdm) {
 		comptdm->td->link = UHCI_TD_LINK_TE;
-		mfree_pool(host->pool, (virt_t)comptdm->td);
+		free(comptdm->td);
 		nexttdm = comptdm->next;
 		free(comptdm);
 		comptdm = nexttdm;
@@ -465,6 +456,15 @@ uhci_reactivate_urb(struct uhci_host *host,
 
 	return urb->status;
 }
+
+static struct usb_endpoint_descriptor default_ep0 = {
+	.bLength = 0x07U,
+	.bDescriptorType = 0x05U,
+	.bEndpointAddress = 0x00U,
+	.bmAttributes = 0x00U,
+	.wMaxPacketSize = UHCI_DEFAULT_PKTSIZE,
+	.bInterval = 0x00U,
+};
 
 /**
  * @brief submit the control messagie
@@ -477,24 +477,29 @@ uhci_reactivate_urb(struct uhci_host *host,
  * @param ioc int  
  */	
 struct usb_request_block *
-uhci_submit_control(struct uhci_host *host, struct usb_device *device, 
-		    u8 endpoint, struct usb_ctrl_setup *csetup,
+uhci_submit_control(struct usb_host *usbhc, struct usb_device *device, 
+		    u8 endpoint, u16 pktsz, struct usb_ctrl_setup *csetup,
 		    int (*callback)(struct usb_host *,
 				    struct usb_request_block *, void *), 
 		    void *arg, int ioc)
 {
+	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 	struct usb_request_block *urb;
 	struct usb_endpoint_descriptor *epdesc;
 	struct uhci_td_meta *tdm;
 	struct usb_buffer_list *b;
-	size_t pktsize;
 
-	epdesc = usb_epdesc(device, endpoint);
+	epdesc = get_edesc_by_address(device, endpoint);
 	if (!epdesc) {
-		dprintft(2, "%04x: %s: no endpoint(%d) found.\n",
-			 host->iobase, __FUNCTION__, endpoint);
+		if (endpoint != 0) {
+			dprintft(2, "%04x: %s: no endpoint(%d) found.\n",
+				 host->iobase, __FUNCTION__, endpoint);
 
-		return (struct usb_request_block *)NULL;
+			return (struct usb_request_block *)NULL;
+		}
+		
+		/* use the default endpoint */
+		epdesc = &default_ep0;
 	}
 
 	dprintft(5, "%s: epdesc->wMaxPacketSize = %d\n", 
@@ -503,7 +508,7 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 	urb = create_urb(host);
 	if (!urb)
 		return (struct usb_request_block *)NULL;
-	if (device){
+	if (device) {
 		spinlock_lock(&device->lock_dev);
 		init_urb(urb, device->devnum, epdesc, callback, arg);
 		spinlock_unlock(&device->lock_dev);
@@ -515,7 +520,8 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 
 	URB_UHCI(urb)->qh->link = UHCI_QH_LINK_TE;
 
-	pktsize = epdesc->wMaxPacketSize;
+	if (pktsz == 0)
+		pktsz = epdesc->wMaxPacketSize;
 
 	/* SETUP TD */
 	URB_UHCI(urb)->tdm_head = tdm = uhci_new_td_meta(host, NULL);
@@ -524,8 +530,9 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 	URB_UHCI(urb)->qh->element = 
 		URB_UHCI(urb)->qh_element_copy = tdm->td_phys;
 	b = zalloc_usb_buffer_list();
+	b->pid = USB_PID_SETUP;
 	b->len = sizeof(*csetup);
-	b->vadr = malloc_from_pool(host->pool, b->len, &b->padr);
+	b->vadr = (virt_t)alloc2_aligned(b->len, &b->padr);
 		
 	if (!b->vadr) {
 		free(b);
@@ -536,7 +543,7 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 
 	tdm->td->status = tdm->status_copy =
 		UHCI_TD_STAT_AC | uhci_td_maxerr(3);
-	if (device){
+	if (device) {
 		spinlock_lock(&device->lock_dev);
 		tdm->td->token = tdm->token_copy =
 			uhci_td_explen(sizeof(*csetup)) |
@@ -549,8 +556,9 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 
 	if (csetup->wLength > 0) {
 		b = zalloc_usb_buffer_list();
+		b->pid = USB_PID_IN;
 		b->len = csetup->wLength;
-		b->vadr = malloc_from_pool(host->pool, b->len, &b->padr);
+		b->vadr = (virt_t)alloc2_aligned(b->len, &b->padr);
 
 		if (!b->vadr) {
 			free(b);
@@ -559,11 +567,12 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 
 		b->next = urb->buffers;
 		urb->buffers = b;
-		if(device){
+		if (device) {
 			spinlock_lock(&device->lock_dev);
 			tdm = prepare_buffer_tds(host, (phys32_t)b->padr, 
 						 b->len,
 						 device->devnum, epdesc, 
+						 (size_t)pktsz,
 						 UHCI_TD_STAT_AC | 
 						 UHCI_TD_STAT_SP | 
 						 uhci_td_maxerr(3));
@@ -579,7 +588,7 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
 	}
 
 	/* The 1st toggle for SETUP must be 0. */
-	uhci_fixup_toggles(URB_UHCI(urb)->tdm_head, epdesc->toggle); 
+	uhci_fixup_toggles(URB_UHCI(urb)->tdm_head, epdesc->toggle);
 
 	/* append one more TD for the status stage */
 	for (tdm = URB_UHCI(urb)->tdm_head; tdm->next; tdm = tdm->next);
@@ -591,7 +600,7 @@ uhci_submit_control(struct uhci_host *host, struct usb_device *device,
         tdm->next->td->status = UHCI_TD_STAT_AC | uhci_td_maxerr(3);
 	if (ioc) 
 		tdm->next->td->status |= UHCI_TD_STAT_IC;
-	if (device){
+	if (device) {
 		spinlock_lock(&device->lock_dev);
 		tdm->next->td->token = uhci_td_explen(0) |
 			UHCI_TD_TOKEN_ENDPOINT(epdesc->bEndpointAddress) | 
@@ -641,7 +650,7 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 	urb = create_urb(host);
 	if (!urb)
 		return (struct usb_request_block *)NULL;
-	if (device){
+	if (device) {
 		spinlock_lock(&device->lock_dev);
 		init_urb(urb, device->devnum, epdesc, callback, arg);
 		spinlock_unlock(&device->lock_dev);
@@ -660,26 +669,30 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 		struct usb_buffer_list *b;
 
 		b = zalloc_usb_buffer_list();
+		b->pid = USB_PID_IN;
 		b->len = size;
-		b->vadr = malloc_from_pool(host->pool, b->len, &b->padr);
+		b->vadr = (virt_t)alloc2_aligned(b->len, &b->padr);
 		if (!b->vadr) {
 			free(b);
 			goto fail_submit_async;
 		}
 
 		/* copy data if OUT direction */
-		if (!USB_EP_DIRECT(epdesc))
+		if (!USB_EP_DIRECT(epdesc)) {
+			b->pid = USB_PID_OUT;
 			memcpy((void *)b->vadr, data, b->len);
+		}
 
 		urb->buffers = b;
 	}
 
-	if (device){
+	if (device) {
 		spinlock_lock(&device->lock_dev);
 		URB_UHCI(urb)->tdm_head = 
 			prepare_buffer_tds(host, (urb->buffers) ? 
 					   (phys32_t)urb->buffers->padr : 0U,
 					   size, device->devnum, epdesc,
+					   (size_t)pktsize,
 					   UHCI_TD_STAT_AC | 
 					   UHCI_TD_STAT_SP | 
 					   uhci_td_maxerr(3));
@@ -724,23 +737,19 @@ fail_submit_async:
  * @param ioc int 
  */
 struct usb_request_block *
-uhci_submit_interrupt(struct uhci_host *host, struct usb_device *device,
-		      u8 endpoint, void *data, u16 size,
-		    int (*callback)(struct usb_host *,
-				    struct usb_request_block *, void *), 
-		    void *arg, int ioc)
+uhci_submit_interrupt(struct usb_host *usbhc, struct usb_device *device,
+		      struct usb_endpoint_descriptor *epdesc,
+		      void *data, u16 size,
+		      int (*callback)(struct usb_host *,
+				      struct usb_request_block *, void *), 
+		      void *arg, int ioc)
 {
-	struct usb_endpoint_descriptor *epdesc;
+	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 
-	epdesc = usb_epdesc(device, endpoint);
-	if (!epdesc || (USB_EP_TRANSTYPE(epdesc) != USB_ENDPOINT_TYPE_INTERRUPT)) {
-		if (!epdesc)
-			dprintft(2, "%04x: %s: no endpoint(%d) found.\n",
-				 host->iobase, __FUNCTION__, endpoint);
-		else 
-			dprintft(2, "%04x: %s: wrong endpoint(%02x).\n",
-				 host->iobase, __FUNCTION__, 
-				 USB_EP_TRANSTYPE(epdesc));
+	if (USB_EP_TRANSTYPE(epdesc) != USB_ENDPOINT_TYPE_INTERRUPT) {
+		dprintft(2, "%04x: %s: wrong endpoint(%02x).\n",
+			 host->iobase, __FUNCTION__, 
+			 USB_EP_TRANSTYPE(epdesc));
 		return (struct usb_request_block *)NULL;
 	}
 
@@ -760,23 +769,19 @@ uhci_submit_interrupt(struct uhci_host *host, struct usb_device *device,
  * @param ioc int 
  */
 struct usb_request_block *
-uhci_submit_bulk(struct uhci_host *host, struct usb_device *device,
-		 u8 endpoint, void *data, u16 size,
+uhci_submit_bulk(struct usb_host *usbhc, struct usb_device *device,
+		 struct usb_endpoint_descriptor *epdesc,
+		 void *data, u16 size,
 		 int (*callback)(struct usb_host *,
 				 struct usb_request_block *, void *), 
 		 void *arg, int ioc)
 {
-	struct usb_endpoint_descriptor *epdesc;
+	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 
-	epdesc = usb_epdesc(device, endpoint);
-	if (!epdesc || (USB_EP_TRANSTYPE(epdesc) != USB_ENDPOINT_TYPE_BULK)) {
-		if (!epdesc)
-			dprintft(2, "%04x: %s: no endpoint(%02x) found.\n",
-				 host->iobase, __FUNCTION__, endpoint);
-		else 
-			dprintft(2, "%04x: %s: wrong endpoint(%02x).\n",
-				 host->iobase, __FUNCTION__, 
-				 USB_EP_TRANSTYPE(epdesc));
+	if (USB_EP_TRANSTYPE(epdesc) != USB_ENDPOINT_TYPE_BULK) {
+		dprintft(2, "%04x: %s: wrong endpoint(%02x).\n",
+			 host->iobase, __FUNCTION__, 
+			 USB_EP_TRANSTYPE(epdesc));
 		return (struct usb_request_block *)NULL;
 	}
 
@@ -790,17 +795,18 @@ uhci_submit_bulk(struct uhci_host *host, struct usb_device *device,
  * @param urb struct usb_request_block 
  * @param usbsts u16 
  */
-static u8
-check_urb_advance(struct uhci_host *host, 
-		      struct usb_request_block *urb, u16 usbsts) 
+u8
+uhci_check_urb_advance(struct usb_host *usbhc,
+		       struct usb_request_block *urb)
 {
+	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 	struct uhci_td_meta *tdm;
 	phys32_t qh_element;
 	int elapse, len;
 
 	elapse = (uhci_current_frame_number(host) + 
 		  UHCI_NUM_FRAMES - URB_UHCI(urb)->frnum_issued) & 
-		(UHCI_NUM_FRAMES - 1); 
+		(UHCI_NUM_FRAMES - 1);
 
 	if (!elapse)
 		return urb->status;
@@ -870,11 +876,11 @@ cmpxchgl(u32 *ptr, u32 old, u32 new)
  * @param host struct uhci_host
 */
 int
-check_advance(struct uhci_host *host) 
+uhci_check_advance(struct usb_host *usbhc) 
 {
+	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 	struct usb_request_block *urb, *nexturb;
 	int advance = 0, ret = 0;
-	u16 usbsts = 0U;
 
 	if (cmpxchgl(&host->incheck, 0U, 1U))
 		return 0;
@@ -885,17 +891,19 @@ check_advance(struct uhci_host *host)
 		dprintft(2, "%04x: %s: usbsts = %04x\n", 
 			host->iobase, __FUNCTION__, usbsts);
 #endif /* 0 */
-	urb = host->inproc_urbs; 
+	urb = host->inproc_urbs;
 	while (urb) {
 		/* update urb->status */
 		if (urb->status == URB_STATUS_RUN)
-			check_urb_advance(host, urb, usbsts);
+			uhci_check_urb_advance(host->hc, urb);
 
 		switch (urb->status) {
 		case URB_STATUS_UNLINKED:
 			spinlock_lock(&host->lock_hfl);
 			nexturb = urb->next;
 			remove_urb(&host->inproc_urbs, urb);
+			if (urb->shadow)
+				urb->shadow->shadow = NULL;
 			destroy_urb(host, urb);
 			dprintft(3, "%04x: %s: urb(%p) destroyed.\n",
 				 host->iobase, __FUNCTION__, urb);
@@ -918,8 +926,6 @@ check_advance(struct uhci_host *host)
 		case URB_STATUS_NAK:
 			dprintft(2, "%04x: %s: got an NAK for urb(%p).\n",
 				 host->iobase, __FUNCTION__, urb);
-			if (urb->shadow)
-				uhci_force_copyback(host, urb);
 			urb->status = URB_STATUS_RUN;
 		case URB_STATUS_RUN:
 		case URB_STATUS_FINALIZED:

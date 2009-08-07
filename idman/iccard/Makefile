@@ -8,7 +8,7 @@ HEADERS       = $(wildcard *.h)
 CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O \
 		-nostdinc -fno-builtin $(CONSTANTS-1) -I../pcsc/ -I./ \
 		-I../standardio/ -I../../include/ -DIDMAN_CLIENT -DNTTCOM \
-		-fno-stack-protector
+		-fno-stack-protector -mno-sse
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64

@@ -144,10 +144,14 @@
  * o ...                                       (for OpenSSL)
  */
 
+#define NOFLOAT
+
+#ifndef NOFLOAT
 #ifdef HAVE_LONG_DOUBLE
 #define LDOUBLE long double
 #else
 #define LDOUBLE double
+#endif
 #endif
 
 #if HAVE_LONG_LONG
@@ -164,8 +168,10 @@ static void fmtstr     (char **, char **, size_t *, size_t *,
 			const char *, int, int, int);
 static void fmtint     (char **, char **, size_t *, size_t *,
 			LLONG, int, int, int, int);
+#ifndef NOFLOAT
 static void fmtfp      (char **, char **, size_t *, size_t *,
 			LDOUBLE, int, int, int);
+#endif
 static void doapr_outch (char **, char **, size_t *, size_t *, int);
 static void _dopr(char **sbuffer, char **buffer,
 		  size_t *maxlen, size_t *retlen, int *truncated,
@@ -193,7 +199,9 @@ static void _dopr(char **sbuffer, char **buffer,
 /* conversion flags */
 #define DP_C_SHORT      1
 #define DP_C_LONG       2
+#ifndef NOFLOAT
 #define DP_C_LDOUBLE    3
+#endif
 #define DP_C_LLONG      4
 
 /* some handy macros */
@@ -212,7 +220,9 @@ _dopr(
 {
     char ch;
     LLONG value;
+#ifndef NOFLOAT
     LDOUBLE fvalue;
+#endif
     char *strvalue;
     int min;
     int max;
@@ -315,10 +325,12 @@ _dopr(
                 cflags = DP_C_LLONG;
                 ch = *format++;
                 break;
+#ifndef NOFLOAT
             case 'L':
                 cflags = DP_C_LDOUBLE;
                 ch = *format++;
                 break;
+#endif
             default:
                 break;
             }
@@ -372,6 +384,7 @@ _dopr(
                        ch == 'o' ? 8 : (ch == 'u' ? 10 : 16),
                        min, max, flags);
                 break;
+#ifndef NOFLOAT
             case 'f':
                 if (cflags == DP_C_LDOUBLE)
                     fvalue = va_arg(args, LDOUBLE);
@@ -396,6 +409,7 @@ _dopr(
                 else
                     fvalue = va_arg(args, double);
                 break;
+#endif
             case 'c':
                 doapr_outch(sbuffer, buffer, &currlen, maxlen,
                     va_arg(args, int));
@@ -603,6 +617,7 @@ fmtint(
     return;
 }
 
+#ifndef NOFLOAT
 static LDOUBLE
 abs_val(LDOUBLE value)
 {
@@ -758,6 +773,7 @@ fmtfp(
         ++padlen;
     }
 }
+#endif
 
 static void
 doapr_outch(

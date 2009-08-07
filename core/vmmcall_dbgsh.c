@@ -215,10 +215,17 @@ e (void)
 }
 
 int
-main ()
+main (int argc, char **argv)
 {
 	int s, r;
+	FILE *fp;
 
+	if (argc >= 2) {
+		fp = fopen (argv[1], "w");
+	} else {
+		fp = NULL;
+	}
+	vmcall_dbgsh (-1);
 	if (vmcall_dbgsh (-1) == -1)
 		exit (1);
 	atexit (e);
@@ -230,6 +237,10 @@ main ()
 		if (r == 0) {
 			s = GETCHAR ();
 		} else if (r > 0) {
+			if (fp) {
+				fprintf (fp, "%c", r);
+				fflush (fp);
+			}
 			PUTCHAR (r);
 			s = 0;
 		}

@@ -27,13 +27,34 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_ICCARD_H
-#define _CORE_ICCARD_H
+/* usage: ./keymapdump < /dev/tty0 > conf/keymap */
 
-#include "types.h"
+#include <linux/kd.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
 
-void idman_reinit_session (void);
-void idman_reinit2 (void);
-bool get_idman_session (unsigned long *session);
+unsigned short keymap[256][256];
 
-#endif
+int
+main (int argc, char **argv)
+{
+	int i, j;
+	struct kbentry k;
+
+	for (i = 0; i < 256; i++) {
+		for (j = 0; j < 256; j++) {
+			k.kb_table = i;
+			k.kb_index = j;
+			if (ioctl (0, KDGKBENT, &k) < 0) {
+				perror ("ioctl");
+				return 1;
+			}
+			keymap[i][j] = k.kb_value;
+		}
+	}
+	if (fwrite (keymap, sizeof keymap, 1, stdout) != 1) {
+		perror ("fwrite");
+		return 1;
+	}
+	return 0;
+}

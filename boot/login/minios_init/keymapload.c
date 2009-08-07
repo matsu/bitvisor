@@ -27,35 +27,21 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _USB_MPOOL_H
-#define _USB_MPOOL_H
+#include <linux/kd.h>
+#include <sys/ioctl.h>
 
-#define MEMPOOL_ALIGN           (32)
+void
+loadkeymap (unsigned short keymap[256][256])
+{
+	int i, j;
+	struct kbentry k;
 
-struct mem_node {
-	phys_t              phys;
-	u8                  status;
-#define MEMPOOL_STATUS_FREE   0x80
-#define MEMPOOL_STATUS_INUSE  0x01
-	u8                  _pad;
-	u16                 index;
-	struct mem_node    *next;
-} __attribute__ ((aligned (MEMPOOL_ALIGN)));
-
-#define MEMPOOL_MAX_INDEX       (16)
-
-struct mem_pool {
-	size_t              align;
-	struct mem_node    *free_node[MEMPOOL_MAX_INDEX + 1];
-	spinlock_t          lock;
-};
-
-/* uhci_mpool.c */
-struct mem_pool *
-create_mem_pool(size_t align);
-virt_t 
-malloc_from_pool(struct mem_pool *pool, size_t len, phys_t *phys_addr);
-void 
-mfree_pool(struct mem_pool *pool, virt_t addr);
-
-#endif /* _USB_MPOOL_H */
+	for (i = 0; i < 256; i++) {
+		for (j = 0; j < 256; j++) {
+			k.kb_table = i;
+			k.kb_index = j;
+			k.kb_value = keymap[i][j];
+			ioctl (0, KDSKBENT, &k);
+		}
+	}
+}

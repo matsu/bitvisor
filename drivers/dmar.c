@@ -154,6 +154,7 @@ static int parse_dev_scope(void *start, void *end, struct acpi_drhd_u *drhd_u)
 	return 0;
 }
 
+#ifdef VTD_TRANS
 static int parse_drhd_u(struct acpi_ent_drhd *ent)
 {
 	struct acpi_ent_drhd *drhd = ent;
@@ -198,6 +199,7 @@ static int parse_drhd_u(struct acpi_ent_drhd *ent)
 
 	return ret;
 }
+#endif
 
 int  parse_dmar_bios_report(struct acpi_ent_dmar *dmar) 
 {
@@ -256,4 +258,5 @@ int  parse_dmar_bios_report(struct acpi_ent_dmar *dmar)
 	
 	return ret;
 #endif // of VTD_TRANS
+	return 0;
 }

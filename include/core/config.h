@@ -203,6 +203,8 @@ struct config_data_vmm {
 	int shell;
 	int dbgsh;
 	int boot_active;
+	int tty_pro1000;
+	char tty_pro1000_mac_address[6];
 	struct config_data_vmm_driver driver;
 	struct config_data_vmm_iccard iccard;
 };

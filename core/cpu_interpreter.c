@@ -109,6 +109,7 @@
 #define OPCODE_0xFF			0xFF
 #define OPCODE_0xFF_JMP_FAR_INDIRECT	0x05
 #define OPCODE_RETF			0xCB
+#define OPCODE_0x0F_LSS			0xB2
 
 /* --- for MMIO --- */
 #define OPCODE_MOVSB			0xA4
@@ -118,6 +119,8 @@
 #define OPCODE_0x0F_MOVZX_RM8_TO_R	0xB6
 #define OPCODE_0x0F_MOVZX_RM16_TO_R	0xB7
 #define OPCODE_0xFF_PUSH		0x06
+#define OPCODE_0x8F			0x8F
+#define OPCODE_0x8F_POP			0x00
 
 enum addrtype {
 	ADDRTYPE_16BIT,
@@ -2123,6 +2126,58 @@ opcode_ff_push (struct op *op)
 }
 
 static enum vmmerr
+opcode_8f_pop (struct op *op)
+{
+	u32 data;
+	u16 data16;
+	struct cpu_stack st;
+
+	if (op->longmode)
+		panic ("64bit POP not supported");
+	RIE (cpu_stack_get (&st));
+	RIE (cpu_stack_pop (&st, &data, op->optype));
+	if (op->optype == OPTYPE_16BIT) {
+		data16 = data;
+		RIE (write_modrm16 (op, data16));
+	} else {
+		RIE (write_modrm (op, data));
+	}
+	UPDATE_IP (op);
+	RIE (cpu_stack_set (&st));
+	return VMMERR_SUCCESS;
+}
+
+static enum vmmerr
+opcode_0f_lss (struct op *op)
+{
+	u32 data;
+	u16 data16;
+	u16 seg;
+
+	if (op->longmode)
+		panic ("64bit LSS(0F) not supported");
+	if (op->modrm_reg != REG_NO)
+		panic ("LSS(0F) reg");
+	if (op->mode != CPUMODE_REAL)
+		panic ("LSS(0F) protected mode");
+	if (op->optype == OPTYPE_16BIT) {
+		RIE (read_modrm16 (op, &data16));
+		op->modrm_off += 2;
+		RIE (read_modrm16 (op, &seg));
+		current->vmctl.write_realmode_seg (SREG_SS, seg);
+		set_reg16 (op, op->modrm.reg, data16);
+	} else {
+		RIE (read_modrm (op, &data));
+		op->modrm_off += 4;
+		RIE (read_modrm16 (op, &seg));
+		current->vmctl.write_realmode_seg (SREG_SS, seg);
+		set_reg (op, op->modrm.reg, data);
+	}
+	UPDATE_IP (op);
+	return VMMERR_SUCCESS;
+}
+
+static enum vmmerr
 idata_rd (struct op *op, enum idata_operand operand, int length, void *pointer)
 {
 	switch (operand) {
@@ -2531,6 +2586,10 @@ parse_opcode:
 		READ_NEXT_B (op, &op->modrm);
 		GET_MODRM (op);
 		goto parse_opcode_0xff;
+	case OPCODE_0x8F:
+		READ_NEXT_B (op, &op->modrm);
+		GET_MODRM (op);
+		goto parse_opcode_0x8f;
 	case OPCODE_RETF:
 		return opcode_retf (op);
 	case OPCODE_MOVSB:
@@ -2645,6 +2704,10 @@ parse_opcode_0x0f:
 		READ_NEXT_B (op, &op->modrm);
 		GET_MODRM (op);
 		return opcode_movzx_rm16_to_r (op);
+	case OPCODE_0x0F_LSS:
+		READ_NEXT_B (op, &op->modrm);
+		GET_MODRM (op);
+		return opcode_0f_lss (op);
 	}
 	op->ip_off += 16;
 	return VMMERR_UNSUPPORTED_OPCODE;
@@ -2674,6 +2737,13 @@ parse_opcode_0xff:
 		return opcode_jmp_far_indirect (op);
 	case OPCODE_0xFF_PUSH:
 		return opcode_ff_push (op);
+	}
+	op->ip_off += 16;
+	return VMMERR_UNSUPPORTED_OPCODE;
+parse_opcode_0x8f:
+	switch (op->modrm.reg) {
+	case OPCODE_0x8F_POP:
+		return opcode_8f_pop (op);
 	}
 	op->ip_off += 16;
 	return VMMERR_UNSUPPORTED_OPCODE;

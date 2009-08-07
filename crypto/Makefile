@@ -9,7 +9,8 @@ HEADERS       = $(wildcard *.h) $(wildcard ../include/core/*.h) $(wildcard ./ope
 OBJ_OPENSSL   = ./openssl/openssl.o
 CFLAGS        = -m$(BITS-$(CONFIG_64)) -fsigned-char -mno-red-zone -g -O \
 		-nostdinc -fno-builtin $(CONSTANTS-1) -I../include/ -I./ \
-		-I./openssl/ -I../vpn/ -I../core/ -fno-stack-protector
+		-I./openssl/ -I../vpn/ -I../core/ -fno-stack-protector \
+		-mno-sse
 ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64

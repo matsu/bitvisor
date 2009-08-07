@@ -83,7 +83,7 @@ dump_td_byvirt(int level, struct uhci_host *host, struct uhci_td *td)
 			dprintft(level, "%04x:  BUF(%s, %4d/%4d byte(s)) = ", 
 				 host->iobase, dir, actlen, maxlen);
 			va = (virt_t)mapmem_gphys(td->buffer, len, 0);
-			for (i=0; i<len; i++)
+			for (i = 0; i < len; i++)
 				dprintf(level, "%02x ", *(u8 *)(va + i));
 			dprintf(level, "\n");
 			unmapmem((void *)va, len);
@@ -105,7 +105,7 @@ dump_td(int level, struct uhci_host *host,
 	td = uhci_gettdbypaddr(host, padr, flags);
 
 	if ((n_cached) && (cached)) {
-		for (i=0; i<*n_cached; i++) {
+		for (i = 0; i < *n_cached; i++) {
 			if (cached[i] == padr) {
 				link = td->link;
 				unmapmem(td, sizeof(struct uhci_td));
@@ -485,7 +485,7 @@ device_found:
 	printf("%s: usb_get_descriptor() = %d/%lu: ", 
 	       __FUNCTION__, ret, size);
 
-	for (i=0; i<ret; i++) 
+	for (i = 0; i < ret; i++) 
 		printf("%02x ", buf[i]);
 	printf("\n");
 	size += 0x10;
@@ -517,7 +517,7 @@ device_found:
 	ret = usb_bulk_read(handle, 0x82, (char *)buf, 10, 
 			    10000 /* 10 sec. */);
 	printf("%s: usb_bulk_read() = %d: ", __FUNCTION__, ret);
-	for (i=0; i<ret; i++) 
+	for (i = 0; i < ret; i++) 
 		printf("%02x ", buf[i]);
 	printf("\n");
 	seq++;
@@ -528,7 +528,7 @@ device_found:
 	ret = usb_interrupt_read(handle, 0x83, (char *)bufi, sizeof(bufi), 
 				 10000 /* 10 sec. */);
 	printf("%s: usb_interrupt_read() = %d: ", __FUNCTION__, ret);
-	for (i=0; i<ret; i++) 
+	for (i = 0; i < ret; i++) 
 		printf("%02x ", bufi[i]);
 	printf("\n");
 

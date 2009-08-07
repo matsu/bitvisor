@@ -92,6 +92,9 @@ tty_putchar (unsigned char c)
 			loglen++;
 		spinlock_unlock (&putchar_lock);
 	}
+#ifdef TTY_PRO1000
+	pro1000_putchar (c);
+#endif
 #ifdef TTY_SERIAL
 	serial_putchar (c);
 #else

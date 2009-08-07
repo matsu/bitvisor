@@ -30,9 +30,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/klog.h>
 #include <sys/mount.h>
 #include "boot.h"
 #include "configparser.h"
+#include "keymapload.h"
 #include "passinput.h"
 #include "usbmem.h"
 #include "IDMan.h"
@@ -107,9 +109,21 @@ main (int argc, char **argv)
 	unsigned short certlen;
 	int retrycount = 0;
 	static unsigned char cert[4096];
+	static unsigned short keymap[256][256];
 
 	if (mount ("none", "/dev/bus/usb", "usbfs", MS_MGC_VAL, ""))
 		perror ("mount");
+	klogctl (8, 0, 1);
+	fp = fopen ("/conf/keymap", "r");
+	if (fp) {
+		if (fread (keymap, sizeof keymap, 1, fp) == 1)
+			loadkeymap (keymap);
+		else
+			perror ("fread");
+		fclose (fp);
+	} else {
+		perror ("keymap");
+	}
 	fp = fopen ("/conf/bitvisor.conf", "r");
 	if (!fp) {
 		perror ("init");
@@ -168,7 +182,7 @@ retry:
 	secondboot = 1;
 	configparser (buf, sizeof buf, fp, &config, setconfig);
 	fclose (fp);
-	if (strcmp (config.vpn.vpnAuthMethodV4, "Cert-IC") == 0) {
+	if (strcasecmp (config.vpn.vpnAuthMethodV4, "Cert-IC") == 0) {
 		if (!idmaninit) {
 			fprintf (stderr, "VPN configuration error\n");
 			return 1;
@@ -183,7 +197,23 @@ retry:
 		}
 		memcpy (config.vpn.vpnCertV4, cert, certlen);
 	}
-	if (strcmp (config.vpn.vpnAuthMethodV6, "Cert-IC") == 0) {
+	if (strcasecmp (config.vpn.vpnAuthMethodV4, "Password-IC") == 0) {
+		void *val;
+		int len;
+
+		strcpy (config.vpn.vpnAuthMethodV4, "Password");
+		val = malloc (1);
+		get_ic_static_passwd (INDEX_VPN, &val, &len);
+		if (len >= sizeof config.vpn.vpnPasswordV4) {
+			fprintf (stderr, "vpnPasswordV4 too long\n");
+			return 1;
+		}
+		memset (config.vpn.vpnPasswordV4, 0,
+			sizeof config.vpn.vpnPasswordV4);
+		memcpy (config.vpn.vpnPasswordV4, val, len);
+		free (val);
+	}
+	if (strcasecmp (config.vpn.vpnAuthMethodV6, "Cert-IC") == 0) {
 		if (!idmaninit) {
 			fprintf (stderr, "VPN configuration error\n");
 			return 1;
@@ -197,6 +227,22 @@ retry:
 			return 1;
 		}
 		memcpy (config.vpn.vpnCertV6, cert, certlen);
+	}
+	if (strcasecmp (config.vpn.vpnAuthMethodV6, "Password-IC") == 0) {
+		void *val;
+		int len;
+
+		strcpy (config.vpn.vpnAuthMethodV6, "Password");
+		val = malloc (1);
+		get_ic_static_passwd (INDEX_VPN, &val, &len);
+		if (len >= sizeof config.vpn.vpnPasswordV6) {
+			fprintf (stderr, "vpnPasswordV6 too long\n");
+			return 1;
+		}
+		memset (config.vpn.vpnPasswordV6, 0,
+			sizeof config.vpn.vpnPasswordV6);
+		memcpy (config.vpn.vpnPasswordV6, val, len);
+		free (val);
 	}
 	load_random_seed (&config, "/dev/urandom");
 	boot_guest ();
