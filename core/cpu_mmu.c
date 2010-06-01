@@ -124,18 +124,18 @@ test_pmap_entry_reserved_bit (u64 entry, int level, int levels,
 }
 
 static bool
-set_ad_bit (pmap_t *m, u64 entry, bool seta, bool setd)
+set_ad_bit (pmap_t *m, u64 *entry, bool seta, bool setd)
 {
-	if (entry & PDE_A_BIT)
+	if (*entry & PDE_A_BIT)
 		seta = false;
-	if (entry & PDE_D_BIT)
+	if (*entry & PDE_D_BIT)
 		setd = false;
 	if (seta || setd) {
 		if (seta)
-			entry |= PDE_A_BIT;
+			*entry |= PDE_A_BIT;
 		if (setd)
-			entry |= PDE_D_BIT;
-		return pmap_write (m, entry, 0xFFF);
+			*entry |= PDE_D_BIT;
+		return pmap_write (m, *entry, 0xFFF);
 	} else {
 		return false;
 	}
@@ -155,6 +155,7 @@ get_pte_sub (ulong virt, ulong cr3, struct get_pte_data d, u64 entries[5],
 	int i;
 	u64 entry;
 	enum vmmerr r;
+	bool setd;
 
 	if (!d.pg) {
 		/* Paging disabled */
@@ -201,13 +202,11 @@ get_pte_sub (ulong virt, ulong cr3, struct get_pte_data d, u64 entries[5],
 			goto ret_noexec;
 		if (i == 2 && !d.pse) /* simplify3 */
 			entry &= ~(u64)PDE_PS_BIT;
-		if ((i == 2 && (entry & PDE_PS_BIT)) || i == 1) {
-			if (set_ad_bit (&m, entry, true, d.write))
-				goto retry;
-		} else {
-			if (set_ad_bit (&m, entry, true, false))
-				goto retry;
-		}
+		setd = false;
+		if ((i == 2 && (entry & PDE_PS_BIT)) || i == 1)
+			setd = d.write;
+		if (set_ad_bit (&m, &entry, true, setd))
+			goto retry;
 		entries[i - 1] = entry;
 	}
 	r = VMMERR_SUCCESS;

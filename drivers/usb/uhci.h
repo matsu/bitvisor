@@ -32,6 +32,7 @@
 
 #include <core.h>
 #include <core/mm.h>
+#include <core/list.h>
 #include "pci.h"
 #include "usb.h"
 
@@ -121,6 +122,7 @@ struct uhci_td_meta {
 #define UHCI_PATTERN_32_TDTOKEN        0x00000002U
 #define UHCI_PATTERN_32_DATA           0x00000004U
 #define UHCI_PATTERN_64_DATA           0x00000008U
+#define UHCI_URBHASH_SIZE 1024
 
 struct urb_private_uhci {
 	struct uhci_qh         *qh;
@@ -131,7 +133,6 @@ struct urb_private_uhci {
 	u16                    refcount; /* only for skelton urbs */
 	u16                    frnum_issued; /* frame counter value
 						when urb issued */
-
 	phys32_t               td_stat; /* for change notification */
 	phys32_t               qh_element_copy;
 };
@@ -161,11 +162,14 @@ struct uhci_host {
 	/* host(vm) */
 	phys_t                  hframelist;
 	phys32_t               *hframelist_virt;
+	/* inlink counter */
+	u16 inlink_counter;
+	u16 inlink_counter0;
 
 	struct uhci_hook       *hook;        /* hook handlers */
 
-	struct usb_request_block  *inproc_urbs;
-	struct usb_request_block  *guest_urbs;
+	LIST4_DEFINE_HEAD (inproc_urbs, struct usb_request_block, list);
+	LIST4_DEFINE_HEAD (guest_urbs, struct usb_request_block, list);
 	struct uhci_td_meta       *iso_urbs[UHCI_NUM_FRAMES];
 	struct usb_request_block  *guest_skeltons[UHCI_NUM_INTERVALS];
 	struct usb_request_block  *host_skelton[UHCI_NUM_SKELTYPES];
@@ -190,8 +194,14 @@ struct uhci_host {
 
 	/* PORTSC */
 	u16                     portsc[UHCI_NUM_PORTS_HC];
+#define UHCI_PORTSC_LOSPEED		(1 << 8)
 
 	struct usb_host        *hc; /* backward pointer */
+	LIST2_DEFINE_HEAD (urbhash[UHCI_URBHASH_SIZE],
+			   struct usb_request_block, urbhash);
+	LIST2_DEFINE_HEAD (need_shadow, struct usb_request_block, need_shadow);
+	LIST2_DEFINE_HEAD (update, struct usb_request_block, update);
+	u64 cputime;
 };
 
 #define HOST_UHCI(_hc)         ((struct uhci_host *)((_hc)->private))
@@ -325,72 +335,35 @@ static inline bool
 is_linked(struct usb_request_block *urblist, struct usb_request_block *urb)
 {
 	struct usb_request_block *tmpurb;
-	for (tmpurb = urblist; tmpurb; tmpurb = tmpurb->next)
+	for (tmpurb = urblist; tmpurb; tmpurb = LIST4_NEXT (tmpurb, list))
 		if (tmpurb == urb)
 			break;
 
 	return (tmpurb != NULL);
 }
 	
-static inline void 
-link_urb(struct usb_request_block **urblist, 
-	 struct usb_request_block *urb)
+static inline int
+urbhash_calc (phys_t qh_phys)
 {
-	urb->prev = (struct usb_request_block *)NULL;
-	if (*urblist)
-		(*urblist)->prev = urb;
-	urb->next = (*urblist);
-	*urblist = urb;
-
-	return;
+	return (qh_phys >> 4) & (UHCI_URBHASH_SIZE - 1);
 }
 
-static inline void 
-append_urb(struct usb_request_block **urblist, 
-	   struct usb_request_block *urb)
+static inline void
+urbhash_add (struct uhci_host *host, struct usb_request_block *urb)
 {
-	struct usb_request_block *urb_p, *urb_c;
+	int h;
 
-	if (!*urblist) {
-		urb->next = urb->prev = (struct usb_request_block *)NULL;
-		*urblist = urb;
-	} else {
-		urb_p = *urblist;
-		urb_c = urb_p->next;
-		while (urb_c) {
-			urb_p = urb_c;
-			urb_c = urb_c->next;
-		}
-		urb->prev = urb_p;
-		urb_p->next = urb;
-	}
-
-	return;
+	h = urbhash_calc (URB_UHCI (urb)->qh_phys);
+	LIST2_ADD (host->urbhash[h], urbhash, urb);
 }
 
-static inline void 
-remove_urb(struct usb_request_block **urblist, 
-	   struct usb_request_block *urb)
+static inline void
+urbhash_del (struct uhci_host *host, struct usb_request_block *urb)
 {
-	struct usb_request_block *tmp_urb = *urblist;
+	int h;
 
-	if (tmp_urb == urb) {
-		if (urb->next)
-			urb->next->prev = (struct usb_request_block *)NULL;
-		*urblist = urb->next;
-	} else {
-		while (tmp_urb) {
-			if (tmp_urb->next == urb) {
-				if (urb->next)
-					urb->next->prev = tmp_urb;
-				tmp_urb->next = urb->next;
-				break;
-			}
-			tmp_urb = tmp_urb->next;
-		}
-	}
-
-	return;
+	h = urbhash_calc (URB_UHCI (urb)->qh_phys);
+	LIST2_DEL (host->urbhash[h], urbhash, urb);
 }
 
 DEFINE_ALLOC_FUNC(uhci_td_meta);

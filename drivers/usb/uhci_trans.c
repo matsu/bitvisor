@@ -488,6 +488,7 @@ uhci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 	struct usb_endpoint_descriptor *epdesc;
 	struct uhci_td_meta *tdm;
 	struct usb_buffer_list *b;
+	u32 lospeed = 0;
 
 	epdesc = get_edesc_by_address(device, endpoint);
 	if (!epdesc) {
@@ -500,6 +501,18 @@ uhci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 		
 		/* use the default endpoint */
 		epdesc = &default_ep0;
+	}
+
+	/* determine if we are dealing with a low speed device or not */
+	if (device) {
+		if (device->speed == UD_SPEED_UNDEF) {
+			u16 portsc;
+			ASSERT (device->portno <= UHCI_NUM_PORTS_HC);
+			portsc = host->portsc[(device->portno-1)];
+			device->speed = (portsc & UHCI_PORTSC_LOSPEED) ? 
+				UD_SPEED_LOW : UD_SPEED_FULL;
+		}
+		lospeed = (device->speed == UD_SPEED_LOW) ? UHCI_TD_STAT_LS : 0;
 	}
 
 	dprintft(5, "%s: epdesc->wMaxPacketSize = %d\n", 
@@ -542,7 +555,7 @@ uhci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 	memcpy((void *)b->vadr, (void *)csetup, b->len);
 
 	tdm->td->status = tdm->status_copy =
-		UHCI_TD_STAT_AC | uhci_td_maxerr(3);
+		UHCI_TD_STAT_AC | lospeed | uhci_td_maxerr(3);
 	if (device) {
 		spinlock_lock(&device->lock_dev);
 		tdm->td->token = tdm->token_copy =
@@ -575,6 +588,7 @@ uhci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 						 (size_t)pktsz,
 						 UHCI_TD_STAT_AC | 
 						 UHCI_TD_STAT_SP | 
+						 lospeed |
 						 uhci_td_maxerr(3));
 			spinlock_unlock(&device->lock_dev);
 		}
@@ -597,7 +611,7 @@ uhci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 		goto fail_submit_control;
 	
         tdm->next->td->link = UHCI_TD_LINK_TE;
-        tdm->next->td->status = UHCI_TD_STAT_AC | uhci_td_maxerr(3);
+        tdm->next->td->status = UHCI_TD_STAT_AC | lospeed | uhci_td_maxerr(3);
 	if (ioc) 
 		tdm->next->td->status |= UHCI_TD_STAT_IC;
 	if (device) {
@@ -617,7 +631,7 @@ uhci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 	if (uhci_activate_urb(host, urb) != URB_STATUS_RUN)
 		goto fail_submit_control;
 
-	link_urb(&host->inproc_urbs, urb);
+	LIST4_PUSH (host->inproc_urbs, list, urb);
 
 	return urb;
 fail_submit_control:
@@ -646,6 +660,7 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 {
 	struct usb_request_block *urb;
 	size_t pktsize;
+	u32 lospeed = 0;
 
 	urb = create_urb(host);
 	if (!urb)
@@ -655,6 +670,19 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 		init_urb(urb, device->devnum, epdesc, callback, arg);
 		spinlock_unlock(&device->lock_dev);
 	}
+
+	/* determine if we are dealing with a low speed device or not */
+	if (device) {
+		if (device->speed == UD_SPEED_UNDEF) {
+			u16 portsc;
+			ASSERT (device->portno <= UHCI_NUM_PORTS_HC);
+			portsc = host->portsc[(device->portno-1)];
+			device->speed = (portsc & UHCI_PORTSC_LOSPEED) ? 
+				UD_SPEED_LOW : UD_SPEED_FULL;
+		}
+		lospeed = (device->speed == UD_SPEED_LOW) ? UHCI_TD_STAT_LS : 0;
+	}
+
 	/* create a QH */
 	URB_UHCI(urb)->qh = uhci_alloc_qh(host, &URB_UHCI(urb)->qh_phys);
 	if (!URB_UHCI(urb)->qh)
@@ -695,6 +723,7 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 					   (size_t)pktsize,
 					   UHCI_TD_STAT_AC | 
 					   UHCI_TD_STAT_SP | 
+					   lospeed | 
 					   uhci_td_maxerr(3));
 		spinlock_unlock(&device->lock_dev);
 	}
@@ -717,7 +746,7 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 	if (uhci_activate_urb(host, urb) != URB_STATUS_RUN)
 		goto fail_submit_async;
 
-	link_urb(&host->inproc_urbs, urb);
+	LIST4_PUSH (host->inproc_urbs, list, urb);
 
 	return urb;
 fail_submit_async:
@@ -795,17 +824,16 @@ uhci_submit_bulk(struct usb_host *usbhc, struct usb_device *device,
  * @param urb struct usb_request_block 
  * @param usbsts u16 
  */
-u8
-uhci_check_urb_advance(struct usb_host *usbhc,
-		       struct usb_request_block *urb)
+static u8
+uhci_check_urb_advance_sub (struct uhci_host *host, u16 ucfn,
+			    struct usb_host *usbhc,
+			    struct usb_request_block *urb)
 {
-	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 	struct uhci_td_meta *tdm;
 	phys32_t qh_element;
 	int elapse, len;
 
-	elapse = (uhci_current_frame_number(host) + 
-		  UHCI_NUM_FRAMES - URB_UHCI(urb)->frnum_issued) & 
+	elapse = (ucfn + UHCI_NUM_FRAMES - URB_UHCI(urb)->frnum_issued) &
 		(UHCI_NUM_FRAMES - 1);
 
 	if (!elapse)
@@ -852,6 +880,17 @@ recheck:
 	return urb->status;
 }
 
+u8
+uhci_check_urb_advance(struct usb_host *usbhc,
+		       struct usb_request_block *urb)
+{
+	struct uhci_host *host = (struct uhci_host *)usbhc->private;
+	u16 ucfn;
+
+	ucfn = uhci_current_frame_number (host);
+	return uhci_check_urb_advance_sub (host, ucfn, usbhc, urb);
+}
+
 /**
  * @brief cmpxchgl
  * @param ptr u32*
@@ -881,6 +920,7 @@ uhci_check_advance(struct usb_host *usbhc)
 	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 	struct usb_request_block *urb, *nexturb;
 	int advance = 0, ret = 0;
+	int ucfn = -1;
 
 	if (cmpxchgl(&host->incheck, 0U, 1U))
 		return 0;
@@ -891,31 +931,30 @@ uhci_check_advance(struct usb_host *usbhc)
 		dprintft(2, "%04x: %s: usbsts = %04x\n", 
 			host->iobase, __FUNCTION__, usbsts);
 #endif /* 0 */
-	urb = host->inproc_urbs;
-	while (urb) {
+	LIST4_FOREACH_DELETABLE (host->inproc_urbs, list, urb, nexturb) {
 		/* update urb->status */
-		if (urb->status == URB_STATUS_RUN)
-			uhci_check_urb_advance(host->hc, urb);
+		if (urb->status == URB_STATUS_RUN) {
+			if (ucfn < 0)
+				ucfn = uhci_current_frame_number (host);
+			uhci_check_urb_advance_sub (host, ucfn, host->hc, urb);
+		}
 
 		switch (urb->status) {
 		case URB_STATUS_UNLINKED:
 			spinlock_lock(&host->lock_hfl);
-			nexturb = urb->next;
-			remove_urb(&host->inproc_urbs, urb);
+			LIST4_DEL (host->inproc_urbs, list, urb);
 			if (urb->shadow)
 				urb->shadow->shadow = NULL;
 			destroy_urb(host, urb);
 			dprintft(3, "%04x: %s: urb(%p) destroyed.\n",
 				 host->iobase, __FUNCTION__, urb);
-			urb = nexturb;
 			spinlock_unlock(&host->lock_hfl);
-			continue;
+			break;
 		default: /* errors */
 			dprintft(2, "%04x: %s: got some errors(%s) "
 				 "for urb(%p).\n", host->iobase, 
 				 __FUNCTION__, 
 				 uhci_error_status_string(urb->status), urb);
-			uhci_dump_all(3, host, urb);
 			/* through */
 		case URB_STATUS_ADVANCED:
 			if (urb->callback)
@@ -931,7 +970,6 @@ uhci_check_advance(struct usb_host *usbhc)
 		case URB_STATUS_FINALIZED:
 			break;
 		} 
-		urb = urb->next;
 	}
 
 #if 0

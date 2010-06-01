@@ -47,7 +47,7 @@ $(BIN) : $(OBJS)
 $(OBJS) : $(INC)
 
 idman.o : $(IDMAN_SRC)
-	$(CC) $(CFLAGS) -c -o core-idman.o ../../../core/idman.c
+	$(CC) $(CFLAGS) -c -o core-idman.o idmanread.c
 	$(CC) $(CFLAGS_IDMAN) $(LDFLAGS) -nostdlib -Wl,-r -o idman.o \
 		$(IDMAN_SRC) core-idman.o
 

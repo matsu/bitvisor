@@ -39,8 +39,6 @@
 #ifndef	CHELP_H
 #define	CHELP_H
 
-#include <Se/Se.h>
-
 #define	CHELP
 
 // OpenSSL のためのコンパイルフラグ
@@ -171,11 +169,11 @@ struct tm
 #undef	memmove
 #undef	memchr
 #undef	qsort
-#define	memcpy(a, b, c)		chelp_memcpy(a, b, (UINT)(c))
-#define	memset(a, b, c)		chelp_memset(a, b, (UINT)(c))
-#define	memcmp(a, b, c)		chelp_memcmp(a, b, (UINT)(c))
-#define	memmove(a, b, c)	chelp_memmove(a, b, (UINT)(c))
-#define	memchr(a, b, c)		chelp_memchr(a, b, (UINT)(c))
+#define	memcpy(a, b, c)		chelp_memcpy(a, b, (unsigned int)(c))
+#define	memset(a, b, c)		chelp_memset(a, b, (unsigned int)(c))
+#define	memcmp(a, b, c)		chelp_memcmp(a, b, (unsigned int)(c))
+#define	memmove(a, b, c)	chelp_memmove(a, b, (unsigned int)(c))
+#define	memchr(a, b, c)		chelp_memchr(a, b, (unsigned int)(c))
 #define	qsort				chelp_qsort
 
 #ifdef	_MSC_VER
@@ -251,47 +249,42 @@ struct tm
 #endif	// CHELP_OPENSSL_SOURCE
 
 // chelp.c
-extern SE_SYSCALL_TABLE *chelp_syscall;
-void preinit_crypto_library (struct SE_SYSCALL_TABLE *syscall_table);
-void InitCryptoLibrary(struct SE_SYSCALL_TABLE *syscall_table, unsigned char *initial_seed,
-					   int initial_seed_size);
-void chelp_syslog(char *type, char *message);
+void InitCryptoLibrary(unsigned char *initial_seed, int initial_seed_size);
 void chelp_print(char *str);
 void chelp_printf(char *format, ...);
-void chelp_snprintf(char *dst, UINT size, char *format, ...);
+void chelp_snprintf(char *dst, unsigned int size, char *format, ...);
 void chelp_sprintf(char *dst, char *format, ...);
-UINT64 chelp_mul_64_64_64(UINT64 a, UINT64 b);
-UINT64 chelp_div_64_32_64(UINT64 a, UINT b);
-UINT chelp_div_64_32_32(UINT64 a, UINT b);
-UINT chelp_mod_64_32_32(UINT64 a, UINT b);
-SE_SYSCALL_TABLE *chelp_getsyscall_table();
+unsigned long long chelp_mul_64_64_64(unsigned long long a, unsigned long long b);
+unsigned long long chelp_div_64_32_64(unsigned long long a, unsigned int b);
+unsigned int chelp_div_64_32_32(unsigned long long a, unsigned int b);
+unsigned int chelp_mod_64_32_32(unsigned long long a, unsigned int b);
 
 // chelp_mem.c
 void *chelp_malloc(unsigned long size);
 void *chelp_realloc(void *memblock, unsigned long size);
 void chelp_free(void *memblock);
-void *chelp_memcpy(void *dst, const void *src, UINT size);
-void *chelp_memset(void *dst, int c, UINT count);
-int chelp_memcmp(const void *addr1, const void *addr2, UINT size);
-void *chelp_memmove(void *dst, const void *src, UINT count);
-void *chelp_memchr(const void *buf, int chr, UINT count);
-void chelp_qsort(void *base, UINT num, UINT width, int (*compare_function)(const void *, const void *));
-void *chelp_bsearch(void *key, void *base, UINT num, UINT width, int (*compare_function)(const void *, const void *));
-void chelp_swap(UCHAR *a, UCHAR *b, UINT width);
+void *chelp_memcpy(void *dst, const void *src, unsigned int size);
+void *chelp_memset(void *dst, int c, unsigned int count);
+int chelp_memcmp(const void *addr1, const void *addr2, unsigned int size);
+void *chelp_memmove(void *dst, const void *src, unsigned int count);
+void *chelp_memchr(const void *buf, int chr, unsigned int count);
+void chelp_qsort(void *base, unsigned int num, unsigned int width, int (*compare_function)(const void *, const void *));
+void *chelp_bsearch(void *key, void *base, unsigned int num, unsigned int width, int (*compare_function)(const void *, const void *));
+void chelp_swap(unsigned char *a, unsigned char *b, unsigned int width);
 
 // chelp_str.c
-UINT chelp_strlen(const char *str);
+unsigned int chelp_strlen(const char *str);
 char *chelp_strrchr(const char *string, int ch);
 char *chelp_strchr(const char *str, int c);
-int chelp_strncmp(const char *first, const char *last, UINT count);
+int chelp_strncmp(const char *first, const char *last, unsigned int count);
 int chelp_strcmp(const char *src, const char *dst);
 int chelp_stricmp(const char *dst, const char *src);
 char *chelp_strcat(char *dst, const char *src);
 char *chelp_strcpy(char *dst, const char *src);
-char *chelp_strncpy(char *dst, const char *src, UINT count);
-INT chelp_strtol(const char *nptr, char **endptr, int ibase);
-UINT chelp_strtoul(const char *nptr, char **endptr, int ibase);
-UINT chelp_strtoul_ex(const char *nptr, char **endptr, int ibase, int flags);
+char *chelp_strncpy(char *dst, const char *src, unsigned int count);
+int chelp_strtol(const char *nptr, char **endptr, int ibase);
+unsigned int chelp_strtoul(const char *nptr, char **endptr, int ibase);
+unsigned int chelp_strtoul_ex(const char *nptr, char **endptr, int ibase, int flags);
 int chelp_isupper(int ch);
 int chelp_islower(int ch);
 int chelp_toupper(int ch);

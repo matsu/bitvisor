@@ -182,7 +182,7 @@ ehci_dump_urblist(int loglvl, struct usb_request_block *urb)
 			URB_EHCI(urb)->qh_phys, urb->status, 
 			URB_EHCI(urb)->qh_copy.qtd_ovlay.next, 
 			shadow_qh_phys, shadow_status);
-		urb = urb->next;
+		urb = LIST4_NEXT (urb, list);
 	}
 	dprintf(loglvl, "\n");
 
@@ -494,7 +494,7 @@ ehci_dump_all(int loglvl, struct ehci_host *host)
 	dprintft(loglvl, "USBSTS = ");
 	ehci_print_usbsts(loglvl, *reg_usbsts);
 	dprintft(loglvl, "URBLIST: ");
-	ehci_dump_urblist(loglvl, host->head_gurb);
+	ehci_dump_urblist(loglvl, LIST4_HEAD (host->gurb, list));
 	ehci_dump_async(loglvl, host, 1);
 	ehci_dump_async(loglvl, host, 2);
 

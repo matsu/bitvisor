@@ -31,17 +31,25 @@
 #include <core.h>
 #include "uhci.h"
 
+#define USBMSC_LUN_MAX		15
+
 struct usbmsc_device {
 	spinlock_t lock;
 	u32        tag;
+	u8	   lun_max;
+	u8	   lun;
+	struct usbmsc_unit *unit[USBMSC_LUN_MAX];
+};
+
+struct usbmsc_unit {
 	u8         command;
-#define USBMSC_COM_SCSI_NONE  (0xff)
 	u32        n_blocks;
 	u32        lba;
 	u32        lba_max;
 	u16        profile;
 	size_t     length;
 	struct storage_device *storage;
+	int        storage_sector_size;
 };
 
 #define SCSI_OPID_MAX 0xc0
@@ -246,10 +254,8 @@ struct usb_msc_cbw {
 	u32 dCBWTag;
 	u32 dCBWDataTransferLength;
 	u8  bmCBWFlags;
-	u8  _reserved0:4;
-	u8  bCBWLUN:4;
-	u8  _reserved1:3;
-	u8  bCBWCBLength:5;
+	u8  bCBWLUN;			/* includes 4 reserved bits */
+	u8  bCBWCBLength;		/* includes 3 reserved bits */
 	u8 CBWCB[16];
 } __attribute__ ((packed));
 

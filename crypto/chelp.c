@@ -53,23 +53,15 @@
 #include <openssl/dh.h>
 #include <openssl/pem.h>
 
-SE_SYSCALL_TABLE *chelp_syscall = NULL;
-static SE_SYSCALL_TABLE chelp_syscall_copy = {NULL};
+#define UINT	unsigned int
+#define UINT64	unsigned long long int
 
 bool chelp_inited = false;
 
 static const char rnd_seed[] = "string to make the random number generator think it has entropy";
 
-void
-preinit_crypto_library (struct SE_SYSCALL_TABLE *syscall_table)
-{
-	chelp_syscall_copy = *syscall_table;
-	chelp_syscall = &chelp_syscall_copy;
-}
-
 // 暗号化ライブラリの初期化
-void InitCryptoLibrary(struct SE_SYSCALL_TABLE *syscall_table, unsigned char *initial_seed,
-					   int initial_seed_size)
+void InitCryptoLibrary(unsigned char *initial_seed, int initial_seed_size)
 {
 	char tmp[16];
 	if (chelp_inited)
@@ -77,14 +69,10 @@ void InitCryptoLibrary(struct SE_SYSCALL_TABLE *syscall_table, unsigned char *in
 		return;
 	}
 	// 引数チェック
-	if (syscall_table == NULL || (initial_seed_size != 0 && initial_seed == NULL))
+	if (initial_seed_size != 0 && initial_seed == NULL)
 	{
 		return;
 	}
-
-	// システムコールテーブル
-	chelp_syscall_copy = *syscall_table;
-	chelp_syscall = &chelp_syscall_copy;
 
 	OpenSSL_add_all_ciphers();
 	SSLeay_add_all_digests();
@@ -96,18 +84,6 @@ void InitCryptoLibrary(struct SE_SYSCALL_TABLE *syscall_table, unsigned char *in
 	RAND_bytes(tmp, sizeof(tmp));
 
 	chelp_inited = true;
-}
-
-// システムコールテーブル取得
-SE_SYSCALL_TABLE *chelp_getsyscall_table()
-{
-	return chelp_syscall;
-}
-
-// メッセージを画面に表示する
-void chelp_syslog(char *type, char *message)
-{
-	chelp_syscall->SysLog(type, message);
 }
 
 // printf 関数 (デバッグ用)
@@ -159,7 +135,7 @@ void chelp_sprintf(char *dst, char *format, ...)
 // 文字列を画面に表示する
 void chelp_print(char *str)
 {
-	chelp_syslog(NULL, str);
+	printf ("%s", str);
 }
 
 // 64 bit を 32 bit で割って mod をとる (結果 32 bit)

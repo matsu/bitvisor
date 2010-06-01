@@ -48,5 +48,14 @@ struct nicfunc {
 };	
 
 SE_HANDLE vpn_new_nic (SE_HANDLE ph, SE_HANDLE vh, struct nicfunc *func);
+void vpn_premap_PhysicalNicRecv (SE_SYS_CALLBACK_RECV_NIC *callback,
+				 SE_HANDLE nic_handle, UINT num_packets,
+				 void **packets, UINT *packet_sizes,
+				 void *param, long *premap);
+void vpn_premap_VirtualNicRecv (SE_SYS_CALLBACK_RECV_NIC *callback,
+				SE_HANDLE nic_handle, UINT num_packets,
+				void **packets, UINT *packet_sizes,
+				void *param, long *premap);
+long vpn_premap_recvbuf (void *buf, unsigned int len);
 
 #endif

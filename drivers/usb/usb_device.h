@@ -78,6 +78,13 @@
 #define USB_DT_HUB_NONVAR_SIZE		7
 
 /*
+ * Other request types
+ */
+#define USB_REQ_GETPORTSTATUS  0xA3U
+#define USB_PORTSC_SPEED_MASK	0x03U
+#define USB_PORTSC_SPEED_SHIFT	0x09U
+
+/*
  * Portno manage
  */
 #define USB_HUB_LIMIT			5
@@ -167,9 +174,12 @@ struct usb_interface_descriptor {
 
 #define USB_MAXALTSETTING	128	/* Hard limit */
 struct usb_interface {
+	/* altsetting is a list of ALL interfaces
+	   (including all alternatives) */
 	struct usb_interface_descriptor *altsetting;
-
 	int num_altsetting;
+	/* specifies the current bAlternative setting on each interface */
+	u8  *cur_altsettings;
 };
 
 /* Configuration descriptor information.. */
@@ -226,14 +236,11 @@ struct usb_device {
 
 	spinlock_t lock_dev; /* device address lock */
 
-	u64 portno;
-
 	u8 devnum;
 
-	unsigned char num_children;
-	struct usb_device **children;
-
 	/* driver internal use */
+	u64 portno;
+	struct usb_device *parent;	/* for HUB cascade */
 	struct usb_host *host;
 	u8 bStatus;
 #define UD_STATUS_POWERED       0x00U
@@ -247,6 +254,11 @@ struct usb_device {
 
 	struct uhci_hook *hook; /* FIXME */
 	int hooknum;
+	u8 speed;
+#define UD_SPEED_LOW			0x01U
+#define UD_SPEED_FULL			0x00U
+#define UD_SPEED_HIGH			0x02U
+#define UD_SPEED_UNDEF			0xFFU
 };
 
 void
@@ -310,23 +322,36 @@ static inline struct usb_endpoint_descriptor *
 get_edesc_by_address(struct usb_device *device, u8 endpoint)
 {
 	struct usb_endpoint_descriptor *edesc;
-	int n_eps;
+	struct usb_interface_descriptor *idesc;
+	int n_eps, n_ifs;
+	int i;
 
 	if (!device || !device->config || !device->config->interface ||
 	    !device->config->interface->altsetting ||
-	    !device->config->interface->altsetting->endpoint)
+	    !device->config->interface->altsetting->endpoint ||
+	    !device->config->interface->cur_altsettings)
 		return NULL;
 
-	n_eps = device->config->interface->altsetting->bNumEndpoints;
-	
-	edesc = device->config->interface->altsetting->endpoint;
-	do {
-		if (edesc[n_eps].bEndpointAddress == endpoint)
-			break;
-		n_eps--;
-	} while (n_eps >= 0);
+	n_ifs = device->config->interface->num_altsetting;
 
-	return (n_eps >= 0) ? &edesc[n_eps] : NULL;
+	for (i = 0; i < n_ifs; i++) {
+		idesc = device->config->interface->altsetting + i;
+		n_eps = idesc->bNumEndpoints;
+		edesc = idesc->endpoint;
+		do {
+			if (edesc[n_eps].bEndpointAddress == endpoint)
+			/* check that the enpoint is in the currently selected
+			 * bAlternateSetting interface.  However, there is
+			 * only one endpoint 0 setting for all interfaces. */
+				if (endpoint == 0 ||
+				    idesc->bAlternateSetting ==
+				    device->config->interface->
+				    cur_altsettings[idesc->bInterfaceNumber])
+					return &edesc[n_eps];
+			n_eps--;
+		} while (n_eps >= 0);
+	}
+	return NULL;
 }
 
 #endif /* __USB_DEIVE_H__ */

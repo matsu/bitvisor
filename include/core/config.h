@@ -45,6 +45,8 @@ enum storage_type {
 	STORAGE_TYPE_ATA,
 	STORAGE_TYPE_ATAPI,
 	STORAGE_TYPE_USB,
+	STORAGE_TYPE_AHCI,
+	STORAGE_TYPE_AHCI_ATAPI,
 	STORAGE_TYPE_ANY = 0xFF,
 };
 
@@ -164,6 +166,7 @@ struct storage_keys_conf {
 	char crypto_name[8];
 	u8 keyindex;
 	u16 keybits;
+	char extend[256];
 } __attribute__ ((packed));
 
 struct config_data_storage {
@@ -174,6 +177,7 @@ struct config_data_storage {
 struct config_data_vmm_driver_vpn {
 	int PRO100;
 	int PRO1000;
+	int RTL8169;
 	int ve;
 };
 
@@ -187,7 +191,9 @@ struct config_data_vmm_driver {
 	struct config_data_vmm_driver_usb usb;
 	int concealEHCI;
 	int conceal1394;
+	int concealPRO1000;
 	struct config_data_vmm_driver_vpn vpn;
+	char pci_conceal[1024];
 };
 
 struct config_data_vmm_iccard {
@@ -202,6 +208,7 @@ struct config_data_vmm {
 	int auto_reboot;
 	int shell;
 	int dbgsh;
+	int status;
 	int boot_active;
 	int tty_pro1000;
 	char tty_pro1000_mac_address[6];

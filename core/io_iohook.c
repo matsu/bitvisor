@@ -67,7 +67,7 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 {
 	static int led = 0;
 	static u8 lk = 0;
-#ifndef NTTCOM_TEST
+#ifdef NTTCOM_TEST
         unsigned long int session;
         int i, j;
         char sig[1024];

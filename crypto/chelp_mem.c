@@ -36,7 +36,11 @@
 // 
 // By dnobori@cs.tsukuba.ac.jp
 
+#include "mm.h"
 #include <chelp.h>
+
+#define UCHAR	unsigned char
+#define UINT	unsigned int
 
 // メモリ確保
 void *chelp_malloc(unsigned long size)
@@ -47,7 +51,7 @@ void *chelp_malloc(unsigned long size)
 		size = 1;
 	}
 
-	return chelp_syscall->SysMemoryAlloc(size);
+	return alloc (size);
 }
 
 // メモリ再確保
@@ -63,7 +67,7 @@ void *chelp_realloc(void *memblock, unsigned long size)
 		size = 1;
 	}
 
-	return chelp_syscall->SysMemoryReAlloc(memblock, size);
+	return realloc (memblock, size);
 }
 
 // メモリ解放
@@ -75,7 +79,7 @@ void chelp_free(void *memblock)
 		return;
 	}
 
-	chelp_syscall->SysMemoryFree(memblock);
+	free (memblock);
 }
 
 #define CHELP_QSORT_STACKSIZE	(sizeof(void *) * 8 - 2)

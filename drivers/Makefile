@@ -9,7 +9,6 @@ CONSTANTS-$(CONFIG_VTD_TRANS) += -DVTD_TRANS
 
 DRIVERS-$(CONFIG_ATA_DRIVER) += ata/driver.o
 DRIVERS-$(CONFIG_USB_DRIVER) += usb/driver.o
-DRIVERS-$(CONFIG_STORAGE_ENC) += crypto/driver.o
 DRIVERS-$(CONFIG_CRYPTO_VPN) += vpn/driver.o
 
 TARGET   = drivers.o
@@ -36,8 +35,6 @@ $(OBJS): $(HEADERS) $(CONFIG)
 
 $(DRIVERS-1):
 	$(foreach dir, $(dir $(DRIVERS-1)), $(callmake))
-
-storage.o:
 
 sloc:
 	sloccount .

@@ -37,7 +37,7 @@
 #define ENABLE_ENC
 
 #include <core.h>
-#include "storage.h"
+#include <storage.h>
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_log.h"
@@ -46,6 +46,7 @@
 
 DEFINE_ALLOC_FUNC(usb_device_handle);
 DEFINE_ZALLOC_FUNC(usbmsc_device);
+DEFINE_ZALLOC_FUNC(usbmsc_unit);
 
 static inline u32 bswap32(u32 x)
 {
@@ -79,7 +80,7 @@ prepare_buffers(struct usb_buffer_list *src_ub,
 		concat = 0;
 		do {
 			if (!ub) {
-				dprintft(0, "MSCD(  ): "
+				dprintft(0, "MSCD(  : ): "
 					 "WARNING : unalinged(%x) "
 					 "buffer(%x) found.\n",
 					 block_len, len);
@@ -183,18 +184,29 @@ usbmsc_code_buffers(struct usbmsc_device *mscdev,
 		    struct usb_buffer_list *src_ub, 
 		    u8 pid, size_t length, int rw)
 {
+	struct usbmsc_unit *mscunit;
 	struct storage_access access;
 	virt_t src_vadr, dest_vadr;
 	size_t len, block_len;
 	int adv, n_blocks = 0;
 
-	ASSERT(mscdev->storage != NULL);
-	block_len = mscdev->storage->sector_size;
+	mscunit = mscdev->unit[mscdev->lun];
+	ASSERT(mscunit->storage != NULL);
+	if (mscunit->storage_sector_size == 0) {
+		mscunit->storage_sector_size =
+			mscunit->length / mscunit->n_blocks;
+		dprintft(1,
+			 "MSCD(  :%u): Calculate a tentative sector size (%d) "
+			 "from dCBWDataTransferLength\n",
+			 mscdev->lun, mscunit->storage_sector_size);
+	}
+	block_len = mscunit->storage_sector_size;
 	ASSERT(block_len > 0);
 
 	/* set up an access attribute for storage handler */
 	access.rw = rw;
-	access.lba = mscdev->lba;
+	access.lba = mscunit->lba;
+	access.sector_size = block_len;
 
 	do {
 		if ((src_ub->len == 0) || (src_ub->pid != pid))
@@ -208,19 +220,20 @@ usbmsc_code_buffers(struct usbmsc_device *mscdev,
 		access.count = len / block_len;
 
 		/* encode/decode buffer data */
-		storage_handle_sectors(mscdev->storage, &access, 
+		storage_handle_sectors(mscunit->storage, &access, 
 				       (u8 *)src_vadr, (u8 *)dest_vadr);
 
-		dprintft(2, "MSCD(  ):           "
+		dprintft(3, "MSCD(  :%d):           "
 			 "%d blocks(LBA:%08x) encoded\n", 
-			 access.count, access.lba);
+			 mscdev->lun, access.count, access.lba);
 
 		/* increment lba for the next */
 		access.lba += access.count;
 		n_blocks += access.count;
 		if (length < (block_len * access.count)) {
-			dprintft(2, "MSCD(  ): WARNING : "
+			dprintft(2, "MSCD(  :%d): WARNING : "
 				 "%d bytes over coded\n",
+				 mscdev->lun,
 				 block_len * access.count - length);
 			length = 0;
 		} else {
@@ -248,39 +261,50 @@ static void
 usbmsc_cbw_parser(u8 devadr, 
 		  struct usbmsc_device *mscdev, struct usb_msc_cbw *cbw)
 {
-	const unsigned char opstr[] = "STRANGE OPID";
+	static const unsigned char opstr[] = "STRANGE OPID";
+	struct usbmsc_unit *mscunit;
 
 	/* read a CBW(Command Block Wrapper) */
 	mscdev->tag = cbw->dCBWTag;
-	mscdev->command = cbw->CBWCB[0];
-	mscdev->length = (size_t)cbw->dCBWDataTransferLength;
-	dprintft(2, "MSCD(%02x): %08x: %s\n",
-		 devadr, cbw->dCBWTag,
+	mscdev->lun = cbw->bCBWLUN & 0x0fU;
+	if (mscdev->lun > mscdev->lun_max) {
+		dprintft(0, "MSCD(%02x: ): %08x: "
+			 "WARNING: INVALID LUN(%u)\n",
+			 devadr, cbw->dCBWTag, mscdev->lun);
+		mscdev->lun = 0;
+	}
+	mscunit = mscdev->unit[mscdev->lun];
+	mscunit->command = cbw->CBWCB[0];
+	mscunit->length = (size_t)cbw->dCBWDataTransferLength;
+	dprintft(2, "MSCD(%02x:%u): %08x: %s\n",
+		 devadr, mscdev->lun, cbw->dCBWTag,
 		 (cbw->CBWCB[0] < SCSI_OPID_MAX) ? 
 		 scsi_op2str[cbw->CBWCB[0]] : opstr);
 	switch (cbw->CBWCB[0]) {
 	case 0x28: /* READ(10) */
 	case 0x2a: /* WRITE(10) */
-		mscdev->lba = 
+		mscunit->lba = 
 			bswap32(*(u32 *)&cbw->CBWCB[2]); /* big endian */
-		mscdev->n_blocks = 
+		mscunit->n_blocks = 
 			bswap16(*(u16 *)&cbw->CBWCB[7]); /* big endian */
-		dprintft(2, "MSCD(%02x):           ", devadr);
+		dprintft(2, "MSCD(%02x:%u):          ",
+			 devadr, mscdev->lun);
 		dprintf(2, "[LBA=%08x, NBLK=%04x]\n", 
-			mscdev->lba, mscdev->n_blocks);
+			mscunit->lba, mscunit->n_blocks);
 		break;
 	case 0xa8: /* READ(12)  */
 	case 0xaa: /* WRITE(12) */
-		mscdev->lba =
+		mscunit->lba =
 			bswap32(*(u32 *)&cbw->CBWCB[2]); /* big endian */
-		mscdev->n_blocks =
+		mscunit->n_blocks =
 			bswap32(*(u32 *)&cbw->CBWCB[6]); /* big endian */
-		dprintft(2, "MSCD(%02x):           ", devadr);
+		dprintft(2, "MSCD(%02x:%u):          ",
+			 devadr, mscdev->lun);
 		dprintf(2, "[LBA=%08x, NBLK=%04x]\n",
-			mscdev->lba, mscdev->n_blocks);
+			mscunit->lba, mscunit->n_blocks);
 		break;
 	case 0x46: /* GET CONFIGURATION */
-		mscdev->profile = USBMSC_PROF_NOPROF;
+		mscunit->profile = USBMSC_PROF_NOPROF;
 		break;
 	default:
 		break;
@@ -327,6 +351,7 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 	u8 devadr;
 	struct usb_device *dev;
 	struct usbmsc_device *mscdev;
+	struct usbmsc_unit *mscunit;
 	int ret, n_blocks;
 
 	devadr = urb->address;
@@ -352,6 +377,7 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 	}
 
 	spinlock_lock(&mscdev->lock);
+	mscunit = mscdev->unit[mscdev->lun];
 	gub = urb->shadow->buffers;
 	hub = urb->buffers;
 
@@ -390,24 +416,25 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 	}
 
 shadow_data:
-	switch (mscdev->command) {
+	switch (mscunit->command) {
 	case 0x2a: /* WRITE(10) */
 	case 0xaa: /* WRITE(12) */
 		/* encode buffers */
 		n_blocks = usbmsc_code_buffers(mscdev, hub, gub, USB_PID_OUT,
-					       mscdev->length, STORAGE_WRITE);
+					       mscunit->length, STORAGE_WRITE);
 
-		if (mscdev->n_blocks < n_blocks) {
-			dprintft(0, "MSCD(%02x): WARNING: "
-				 "over %d block(s) wrote.\n", devadr, 
-				 n_blocks - mscdev->n_blocks);
-			n_blocks = mscdev->n_blocks;
+		if (mscunit->n_blocks < n_blocks) {
+			dprintft(0, "MSCD(%02x:%d): WARNING: "
+				 "over %d block(s) wrote.\n", devadr,
+				 mscdev->lun,
+				 n_blocks - mscunit->n_blocks);
+			n_blocks = mscunit->n_blocks;
 		}
 
-		mscdev->length -= 
-			mscdev->storage->sector_size * n_blocks;
-		mscdev->n_blocks -= n_blocks;
-		mscdev->lba += n_blocks;
+		mscunit->length -= 
+			mscunit->storage_sector_size * n_blocks;
+		mscunit->n_blocks -= n_blocks;
+		mscunit->lba += n_blocks;
 
 		spinlock_unlock(&mscdev->lock);
 		return USB_HOOK_PASS;
@@ -417,12 +444,19 @@ shadow_data:
 	case 0x5d: /* SEND CUE SHEET (For writing CD as DAO )*/
 	case 0x04: /* FORMAT UNIT (For formatting CD as the packet writing ) */
 	case 0x1b: /* START/STOP UNIT */
+	case 0xff: /* vendor specific, especially for HIBUN-LE */
 		/* pass though */
-		usbmsc_copy_buffer(hub, gub, mscdev->length);
-		mscdev->length = 0;
+		usbmsc_copy_buffer(hub, gub, mscunit->length);
+		mscunit->length = 0;
 		spinlock_unlock(&mscdev->lock);
 		return USB_HOOK_PASS;
 	default:
+		dprintft(0, "MSCD(%02x:%d): WARNING: "
+			 "%d bytes OUT data dropped "
+			 "because of unknown command(%02x).\n",
+			 devadr, mscdev->lun,
+			 mscunit->length, mscunit->command);
+		mscunit->length = 0;
 		break;
 	}
 	
@@ -476,7 +510,7 @@ static int
 usbmsc_csw_parser(u8 devadr, 
 		  struct usbmsc_device *mscdev, struct usb_msc_csw *csw)
 {
-	const unsigned char ststr[] = "STRANGE STATUS";
+	static const unsigned char ststr[] = "STRANGE STATUS";
 
 	/* read a CSW(Command Status Wrapper) */
 	if (mscdev->tag != csw->dCSWTag) {
@@ -485,8 +519,8 @@ usbmsc_csw_parser(u8 devadr,
 		return USB_HOOK_DISCARD;
 	}
 	if (csw->bCSWStatus) 
-		dprintft(2, "MSCD(%02x): %08x: ==> %s(%d)\n",
-			 devadr, csw->dCSWTag,
+		dprintft(2, "MSCD(%02x:%d): %08x: ==> %s(%d)\n",
+			 devadr, mscdev->lun, csw->dCSWTag,
 			 (csw->bCSWStatus < USBMSC_STAT_MAX) ? 
 			 st2str[csw->bCSWStatus] : ststr, 
 			 csw->dCSWDataResidue);
@@ -502,6 +536,7 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 	u8 devadr;
 	struct usb_device *dev;
 	struct usbmsc_device *mscdev;
+	struct usbmsc_unit *mscunit;
 	int i, ret, n_blocks;
 
 	devadr = urb->address;
@@ -523,6 +558,7 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 		return USB_HOOK_PASS;
 
 	spinlock_lock(&mscdev->lock);
+	mscunit = mscdev->unit[mscdev->lun];
 
 	/* The extra buffer may be a CSW */
 	if (memcmp((void *)hub->vadr, "USBS", 4) == 0) {
@@ -531,10 +567,10 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 		if (urb->actlen != sizeof(struct usb_msc_csw))
 			goto copyback_data;
 
-		if (mscdev->length > 0)
-			dprintft(0, "MSCD(%02x): WARNING: "
+		if (mscunit->length > 0)
+			dprintft(0, "MSCD(%02x:%d): WARNING: "
 				 "%d bytes not transferred.\n",
-				 devadr, mscdev->length);
+				 devadr, mscdev->lun, mscunit->length);
 
 		/* extract command status */
 		ret = usbmsc_csw_parser(devadr, mscdev, 
@@ -542,14 +578,14 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 
 		/* undo parameters, maybe wrong, if command failed */
 		if (ret) {
-			switch (mscdev->command) {
+			switch (mscunit->command) {
 			case 0x25: /* READ CAPACITY(10) */
-				mscdev->lba_max = 0;
-				ASSERT(mscdev->storage != NULL);
-				mscdev->storage->sector_size = 1;
+				mscunit->lba_max = 0;
+				ASSERT(mscunit->storage != NULL);
+				mscunit->storage_sector_size = 0;
 				break;
 			case 0x46: /* GET CONFIGURATION */
-				mscdev->profile = USBMSC_PROF_NOPROF;
+				mscunit->profile = USBMSC_PROF_NOPROF;
 				break;
 			default:
 				break;
@@ -557,13 +593,13 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 		}
 
 		/* reset the state */
-		mscdev->command = USBMSC_COM_SCSI_NONE;
-		mscdev->lba = 0U;
-		if (mscdev->n_blocks > 0)
-			dprintft(0, "MSCD(%02x): WARNING: "
+		mscunit->command = 0x00U;
+		mscunit->lba = 0U;
+		if (mscunit->n_blocks > 0)
+			dprintft(0, "MSCD(%02x:%d): WARNING: "
 				 "%d block(s) not transferred.\n", 
-				 devadr, mscdev->n_blocks);
-		mscdev->n_blocks = 0U;
+				 devadr, mscdev->lun, mscunit->n_blocks);
+		mscunit->n_blocks = 0U;
 
 		/* copyback */
 		usbmsc_copy_buffer(gub, hub, hub->len);
@@ -572,12 +608,12 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 		ASSERT(hub->next == NULL);
 	} else {
 	copyback_data:
-		switch (mscdev->command) {
+		switch (mscunit->command) {
 		case 0x46: /* GET CONFIGURATION */
 		{
 			u16 cur_prf = bswap16(*(u16 *)(hub->vadr + 6));
 			if ( cur_prf != USBMSC_PROF_NOPROF ) {
-				mscdev->profile = cur_prf;
+				mscunit->profile = cur_prf;
 			}
 		}
 		/* through */
@@ -598,24 +634,31 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 		case 0xad: /* READ DISC STRUCTURE */
 		case 0xb9: /* READ CD MSF */
 		case 0xbe: /* READ CD */
-			dprintft(2, "MSCD(%02x):           [", devadr);
+			dprintft(2, "MSCD(%02x:%d):           [",
+				 devadr, mscdev->lun);
 			for (i = 0; i < urb->actlen; i++)
 				dprintf(2, "%02x", *(u8 *)(hub->vadr + i));
 			dprintf(2, "]\n");
- 			usbmsc_copy_buffer(gub, hub, mscdev->length);
- 			mscdev->length = 0;
+		case 0x06: /* vendor specific, especially for HIBUN-LE */
+		case 0xd4: /* vendor specific, especially for HIBUN-LE */
+		case 0xd5: /* vendor specific, especially for HIBUN-LE */
+		case 0xd8: /* vendor specific, especially for HIBUN-LE */
+		case 0xd9: /* vendor specific, especially for HIBUN-LE */
+		case 0xff: /* vendor specific, especially for HIBUN-LE */
+ 			usbmsc_copy_buffer(gub, hub, mscunit->length);
+ 			mscunit->length = 0;
 			break;
 		case 0x25: /* READ CAPABILITY(10) */
-			mscdev->lba_max = bswap32(*(u32 *)hub->vadr);
-			ASSERT(mscdev->storage != NULL);
-			mscdev->storage->sector_size = 
+			mscunit->lba_max = bswap32(*(u32 *)hub->vadr);
+			ASSERT(mscunit->storage != NULL);
+			mscunit->storage_sector_size = 
 				bswap32(*(u32 *)(hub->vadr + 4));
-			dprintft(2, "MSCD(%02x):           "
+			dprintft(2, "MSCD(%02x:%d):           "
 				 "[LBAMAX=%08x, BLKLEN=%08x]\n",
-				 devadr, mscdev->lba_max, 
-				 mscdev->storage->sector_size);
-			usbmsc_copy_buffer(gub, hub, mscdev->length);
-			mscdev->length = 0;
+				 devadr, mscdev->lun, mscunit->lba_max, 
+				 mscunit->storage_sector_size);
+			usbmsc_copy_buffer(gub, hub, mscunit->length);
+			mscunit->length = 0;
 			break;
 		case 0x28: /* READ(10) */
 		case 0xa8: /* READ(12) */
@@ -625,23 +668,27 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 						       urb->actlen,
 						       STORAGE_READ);
 
-			if (mscdev->n_blocks < n_blocks) {
-				dprintft(0, "MSCD(%02x): WARNING: "
+			if (mscunit->n_blocks < n_blocks) {
+				dprintft(0, "MSCD(%02x:%d): WARNING: "
 					 "over %d block(s) read.\n",
-					 devadr, n_blocks - mscdev->n_blocks);
-				n_blocks = mscdev->n_blocks;
+					 devadr, mscdev->lun,
+					 n_blocks - mscunit->n_blocks);
+				n_blocks = mscunit->n_blocks;
 			}
 
-			mscdev->length -= 
-				mscdev->storage->sector_size * n_blocks;
-			mscdev->n_blocks -= n_blocks;
-			mscdev->lba += n_blocks;
+			mscunit->length -= 
+				mscunit->storage_sector_size * n_blocks;
+			mscunit->n_blocks -= n_blocks;
+			mscunit->lba += n_blocks;
 
 			break;
 		default:
-			dprintft(0, "MSCD(%02x): WARNING: "
-				 "%d bytes droppped.\n", devadr, hub->len);
-			mscdev->length -= hub->len;
+			dprintft(0, "MSCD(%02x:%d): WARNING: "
+				 "%d bytes IN data dropped "
+				 "because of unknown command(%02x).\n",
+				 devadr, mscdev->lun,
+				 mscunit->length, mscunit->command);
+			mscunit->length = 0;
 			break;
 		}
 	}
@@ -650,14 +697,88 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 	return USB_HOOK_PASS;
 }
 
+static inline struct usbmsc_unit *
+usbmsc_create_unit(struct usb_host *usbhc, struct usb_device *dev)
+{
+	struct usbmsc_unit *mscunit;
+	unsigned int usb_host_id, usb_device_id;
+	u64 hostport;
+	char usb_vendor_id[5], usb_product_id[5];
+	struct storage_extend usb_extend[] = {
+		{ "usb_vendor_id", usb_vendor_id },
+		{ "usb_product_id", usb_product_id },
+		{ NULL, NULL }
+	};
+
+	mscunit = zalloc_usbmsc_unit();
+	usb_host_id = usbhc->host_id;
+	hostport = dev->portno;
+	while (hostport > USB_PORT_MASK)
+		hostport >>= USB_HUB_SHIFT;
+	usb_device_id = (unsigned int)hostport;
+	snprintf (usb_vendor_id, sizeof usb_vendor_id, "%04x",
+		  dev->descriptor.idVendor);
+	snprintf (usb_product_id, sizeof usb_product_id, "%04x",
+		  dev->descriptor.idProduct);
+	mscunit->storage =
+		storage_new(STORAGE_TYPE_USB, usb_host_id,
+		    usb_device_id, NULL, usb_extend);
+	ASSERT(mscunit->storage != NULL);
+
+	return mscunit;
+}
+
+static int
+usbmsc_getmaxlun(struct usb_host *usbhc, 
+		 struct usb_request_block *urb, void *arg)
+{
+	struct usb_device *dev;
+	struct usbmsc_device *mscdev;
+	struct usb_buffer_list *ub;
+	int i;
+
+	dev = urb->dev;
+	if (!dev || !dev->handle) {
+		printf("no device entry\n");
+		return USB_HOOK_DISCARD;
+	}
+	mscdev = (struct usbmsc_device *)dev->handle->private_data;
+	if (!mscdev) {
+		printf("no device handling entry\n");
+		return USB_HOOK_DISCARD;
+	}
+
+	spinlock_lock(&mscdev->lock);
+	for (ub = urb->shadow->buffers; ub; ub = ub->next) {
+		u8 *cp;
+
+		if (ub->pid != USB_PID_IN)
+			continue;
+		cp = (u8 *)mapmem_gphys(ub->padr, ub->len, 0);
+		mscdev->lun_max = *cp;
+		unmapmem(cp, ub->len);
+		dprintft(1, "MSCD(%02x: ): %d logical unit(s) found\n",
+			 urb->address, mscdev->lun_max + 1);
+	}
+
+	/* create instances for additional units */
+	for (i=1; i<=mscdev->lun_max; i++)
+		mscdev->unit[i] = usbmsc_create_unit(usbhc, dev);
+		
+	spinlock_unlock(&mscdev->lock);
+	
+	return USB_HOOK_PASS;
+}
 
 static void
 usbmsc_remove(struct usb_device *dev)
 {
 	struct usbmsc_device *mscdev;
+	int i;
 
 	mscdev = (struct usbmsc_device *)dev->handle->private_data;
-	free(mscdev->storage);
+	for (i=0; i<=mscdev->lun_max; i++)
+		storage_free (mscdev->unit[i]->storage);
 	free(dev->handle->private_data);
 	free(dev->handle);
 	dev->handle = NULL;
@@ -678,9 +799,6 @@ static const unsigned char subcls2str[0x07][32] = {
 	"SCSI Transparent"
 };
 
-static unsigned int usb_host_id = 0;
-static unsigned int usb_device_id = STORAGE_DEVICE_ID_ANY;
-
 static int 
 usbmsc_init_bulkmon(struct usb_host *usbhc, 
 		    struct usb_request_block *urb, void *arg)
@@ -690,7 +808,16 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	struct usbmsc_device *mscdev;
 	struct usb_device_handle *handler;
 	u8 devadr, type, cls, subcls, proto;
-	int i;
+	int i, j;
+	int ret;
+	struct usb_interface_descriptor *iface = NULL;
+	static const struct usb_hook_pattern pat_getmaxlun = {
+		.pid = USB_PID_SETUP,
+		.mask = 0x000000000000ffffULL,
+		.pattern = 0x000000000000FEA1ULL,
+		.offset = 0,
+		.next = NULL
+	};
 
 	devadr = urb->address;
 	dev = urb->dev;
@@ -698,71 +825,94 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	/* an interface descriptor must exists */
 	if (!dev || !dev->config || !dev->config->interface || 
 	    !dev->config->interface->altsetting) {
-		dprintft(2, "MSCD(%02x): interface descriptor not found.\n",
+		dprintft(2, "MSCD(%02x: ): interface descriptor not found.\n",
 			 devadr);
 		return USB_HOOK_PASS;
 	}
+	
+	/* search for a interface that we can use on this device */
+	ret  = USB_HOOK_PASS;
+	for (j = 0; j < dev->config->interface->num_altsetting; j++) {
+		iface = dev->config->interface->altsetting + j;
+		/* only MSC devices interests */
+		cls = iface->bInterfaceClass;
+		if (cls != 0x08)
+			continue;
 
-	/* only MSC devices interests */
-	cls = dev->config->interface->altsetting->bInterfaceClass;
-	if (cls != 0x08)
-		return USB_HOOK_PASS;
+		dprintft(1, "MSCD(%02x: ): "
+			 "A Mass Storage Class device found\n", devadr);
+
+		subcls = iface->bInterfaceSubClass;
+		dprintft(1, "MSCD(%02x: ): ", devadr);
+		if (subcls < 0x07)
+			dprintf(1, "%s", subcls2str[subcls]);
+		else
+			dprintf(1, "0x%02x", subcls);
+		dprintf(1, " command set\n");
+
+		proto = iface->bInterfaceProtocol;
+		dprintft(1, "MSCD(%02x: ): ", devadr);
+		switch (proto) {
+		case 0x01:
+			dprintf(1, "CBI with CCIT");
+			break;
+		case 0x02:
+			dprintf(1, "CBI without CCIT");
+			break;
+		case 0x50:
+			dprintf(1, "Bulk-only");
+			break;
+		default:
+			dprintf(1, "0x%02x", proto);
+			break;
+		}
+		dprintf(1, " transfer protocol\n");
+
+		/* SCSI transparent command set and SFF-8020i are supported */
+		if ((proto != 0x50) ||			  /* Bulk only */
+		    ((subcls != 0x06) && (subcls != 0x02) &&  /* 8020 & SCSI */
+		     (subcls != 0x05)))	{		  /* 8070        */
+			ret = USB_HOOK_DISCARD;
+			continue;
+		}
 	
-	dprintft(1, "MSCD(%02x): "
-		 "A Mass Storage Class device found\n", devadr);
-	
-	subcls = dev->config->interface->altsetting->bInterfaceSubClass;
-	dprintft(1, "MSCD(%02x): ", devadr);
-	if (subcls < 0x07)
-		dprintf(1, "%s", subcls2str[subcls]);
-	else
-		dprintf(1, "0x%02x", subcls);
-	dprintf(1, " command set\n");
-			    
-	proto = dev->config->interface->altsetting->bInterfaceProtocol;
-	dprintft(1, "MSCD(%02x): ", devadr);
-	switch (proto) {
-	case 0x01:
-		dprintf(1, "CBI with CCIT");
-		break;
-	case 0x02:
-		dprintf(1, "CBI without CCIT");
-		break;
-	case 0x50:
-		dprintf(1, "Bulk-only");
-		break;
-	default:
-		dprintf(1, "0x%02x", proto);
+		if (dev->handle) {
+			dprintft(1, "MSCD(%02x: ): maybe reset.\n",  devadr);
+			continue;
+		}
 		break;
 	}
-	dprintf(1, " transfer protocol\n");
 
-	/* SCSI transparent command set and SFF-8020i are supported */
-	if ((proto != 0x50) ||			  /* Bulk only */
-	    ((subcls != 0x06) && (subcls != 0x02) &&  /* 8020 & SCSI */
-	     (subcls != 0x05)))			  /* 8070        */
-		return USB_HOOK_DISCARD;
-
-	if (dev->handle) {
-		dprintft(1, "MSCD(%02x): maybe reset.\n",  devadr);
-		return USB_HOOK_PASS;
-	}
+	/* exit if no suitable interfaces were found */
+	if (j == dev->config->interface->num_altsetting)
+		return ret;
 
 	/* create msc device entry */
 	mscdev = zalloc_usbmsc_device();
 	spinlock_init(&mscdev->lock);
-	mscdev->command = USBMSC_COM_SCSI_NONE;
-	mscdev->profile = USBMSC_PROF_NOPROF;
+	spinlock_lock(&mscdev->lock);
+	
+	mscdev->unit[0] = usbmsc_create_unit(usbhc, dev);
 
-	mscdev->storage = storage_new(STORAGE_TYPE_USB, usb_host_id,
-				      usb_device_id, NULL, 512);
-	ASSERT(mscdev->storage != NULL);
-	mscdev->storage->sector_size = 1;
+	handler = alloc_usb_device_handle();
+	handler->remove = usbmsc_remove;
+	handler->private_data = (void *)mscdev;
+	dev->handle = handler;
+	
+	spinlock_unlock(&mscdev->lock);
+
+	/* register a hook for GetMaxLun */
+	spinlock_lock(&usbhc->lock_hk);
+	usb_hook_register(usbhc, USB_HOOK_REPLY,
+			  USB_HOOK_MATCH_ADDR |
+			  USB_HOOK_MATCH_ENDP | USB_HOOK_MATCH_DATA,
+			  devadr, 0, &pat_getmaxlun,
+			  usbmsc_getmaxlun, NULL, dev);
+	spinlock_unlock(&usbhc->lock_hk);
 
 	/* register a hook for BULK IN transfers */
-	for (i = 1; i <= dev->config->interface->
-		     altsetting->bNumEndpoints; i++) {
-		epdesc = &dev->config->interface->altsetting->endpoint[i];
+	for (i = 1; i <= iface->bNumEndpoints; i++) {
+		epdesc = &iface->endpoint[i];
 		type = epdesc->bmAttributes & USB_ENDPOINT_TYPE_MASK;
 			
 		if (type != USB_ENDPOINT_TYPE_BULK)
@@ -805,18 +955,13 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 		}
 	}
 
-	handler = alloc_usb_device_handle();
-	handler->remove = usbmsc_remove;
-	handler->private_data = (void *)mscdev;
-	dev->handle = handler;
-
 	return USB_HOOK_PASS;
 }
 
 void 
 usbmsc_init_handle(struct usb_host *host)
 {
-	const struct usb_hook_pattern pat_setconf = {
+	static const struct usb_hook_pattern pat_setconf = {
 		.pid = USB_PID_SETUP,
 		.mask = 0x000000000000ffffULL,
 		.pattern = 0x0000000000000900ULL,

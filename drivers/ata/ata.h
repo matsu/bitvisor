@@ -30,7 +30,7 @@
 #ifndef _ATA_H
 #define _ATA_H
 #include "pci.h"
-#include "storage.h"
+#include <storage.h>
 
 /* ATA registers */
 #define ATA_CMD_PORT_NUMS	8
@@ -160,6 +160,8 @@ typedef union {
 /* ATA device, channel, host */
 struct ata_device {
 	struct storage_device *storage_device;
+	int storage_sector_size;
+	int storage_host_id, storage_device_id;
 	int current_tag;
 	struct {
 		int	rw;
@@ -200,7 +202,8 @@ struct ata_channel {
 	// PIO
 	int			pio_buf_index;
 	int			pio_block_size;
-	u8			pio_buf[2048]; // FIXME: should merge with DMA shadow buffer
+	u8			*pio_buf; // FIXME: should merge with DMA shadow buffer
+	long			pio_buf_premap;
 	bool			interrupt_disabled;
 	int			(*pio_buf_handler)(struct ata_channel *channel, int rw);
 
@@ -212,6 +215,7 @@ struct ata_channel {
 	void			*shadow_prd;
 	u32			shadow_prd_phys;
 	void			*shadow_buf;
+	long			shadow_buf_premap;
 
 	// handler
 	u32			base[3];
@@ -255,6 +259,7 @@ struct ata_host {
 		ATA_HOST_POWER_STATE_IDLE,
 		ATA_HOST_POWER_STATE_READY,
 	} power_state;
+	void *ahci_data;
 };
 
 typedef int (*ata_reg_handler_t)(struct ata_channel *channel, core_io_t io, union mem *data);
@@ -358,8 +363,8 @@ static inline struct storage_device *ata_get_storage_device(struct ata_channel *
 {	return ata_get_ata_device(channel)->storage_device; }
 static inline u8 ata_get_busid(struct ata_channel *channel)
 {
-	struct storage_device *storage = ata_get_storage_device(channel);
-	return storage->busid.host_id * 2 + storage->busid.device_id;
+	struct ata_device *device = ata_get_ata_device(channel);
+	return device->storage_host_id * 2 + device->storage_device_id;
 }
 
 static inline int ata_get_8bit_count(u8 count) { return count == 0 ? 256 : count; }

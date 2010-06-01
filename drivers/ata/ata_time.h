@@ -39,11 +39,11 @@ struct time_t{
 static inline struct time_t
 ata_get_time(u64 start)
 {
-	const u64 max = ~0ULL;
+	static const u64 max = ~0ULL;
 	u64 now, sec[2], ms[2], us[2];
 	struct time_t time;
 
-	now = get_cpu_time();
+	now = get_time();
 	sec[0] = ms[0] = us[0] = (now >= start) ? (now - start) : (max - start + now + 1);	
 	sec[1] = ms[1] = us[1] = 0ULL;
 

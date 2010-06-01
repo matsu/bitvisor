@@ -14,16 +14,17 @@ ASFLAGS       = --$(BITS-$(CONFIG_64))
 LDFLAGS-0     = -Wl,-melf_i386
 LDFLAGS-1     = -Wl,-melf_x86_64
 LDFLAGS       = $(LDFLAGS-$(CONFIG_64)) -g -nostdlib -Wl,-r
-OUT_OBJ       = openssl.o
+OUT_LIB       = openssl.a
 
 .PHONY : all clean
 
-all : $(OUT_OBJ)
+all : $(OUT_LIB)
 
 clean : 
-	rm -f $(OUT_OBJ) *.o *~
+	rm -f $(OUT_LIB) *.o *~
 
-$(OUT_OBJ) : $(OBJS) $(CONFIG)
-	$(CC) $(LDFLAGS) -o $(OUT_OBJ) $(OBJS)
+$(OUT_LIB) : $(OBJS) $(CONFIG)
+	rm -f $(OUT_LIB)
+	ar cr $(OUT_LIB) $(OBJS)
 
 $(OBJS) : $(HEADERS) $(CONFIG)

@@ -131,6 +131,18 @@ cpu_emul_realmode_int (u8 num)
 	current->vmctl.read_flags (&rflags);
 	current->vmctl.read_sreg_sel (SREG_CS, &cs);
 	current->vmctl.read_ip (&rip);
+#ifdef DISABLE_TCG_BIOS
+	if (num == 0x1A) {
+		ulong rax;
+
+		current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
+		rax &= 0xFFFF;
+		if (rax == 0xBB00) {	/* TCG_StatusCheck function */
+			current->vmctl.write_flags (rflags | RFLAGS_CF_BIT);
+			return VMMERR_SUCCESS;
+		}
+	}
+#endif /* DISABLE_TCG_BIOS */
 	RIE (cpu_stack_get (&st));
 	RIE (cpu_stack_push (&st, &rflags, OPTYPE_16BIT));
 	RIE (cpu_stack_push (&st, &cs, OPTYPE_16BIT));
@@ -142,4 +154,19 @@ cpu_emul_realmode_int (u8 num)
 	RIE (cpu_stack_set (&st));
 	cpu_emul_cli ();
 	return VMMERR_SUCCESS;
+}
+
+bool
+cpu_emul_xsetbv (void)
+{
+	u32 ia, ic, id;
+	ulong la, lc, ld;
+
+	current->vmctl.read_general_reg (GENERAL_REG_RAX, &la);
+	current->vmctl.read_general_reg (GENERAL_REG_RCX, &lc);
+	current->vmctl.read_general_reg (GENERAL_REG_RDX, &ld);
+	ia = la;
+	ic = lc;
+	id = ld;
+	return current->vmctl.xsetbv (ic, ia, id);
 }

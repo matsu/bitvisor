@@ -82,6 +82,7 @@ static struct usb_operations uhciop = {
 static void 
 uhci_new(struct pci_device *pci_device)
 {
+	int i;
 	struct uhci_host *host;
 #if defined(HANDLE_USBMSC)
 	extern void usbmsc_init_handle(struct usb_host *host);
@@ -111,6 +112,10 @@ uhci_new(struct pci_device *pci_device)
 	/* initializing host->frame_number with UHCI_NUM_FRAMES -1 
 	   lets the uhci_framelist_monitor start at no.0 frame. */
 	host->frame_number = UHCI_NUM_FRAMES - 1;
+	for (i = 0; i < UHCI_URBHASH_SIZE; i++)
+		LIST2_HEAD_INIT (host->urbhash[i], urbhash);
+	LIST2_HEAD_INIT (host->need_shadow, need_shadow);
+	LIST2_HEAD_INIT (host->update, update);
  	host->hc = usb_register_host((void *)host, &uhciop, 
 				     USB_HOST_TYPE_UHCI);
 	ASSERT(host->hc != NULL);
@@ -165,9 +170,6 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 
 			in16(io.port, &val16);
 			if (val16 & UHCI_USBSTS_INTR) {
-				/* get the current frame number */
-				uhci_current_frame_number(host);
-
 				/* down IOC flag in the terminate TD */
 				if (host->term_tdm->td->status & 
 				    UHCI_TD_STAT_IC)

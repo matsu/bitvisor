@@ -122,7 +122,7 @@ BN_ULONG BN_mod_word(const BIGNUM *a, BN_ULONG w)
 #else
 		//ret=(BN_ULLONG)(((ret<<(BN_ULLONG)BN_BITS2)|a->d[i])%
 		//	(BN_ULLONG)w);
-		ret = chelp_mod_64_32_32(((ret<<(BN_ULLONG)BN_BITS2)|a->d[i]), (UINT)w);
+		ret = chelp_mod_64_32_32(((ret<<(BN_ULLONG)BN_BITS2)|a->d[i]), (unsigned int)w);
 #endif
 		}
 	return((BN_ULONG)ret);

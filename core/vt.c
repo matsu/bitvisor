@@ -89,6 +89,7 @@ static struct vmctl_func func = {
 	vt_invlpg,
 	vt_reset,
 	vt_extern_flush_tlb_entry,
+	call_xsetbv,
 };
 
 void

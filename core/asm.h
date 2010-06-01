@@ -833,5 +833,13 @@ asm_vmrun_regs (struct svm_vmrun_regs *p, ulong vmcb_phys, ulong vmcbhost_phys)
 #endif
 }
 
+/* 0f 01 d1                xsetbv */
+static inline void
+asm_xsetbv (u32 c, u32 a, u32 d)
+{
+	asm volatile (".byte 0x0F, 0x01, 0xD1" /* xsetbv */
+		      :
+		      : "c" (c), "a" (a), "d" (d));
+}
 
 #endif

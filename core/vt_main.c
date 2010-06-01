@@ -111,7 +111,7 @@ do_cpuid (void)
 }
 
 static void
-do_msr_fault (void)
+make_gp_fault (u32 errcode)
 {
 	struct vt_intr_data *vid = &current->u.vt.intr;
 
@@ -121,7 +121,7 @@ do_msr_fault (void)
 	vid->vmcs_intr_info.s.nmi = 0;
 	vid->vmcs_intr_info.s.reserved = 0;
 	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
-	vid->vmcs_exception_errcode = 0;
+	vid->vmcs_exception_errcode = errcode;
 	vid->vmcs_instruction_len = 0;
 	current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
 }
@@ -130,7 +130,7 @@ static void
 do_rdmsr (void)
 {
 	if (cpu_emul_rdmsr ())
-		do_msr_fault ();
+		make_gp_fault (0);
 	else
 		add_ip ();
 }
@@ -139,7 +139,7 @@ static void
 do_wrmsr (void)
 {
 	if (cpu_emul_wrmsr ())
-		do_msr_fault ();
+		make_gp_fault (0);
 	else
 		add_ip ();
 }
@@ -385,7 +385,10 @@ vt__event_delivery_check (void)
 		else if (ivif.v == vid->vmcs_intr_info.v)
 			;
 		else
-			panic ("Fatal error:\n"
+			/* panic ("Fatal error:\n" */
+			/* this should not happen but */
+			/* Atom Z520 makes this message occasionally */
+			printf ("Ignoring storange behavior of CPU:\n"
 			       "VMCS_IDT_VECTORING_INFO_FIELD == 0x%lX\n"
 			       "VMCS_VMENTRY_INTR_INFO == 0x%X\n",
 			       ivif.v, vid->vmcs_intr_info.v);
@@ -661,6 +664,15 @@ err:
 }
 
 static void
+do_xsetbv (void)
+{
+	if (cpu_emul_xsetbv ())
+		make_gp_fault (0);
+	else
+		add_ip ();
+}
+
+static void
 vt__exit_reason (void)
 {
 	ulong exit_reason;
@@ -714,6 +726,9 @@ vt__exit_reason (void)
 		break;
 	case EXIT_REASON_TASK_SWITCH:
 		do_task_switch ();
+		break;
+	case EXIT_REASON_XSETBV:
+		do_xsetbv ();
 		break;
 	default:
 		printf ("Fatal error: handler not implemented.\n");

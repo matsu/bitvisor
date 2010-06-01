@@ -30,7 +30,9 @@
 #include "asm.h"
 #include "constants.h"
 #include "initfunc.h"
+#include "process.h"
 #include "sleep.h"
+#include "time.h"
 
 void
 waitcycles (u32 d, u32 a)
@@ -68,7 +70,13 @@ void
 usleep (u32 usec)
 {
 	u32 count, remainder, counter0, tmp, diff;
+	u64 acpitime, acpitime2;
 
+	if (get_acpi_time (&acpitime)) {
+		while (get_acpi_time (&acpitime2))
+			if (acpitime2 - acpitime >= usec)
+				return;
+	}
 	while (usec > 3599591843U) {
 		usleep (3599591843U);
 		usec -= 3599591843U;
@@ -106,10 +114,27 @@ sleep_set_timer_counter (void)
 	asm_outb (PIT_COUNTER0, 0);
 }
 
+static int
+usleep_msghandler (int m, int c)
+{
+	if (m == MSG_INT) {
+		usleep (c);
+		return 0;
+	}
+	return -1;
+}
+
 static void
 sleep_init_global (void)
 {
 	sleep_set_timer_counter ();
 }
 
+static void
+sleep_init_msg (void)
+{
+	msgregister ("usleep", usleep_msghandler);
+}
+
 INITFUNC ("global0", sleep_init_global);
+INITFUNC ("msg0", sleep_init_msg);

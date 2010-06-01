@@ -51,11 +51,16 @@ static void ata_dma_handle_rw_sectors(struct ata_channel *channel, int rw)
 	access.rw = rw;
 	access.lba = channel->lba;
 	access.count = channel->sector_count;
+	access.sector_size = ata_get_ata_device(channel)->storage_sector_size;
 	if (channel->atapi_device->atapi_flag != 0 && 
 			channel->atapi_device->dma_state != ATA_STATE_DMA_READY)
 		goto end;
 
-	storage_handle_sectors(ata_get_storage_device(channel), &access, channel->shadow_buf, channel->shadow_buf);
+	storage_premap_handle_sectors (ata_get_storage_device(channel),
+				       &access, channel->shadow_buf,
+				       channel->shadow_buf,
+				       channel->shadow_buf_premap,
+				       channel->shadow_buf_premap);
 	channel->atapi_device->dma_state = ATA_STATE_DMA_THROUGH;
 
  end:	return;

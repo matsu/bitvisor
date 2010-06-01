@@ -37,16 +37,4 @@ void *timer_new (void (*callback) (void *handle, void *data), void *data);
 void timer_set (void *handle, u64 interval_usec);
 void timer_free (void *handle);
 
-
-static inline u64
-elapse_time_ms(u64 start)
-{
-	const u64 max = (~0ULL / 1024) + 1;
-	u64 now;
-
-	now = get_cpu_time() / 1024;
-
-	return (now >= start) ? (now - start) : (max - start + now);
-}
-
 #endif

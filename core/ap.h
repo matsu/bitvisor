@@ -37,5 +37,6 @@ void panic_wakeup_all (void);
 void sync_all_processors (void);
 void start_all_processors (void (*bsp_initproc) (void),
 			   void (*ap_initproc) (void));
+void disable_apic (void);
 
 #endif

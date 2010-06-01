@@ -1,5 +1,7 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (C) 2007, 2008
+ *      National Institute of Information and Communications Technology
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,7 +29,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_IDMAN_H
-#define _CORE_IDMAN_H
+#include <core/types.h>
+#include <Se/Se.h>
 
-#endif
+bool crypt_sys_rsa_sign (void *key_data, UINT key_size, void *data,
+			 UINT data_size, void *sign, UINT *sign_buf_size);

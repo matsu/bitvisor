@@ -34,7 +34,9 @@
 
 #include "io.h"
 #include "pci.h"
-#include "../../crypto/chelp.h"
+#define UCHAR	unsigned char
+#define UINT	unsigned int
+#define DWORD	unsigned int
 
 /// 定数
 #define	PRO100_MAX_OP_BLOCK_SIZE				(PRO100_MAX_PACKET_SIZE + 16)
@@ -134,7 +136,7 @@ typedef struct
 	phys_t guest_cu_start_pointer;		// 先頭のゲスト OS によるオペレーションへのポインタ
 	phys_t guest_cu_current_pointer;	// 現在のゲスト OS によるオペレーションへのポインタ
 	phys_t guest_cu_next_pointer;		// 次のゲスト OS によるオペレーションへのポインタ (Suspend 時)
-	SE_LOCK *lock;						// ロック
+	spinlock_t lock;				// ロック
 	UCHAR mac_address[6];				// MAC アドレス
 	UCHAR padding1[2];
 	bool use_standard_txcb;				// Extended TxCB を使用しない

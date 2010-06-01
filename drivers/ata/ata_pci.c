@@ -36,6 +36,7 @@
 #include <core.h>
 #include "ata.h"
 #include "ata_pci.h"
+#include "ahci.h"
 
 /********************************************************************************
  * ATA handlers install
@@ -55,7 +56,7 @@ void ata_set_bm_handler(struct ata_host *host)
 	struct pci_config_space *config_space = &host->pci_device->config_space;
 
 	api.value = config_space->programming_interface;
-	if (!api.bus_master)
+	if (0/*api.bus_master==0 on AHCI controller*/ && !api.bus_master)
 		return;
 
 	bm_base = config_space->base_address[4] & PCI_CONFIG_BASE_ADDRESS_IOMASK;
@@ -167,10 +168,13 @@ int ata_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, uni
 
 	case PCI_CONFIG_BASE_ADDRESS4:
 		ata_set_bm_handler(ata_host);
+		ahci_config_write (ata_host->ahci_data, pci_device, io, offset,
+				   data);
 		break;
 
 	case PCI_CONFIG_BASE_ADDRESS5:
-		printf("ATA: base address 5 is not supported yet\n");
+		ahci_config_write (ata_host->ahci_data, pci_device, io, offset,
+				   data);
 		break;
 	}
 

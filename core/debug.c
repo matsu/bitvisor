@@ -74,8 +74,7 @@ debug_addstr (char *str)
 }
 
 static int
-memdump_msghandler (int m, int c, void *recvbuf, int recvlen, void *sendbuf,
-		    int sendlen)
+memdump_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 {
 	u64 physaddr;
 	u8 *q, *tmp;
@@ -83,9 +82,17 @@ memdump_msghandler (int m, int c, void *recvbuf, int recvlen, void *sendbuf,
 	struct memdump_data *d;
 	u64 ent[5];
 	int levels;
+	void *recvbuf, *sendbuf;
+	int recvlen, sendlen;
 
 	if (m != 1)
 		return -1;
+	if (bufcnt < 2)
+		return -1;
+	recvbuf = buf[0].base;
+	recvlen = buf[0].len;
+	sendbuf = buf[1].base;
+	sendlen = buf[1].len;
 	if (recvlen < sizeof (struct memdump_data))
 		return -1;
 	d = (struct memdump_data *)recvbuf;

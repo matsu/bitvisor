@@ -1,10 +1,23 @@
 syntax: glob
 *.o
+*.a
 *~
-core/builtin/bin_*
 core/builtin/process_builtin.s
-core/builtin/lib.a
 bitvisor.elf
 bitvisor.map
 .config*
 defconfig
+boot/login/conf/bitvisor.conf
+boot/login/initrd/initrd.gz
+boot/login/linux/linux-*
+boot/login/linux/vmlinux
+boot/login/minios_init/keymapdump
+boot/login/minios_init/minios_init
+boot/login-simple/config
+boot/login-simple/config.raw
+boot/login-simple/makedata
+boot/login-simple/module1.bin
+boot/login-simple/module2.bin
+boot/login-simple/readdata
+syntax: regexp
+^core/builtin/bin_[^.]*$

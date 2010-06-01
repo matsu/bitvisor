@@ -32,12 +32,21 @@
 #include <lib_syscalls.h>
 
 static int
-recvex_msghandler (int m, int c, void *recvbuf, int recvlen, void *sendbuf,
-		   int sendlen)
+recvex_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 {
 	int i;
+	void *recvbuf, *sendbuf;
+	int recvlen, sendlen;
 
 	printf ("***recvexample start***\n");
+	if (bufcnt < 2) {
+		printf ("bufcnt %d < 2\n", bufcnt);
+		return -1;
+	}
+	recvbuf = buf[0].base;
+	recvlen = buf[0].len;
+	sendbuf = buf[1].base;
+	sendlen = buf[1].len;
 	printf ("recvbuf %p recvlen 0x%x\n", recvbuf, recvlen);
 	printf ("sendbuf %p sendlen 0x%x\n", sendbuf, sendlen);
 	printf ("recvbuf: ");

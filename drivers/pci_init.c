@@ -35,6 +35,7 @@
 #include "pci.h"
 #include "pci_internal.h"
 #include "pci_init.h"
+#include "pci_conceal.h"
 
 static const char driver_name[] = "pci_driver";
 
@@ -102,9 +103,22 @@ static struct pci_device *pci_new_device(pci_config_address_t addr)
 		dev->address = addr;
 		pci_read_config_space(dev);
 		pci_save_base_address_masks(dev);
+		dev->conceal = pci_conceal_new_device (dev);
 		pci_append_device(dev);
 	}
 	return dev;
+}
+
+struct pci_device *
+pci_possible_new_device (pci_config_address_t addr)
+{
+	u16 data;
+	struct pci_device *ret = NULL;
+
+	data = pci_read_config_data16_without_lock (addr, 0);
+	if (data != 0xFFFF)
+		ret = pci_new_device (addr);
+	return ret;
 }
 
 static void pci_find_devices()

@@ -419,16 +419,6 @@ wait_for_other_cpu (void)
 	spinlock_unlock (&panic_lock);
 }
 
-static inline void
-disable_apic (void)
-{
-	u64 tmp;
-
-	asm_rdmsr64 (MSR_IA32_APIC_BASE_MSR, &tmp);
-	tmp &= ~MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT;
-	asm_wrmsr (MSR_IA32_APIC_BASE_MSR, tmp);
-}
-
 static void __attribute__ ((noreturn))
 panic_nomsg (bool w)
 {

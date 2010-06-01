@@ -25,6 +25,8 @@ AS_2          = $(AS_2-$(CONFIG_64))
 OUT_OBJ       = process_builtin.o
 OUT_LIB       = lib.a
 OUT_ASM       = process_builtin.s
+OTHER_LIBS    = ../../storage/lib/libstorage.a ../../idman/libidman.a \
+	../../vpn/libvpn.a ../../crypto/crypto.a
 
 .PHONY : all clean
 
@@ -53,7 +55,7 @@ $(OUT_ASM) : $(BIN_OUT)
 		echo 'prc_'$$i'_bin_end:'; \
 	done >> $(OUT_ASM)
 
-$(BIN_OUT) : $(OUT_LIB)
+$(BIN_OUT) : $(OTHER_LIBS) $(OUT_LIB)
 
 $(OUT_LIB) : $(LIB_OBJS)
 	rm -f $(OUT_LIB)

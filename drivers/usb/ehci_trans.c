@@ -150,7 +150,7 @@ ehci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 	/* make a urb */
 	urb = new_urb_ehci();
 	ASSERT(urb != NULL);
-	urb->prev = urb->next = urb->shadow = NULL;
+	urb->shadow = NULL;
 	urb->address = devadr;
 	urb->endpoint = NULL;
 
@@ -165,15 +165,51 @@ ehci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 	URB_EHCI(urb)->qh_phys = qh_phys;
 	ASSERT(qh != NULL);
 	memset(qh, 0, sizeof(*qh));
-	if (pktsz == 0)
-		pktsz = EHCI_DEFAULT_PACKETSIZE;
 	/* RL   C MAXPKTLEN   H D EP ENDP I DEVADR  */
-	/* 0100 0 00000000000 0 1 10 0000 0 0000000 */
-	/*    4     0   0   0      6    0     0   0 */
-	qh->epcap[0] = 0x40006000;
-	qh->epcap[0] |= (pktsz & 0x07ffU) << 16;
-	qh->epcap[0] |= (endpoint << 8) | devadr;
-	qh->epcap[1] = 0x40000000;
+	/* 0100 0 00000000000 0 1 00 0000 0 0000000 */
+	/*    4     0   0   0      4    0     0   0 */
+	qh->epcap[0] = 0x40004000U;
+
+	/* set EPS and control flag (C) fields */
+	switch (device->speed) {
+	case UD_SPEED_LOW:
+		qh->epcap[0] |= 0x01U << EHCI_QH_EPCP_EPSPD_SHIFT;
+		qh->epcap[0] |= 1U << EHCI_QH_EPCP_CTLEP_SHIFT;
+		if (pktsz == 0)
+			pktsz = EHCI_DEFAULT_SPLIT_PACKETSIZE;
+		break;
+	case UD_SPEED_FULL:
+		qh->epcap[0] |= 1U << EHCI_QH_EPCP_CTLEP_SHIFT;
+		if (pktsz == 0)
+			pktsz = EHCI_DEFAULT_SPLIT_PACKETSIZE;
+		break;
+	case UD_SPEED_HIGH:
+	default:
+		qh->epcap[0] |= 0x02U << EHCI_QH_EPCP_EPSPD_SHIFT;
+		if (pktsz == 0)
+			pktsz = EHCI_DEFAULT_PACKETSIZE;
+		break;
+	}
+	qh->epcap[0] |= (pktsz & 0x07ffU) << EHCI_QH_EPCP_PKTLN_SHIFT;
+	qh->epcap[0] |= (endpoint << EHCI_QH_EPCP_EPNUM_SHIFT) | devadr;
+	qh->epcap[1] = 0x40000000U;
+
+	/* set Hub Addr and Port Number fields if not high speed */
+	if ((device->speed == UD_SPEED_FULL) ||
+	    (device->speed == UD_SPEED_LOW)) {
+		struct usb_device *parent;
+		u8 portno;
+
+		parent = device->parent;
+		portno = device->portno & 0x7f;
+		while (parent && (parent->speed != UD_SPEED_HIGH)) {
+			portno = parent->portno & 0x7f;
+			parent = parent->parent;
+		}
+		ASSERT(parent != NULL);
+		qh->epcap[1] |= portno << EHCI_QH_EPCP_POTNM_SHIFT;
+		qh->epcap[1] |= parent->devnum << EHCI_QH_EPCP_HUBAD_SHIFT;
+	}
 	qh->qtd_ovlay.altnext = EHCI_LINK_TE;
 
 	/* make a SETUP qTD */
@@ -218,21 +254,16 @@ ehci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 	     qtdm->next; qtdm = qtdm->next)
 		qtdm->qtd->altnext = tail_phys;
 
-	dprintft(3, "%s <<<<< \n", __FUNCTION__);
-	ehci_dump_urb(3, urb);
-	dprintft(3, "%s >>>>> \n", __FUNCTION__);
-
 	/* activate it in the shadow list */
-	URB_EHCI(urb)->qh->link = URB_EHCI(host->tail_hurb)->qh->link;
-	URB_EHCI(host->tail_hurb)->qh->link = (phys32_t)
+	URB_EHCI(urb)->qh->link =
+		URB_EHCI(LIST4_TAIL (host->hurb, list))->qh->link;
+	URB_EHCI(LIST4_TAIL (host->hurb, list))->qh->link = (phys32_t)
 		URB_EHCI(urb)->qh_phys | 0x00000002U;
 
 	urb->status = URB_STATUS_RUN;
 
 	/* update the hurb list */
-	urb->prev = host->tail_hurb;
-	host->tail_hurb->next = urb;
-	host->tail_hurb = urb;
+	LIST4_ADD (host->hurb, list, urb);
 
 	return urb;
 }

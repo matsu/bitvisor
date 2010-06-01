@@ -154,6 +154,18 @@ keyboard_getkey (void)
 	return data;
 }
 
+void
+keyboard_flush (void)
+{
+	u8 data;
+	u8 status;
+
+	do {
+		asm_inb (KBD_DATA, &data);
+		asm_inb (KBD_STATUS, &status);
+	} while (status & 1);
+}
+
 static int
 keycode_to_ascii (u8 key)
 {

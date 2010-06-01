@@ -40,5 +40,6 @@ void cpu_emul_hlt (void);
 void cpu_emul_cli (void);
 void cpu_emul_sti (void);
 enum vmmerr cpu_emul_realmode_int (u8 num);
+bool cpu_emul_xsetbv (void);
 
 #endif

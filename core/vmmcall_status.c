@@ -71,6 +71,8 @@ get_status (void)
 	ulong rbx, rcx;
 	char c;
 
+	if (!config.vmm.status)
+		return;
 	spinlock_lock (&status_lock);
 	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
 	current->vmctl.read_general_reg (GENERAL_REG_RCX, &rcx);
@@ -100,8 +102,10 @@ vmmcall_status_init (void)
 	LIST1_HEAD_INIT (list1_status);
 	spinlock_init (&status_lock);
 #ifdef VMMCALL_STATUS_ENABLE
-	if (config.vmm.iccard.status)
-		vmmcall_register ("get_status", get_status);
+	vmmcall_register ("get_status", get_status);
+#else
+	if (0)
+		get_status ();	/* supress warnings */
 #endif
 }
 

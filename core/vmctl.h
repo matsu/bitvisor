@@ -75,6 +75,7 @@ struct vmctl_func {
 	void (*invlpg) (ulong addr);
 	void (*reset) (void);
 	bool (*extern_flush_tlb_entry) (struct vcpu *p, phys_t s, phys_t e);
+	bool (*xsetbv) (u32 ic, u32 ia, u32 id);
 };
 
 #endif

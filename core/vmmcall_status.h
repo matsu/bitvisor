@@ -30,7 +30,9 @@
 #ifndef _CORE_VMMCALL_STATUS_H
 #define _CORE_VMMCALL_STATUS_H
 
+#ifdef STATUS
 #define VMMCALL_STATUS_ENABLE
+#endif
 
 #ifdef VMMCALL_STATUS_ENABLE
 #define STATUS_UPDATE(a) a

@@ -62,6 +62,7 @@ static struct usb_operations ehciop = {
 static void 
 ehci_new(struct pci_device *pci_device)
 {
+	int i;
 	struct ehci_host *host;
 #if defined(HANDLE_USBMSC)
 	extern void usbmsc_init_handle(struct usb_host *host);
@@ -75,6 +76,10 @@ ehci_new(struct pci_device *pci_device)
 	memset(host, 0, sizeof(*host));
 	spinlock_init(&host->lock);
 	pci_device->host = host;
+	for (i = 0; i < EHCI_URBHASH_SIZE; i++)
+		LIST2_HEAD_INIT (host->urbhash[i], urbhash);
+	LIST2_HEAD_INIT (host->need_shadow, need_shadow);
+	LIST2_HEAD_INIT (host->update, update);
 	host->usb_host = 
 		usb_register_host((void *)host, &ehciop, USB_HOST_TYPE_EHCI);
 	ASSERT(host->usb_host != NULL);
@@ -231,6 +236,9 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 			break;
 		case 0x04: /* USBSTS */
 			if (!wr) {
+				spinlock_lock(&host->lock);
+				ehci_check_advance(host->usb_host);
+				spinlock_unlock(&host->lock);
 				dprintft(3, "read(USBSTS, %d) = %08x[", 
 					len, *reg);
 				if (*reg & 0x00000001)
@@ -248,8 +256,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 					spinlock_lock(&host->lock);
 					if (host->doorbell)
 					host->doorbell = 0;
-					ehci_cleanup_urbs(&host->
-							  unlink_messages);
+					ehci_cleanup_urbs (host);
 					spinlock_unlock(&host->lock);
 				}
 				if (*reg & 0x00001000)

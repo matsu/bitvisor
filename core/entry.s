@@ -51,12 +51,14 @@
 	CPUID_1_EDX_MSR_BIT = 0x20
 	CPUID_1_EDX_PAE_BIT = 0x40
 	CPUID_1_EDX_CX8_BIT = 0x100
+	CPUID_1_EDX_PGE_BIT = 0x2000
 	CPUID_0x80000001_EDX_64_BIT = 0x20000000
 	CR0_PE_BIT = 0x1
 	CR0_TS_BIT = 0x8
 	CR0_PG_BIT = 0x80000000
 	CR4_PSE_BIT = 0x10
 	CR4_PAE_BIT = 0x20
+	CR4_PGE_BIT = 0x80
 	EFLAGS_ID_BIT = 0x200000
 	MSR_IA32_EFER = 0xC0000080
 	MSR_IA32_EFER_LME_BIT = 0x100
@@ -92,7 +94,7 @@ entry:
 	cld				#
 	rep	stosl			#
 	mov	%cr4,%ecx
-	or	$CR4_PAE_BIT,%ecx
+	or	$(CR4_PAE_BIT|CR4_PGE_BIT),%ecx
 .if longmode
 	lea	entry_pml4(%ebp),%eax	# CR3 for long mode
 .else
@@ -161,6 +163,8 @@ entry16_2:
 	call	check386
 	lea	msg_badcpu16-entry16_2(%bp),%si
 	jc	error16
+	pushl	$0		# Clear flag register including IOPL
+	popfl			#
 	call	check_cpuid
 	lea	msg_badcpuid-entry16_2(%bp),%si
 	jc	error16
@@ -270,6 +274,8 @@ check_flags:
 	test	$CPUID_1_EDX_MSR_BIT,%edx
 	je	1f
 	test	$CPUID_1_EDX_CX8_BIT,%edx
+	je	1f
+	test	$CPUID_1_EDX_PGE_BIT,%edx
 	je	1f
 .if longmode
 	mov	$0x80000000,%eax
@@ -448,6 +454,9 @@ vmm_pd:
 	.space	PAGESIZE
 	.globl	vmm_pd1
 vmm_pd1:
+	.space	PAGESIZE
+	.globl	vmm_pd2
+vmm_pd2:
 	.space	PAGESIZE
 
 	.text

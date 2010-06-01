@@ -568,6 +568,9 @@ void SeVpn4DhcpServer(SE_VPN4 *v4, SE_IPV4 *p, SE_IPV4_HEADER_INFO *info, void *
 		SeZero(&ret, sizeof(ret));
 
 		ret.Opcode = (opt.Opcode == SE_DHCPV4_DISCOVER ? SE_DHCPV4_OFFER : SE_DHCPV4_ACK);
+		if (ret.Opcode == SE_DHCPV4_ACK && Se4Cmp (opt.RequestedIp, assign_ip) != 0 && Se4Cmp (opt.RequestedIp, Se4UINTToIP (0)) != 0) {
+			ret.Opcode = SE_DHCPV4_NACK;
+		}
 		ret.ServerAddress = p->IpAddress;
 		ret.LeaseTime = c->DhcpLeaseExpiresV4;
 

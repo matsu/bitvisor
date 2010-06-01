@@ -233,8 +233,8 @@ is_active_urb(struct usb_request_block *urb)
 			if (qtdm->qtd_phys == (phys_t)next_qtd_phys)
 				break;
 		if (!qtdm) {
-			dprintft(1, "%s: a new qTD(%08x) found.\n",
-				 __FUNCTION__, next_qtd_phys);
+			dprintft(3, "%s: inconsistent between a qTD "
+				 "and its metadata\n", __FUNCTION__);
 			return 2;
 		}
 
@@ -287,15 +287,17 @@ shadow_qtdm_list(struct ehci_qtd_meta *gqtdm,
 					 
 		ASSERT(hqtdm->qtd != NULL);
 		memcpy(hqtdm->qtd, gqtdm->qtd, sizeof(struct ehci_qtd));
+
+		/* update the status cache in qTD meta data */
 		hqtdm->status = (u8)(hqtdm->qtd->token & EHCI_QTD_STAT_MASK);
+		gqtdm->status = (u8)(gqtdm->qtd->token & EHCI_QTD_STAT_MASK);
 		if (hqtdm->status != gqtdm->status) {
 			dprintft(2, "%s: a shadow qtd status undone "
 				 "%02x -> %02x\n", __FUNCTION__, 
 				 hqtdm->status, gqtdm->status);
-			hqtdm->status = gqtdm->status;
-			hqtdm->qtd->token &= ~(EHCI_QTD_STAT_MASK);
-			hqtdm->qtd->token |= hqtdm->status;
+			gqtdm->status = hqtdm->status;
 		}
+
 		hqtdm->total_len = ehci_qtd_len(hqtdm->qtd);
 		*hqtdm_p = hqtdm;
 
@@ -370,7 +372,7 @@ register_qtdm_list(phys_t qtd_phys, struct ehci_qtd_meta **qtdm_tail_p)
 		*qtdm_p = qtdm;
 		qtdm_p = &qtdm->next;
 		
-		if (is_halt(qtdm->status))
+		if (!is_active(qtdm->status))
 			break;
 	}
 out:
@@ -486,10 +488,6 @@ ehci_copyback_trans(struct usb_host *usbhc,
 			 __FUNCTION__, URB_EHCI(gurb)->qh_phys,
 			 gurb->status, status);
 		gurb->status = status;
-	} else if (status) {
-		dprintft(1, "%s: %llx: status(%d) unchanged.\n",
-			 __FUNCTION__, URB_EHCI(gurb)->qh_phys, status);
-		ehci_dump_all(1, (struct ehci_host *)usbhc->private);
 	}
 #endif
 	return 0;
@@ -505,7 +503,6 @@ ehci_shadow_qh(struct usb_request_block *gurb)
 	ASSERT(gurb != NULL);
 
 	hurb = new_urb_ehci();
-	hurb->prev = hurb->next = NULL;
 	hurb->shadow = gurb;
 	hurb->status = URB_STATUS_UNLINKED;
 	URB_EHCI(hurb)->qh = (struct ehci_qh *)
@@ -558,29 +555,28 @@ ehci_shadow_qh(struct usb_request_block *gurb)
 	dprintft(2, "shadow(%llx -> %llx) created.\n",
 		 URB_EHCI(gurb)->qh_phys, URB_EHCI(hurb)->qh_phys);
 
-	ehci_dump_urb(3, hurb);
-
 	return hurb;
 }
 
 struct usb_request_block *
-get_urb_by_address(struct usb_request_block *head, phys32_t target_phys)
+get_gurb_by_address (struct ehci_host *host, phys32_t target_phys)
 {
 	struct usb_request_block *urb;
+	int h;
 
 	ASSERT(target_phys != 0U);
 	ASSERT((target_phys & ~0xffffffe0) == 2U);
 	target_phys = ehci_link(target_phys);
+	h = ehci_urbhash_calc (target_phys);
 
-	for (urb = head; urb; urb = urb->next)
+	LIST2_FOREACH (host->urbhash[h], urbhash, urb)
 		if ((phys32_t)URB_EHCI(urb)->qh_phys == target_phys)
 			break;
 	return urb;
 }
 
 static struct usb_request_block *
-register_urb(struct ehci_host *host,
-	     struct usb_request_block **urblist, phys32_t qh_phys)
+register_gurb (struct ehci_host *host, phys32_t qh_phys)
 {
 	struct usb_request_block *new_urb;
 	struct ehci_qtd_meta *qtdm_tail, *qtdm;
@@ -629,22 +625,25 @@ register_urb(struct ehci_host *host,
 	new_urb->address = ehci_qh_addr(URB_EHCI(new_urb)->qh);
 	if (new_urb->address > 0U) {
 		u8 endpt;
+		u8 pid;
 
 		new_urb->dev = 
 			get_device_by_address(host->usb_host, 
 					      new_urb->address);
 		endpt = ehci_qh_endp(URB_EHCI(new_urb)->qh);
-		new_urb->endpoint = 
-			get_edesc_by_address(new_urb->dev, endpt);
-		/* retry for IN endpoint */
-		if (!new_urb->endpoint)
-			new_urb->endpoint =
-				get_edesc_by_address(new_urb->dev, 
-						     endpt | 0x80U);
-	}
 
-	/* buffer list */
-	new_urb->buffers = make_buffer_list(new_urb);
+		/* set bit 7 of the endpoint address for an IN endpoint */
+		if (URB_EHCI(new_urb)->qtdm_head &&
+			URB_EHCI(new_urb)->qtdm_head->qtd) {
+			pid = ehci_qtd_pid(URB_EHCI(new_urb)->qtdm_head->qtd);
+		} else {
+			pid = 0;
+		}
+		pid = pid_ehci2usb(pid);
+		if (pid == USB_PID_IN)
+			endpt |= 0x80;
+		new_urb->endpoint = get_edesc_by_address(new_urb->dev, endpt);
+	}
 
 	/* active status */
 	status = is_active_urb(new_urb);
@@ -655,13 +654,9 @@ register_urb(struct ehci_host *host,
 		new_urb->status = status;
 	}
 
-	urblist_append(urblist, new_urb);
+	ehci_urbhash_add (host, new_urb);
+	LIST4_ADD (host->gurb, list, new_urb);
 	dprintft(2, "new QH(%08x) registered.\n", qh_phys);
-	ehci_dump_urb(3, new_urb);
-	dprintft(2, "GUEST QH LIST:");
-	ehci_dump_urblist(2, *urblist);
-	dprintft(4, "GUEST H/W ALIST:");
-	ehci_dump_alist(4, URB_EHCI(*urblist)->qh_phys, 0);
 
 	return new_urb;
 }
@@ -683,11 +678,18 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 	/* shadow guest trasactions */
 	hurb = gurb->shadow = ehci_shadow_qh(gurb);
 
+	/*
+	  make a guest buffer list
+	  MEMO: *Shadow* qTDs should be used to retrieve buffers
+	        because guest's may be changed any time.
+	*/
+	gurb->buffers = make_buffer_list(hurb);
+
 	/* check up hook patterns */
 	ret = usb_hook_process(host->usb_host, hurb, USB_HOOK_REQUEST);
 	if (ret == USB_HOOK_DISCARD) {
 		hurb->status = URB_STATUS_UNLINKED;
-		urblist_insert(&host->unlink_messages, hurb);
+		LIST4_PUSH (host->unlink_messages, list, hurb);
 		gurb->shadow = NULL;
 		return;
 	}
@@ -697,20 +699,15 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 		dprintft(2, "PING!\n");
 
 	/* activate it in the shadow list */
-	URB_EHCI(hurb)->qh->link = URB_EHCI(host->tail_hurb)->qh->link;
-	URB_EHCI(host->tail_hurb)->qh->link = (phys32_t)
+	URB_EHCI(hurb)->qh->link =
+		URB_EHCI(LIST4_TAIL (host->hurb, list))->qh->link;
+	URB_EHCI(LIST4_TAIL (host->hurb, list))->qh->link = (phys32_t)
 		URB_EHCI(hurb)->qh_phys | 0x00000002;
 
 	hurb->status = URB_STATUS_RUN;
 
 	/* update the hurb list */
-	hurb->prev = host->tail_hurb;
-	host->tail_hurb->next = hurb;
-	host->tail_hurb = hurb;
-	dprintft(2, "HOST QH LIST:");
-	ehci_dump_alist(2, URB_EHCI(host->head_gurb->shadow)->qh_phys, 1);
-	dprintft(4, "HOST H/W ALIST:");
-	ehci_dump_urblist(4, host->head_gurb->shadow);
+	LIST4_ADD (host->hurb, list, hurb);
 #endif
 
 #if defined(ENABLE_DELAYED_START)
@@ -735,22 +732,18 @@ ehci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *hurb)
 		return 0U;
 
 	if (hurb->status != URB_STATUS_UNLINKED) {
-		ASSERT(hurb->prev != NULL);
+		ASSERT(LIST4_PREV (hurb, list) != NULL);
 
 		/* take it out from the HC async. list */
-		URB_EHCI(hurb->prev)->qh->link = URB_EHCI(hurb)->qh->link;
+		URB_EHCI(LIST4_PREV (hurb, list))->qh->link =
+			URB_EHCI(hurb)->qh->link;
 		hurb->status = URB_STATUS_UNLINKED;
 		/* move a metadata of the shadow QH into unlink list */
-		hurb->prev->next = hurb->next;
-		if (hurb->next)
-			hurb->next->prev = hurb->prev;
-		if (host->tail_hurb == hurb)
-			host->tail_hurb = hurb->prev;
-		ehci_dump_urb(3, hurb);
+		LIST4_DEL (host->hurb, list, hurb);
 	}
 	
 	status = hurb->status;
-	urblist_insert(&host->unlink_messages, hurb);
+	LIST4_PUSH (host->unlink_messages, list, hurb);
 
 	/* ring the doorbell whenever a shadow urb deactivated */
 	host->doorbell = 1;
@@ -785,7 +778,12 @@ deactivate_and_delete_urb(struct ehci_host *host,
 	/* clear a metadata of guest QH */
 	dprintft(2, "QH(%08x:%08x) ", qh_phys, 
 	       URB_EHCI(gurb)->qh->qtd_ovlay.token);
-	urblist_delete(&host->head_gurb, gurb);
+	ehci_urbhash_del (host, gurb);
+	LIST4_DEL (host->gurb, list, gurb);
+	if (gurb->mark & URB_MARK_NEED_SHADOW)
+		LIST2_DEL (host->need_shadow, need_shadow, gurb);
+	if (gurb->mark & URB_MARK_UPDATE_REPLACED)
+		LIST2_DEL (host->update, update, gurb);
 	unmapmem(URB_EHCI(gurb)->qh, sizeof(struct ehci_qh));
 
 	/* clear buffer list */
@@ -793,10 +791,6 @@ deactivate_and_delete_urb(struct ehci_host *host,
 	
 	delete_urb_ehci(gurb);
 	dprintf(2, "unlinked.\n");
-	dprintft(2, "HOST QH LIST:");
-	ehci_dump_alist(2, URB_EHCI(host->head_gurb->shadow)->qh_phys, 1);
-	dprintft(4, "HOST H/W ALIST:");
-	ehci_dump_urblist(4, host->head_gurb->shadow);
 
 	return;
 }
@@ -804,53 +798,58 @@ deactivate_and_delete_urb(struct ehci_host *host,
 	struct ehci_qtd_meta *gqtdm, *qtdm_tail;
 
 static void
-sweep_unmarked_urbs(struct ehci_host *host, 
-		   struct usb_request_block *gurb)
+sweep_unmarked_gurbs (struct ehci_host *host)
 {
-	struct usb_request_block *next_gurb;
+	struct usb_request_block *next_gurb, *gurb;
+	u16 counter;
 	
-	do {
-		next_gurb = gurb->next;
-		if (!gurb->mark)
+	counter = host->inlink_counter;
+	LIST4_FOREACH_DELETABLE (host->gurb, list, gurb, next_gurb) {
+		if (!gurb->mark && gurb->inlink != counter)
 			deactivate_and_delete_urb(host, gurb);
-		gurb = next_gurb;
-	} while (gurb);
+	}
 
 	return;
 }
 
 static void
-shadow_marked_urbs(struct ehci_host *host, 
-		   struct usb_request_block *gurb)
+shadow_marked_gurbs (struct ehci_host *host)
 {
-	do {
+	struct usb_request_block *gurb;
+
+	while ((gurb = LIST2_POP (host->need_shadow, need_shadow))) {
 		if (gurb->mark & URB_MARK_NEED_SHADOW) {
 			shadow_and_activate_urb(host, gurb);
 			gurb->mark &= ~URB_MARK_NEED_SHADOW;
 		}
-		gurb = gurb->next;
-	} while (gurb);
+	}
 
 	return;
 }
 
 static void
-update_marked_urbs(struct ehci_host *host, 
-		   struct usb_request_block *gurb)
+update_marked_gurbs (struct ehci_host *host)
 {
-	struct usb_request_block *next_gurb;
+	struct usb_request_block *gurb;
 	phys32_t qh_phys;
 
-	do {
-		next_gurb = gurb->next;
+	while ((gurb = LIST2_POP (host->update, update))) {
 		if (gurb->mark & URB_MARK_UPDATE_REPLACED) {
-			qh_phys = URB_EHCI(gurb)->qh_phys;
-			deactivate_and_delete_urb(host, gurb);
-			gurb = register_urb(host, &host->head_gurb, qh_phys);
-			gurb->mark = URB_MARK_INLINK | URB_MARK_NEED_SHADOW;
+			do {
+				qh_phys = URB_EHCI(gurb)->qh_phys;
+				deactivate_and_delete_urb(host, gurb);
+				gurb = register_gurb(host, qh_phys);
+				gurb->mark = 0;
+				gurb->inlink = host->inlink_counter;
+				gurb->status = is_active_urb(gurb);
+				if (gurb->status == 1) {
+					gurb->mark |= URB_MARK_NEED_SHADOW;
+					LIST2_ADD (host->need_shadow,
+						   need_shadow, gurb);
+				}
+			} while (gurb->status == 2);
 		}
-		gurb = next_gurb;
-	} while (gurb);
+	}
 
 	return;
 }		  
@@ -864,7 +863,7 @@ mark_inlinked_urbs(struct ehci_host *host,
 
 	do {
 		/* mark linked QH */
-		gurb->mark |= URB_MARK_INLINK;
+		gurb->inlink = host->inlink_counter;
 
 		status = is_active_urb(gurb);
 		if (gurb->status != status) {
@@ -872,33 +871,34 @@ mark_inlinked_urbs(struct ehci_host *host,
 				 __FUNCTION__, URB_EHCI(gurb)->qh_phys,
 				 gurb->status, status);
 			gurb->status = status;
-			gurb->mark |= URB_MARK_UPDATE_REPLACED;
+			if (!(gurb->mark & URB_MARK_UPDATE_REPLACED)) {
+				gurb->mark |= URB_MARK_UPDATE_REPLACED;
+				LIST2_ADD (host->update, update, gurb);
+			}
+		} else if ((gurb->shadow == NULL) && (status == 1)) {
+			if (!(gurb->mark & URB_MARK_NEED_SHADOW)) {
+				gurb->mark |= URB_MARK_NEED_SHADOW;
+				LIST2_ADD (host->need_shadow, need_shadow,
+					   gurb);
+			}
 		}
 
 		/* look for the next QH */
 		next_qh_phys = URB_EHCI(gurb)->qh->link; /* atomic */
-		gurb = get_urb_by_address(host->head_gurb, next_qh_phys);
+		gurb = get_gurb_by_address (host, next_qh_phys);
 
 		/* create a new urb for a new guest transaction queue */
-		if (!gurb) {
-			gurb = register_urb(host, &host->head_gurb, 
-					    next_qh_phys);
-			gurb->mark = URB_MARK_NEED_SHADOW;
-		}
-	} while (gurb != host->head_gurb);
+		if (!gurb)
+			gurb = register_gurb(host, next_qh_phys);
+	} while (gurb != LIST4_HEAD (host->gurb, list));
 
 	return;
 }
 	
 static void
-unmark_all_urbs(struct usb_request_block *gurb)
+unmark_all_gurbs (struct ehci_host *host)
 {
-	do {
-		gurb->mark = 0U;
-		gurb = gurb->next;
-	} while (gurb);
-
-	return;
+	host->inlink_counter++;
 }
 
 static u8
@@ -914,7 +914,7 @@ _ehci_check_urb_advance(struct usb_host *usbhc,
 	qtdm = URB_EHCI(urb)->qtdm_head;
 	while (qtdm) {
 		status = (u8)(qtdm->qtd->token & EHCI_QTD_STAT_MASK);
-		if (status == EHCI_QTD_STAT_HL)
+		if (is_halt(status))
 			break;
 		if (is_active(status))
 			return URB_STATUS_RUN;
@@ -963,10 +963,12 @@ ehci_check_advance(struct usb_host *usbhc)
 	struct usb_request_block *hurb;
 	int advance = 0, ret;
 
-	if (!host->head_gurb || !host->head_gurb->shadow)
+	if (!LIST4_HEAD (host->gurb, list) ||
+	    !LIST4_HEAD (host->gurb, list)->shadow)
 		return 0;
 
-	for (hurb = host->head_gurb->shadow; hurb; hurb = hurb->next) {
+	for (hurb = LIST4_HEAD (host->gurb, list)->shadow; hurb;
+	     hurb = LIST4_NEXT (hurb, list)) {
 
 		/* skip skelton */
 		if (hurb->address == URB_ADDRESS_SKELTON)
@@ -1031,19 +1033,19 @@ monitor_loop:
 	spinlock_lock(&host->lock);
 
 	/* unmark all QHs */
-	unmark_all_urbs(host->head_gurb);
+	unmark_all_gurbs (host);
 
 	/* mark in-linked QHs and register new QHs */
-	mark_inlinked_urbs(host, host->head_gurb);
+	mark_inlinked_urbs(host, LIST4_HEAD (host->gurb, list));
 
 	/* update urb content link if needed */
-	update_marked_urbs(host, host->head_gurb);
+	update_marked_gurbs (host);
 
 	/* make copies of urb and activate it */
-	shadow_marked_urbs(host, host->head_gurb);
+	shadow_marked_gurbs (host);
 
 	/* deactivate and delete pairs of urbs */
-	sweep_unmarked_urbs(host, host->head_gurb);
+	sweep_unmarked_gurbs (host);
 
 	/* check advance in shadow urbs */
 	ehci_check_advance(host->usb_host);
@@ -1062,8 +1064,10 @@ ehci_shadow_async_list(struct ehci_host *host)
 	struct usb_request_block *gurb, *hurb;
 	phys32_t qh_phys;
 
+	LIST4_HEAD_INIT (host->gurb, list);
+	LIST4_HEAD_INIT (host->hurb, list);
 	qh_phys = (phys32_t)ehci_link(host->headqh_phys[0]);
-	gurb = register_urb(host, &host->head_gurb, qh_phys);
+	gurb = register_gurb(host, qh_phys);
 
 #if defined(ENABLE_SHADOW)
 	hurb = gurb->shadow = ehci_shadow_qh(gurb);
@@ -1073,11 +1077,11 @@ ehci_shadow_async_list(struct ehci_host *host)
 	URB_EHCI(hurb)->qh->link = (phys32_t)
 		URB_EHCI(hurb)->qh_phys | 0x00000002U;
 	dprintft(2, "skelton QH shadowed.\n");
-	host->tail_hurb = hurb;
+	LIST4_ADD (host->hurb, list, hurb);
 #endif
 
 	/* start monitoring */
-	thread_new(ehci_monitor_async_list, (void *)host, PAGESIZE * 4);
+	thread_new(ehci_monitor_async_list, (void *)host, VMM_STACKSIZE);
 	dprintft(2, "skelton QH monitor started.\n");
 
 #if defined(ENABLE_SHADOW)
@@ -1088,14 +1092,12 @@ ehci_shadow_async_list(struct ehci_host *host)
 }
 
 void
-ehci_cleanup_urbs(struct usb_request_block **urblist)
+ehci_cleanup_urbs (struct ehci_host *host)
 {
 	struct usb_request_block *urb;
 	struct ehci_qtd_meta *qtdm;
 	
-	while (*urblist) {
-		urb = *urblist;
-		*urblist = urb->next;
+	while ((urb = LIST4_POP (host->unlink_messages, list))) {
 
 		/* QH */
 		ASSERT(URB_EHCI(urb)->qh != NULL);

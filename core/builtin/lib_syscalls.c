@@ -44,6 +44,7 @@ typedef unsigned long ulong;
 #define SYS_MSGSENDBUF		11
 #define SYS_MSGUNREGISTER	12
 #define SYS_EXITPROCESS		13
+#define SYS_RESTRICT		14
 
 #ifdef __x86_64__
 #	define DOSYSCALL0(rb, ra) asm volatile \
@@ -153,23 +154,18 @@ newprocess (char *name)
 }
 
 int
-msgsendbuf (int desc, int data, void *sendbuf, int sendlen, void *recvbuf,
-	    int recvlen)
+msgsendbuf (int desc, int data, struct msgbuf *buf, int bufcnt)
 {
 	ulong tmp;
 	struct msgsendbuf_args {
 		int data;
-		void *sendbuf;
-		int sendlen;
-		void *recvbuf;
-		int recvlen;
+		int bufcnt;
+		struct msgbuf *buf;
 	} a;
 
 	a.data = data;
-	a.sendbuf = sendbuf;
-	a.sendlen = sendlen;
-	a.recvbuf = recvbuf;
-	a.recvlen = recvlen;
+	a.buf = buf;
+	a.bufcnt = bufcnt;
 	DOSYSCALL2 (SYS_MSGSENDBUF, desc, &a, tmp);
 	return (int)tmp;
 }
@@ -189,4 +185,13 @@ exitprocess (int retval)
 	ulong tmp;
 
 	DOSYSCALL1 (SYS_EXITPROCESS, retval, tmp);
+}
+
+int
+restrict (int stacksize, int maxstacksize)
+{
+	ulong tmp;
+
+	DOSYSCALL2 (SYS_RESTRICT, stacksize, maxstacksize, tmp);
+	return (int)tmp;
 }

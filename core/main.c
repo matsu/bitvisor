@@ -129,7 +129,7 @@ clear_guest_pages (void)
 	u64 base, len;
 	u32 type;
 	u32 n, nn;
-	const u32 maxlen = 0x100000;
+	static const u32 maxlen = 0x100000;
 	void *p;
 
 	n = 0;

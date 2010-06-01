@@ -1,7 +1,5 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
- * Copyright (C) 2007, 2008
- *      National Institute of Information and Communications Technology
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,77 +27,37 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef CRYPTO_VPN
-#include "crypt.h"
-#include "mm.h"
-#include "printf.h"
-#include "string.h"
+#include "asm.h"
+#include "xsetbv_pass.h"
+#include "current.h"
+#include "initfunc.h"
 
-// 提供システムコール: RSA 署名操作
-bool
-crypt_sys_rsa_sign (void *key_data, UINT key_size, void *data, UINT data_size,
-		    void *sign, UINT *sign_buf_size)
+static bool
+do_xsetbv_pass (u32 ic, u32 ia, u32 id)
 {
-	SE_BUF *ret_buf;
-	SE_KEY *key;
-	SE_BUF *key_file_buf;
-	SE_BUF *tmp_buf;
+	ulong cr4;
 
-	// 引数チェック
-	if (key_data == NULL || data == NULL || data_size == 0 || sign == NULL || sign_buf_size == NULL)
-	{
+	switch (ic) {
+	case 0:			/* XCR0 */
+		/* passthrough because these bits does not affect the VMM */
+		ia &= XCR0_X87_STATE_BIT | XCR0_SSE_STATE_BIT;
+		id = 0;
+		asm_rdcr4 (&cr4);
+		if (!(cr4 & CR4_OSXSAVE_BIT)) {
+			cr4 |= CR4_OSXSAVE_BIT;
+			asm_wrcr4 (cr4);
+		}
+		asm_xsetbv (ic, ia, id);
 		return false;
+	default:
+		return true;
 	}
-
-	// 秘密鍵データのコピー
-	key_file_buf = SeNewBuf();
-	SeWriteBuf(key_file_buf, key_data, key_size);
-
-	tmp_buf = SeMemToBuf(key_file_buf->Buf, key_file_buf->Size);
-	SeFreeBuf(key_file_buf);
-
-	key = SeBufToKey(tmp_buf, true, true, NULL);
-
-	if (key == NULL)
-	{
-		key = SeBufToKey(tmp_buf, true, false, NULL);
-	}
-
-	if (key == NULL)
-	{
-		chelp_printf("crypt.c: Loading Key Failed.\n");
-		SeFreeBuf(tmp_buf);
-		*sign_buf_size = 0;
-		return false;
-	}
-
-	SeFreeBuf(tmp_buf);
-
-	ret_buf = SeRsaSignWithPadding(data, data_size, key);
-	if (ret_buf == NULL)
-	{
-		chelp_printf("crypt.c: SeRsaSignWithPadding() Failed.\n");
-		SeFreeKey(key);
-		*sign_buf_size = 0;
-		return false;
-	}
-
-	if (*sign_buf_size < ret_buf->Size)
-	{
-		chelp_printf("crypt.c: Not Enough Buffer Space.\n");
-		*sign_buf_size = ret_buf->Size;
-		SeFreeBuf(ret_buf);
-		SeFreeKey(key);
-		*sign_buf_size = ret_buf->Size;
-		return false;
-	}
-
-	*sign_buf_size = ret_buf->Size;
-
-	SeCopy(sign, ret_buf->Buf, ret_buf->Size);
-	SeFreeBuf(ret_buf);
-	SeFreeKey(key);
-
-	return true;
 }
-#endif /* CRYPTO_VPN */
+
+static void
+xsetbv_pass_init (void)
+{
+	current->xsetbv.xsetbv = do_xsetbv_pass;
+}
+
+INITFUNC ("pass0", xsetbv_pass_init);

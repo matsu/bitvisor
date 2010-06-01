@@ -80,10 +80,11 @@ void mm_process_free (phys_t phys);
 int mm_process_map_alloc (virt_t virt, uint len);
 int mm_process_unmap (virt_t virt, uint len);
 void mm_process_unmapall (void);
-virt_t mm_process_map_stack (uint len);
-int mm_process_unmapstack (virt_t virt, uint len);
+virt_t mm_process_map_stack (uint len, bool noalloc, bool align);
+int mm_process_unmap_stack (virt_t virt, uint len);
 int mm_process_map_shared_physpage (virt_t virt, phys_t phys, bool rw);
-void *mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw);
+void *mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw,
+			     bool pre);
 void mm_process_unmapall (void);
 phys_t mm_process_switch (phys_t switchto);
 

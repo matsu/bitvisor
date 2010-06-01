@@ -1,7 +1,5 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
- * Copyright (C) 2007, 2008
- *      National Institute of Information and Communications Technology
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,13 +27,27 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_CRYPT_H
-#define _CORE_CRYPT_H
+#include "xsetbv.h"
+#include "current.h"
+#include "initfunc.h"
+#include "panic.h"
 
-#include "types.h"
-#include "../crypto/chelp.h"
+static bool
+do_xsetbv_error (u32 ic, u32 ia, u32 id)
+{
+	panic ("do_xsetbv_error");
+}
 
-bool crypt_sys_rsa_sign (void *key_data, UINT key_size, void *data,
-			 UINT data_size, void *sign, UINT *sign_buf_size);
+bool
+call_xsetbv (u32 ic, u32 ia, u32 id)
+{
+	return current->xsetbv.xsetbv (ic, ia, id);
+}
 
-#endif	// _CORE_CRYPT_H
+static void
+xsetbv_init (void)
+{
+	current->xsetbv.xsetbv = do_xsetbv_error;
+}
+
+INITFUNC ("vcpu0", xsetbv_init);

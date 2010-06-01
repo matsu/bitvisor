@@ -89,74 +89,14 @@ struct cpu_mmu_spt_data {
 #endif /* CPU_MMU_SPT_2 */
 
 #ifdef CPU_MMU_SPT_3
-#define NUM_OF_SPTTBL		32
-#define NUM_OF_SPTRWMAP 	2048
-#define NUM_OF_SPTSHADOW1	1024
-#define NUM_OF_SPTSHADOW2	512
-#define HASHSIZE_OF_SPTRWMAP	4096
-#define HASHSIZE_OF_SPTSHADOW1N	2048
-#define HASHSIZE_OF_SPTSHADOW1M	2048
-#define HASHSIZE_OF_SPTSHADOW2N	1024
-#define HASHSIZE_OF_SPTSHADOW2M	1024
-#define NUM_OF_SPTSHADOWOFF	31
-
 #ifndef CPU_MMU_SPT_USE_PAE
 #error PAE only
 #endif
 
-struct cpu_mmu_spt_rwmap {
-	LIST2_DEFINE (struct cpu_mmu_spt_rwmap, rwmap);
-	LIST2_DEFINE (struct cpu_mmu_spt_rwmap, hash);
-	u64 gfn;
-	u64 *pte;
-	bool fail;
-};
-
-struct cpu_mmu_spt_shadow {
-	LIST2_DEFINE (struct cpu_mmu_spt_shadow, shadow);
-	LIST2_DEFINE (struct cpu_mmu_spt_shadow, hash);
-	u64 phys;
-	u64 key;
-	u8 clear_n;
-	u8 clear_off[NUM_OF_SPTSHADOWOFF];
-	u64 clear_area;
-};
+struct cpu_mmu_spt_data_internal;
 
 struct cpu_mmu_spt_data {
-	void *cr3tbl;
-	u64 cr3tbl_phys;
-	void *tbl[NUM_OF_SPTTBL];
-	u64 tbl_phys[NUM_OF_SPTTBL];
-	int cnt;
-	int levels;
-	struct cpu_mmu_spt_rwmap rwmap[NUM_OF_SPTRWMAP];
-	spinlock_t rwmap_lock;
-	LIST2_DEFINE_HEAD (rwmap_fail, struct cpu_mmu_spt_rwmap, rwmap);
-	LIST2_DEFINE_HEAD (rwmap_normal, struct cpu_mmu_spt_rwmap, rwmap);
-	LIST2_DEFINE_HEAD (rwmap_free, struct cpu_mmu_spt_rwmap, rwmap);
-	LIST2_DEFINE_HEAD (rwmap_hash[HASHSIZE_OF_SPTRWMAP],
-			   struct cpu_mmu_spt_rwmap, hash);
-	struct cpu_mmu_spt_shadow shadow1[NUM_OF_SPTSHADOW1];
-	spinlock_t shadow1_lock;
-	LIST2_DEFINE_HEAD (shadow1_modified, struct cpu_mmu_spt_shadow,
-			   shadow);
-	LIST2_DEFINE_HEAD (shadow1_normal, struct cpu_mmu_spt_shadow, shadow);
-	LIST2_DEFINE_HEAD (shadow1_free, struct cpu_mmu_spt_shadow, shadow);
-	LIST2_DEFINE_HEAD (shadow1_hashn[HASHSIZE_OF_SPTSHADOW1N],
-			   struct cpu_mmu_spt_shadow, hash);
-	LIST2_DEFINE_HEAD (shadow1_hashm[HASHSIZE_OF_SPTSHADOW1M],
-			   struct cpu_mmu_spt_shadow, hash);
-	struct cpu_mmu_spt_shadow shadow2[NUM_OF_SPTSHADOW2];
-	spinlock_t shadow2_lock;
-	LIST2_DEFINE_HEAD (shadow2_modified, struct cpu_mmu_spt_shadow,
-			   shadow);
-	LIST2_DEFINE_HEAD (shadow2_normal, struct cpu_mmu_spt_shadow, shadow);
-	LIST2_DEFINE_HEAD (shadow2_free, struct cpu_mmu_spt_shadow, shadow);
-	LIST2_DEFINE_HEAD (shadow2_hashn[HASHSIZE_OF_SPTSHADOW2N],
-			   struct cpu_mmu_spt_shadow, hash);
-	LIST2_DEFINE_HEAD (shadow2_hashm[HASHSIZE_OF_SPTSHADOW2M],
-			   struct cpu_mmu_spt_shadow, hash);
-	bool wp;
+	struct cpu_mmu_spt_data_internal *data;
 };
 #endif /* CPU_MMU_SPT_3 */
 

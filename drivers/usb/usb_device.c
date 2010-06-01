@@ -47,6 +47,7 @@ DEFINE_ZALLOC_FUNC(usb_endpoint_descriptor);
 DEFINE_ZALLOC_FUNC(usb_interface);
 
 DEFINE_GET_U16_FROM_SETUP_FUNC(wValue);
+DEFINE_GET_U16_FROM_SETUP_FUNC(wIndex);
 DEFINE_GET_U16_FROM_SETUP_FUNC(wLength);
 
 /**
@@ -108,10 +109,15 @@ free_config_descriptors(struct usb_config_descriptor *cdesc, int n)
 		return;
 
 	for (i = 0; i < n; i++) {
-		if (!cdesc[i].interface || !cdesc[i].interface->altsetting)
+		if (!cdesc[i].interface)
 			continue;
-		free_interface_descriptors(cdesc[i].interface->altsetting,
-					   cdesc[i].interface->num_altsetting);
+		if (cdesc[i].interface->cur_altsettings)
+			free(cdesc[i].interface->cur_altsettings);
+		if (cdesc[i].interface->altsetting)
+			free_interface_descriptors(cdesc[i].interface->
+						   altsetting,
+						   cdesc[i].interface->
+						   num_altsetting);
 		free(cdesc[i].interface);
 	}
 	free(cdesc);
@@ -259,6 +265,45 @@ device_state_change(struct usb_host *usbhc,
 }
 
 /**
+ * @brief called when the status of the device interface is changed
+ * @params usbhc usb host controller data
+ * @params urb usb request block
+ * @params arg callback argument
+ */
+static int
+device_iface_change(struct usb_host *usbhc,
+		    struct usb_request_block *urb, void *arg)
+{
+	struct usb_device *dev;
+	u8 devadr;
+	u8 iface, alt;
+
+	dprintft(1, "SetInterface(");
+
+	devadr = urb->address;
+	dev = urb->dev;
+	alt = (u8) get_wValue_from_setup(urb->shadow->buffers);
+	iface = (u8) get_wIndex_from_setup(urb->shadow->buffers);
+
+	dprintf(1, "%u, %u, %u) found.\n", devadr, iface, alt);
+
+	if (dev && dev->config && dev->config->interface &&
+		dev->config->interface->cur_altsettings) {
+		if (iface > dev->config->bNumInterfaces) {
+			dprintf(1,
+				"%u, Invalid interface specification, %u)\n",
+				devadr, iface);
+			return USB_HOOK_PASS;
+		}
+		iface--;
+		dev->config->interface->cur_altsettings[iface] = alt;
+	}
+
+	return USB_HOOK_PASS;
+
+}
+
+/**
  * @brief FIX COMMENT
  * @param src virt_t
  * @param src_n int
@@ -340,6 +385,13 @@ extract_config_descriptors(struct usb_host *host, virt_t buf, size_t len,
 				n_idesc = n_edesc = 0;
 				n_cdesc++;
 				cdescp->interface = zalloc_usb_interface();
+				/* Allocate an array to keep track of
+				   the settings for each interface in use*/
+				cdescp->interface->cur_altsettings = (u8 *)
+					alloc (sizeof(u8) *
+					       cdescp->bNumInterfaces);
+				memset (cdescp->interface->cur_altsettings, 0,
+					(sizeof(u8) * cdescp->bNumInterfaces));
 			}
 			break;
 		case USB_DT_INTERFACE: /* interface descriptor */
@@ -448,7 +500,7 @@ parse_descriptor(struct usb_host *usbhc, u16 desc, virt_t buf,
 	unsigned char *odesc;
 	int i;
 #if 1
-	const char *desctypestr[9] = {
+	static const char *desctypestr[9] = {
 			"(unknown)",
 			"DEVICE",
 			"CONFIGRATION",
@@ -523,8 +575,6 @@ parse_descriptor(struct usb_host *usbhc, u16 desc, virt_t buf,
 			n_idesc = cdesc->bNumInterfaces;
 			dprintft(3, "bNumberInterfaces = %d\n", n_idesc);
 		}
-		/* FIXME: it assumes that there is only one interface 
-		   descriptor. */
 		if (cdesc->interface->altsetting) {
 			dprintft(3, "bInterfaceClass = %02x\n", 
 				 cdesc->interface->
@@ -615,10 +665,19 @@ new_usb_device(struct usb_host *usbhc,
 {
 	struct usb_device *dev;
 	usb_dev_handle *udev;
+	usb_dev_handle *hdev;
+	struct usb_device *hubdev;
 	u8 buf[255];
 	u16 pktsz;
 	int devadr, ret;
-	const struct usb_hook_pattern pat_setconf = {
+	static const struct usb_hook_pattern pat_setinf = {
+		.pid = USB_PID_SETUP,
+		.mask = 0x000000000000ffffULL,
+		.pattern = 0x0000000000000B01ULL,
+		.offset = 0,
+		.next = NULL
+	};
+	static const struct usb_hook_pattern pat_setconf = {
 		.pid = USB_PID_SETUP,
 		.mask = 0x000000000000ffffULL,
 		.pattern = 0x0000000000000900ULL,
@@ -629,6 +688,7 @@ new_usb_device(struct usb_host *usbhc,
 	extern void usbccid_init_handle(struct usb_host *host,
 					struct usb_device *dev);
 #endif
+	void usbhid_init_handle (struct usb_host *, struct usb_device *);
 
 	/* get a device address */
 	devadr = (u8)get_wValue_from_setup(urb->shadow->buffers) & 0x7fU;
@@ -640,14 +700,16 @@ new_usb_device(struct usb_host *usbhc,
 	if (dev) {
 		dprintft(1, "The same address(%d) found! Maybe reset.\n",
 						devadr);
-		free_device(usbhc, devadr);
+		free_device(usbhc, dev);
 	}
 	/* confirm the port is new. */
 	dev = get_device_by_port(usbhc, usbhc->last_changed_port);
 	if (dev) {
-		dprintft(1, "The same port(%d) found! Maybe reset.\n", 
-					usbhc->last_changed_port);
-		free_device(usbhc, devadr);
+		dprintft(1, "the port(");
+		dprintf_port(1, usbhc->last_changed_port);
+		dprintf(1, ") may be reset.\n");
+
+		free_device(usbhc, dev);
 	}
 
 	/* new device */
@@ -684,12 +746,39 @@ new_usb_device(struct usb_host *usbhc,
 		dev->next->prev = dev;
 	usbhc->device = dev;
 
-	/* issue GetDescriptor(DEVICE, 8) for bMaxPacketSize */
 	usb_init();
 	usb_find_busses();
 	usb_find_devices();
 		
 	udev = usb_open(dev);
+
+	/*determine new device speed*/
+	if (dev->host->type == USB_HOST_TYPE_EHCI)
+		dev->speed = UD_SPEED_HIGH;	/* root ports keep high */
+	else
+		dev->speed = UD_SPEED_UNDEF;	/* fixed later */
+
+#if defined(HANDLE_USBHUB)
+	if (hub_port) {
+		hubdev = get_device_by_port(usbhc, hub_port);
+		if (!hubdev) {
+			dprintf(1, "Counldn't find hub device on port ");
+			dprintf_port(1, dev->portno);
+		} else {
+			hdev = usb_open(hubdev);
+			memset(buf, 0, 255);
+			ret = usb_control_msg(hdev, USB_REQ_GETPORTSTATUS, 0,
+					      0, dev->portno & ~USB_HUB_MASK,
+					      (char *)buf, 4, 5000);
+			usb_close(hdev);
+			dev->speed = ((buf[1] * 0x100 + buf[0])
+				      >> USB_PORTSC_SPEED_SHIFT)
+				& USB_PORTSC_SPEED_MASK;
+		}
+	}
+#endif
+
+	/* issue GetDescriptor(DEVICE, 8) for bMaxPacketSize */
 	memset(buf, 0, 255);
 	ret = usb_get_descriptor(udev, USB_DT_DEVICE, 0, buf, 8);
 	pktsz = (ret >= 8) ? (u16)buf[7] : 0;
@@ -712,18 +801,27 @@ new_usb_device(struct usb_host *usbhc,
 		parse_descriptor(usbhc, USB_DT_CONFIG, 
 				 (virt_t)buf, ret, dev);
 
-	/* register a hook for SetConfiguration() */
+	usb_close(udev);
+
 	spinlock_lock(&usbhc->lock_hk);
+	/* register a hook for SetConfiguration() */
 	usb_hook_register(usbhc, USB_HOOK_REPLY,
 			  USB_HOOK_MATCH_ALL,
 			  devadr, 0, &pat_setconf,
 			  device_state_change, NULL, dev);
+
+	/* register a hook for SetInterface() */
+	usb_hook_register(usbhc, USB_HOOK_REPLY,
+			  USB_HOOK_MATCH_ALL,
+			  devadr, 0, &pat_setinf,
+			  device_iface_change, NULL, dev);
 	spinlock_unlock(&usbhc->lock_hk);
 
 #if defined(CONCEAL_USBCCID)
 	usbccid_init_handle(usbhc, dev);
 #endif
 
+	usbhid_init_handle(usbhc, dev);
 	return USB_HOOK_PASS;
 }
 
@@ -733,7 +831,7 @@ new_usb_device(struct usb_host *usbhc,
 void 
 usb_init_device_monitor(struct usb_host *host)
 {
-	const struct usb_hook_pattern pat_setadr = {
+	static const struct usb_hook_pattern pat_setadr = {
 		.pid = USB_PID_SETUP,
 		.mask = 0x000000000000ffffULL,
 		.pattern = 0x0000000000000500ULL,

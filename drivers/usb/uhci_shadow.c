@@ -34,6 +34,7 @@
  */
 #include <core.h>
 #include <core/thread.h>
+#include <core/time.h>
 #include "pci.h"
 #include "usb.h"
 #include "usb_device.h"
@@ -71,12 +72,29 @@ skip_isochronous(struct uhci_host *host, phys32_t phys)
  * @param qh_phys phys32_t 
  */
 static inline struct usb_request_block *
-geturbbyqh_phys(struct usb_request_block *list, phys32_t qh_phys)
+geturbbyqh_phys (struct uhci_host *host, phys32_t qh_phys)
 {
 	struct usb_request_block *urb;
 
-	for (urb = list; urb; urb = urb->next) {
-		if ((phys32_t)URB_UHCI(urb)->qh_phys == uhci_link(qh_phys))
+	qh_phys = uhci_link (qh_phys);
+	LIST4_FOREACH (host->guest_urbs, list, urb) {
+		if ((phys32_t)URB_UHCI(urb)->qh_phys == qh_phys)
+			return urb;
+	}
+
+	return NULL;
+}
+
+static inline struct usb_request_block *
+geturbbyqh_phys_by_hash (struct uhci_host *host, phys32_t qh_phys)
+{
+	struct usb_request_block *urb;
+	int h;
+
+	qh_phys = uhci_link (qh_phys);
+	h = urbhash_calc (qh_phys);
+	LIST2_FOREACH (host->urbhash[h], urbhash, urb) {
+		if ((phys32_t)URB_UHCI(urb)->qh_phys == qh_phys)
 			return urb;
 	}
 
@@ -91,18 +109,6 @@ static inline int
 is_skelton(struct usb_request_block *urb)
 {
 	return (urb->address == URB_ADDRESS_SKELTON);
-}
-
-
-/**
-* @brief check if the QH is shadowd 
-* @param host struch uhci_host 
-* @param qh_phys phys32_t 
-*/ 
-static inline int
-is_shadowed(struct uhci_host *host, phys32_t qh_phys)
-{
-	return (geturbbyqh_phys(host->guest_urbs, qh_phys) != NULL);
 }
 
 /* release_urb(): cleaning up usb_request_block structure 
@@ -187,14 +193,13 @@ DEFINE_ZALLOC_FUNC(usb_buffer_list)
  * @brief figure out continuous buffer blocks, make a list of them
  * @param urb usb request block issued by guest
  */
-static int
+static void
 make_buffer_list(struct usb_request_block *urb)
 {
 	struct usb_buffer_list *ub, *ub_tail;
 	struct uhci_td_meta *tdm;
 	phys_t next_addr_phys;
 	size_t offset, len;
-	int n = 0;
 
 	tdm = URB_UHCI(urb)->tdm_head;
 	ub_tail = NULL;
@@ -230,14 +235,10 @@ make_buffer_list(struct usb_request_block *urb)
 			offset += ub->len;
 		else
 			offset = 0;
-
-		n++;
 	}
 
 	if (ub_tail)
 		ub_tail->next = NULL;
-
-	return n;
 }
 	
 /**
@@ -272,7 +273,7 @@ uhci_shadow_buffer(struct usb_host *usbhc,
 		ASSERT(hub->vadr);
 		if (flag) {
 			gvadr = (virt_t)mapmem_gphys(gub->padr, gub->len, 0);
-			ASSERT(!gvadr);
+			ASSERT(gvadr);
 			memcpy((void *)hub->vadr, (void *)gvadr, hub->len);
 			unmapmem((void *)gvadr, gub->len);
 		}
@@ -437,20 +438,13 @@ fail_duplicate:
  * @param urb usb_request_block
  * @param g_urb usb_request_block 
 */
-static int
+static void
 _copyback_qcontext(struct uhci_host *host,	
 		   struct usb_request_block *urb, 
 		   struct usb_request_block *g_urb)
 {
 	struct uhci_td_meta *h_tdm, *g_tdm;
 	phys32_t qh_element = URB_UHCI(urb)->qh->element;
-
-	/* make sure that the original exists */
-	if (!is_linked(host->guest_urbs, g_urb)) {
-		dprintft(2, "%04x: %s: the original(%p) has gone.\n",
-			 host->iobase, __FUNCTION__, g_urb);
-		goto not_copyback;
-	}
 
 	/* copyback each TD's status field */
 	h_tdm = URB_UHCI(urb)->tdm_head;
@@ -486,8 +480,6 @@ _copyback_qcontext(struct uhci_host *host,
 
 	dprintft(2, "%04x: %s: copybacked TDs.\n",
 		 host->iobase, __FUNCTION__);
-not_copyback:
-	return 0;
 }
 
 /**
@@ -509,11 +501,20 @@ uhci_copyback_qcontext(struct usb_host *hc,
 	
 	spinlock_lock(&host->lock_gfl);
 
+	/* make sure that the original exists */
+	if (!is_linked(LIST4_HEAD (host->guest_urbs, list), g_urb)) {
+		dprintft(1, "%04x: copyback canceled since "
+			 "the original(%p) has gone.\n",
+			 host->iobase, g_urb);
+		goto not_copyback;
+	}
+
 	/* process some interest urbs */
 	r = usb_hook_process(host->hc, urb, USB_HOOK_REPLY);
 	if (r != USB_HOOK_DISCARD)
 		_copyback_qcontext(host, urb, g_urb);
 
+not_copyback:
 	spinlock_unlock(&host->lock_gfl);
 
 #if 0
@@ -532,7 +533,7 @@ uhci_copyback_qcontext(struct usb_host *hc,
  * @param host struct uhci_host
  * @param urb usb_request_block
  */
-static inline int
+static inline void
 remove_and_deactivate_urb(struct uhci_host *host,
 			  struct usb_request_block *urb)
 {
@@ -570,28 +571,28 @@ remove_and_deactivate_urb(struct uhci_host *host,
 		uhci_deactivate_urb(host->hc, urb->shadow);
 	}
 
-	remove_urb(&host->guest_urbs, urb);
+	urbhash_del (host, urb);
+	LIST4_DEL (host->guest_urbs, list, urb);
+	if (urb->mark & URB_MARK_NEED_SHADOW)
+		LIST2_DEL (host->need_shadow, need_shadow, urb);
+	if (urb->mark & URB_MARK_NEED_UPDATE)
+		LIST2_DEL (host->update, update, urb);
 	release_urb(host, urb);
-
-	return 1;
 }
 
 /**
  * @brief unmark all urbs
  * @param urblist struct usb_request_block 
  */
-static inline int
-unmark_all_urbs(struct usb_request_block *urblist)
+static inline void
+unmark_all_gurbs (struct uhci_host *host, int interval)
 {
-	struct usb_request_block *urb;
-	int n_unmarked;
-
-	for (urb = urblist; urb; urb = urb->next) {
-		urb->mark = 0U;
-		n_unmarked++;
+	host->inlink_counter++;
+	if (interval > 0) {
+		ASSERT (host->inlink_counter0 != host->inlink_counter);
+	} else {
+		host->inlink_counter0 = host->inlink_counter;
 	}
-
-	return n_unmarked;
 }
 
 static inline void
@@ -655,38 +656,38 @@ get_toptd_stat(struct uhci_host *host, struct usb_request_block *urb)
 	return tdstat;
 }
 
-/** 
- * @brief mark the in linked urbs 
- * @param host struct uhci_host 
- * @param urblist array of struct usb_request_block 
- * @param skelurb struct usb_request_block
- */
-static inline int
-mark_inlinked_urbs(struct uhci_host *host, 
-		       struct usb_request_block *urblist,
-		       struct usb_request_block *skelurblist[],
-		       int interval)
+static void
+mark_inlinked_urbs_sub (struct uhci_host *host, int interval,
+			struct usb_request_block *skelurb)
 {
-	struct usb_request_block *urb, *prevurb, *skelurb;
+	struct usb_request_block *urb, *prevurb;
 	phys32_t qh_link_phys, qh_element;
 	u32 tdstat;
-	int n_marked = 0;
+	int counter;
 
-	for (; interval < UHCI_NUM_INTERVALS; interval++) {
-		skelurb = prevurb = skelurblist[interval];
+	counter = host->inlink_counter;
+	while (skelurb) {
+		prevurb = skelurb;
 		/* skip scanning if already marked */
-		if (skelurb->mark & URB_MARK_INLINK)
+		if (skelurb->inlink == counter) {
+			/* advance to next skelurb */
+			do {
+				skelurb = LIST4_NEXT (skelurb, list);
+			} while (skelurb && skelurb->address !=
+				 URB_ADDRESS_SKELTON);
 			continue;
+		}
 		
-		skelurb->mark |= URB_MARK_INLINK;
-		qh_link_phys = uhci_link(URB_UHCI(skelurb)->qh->link);
+		skelurb->inlink = counter;
+		qh_link_phys = URB_UHCI(skelurb)->qh->link;
 		while (!is_terminate(qh_link_phys)) {
-			urb = geturbbyqh_phys(urblist, qh_link_phys);
+			qh_link_phys = uhci_link(qh_link_phys);
+			urb = geturbbyqh_phys_by_hash (host, qh_link_phys);
 			if (!urb) {
 				dprintf(2, "%04x: %s: a new urb(%x) "
-					"that follows skelurb(%p:%llx) "
+					"that follows skelurb[%d](%p:%llx) "
 					"found.\n", host->iobase,
-					__FUNCTION__, qh_link_phys,
+					__FUNCTION__, qh_link_phys, interval,
 					skelurb, URB_UHCI(skelurb)->qh_phys);
 				urb = create_urb(host);
 				if (!urb) {
@@ -712,15 +713,21 @@ mark_inlinked_urbs(struct uhci_host *host,
 				urb->mark = URB_MARK_NEED_SHADOW;
 				URB_UHCI(urb)->td_stat = 
 					get_toptd_stat(host, urb);
+				if (!is_active (URB_UHCI(urb)->td_stat))
+					urb->mark = 0;
 
-				urb->next = prevurb->next;
-				prevurb->next = urb;
+				urbhash_add (host, urb);
+				LIST4_INSERTNEXT (host->guest_urbs, list,
+						  prevurb, urb);
+				if (urb->mark & URB_MARK_NEED_SHADOW)
+					LIST2_ADD (host->need_shadow,
+						   need_shadow, urb);
 			} else {
 				/* stop marking if already marked. */
-				if (urb->mark & URB_MARK_INLINK)
+				if (urb->inlink == counter)
 					break;
 			}
-			urb->mark |= URB_MARK_INLINK;
+			urb->inlink = counter;
 			qh_element = URB_UHCI(urb)->qh->element;
 
 			/* a urb must be updated by guest
@@ -736,7 +743,10 @@ mark_inlinked_urbs(struct uhci_host *host,
 					 URB_UHCI(urb)->td_stat, tdstat);
 
 				URB_UHCI(urb)->qh_element_copy = qh_element;
-				urb->mark |= URB_MARK_NEED_UPDATE;
+				if (!(urb->mark & URB_MARK_NEED_UPDATE)) {
+					LIST2_ADD (host->update, update, urb);
+					urb->mark |= URB_MARK_NEED_UPDATE;
+				}
 
 			}
 			URB_UHCI(urb)->td_stat = tdstat;
@@ -746,13 +756,30 @@ mark_inlinked_urbs(struct uhci_host *host,
 						 URB_UHCI(urb->shadow)
 						 ->tdm_tail);
 
-			n_marked++;
-			qh_link_phys = uhci_link(URB_UHCI(urb)->qh->link);
+			qh_link_phys = URB_UHCI(urb)->qh->link;
 			prevurb = urb;
 		}
+		/* advance to next skelurb */
+		do {
+			skelurb = LIST4_NEXT (skelurb, list);
+		} while (skelurb && skelurb->address !=
+			 URB_ADDRESS_SKELTON);
 	}
-		
-	return n_marked;
+}
+
+/**
+ * @brief mark the in linked urbs
+ * @param host struct uhci_host
+ * @param urblist array of struct usb_request_block
+ * @param skelurb struct usb_request_block
+ */
+static void
+mark_inlinked_urbs (struct uhci_host *host,
+		    struct usb_request_block *skelurblist[],
+		    int interval)
+{
+	for (; interval < UHCI_NUM_INTERVALS; interval++)
+		mark_inlinked_urbs_sub (host, interval, skelurblist[interval]);
 }
 
 /**
@@ -760,23 +787,19 @@ mark_inlinked_urbs(struct uhci_host *host,
  * @param host struct uhci_host
  * @param urblist struct usb_request_block  
  */
-static inline int
+static inline void
 update_marked_urbs(struct uhci_host *host, 
 		       struct usb_request_block *urblist)
 {
 	struct usb_request_block *urb;
-	struct uhci_td_meta *g_tdm, *h_tdm, *nexttdm;
-	int n_updated = 0;
 
-	for (urb = urblist; urb; urb = urb->next) {
+	while ((urb = LIST2_POP (host->update, update))) {
 
-		if (!(urb->mark & URB_MARK_NEED_UPDATE))
-			continue;
+		ASSERT (urb->mark & URB_MARK_NEED_UPDATE);
 
 		if (!urb->shadow)
 			goto create_new;
 
-		n_updated++;
 		urb->mark &= ~URB_MARK_NEED_UPDATE;
 		if (is_terminate(URB_UHCI(urb)->qh_element_copy)) {
 			URB_UHCI(urb->shadow)->qh->element = 
@@ -784,40 +807,7 @@ update_marked_urbs(struct uhci_host *host,
 			continue;
 		}
 
-		g_tdm = URB_UHCI(urb)->tdm_head;
-		h_tdm = URB_UHCI(urb->shadow)->tdm_head;
-		while (g_tdm) {
-			if (URB_UHCI(urb)->qh_element_copy == 
-			    (phys32_t)g_tdm->td_phys)
-					break;
-
-			/* clean up a completed TDmeta in guest urb */
-			nexttdm = g_tdm->next;
-			unmapmem(g_tdm->td, sizeof(struct uhci_td));
-			free(g_tdm);
-			g_tdm = URB_UHCI(urb)->tdm_head = nexttdm;
-
-			h_tdm = h_tdm->next;
-		}
-		if (g_tdm && !is_updated_td(g_tdm)) {
-			struct usb_buffer_list *next_buffer;
-
-			/* update buffer list */
-			while (urb->buffers) {
-				next_buffer = urb->buffers->next;
-				free(urb->buffers);
-				urb->buffers = next_buffer;
-			}
-			make_buffer_list(urb);
-
-			h_tdm->td->status = g_tdm->td->status;
-			uhci_reactivate_urb(host, urb->shadow, h_tdm);
-			dprintft(2, "%04x: QH's element synchronized"
-				 " (%p:%llx <= %p:%llx).\n",
-				 host->iobase, urb->shadow,
-				 URB_UHCI(urb->shadow)->qh_phys, 
-				 urb, URB_UHCI(urb)->qh_phys);
-		} else {
+		{
 			struct usb_request_block *newurb;
 
 		create_new:
@@ -825,6 +815,7 @@ update_marked_urbs(struct uhci_host *host,
 			dprintft(2, "%04x: %s: TDs replaced with new one.\n", 
 				 host->iobase, __FUNCTION__);
 			urb->mark = 0; /* unmark for delete */
+			urb->inlink = host->inlink_counter - 1;
 			newurb = create_urb(host);
 			if (!newurb) {
 				dprintft(1, "%04x: %s: create_urb failed.\n",
@@ -847,15 +838,21 @@ update_marked_urbs(struct uhci_host *host,
 				URB_UHCI(urb)->td_stat;
 			URB_UHCI(newurb)->qh_phys = 
 				URB_UHCI(urb)->qh_phys;
-			newurb->mark = URB_MARK_NEED_SHADOW | URB_MARK_INLINK;
+			newurb->mark = URB_MARK_NEED_SHADOW;
+			if (!is_active (URB_UHCI(newurb)->td_stat))
+				newurb->mark = 0;
+			newurb->inlink = host->inlink_counter;
 
-			newurb->next = urb->next;
-			urb->next = newurb;
+			urbhash_add (host, newurb);
+			LIST4_INSERTNEXT (host->guest_urbs, list, urb, newurb);
+			if (newurb->mark & URB_MARK_NEED_SHADOW)
+				LIST2_ADD (host->need_shadow, need_shadow,
+					   newurb);
 		}
 	}
 
 shadow_fail:
-	return n_updated;
+	return;
 }
 
 /**
@@ -863,17 +860,17 @@ shadow_fail:
  * @param host struct uhci_host
  * @param urblist struct usb_request_block  
  */ 
-static inline int
+static inline void
 shadow_marked_urbs(struct uhci_host *host, 
 		       struct usb_request_block *urblist)
 {
-	struct usb_request_block *urb;
-	int r, n_shadowed = 0;
+	struct usb_request_block *urb, *urbnext;
+	int r;
 
-	for (urb = urblist; urb; urb = urb->next) {
+	LIST2_FOREACH_DELETABLE (host->need_shadow, need_shadow, urb,
+				 urbnext) {
 
-		if (!(urb->mark & URB_MARK_NEED_SHADOW))
-			continue;
+		ASSERT (urb->mark & URB_MARK_NEED_SHADOW);
 
 		dprintft(3, "%04x: %s: a urb(%p:%llx) "
 			 "that need be shadowed found.\n", 
@@ -887,23 +884,23 @@ shadow_marked_urbs(struct uhci_host *host,
 		   and make a list of them */
 		make_buffer_list(urb);
 		
-		n_shadowed++;
 		urb->mark &= ~URB_MARK_NEED_SHADOW;
+		LIST2_DEL (host->need_shadow, need_shadow, urb);
 		dprintft(2, "%04x: shadowed [%p:%llx] into "
 			 "[%p:%llx].\n", host->iobase, 
 			 urb, URB_UHCI(urb)->qh_phys, 
 			 urb->shadow, URB_UHCI(urb->shadow)->qh_phys);
 
 		{
-			const char *typestr[4] = {
+			static const char *typestr[5] = {
 				"CONTROL", "ISOCHRONOUS",
-				"BULK", "INTERRUPT" 
+				"BULK", "INTERRUPT", "UNKNOWN"
 			};
 			u8 type;
 
 			type = (urb->endpoint) ?
 				USB_EP_TRANSTYPE(urb->endpoint) :
-				USB_ENDPOINT_TYPE_CONTROL;
+				4;
 
 			dprintft(3, "%04x: %s: "
 				 "transfer type of urb(%p) = %s\n",
@@ -926,10 +923,8 @@ shadow_marked_urbs(struct uhci_host *host,
 		
 		/* activate the shadow in host's frame list */
 		uhci_activate_urb(host, urb->shadow);
-		link_urb(&host->inproc_urbs, urb->shadow);
+		LIST4_PUSH (host->inproc_urbs, list, urb->shadow);
 	}
-
-	return n_shadowed;
 }
 
 /**
@@ -937,27 +932,25 @@ shadow_marked_urbs(struct uhci_host *host,
  * @param host struct uhci_host
  * @param urblist struct usb_request_block  
  */
-static inline int
+static inline void
 sweep_unmarked_urbs(struct uhci_host *host, 
 			struct usb_request_block *urblist)
 {
  	struct usb_request_block *nexturb, *urb = urblist;
-	int n_sweeped = 0;
+	int counter;
 
+	counter = host->inlink_counter;
  	while (urb) {
- 		nexturb = urb->next;
-		if (!is_skelton(urb) && !urb->mark) {
+ 		nexturb = LIST4_NEXT (urb, list);
+		if (!is_skelton(urb) && !urb->mark && urb->inlink != counter) {
 			dprintft(2, "%04x: %s: a urb(%p:%llx) "
 				 "that need be removed found.\n", 
 				host->iobase, __FUNCTION__, urb,
 				URB_UHCI(urb)->qh_phys);
 			remove_and_deactivate_urb(host, urb);
-			n_sweeped++;
 		}
 		urb = nexturb;
 	}
-
-	return n_sweeped;
 }
 
 static inline int
@@ -1095,19 +1088,27 @@ uhci_framelist_monitor(void *data)
 	phys32_t link_phys;
 	u32 mask;
 	int n, i, cur_frnum, intvl;
+	u64 cputime;
 
 	for (;;) {
 
 		if (!host->running)
 			goto skip_a_turn;
 
+		cputime = get_cpu_time ();
+		if (cputime - host->cputime < 1000)
+			goto skip_a_turn;
+		host->cputime = cputime;
+
 		/* look for any updates in guest's framelist */
 		spinlock_lock(&host->lock_gfl);
 
-		unmark_all_urbs(host->guest_urbs);
-		
 		/* get current frame number */
 		cur_frnum = uhci_current_frame_number(host);
+		if (host->frame_number == cur_frnum) {
+			spinlock_unlock (&host->lock_gfl);
+			goto skip_a_turn;
+		}
 		
 		/* check need for monitor boost */
 		if (check_need_for_monitor_boost(host, 
@@ -1118,28 +1119,24 @@ uhci_framelist_monitor(void *data)
 		/* select which skeltons should be scaned 
 		   by current frame number progress */
 		intvl = UHCI_NUM_INTERVALS - 1;
+		mask = 1;
 	        while (host->frame_number != cur_frnum) {
-			host->frame_number = 
+			i = host->frame_number = 
 				(host->frame_number + 1) & 
 				(UHCI_NUM_FRAMES - 1);
-			for (i = 0, mask = UHCI_NUM_FRAMES - 1; 
-			     mask; mask = mask >> 1, i++) {
-				if (!(host->frame_number & mask)) {
-					intvl = (intvl > i) ? i : intvl;
-					break;
-				}
+			while (intvl > 0 && !(i & mask)) {
+				mask = (mask << 1) | 1;
+				intvl--;
 			}
 
 			/* check a frame list slot for isochronous TD */
-			link_phys = host->
-				gframelist_virt[host->frame_number];
-			update_iso_urb(host, 
-					   host->frame_number, link_phys);
+			link_phys = host->gframelist_virt[i];
+			update_iso_urb (host, i, link_phys);
 		}
 
+		unmark_all_gurbs (host, intvl);
 		/* scan skeltons and the following urbs */
-		mark_inlinked_urbs(host, host->guest_urbs, 
-				       host->guest_skeltons, intvl);
+		mark_inlinked_urbs (host, host->guest_skeltons, intvl);
 		/* update urb content link (QH element) if needed */
 		update_marked_urbs(host, host->guest_skeltons[intvl]);
 		/* make copies of urb and activate it if needed */
@@ -1168,8 +1165,7 @@ uhci_framelist_monitor(void *data)
  * @param skeltons struct usb_request_block 
 */
 static inline int 
-scan_a_frame(struct uhci_host *host,
-	     phys32_t link_phys, struct usb_request_block **skeltons) 
+scan_a_frame (struct uhci_host *host, phys32_t link_phys) 
 {
 
 	int lv, skel_n = 0;
@@ -1183,7 +1179,7 @@ scan_a_frame(struct uhci_host *host,
 	/* asynchronous QHs */
 	for (lv = 1; !is_terminate(g_qh_phys) && (g_qh_phys != 0U); lv++) {
 
-		g_urb = geturbbyqh_phys(*skeltons, g_qh_phys);
+		g_urb = geturbbyqh_phys (host, g_qh_phys);
 
 		if (g_urb) {
 			/* a corresponding shadow already exists */
@@ -1219,20 +1215,22 @@ scan_a_frame(struct uhci_host *host,
 			g_urb->address = URB_ADDRESS_SKELTON;
 			dprintf(4, "->(%p)", g_urb);
 
-			append_urb(skeltons, g_urb);
+			urbhash_add (host, g_urb);
+			LIST4_ADD (host->guest_urbs, list, g_urb);
 
 			skel_n++;
 		}
 
 		/* tail loop detection */
-		if (g_qh_phys == uhci_link(URB_UHCI(g_urb)->qh->link)) {
+		if (uhci_link(g_qh_phys) ==
+		    uhci_link(URB_UHCI(g_urb)->qh->link)) {
 			dprintft(4, "%04x: %s: a tail loop detected.\n",
 				 host->iobase, __FUNCTION__);
 			break;
 		}
 
 		/* next */
-		g_qh_phys = uhci_link(URB_UHCI(g_urb)->qh->link);
+		g_qh_phys = URB_UHCI(g_urb)->qh->link;
 	}
 
 	return skel_n;
@@ -1245,37 +1243,30 @@ scan_a_frame(struct uhci_host *host,
  * @param maxorder int maximum order
  * @return Sorted urb
  */
-static struct usb_request_block *
-sort_skeltons(struct usb_request_block *skeltons, 
-	      struct usb_request_block *index[], int maxorder)
+static void
+sort_skeltons (struct uhci_host *host, struct usb_request_block *index[],
+	       int maxorder)
 {
-	struct usb_request_block *urb, *tailurb, *nexturb, *list;
+	struct usb_request_block *urb, *nexturb, *list;
 	u16 upper, lower;
 	int order, i;
+	LIST4_DEFINE_HEAD (tmplist, struct usb_request_block, list);
 
-	list = tailurb = (struct usb_request_block *)NULL;
+	LIST4_HEAD_INIT (tmplist, list);
+	while ((urb = LIST4_POP (host->guest_urbs, list)))
+		LIST4_ADD (tmplist, list, urb);
+	list = (struct usb_request_block *)NULL;
 	for (order = 0; order < maxorder; order++) {
-		urb = skeltons;
-		while (urb) {
+		LIST4_FOREACH_DELETABLE (tmplist, list, urb, nexturb) {
 			upper = 1 << order;
 			lower = upper >> 1;
-			nexturb = urb->next;
 			if ((upper >= (URB_UHCI(urb)->refcount + 1)) &&
 			    (lower < (URB_UHCI(urb)->refcount + 1))) {
-				if (urb->prev)
-					urb->prev->next = urb->next;
-				if (urb->next)
-					urb->next->prev = urb->prev;
-				if (skeltons == urb)
-					skeltons = urb->next;
+				LIST4_DEL (tmplist, list, urb);
 				if (!index[order])
 					index[order] = urb;
-				if (tailurb)
-					tailurb->next = urb;
-				urb->prev = tailurb;
-				tailurb = urb; /* for the next */
+				LIST4_ADD (host->guest_urbs, list, urb);
 			}
-			urb = nexturb;
 		}
 
 		if (!list && index[order]) {
@@ -1284,8 +1275,6 @@ sort_skeltons(struct usb_request_block *skeltons,
 				index[i] = list;
 		}
 	}
-
-	return list;
 }
 
 /**
@@ -1296,11 +1285,9 @@ sort_skeltons(struct usb_request_block *skeltons,
 int
 scan_gframelist(struct uhci_host *host)
 {
-	struct usb_request_block *skeltons;
 	int frid;
 	int skel_n = 0;
 
-	skeltons = (struct usb_request_block *)NULL;
 	spinlock_lock(&host->lock_gfl);
 
 	host->gframelist_virt = 
@@ -1309,14 +1296,11 @@ scan_gframelist(struct uhci_host *host)
 			dprintft(4, "%04x: %s: FRAME[%04d]:", 
 			host->iobase, __FUNCTION__, frid);
 		skel_n += scan_a_frame(host, 
-				       host->gframelist_virt[frid], 
-				       &skeltons);
+				       host->gframelist_virt[frid]);
 		dprintf(4, ".\n");
 	}
 
-	host->guest_urbs =
-		sort_skeltons(skeltons, 
-			      host->guest_skeltons, UHCI_NUM_INTERVALS);
+	sort_skeltons (host, host->guest_skeltons, UHCI_NUM_INTERVALS);
 
 	spinlock_unlock(&host->lock_gfl);
 

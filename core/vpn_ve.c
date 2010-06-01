@@ -36,35 +36,126 @@
 #include "crypt.h"
 #include "current.h"
 #include "initfunc.h"
+#include "mm.h"
 #include "printf.h"
 #include "spinlock.h"
 #include "string.h"
+#include "time.h"
 #include "vmmcall.h"
 #include "vpn_ve.h"
 #include "vpnsys.h"
 
+struct pqueue_list {
+	LIST1_DEFINE (struct pqueue_list);
+	void *data;
+	unsigned int len;
+};
+
+struct pqueue {
+	LIST1_DEFINE_HEAD (struct pqueue_list, list);
+	int num_item;
+};
+
+static void *
+pqueue_getnext (struct pqueue *q, unsigned int *len)
+{
+	struct pqueue_list *l;
+	void *r = NULL;
+
+	l = LIST1_POP (q->list);
+	if (l) {
+		q->num_item--;
+		r = l->data;
+		if (len)
+			*len = l->len;
+		free (l);
+	}
+	return r;
+}
+
+static void *
+pqueue_peeknext (struct pqueue *q)
+{
+	struct pqueue_list *l;
+	void *r = NULL;
+
+	l = LIST1_POP (q->list);
+	if (l) {
+		r = l->data;
+		LIST1_PUSH (q->list, l);
+	}
+	return r;
+}
+
+static void
+pqueue_insert (struct pqueue *q, void *data, unsigned int len)
+{
+	struct pqueue_list *l;
+
+	l = alloc (sizeof *l);
+	l->data = data;
+	l->len = len;
+	LIST1_ADD (q->list, l);
+	q->num_item++;
+}
+
+static void *
+pqueue_new (void)
+{
+	struct pqueue *q;
+
+	q = alloc (sizeof *q);
+	LIST1_HEAD_INIT (q->list);
+	q->num_item = 0;
+	return q;
+}
+
+static void *
+memdup (void *p, int len)
+{
+	return memcpy (alloc (len), p, len);
+}
+
+#define SE_QUEUE		struct pqueue
+#define SeGetNext(q)		pqueue_getnext ((q), NULL)
+#define SeGetNext2(q, l)	pqueue_getnext ((q), (l))
+#define SePeekNext(q)		pqueue_peeknext ((q))
+#define SeInsertQueue(q, data)	pqueue_insert ((q), (data), 0)
+#define SeInsertQueue2(q, d, l)	pqueue_insert ((q), (d), (l))
+#define SeNewQueue()		pqueue_new ()
+#define SeClone(p, len)		memdup ((p), (len))
+#define SeCopy			memcpy
+#define SeCopyStr(s)		((char *)memdup ((s), strlen ((s)) + 1))
+#define SeFormat		snprintf
+#define SeFree			free
+#define SeMalloc		alloc
+#define SeStrCpy(dst, len, src)	snprintf ((dst), (len), "%s", (src))
+#define SeStrLen		strlen
+#define SeStrSize(s)		(strlen ((s)) + 1)
+#define SeZeroMalloc(len)	memset (alloc ((len)), 0, (len))
+
 // NIC
 struct VPN_NIC
 {
-	VPN_CTX *VpnCtx;					// ¥³¥ó¥Æ¥­¥¹¥È
-	SE_NICINFO NicInfo;					// NIC ¾ğÊó
-	SE_SYS_CALLBACK_RECV_NIC *RecvCallback;	// ¥Ñ¥±¥Ã¥È¼õ¿®»ş¤Î¥³¡¼¥ë¥Ğ¥Ã¥¯
-	void *RecvCallbackParam;			// ¥³¡¼¥ë¥Ğ¥Ã¥¯¥Ñ¥é¥á¡¼¥¿
-	SE_QUEUE *SendPacketQueue;			// Á÷¿®¥Ñ¥±¥Ã¥È¥­¥å¡¼
-	SE_QUEUE *RecvPacketQueue;			// ¼õ¿®¥Ñ¥±¥Ã¥È¥­¥å¡¼
-	bool IsVirtual;						// ²¾ÁÛ NIC ¤«¤É¤¦¤«
-	SE_LOCK *Lock;						// ¥í¥Ã¥¯
+	VPN_CTX *VpnCtx;					// ã‚³ãƒ³ãƒ†ã‚­ã‚¹ãƒˆ
+	SE_NICINFO NicInfo;					// NIC æƒ…å ±
+	SE_SYS_CALLBACK_RECV_NIC *RecvCallback;	// ãƒ‘ã‚±ãƒƒãƒˆå—ä¿¡æ™‚ã®ã‚³ãƒ¼ãƒ«ãƒãƒƒã‚¯
+	void *RecvCallbackParam;			// ã‚³ãƒ¼ãƒ«ãƒãƒƒã‚¯ãƒ‘ãƒ©ãƒ¡ãƒ¼ã‚¿
+	SE_QUEUE *SendPacketQueue;			// é€ä¿¡ãƒ‘ã‚±ãƒƒãƒˆã‚­ãƒ¥ãƒ¼
+	SE_QUEUE *RecvPacketQueue;			// å—ä¿¡ãƒ‘ã‚±ãƒƒãƒˆã‚­ãƒ¥ãƒ¼
+	bool IsVirtual;						// ä»®æƒ³ NIC ã‹ã©ã†ã‹
+	spinlock_t Lock;					// ãƒ­ãƒƒã‚¯
 };
-// VPN ¥¯¥é¥¤¥¢¥ó¥È¥³¥ó¥Æ¥­¥¹¥È
+// VPN ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆã‚³ãƒ³ãƒ†ã‚­ã‚¹ãƒˆ
 struct VPN_CTX
 {
-	SE_HANDLE VpnClientHandle;			// VPN ¥¯¥é¥¤¥¢¥ó¥È¥Ï¥ó¥É¥ë
-	VPN_NIC *PhysicalNic;				// ÊªÍı NIC
-	SE_HANDLE PhysicalNicHandle;		// ÊªÍı NIC ¥Ï¥ó¥É¥ë
-	VPN_NIC *VirtualNic;				// ²¾ÁÛ NIC
-	SE_HANDLE VirtualNicHandle;			// ²¾ÁÛ NIC ¥Ï¥ó¥É¥ë
-	SE_LOCK *LogQueueLock;				// ¥í¥°¤Î¥­¥å¡¼¤Î¥í¥Ã¥¯
-	SE_QUEUE *LogQueue;					// ¥í¥°¤Î¥­¥å¡¼
+	SE_HANDLE VpnClientHandle;			// VPN ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆãƒãƒ³ãƒ‰ãƒ«
+	VPN_NIC *PhysicalNic;				// ç‰©ç† NIC
+	SE_HANDLE PhysicalNicHandle;		// ç‰©ç† NIC ãƒãƒ³ãƒ‰ãƒ«
+	VPN_NIC *VirtualNic;				// ä»®æƒ³ NIC
+	SE_HANDLE VirtualNicHandle;			// ä»®æƒ³ NIC ãƒãƒ³ãƒ‰ãƒ«
+	spinlock_t LogQueueLock;			// ãƒ­ã‚°ã®ã‚­ãƒ¥ãƒ¼ã®ãƒ­ãƒƒã‚¯
+	SE_QUEUE *LogQueue;					// ãƒ­ã‚°ã®ã‚­ãƒ¥ãƒ¼
 };
 
 void crypt_sys_log(char *type, char *message);
@@ -79,17 +170,17 @@ VPN_NIC *crypt_init_physical_nic(VPN_CTX *ctx);
 VPN_NIC *crypt_init_virtual_nic(VPN_CTX *ctx);
 void crypt_flush_old_packet_from_queue(SE_QUEUE *q);
 
-static VPN_CTX *vpn_ctx = NULL;			// VPN ¥¯¥é¥¤¥¢¥ó¥È¥³¥ó¥Æ¥­¥¹¥È
+static VPN_CTX *vpn_ctx = NULL;			// VPN ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆã‚³ãƒ³ãƒ†ã‚­ã‚¹ãƒˆ
 
 // ve (Virtual Ethernet)
 static spinlock_t ve_lock;
 
-// Virtual Ethernet (ve) ¥á¥¤¥ó½èÍı
+// Virtual Ethernet (ve) ãƒ¡ã‚¤ãƒ³å‡¦ç†
 void crypt_ve_main(UCHAR *in, UCHAR *out)
 {
 	VE_CTL *cin, *cout;
 	VPN_NIC *nic = NULL;
-	// °ú¿ô¥Á¥§¥Ã¥¯
+	// å¼•æ•°ãƒã‚§ãƒƒã‚¯
 	if (in == NULL || out == NULL)
 	{
 		return;
@@ -102,12 +193,12 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 
 	if (cin->EthernetType == VE_TYPE_PHYSICAL)
 	{
-		// ÊªÍıÅª¤Ê LAN ¥«¡¼¥É
+		// ç‰©ç†çš„ãª LAN ã‚«ãƒ¼ãƒ‰
 		nic = vpn_ctx->PhysicalNic;
 	}
 	else if (cin->EthernetType == VE_TYPE_VIRTUAL)
 	{
-		// ²¾ÁÛÅª¤Ê LAN ¥«¡¼¥É
+		// ä»®æƒ³çš„ãª LAN ã‚«ãƒ¼ãƒ‰
 		nic = vpn_ctx->VirtualNic;
 	}
 
@@ -115,8 +206,8 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 	{
 		if (cin->Operation == VE_OP_GET_LOG)
 		{
-			// ¥í¥°¤«¤é 1 ¹Ô¼èÆÀ
-			SeLock(vpn_ctx->LogQueueLock);
+			// ãƒ­ã‚°ã‹ã‚‰ 1 è¡Œå–å¾—
+			spinlock_lock (&vpn_ctx->LogQueueLock);
 			{
 				char *str = SeGetNext(vpn_ctx->LogQueue);
 
@@ -132,22 +223,22 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 
 				cout->RetValue = 1;
 			}
-			SeUnlock(vpn_ctx->LogQueueLock);
+			spinlock_unlock (&vpn_ctx->LogQueueLock);
 		}
 		else if (cin->Operation == VE_OP_GET_NEXT_SEND_PACKET)
 		{
-			// ¼¡¤ËÁ÷¿®¤¹¤Ù¤­¥Ñ¥±¥Ã¥È¤Î¼èÆÀ (vpn -> vmm -> guest)
-			SeLock(nic->Lock);
+			// æ¬¡ã«é€ä¿¡ã™ã¹ããƒ‘ã‚±ãƒƒãƒˆã®å–å¾— (vpn -> vmm -> guest)
+			spinlock_lock (&nic->Lock);
 			{
-				// ¸Å¤¤¥Ñ¥±¥Ã¥È¤¬¤¢¤ë¾ì¹ç¤ÏÇË´ş
+				// å¤ã„ãƒ‘ã‚±ãƒƒãƒˆãŒã‚ã‚‹å ´åˆã¯ç ´æ£„
 				crypt_flush_old_packet_from_queue(nic->SendPacketQueue);
 
-				// ¥Ñ¥±¥Ã¥È¤¬ 1 ¤Ä°Ê¾å¥­¥å¡¼¤Ë¤¢¤ë¤«¤É¤¦¤«
+				// ãƒ‘ã‚±ãƒƒãƒˆãŒ 1 ã¤ä»¥ä¸Šã‚­ãƒ¥ãƒ¼ã«ã‚ã‚‹ã‹ã©ã†ã‹
 				if (nic->SendPacketQueue->num_item >= 1)
 				{
-					// ¥­¥å¡¼¤«¤é¼¡¤Î¥Ñ¥±¥Ã¥È¤ò¤È¤ë
-					void *packet_data = SeGetNext(nic->SendPacketQueue);
-					UINT packet_data_size = SeMemSize(packet_data);
+					// ã‚­ãƒ¥ãƒ¼ã‹ã‚‰æ¬¡ã®ãƒ‘ã‚±ãƒƒãƒˆã‚’ã¨ã‚‹
+					UINT packet_data_size;
+					void *packet_data = SeGetNext2(nic->SendPacketQueue, &packet_data_size);
 					UINT packet_size_real = packet_data_size - sizeof(UINT64);
 					void *packet_data_real = ((UCHAR *)packet_data) + sizeof(UINT64);
 
@@ -156,13 +247,13 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 
 					cout->NumQueue = nic->SendPacketQueue->num_item;
 
-					// ¥á¥â¥ê²òÊü
+					// ãƒ¡ãƒ¢ãƒªè§£æ”¾
 					SeFree(packet_data);
 				}
 
 				cout->RetValue = 1;
 			}
-			SeUnlock(nic->Lock);
+			spinlock_unlock (&nic->Lock);
 		}
 		else if (cin->Operation == VE_OP_PUT_RECV_PACKET)
 		{
@@ -171,11 +262,11 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 			void **packets = NULL;
 			UINT *packet_sizes = NULL;
 
-			// ¼õ¿®¤·¤¿¥Ñ¥±¥Ã¥È¤Î½ñ¤­¹ş¤ß (guest -> vmm -> vpn)
-			SeLock(nic->Lock);
+			// å—ä¿¡ã—ãŸãƒ‘ã‚±ãƒƒãƒˆã®æ›¸ãè¾¼ã¿ (guest -> vmm -> vpn)
+			spinlock_lock (&nic->Lock);
 			{
-				// ¼õ¿®¥Ñ¥±¥Ã¥È¤Ï¡¢¥Ñ¥Õ¥©¡¼¥Ş¥ó¥¹¸ş¾å¤Î¤¿¤á
-				// ¤¹¤°¤Ë vpn ¤ËÅÏ¤µ¤º¤Ë¤¤¤Ã¤¿¤ó¼õ¿®¥­¥å¡¼¤Ë¤¿¤á¤ë
+				// å—ä¿¡ãƒ‘ã‚±ãƒƒãƒˆã¯ã€ãƒ‘ãƒ•ã‚©ãƒ¼ãƒãƒ³ã‚¹å‘ä¸Šã®ãŸã‚
+				// ã™ãã« vpn ã«æ¸¡ã•ãšã«ã„ã£ãŸã‚“å—ä¿¡ã‚­ãƒ¥ãƒ¼ã«ãŸã‚ã‚‹
 				void *packet_data;
 				UINT packet_size = cin->PacketSize;
 
@@ -183,13 +274,13 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 				{
 					packet_data = SeClone(cin->PacketData, packet_size);
 
-					SeInsertQueue(nic->RecvPacketQueue, packet_data);
+					SeInsertQueue2(nic->RecvPacketQueue, packet_data, packet_size);
 				}
 
 				if (cin->NumQueue == 0)
 				{
-					// ¤â¤¦¤³¤ì°Ê¾å¼õ¿®¥Ñ¥±¥Ã¥È¤¬Ìµ¤¤¾ì¹ç¤Ï
-					// flush ¤¹¤ë (vpn ¤Ë°ìµ¤¤ËÅÏ¤¹)
+					// ã‚‚ã†ã“ã‚Œä»¥ä¸Šå—ä¿¡ãƒ‘ã‚±ãƒƒãƒˆãŒç„¡ã„å ´åˆã¯
+					// flush ã™ã‚‹ (vpn ã«ä¸€æ°—ã«æ¸¡ã™)
 					flush = true;
 				}
 
@@ -209,13 +300,11 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 					while (true)
 					{
 						UINT size;
-						p = SeGetNext(nic->RecvPacketQueue);
+						p = SeGetNext2(nic->RecvPacketQueue, &size);
 						if (p == NULL)
 						{
 							break;
 						}
-
-						size = SeMemSize(p);
 
 						packets[i] = p;
 						packet_sizes[i] = size;
@@ -224,7 +313,7 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 					}
 				}
 			}
-			SeUnlock(nic->Lock);
+			spinlock_unlock (&nic->Lock);
 
 			if (flush)
 			{
@@ -244,7 +333,7 @@ void crypt_ve_main(UCHAR *in, UCHAR *out)
 	}
 }
 
-// Virtual Ethernet (ve) ¥Ï¥ó¥É¥é
+// Virtual Ethernet (ve) ãƒãƒ³ãƒ‰ãƒ©
 void crypt_ve_handler()
 {
 	UINT i;
@@ -304,7 +393,7 @@ void crypt_ve_handler()
 	spinlock_unlock(&ve_lock);
 }
 
-// Virtual Ethernet (ve) ¤Î½é´ü²½
+// Virtual Ethernet (ve) ã®åˆæœŸåŒ–
 void crypt_ve_init()
 {
 	printf("Initing Virtual Ethernet (VE) for VPN Client Module...\n");
@@ -315,13 +404,19 @@ void crypt_ve_init()
 
 INITFUNC ("vmmcal9", crypt_ve_init);
 
-// ÊªÍı NIC ¤Î½é´ü²½
+// ç‰©ç† NIC ã®åˆæœŸåŒ–
 VPN_NIC *crypt_init_physical_nic(VPN_CTX *ctx)
 {
 	VPN_NIC *n = SeZeroMalloc(sizeof(VPN_NIC));
 
-	SeStrToBinEx(n->NicInfo.MacAddress, sizeof(n->NicInfo.MacAddress),
-		"00:12:12:12:12:12");
+	/* SeStrToBinEx(n->NicInfo.MacAddress, sizeof(n->NicInfo.MacAddress),
+	   "00:12:12:12:12:12"); */
+	n->NicInfo.MacAddress[0] = 0x00;
+	n->NicInfo.MacAddress[1] = 0x12;
+	n->NicInfo.MacAddress[2] = 0x12;
+	n->NicInfo.MacAddress[3] = 0x12;
+	n->NicInfo.MacAddress[4] = 0x12;
+	n->NicInfo.MacAddress[5] = 0x12;
 	n->NicInfo.MediaSpeed = 1000000000;
 	n->NicInfo.MediaType = SE_MEDIA_TYPE_ETHERNET;
 	n->NicInfo.Mtu = 1500;
@@ -333,18 +428,24 @@ VPN_NIC *crypt_init_physical_nic(VPN_CTX *ctx)
 
 	n->IsVirtual = false;
 
-	n->Lock = SeNewLock();
+	spinlock_init (&n->Lock);
 
 	return n;
 }
 
-// ²¾ÁÛ NIC ¤ÎºîÀ®
+// ä»®æƒ³ NIC ã®ä½œæˆ
 VPN_NIC *crypt_init_virtual_nic(VPN_CTX *ctx)
 {
 	VPN_NIC *n = SeZeroMalloc(sizeof(VPN_NIC));
 
-	SeStrToBinEx(n->NicInfo.MacAddress, sizeof(n->NicInfo.MacAddress),
-		"00:AC:AC:AC:AC:AC");
+	/* SeStrToBinEx(n->NicInfo.MacAddress, sizeof(n->NicInfo.MacAddress),
+	   "00:AC:AC:AC:AC:AC"); */
+	n->NicInfo.MacAddress[0] = 0x00;
+	n->NicInfo.MacAddress[1] = 0xAC;
+	n->NicInfo.MacAddress[2] = 0xAC;
+	n->NicInfo.MacAddress[3] = 0xAC;
+	n->NicInfo.MacAddress[4] = 0xAC;
+	n->NicInfo.MacAddress[5] = 0xAC;
 	n->NicInfo.MediaSpeed = 1000000000;
 	n->NicInfo.MediaType = SE_MEDIA_TYPE_ETHERNET;
 	n->NicInfo.Mtu = 1500;
@@ -356,7 +457,7 @@ VPN_NIC *crypt_init_virtual_nic(VPN_CTX *ctx)
 
 	n->IsVirtual = true;
 
-	n->Lock = SeNewLock();
+	spinlock_init (&n->Lock);
 
 	return n;
 }
@@ -370,31 +471,31 @@ static struct nicfunc vefunc = {
 	.SetVirtualNicRecvCallback = crypt_sys_set_virtual_nic_recv_callback,
 };
 
-// VPN ¥¯¥é¥¤¥¢¥ó¥È¤Î½é´ü²½
+// VPN ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆã®åˆæœŸåŒ–
 void crypt_init_vpn()
 {
 	vpn_ctx = SeZeroMalloc(sizeof(VPN_CTX));
 
-	// ¥í¥°ÍÑ¥­¥å¡¼¤Î½é´ü²½
+	// ãƒ­ã‚°ç”¨ã‚­ãƒ¥ãƒ¼ã®åˆæœŸåŒ–
 	vpn_ctx->LogQueue = SeNewQueue();
-	vpn_ctx->LogQueueLock = SeNewLock();
+	spinlock_init (&vpn_ctx->LogQueueLock);
 
-	// ÊªÍı NIC ¤ÎºîÀ®
+	// ç‰©ç† NIC ã®ä½œæˆ
 	vpn_ctx->PhysicalNic = crypt_init_physical_nic(vpn_ctx);
 	vpn_ctx->PhysicalNicHandle = (SE_HANDLE)vpn_ctx->PhysicalNic;
 
-	// ²¾ÁÛ NIC ¤ÎºîÀ®
+	// ä»®æƒ³ NIC ã®ä½œæˆ
 	vpn_ctx->VirtualNic = crypt_init_virtual_nic(vpn_ctx);
 	vpn_ctx->VirtualNicHandle = (SE_HANDLE)vpn_ctx->VirtualNic;
 
-	// VPN Client ¤ÎºîÀ®
+	// VPN Client ã®ä½œæˆ
 	//vpn_ctx->VpnClientHandle = VPN_IPsec_Client_Start(vpn_ctx->PhysicalNicHandle, vpn_ctx->VirtualNicHandle, "config.txt");
 	vpn_ctx->VpnClientHandle = vpn_new_nic (vpn_ctx->PhysicalNicHandle,
 						vpn_ctx->VirtualNicHandle,
 						&vefunc);
 }
 
-// Äó¶¡¥·¥¹¥Æ¥à¥³¡¼¥ë: ¥í¥°¤Î½ĞÎÏ (²èÌÌ¤ËÉ½¼¨)
+// æä¾›ã‚·ã‚¹ãƒ†ãƒ ã‚³ãƒ¼ãƒ«: ãƒ­ã‚°ã®å‡ºåŠ› (ç”»é¢ã«è¡¨ç¤º)
 void crypt_sys_log(char *type, char *message)
 {
 	char *lf = "\n";
@@ -417,12 +518,12 @@ void crypt_sys_log(char *type, char *message)
 	crypt_add_log_queue(type, message);
 }
 
-// ¥í¥°¥­¥å¡¼¤Ë¥í¥°¥Ç¡¼¥¿¤òÄÉ²Ã
+// ãƒ­ã‚°ã‚­ãƒ¥ãƒ¼ã«ãƒ­ã‚°ãƒ‡ãƒ¼ã‚¿ã‚’è¿½åŠ 
 void crypt_add_log_queue(char *type, char *message)
 {
 	char *tmp;
 	char tmp2[512];
-	// °ú¿ô¥Á¥§¥Ã¥¯
+	// å¼•æ•°ãƒã‚§ãƒƒã‚¯
 	if (type == NULL || message == NULL)
 	{
 		return;
@@ -459,7 +560,7 @@ void crypt_add_log_queue(char *type, char *message)
 
 	SeFree(tmp);
 
-	SeLock(vpn_ctx->LogQueueLock);
+	spinlock_lock (&vpn_ctx->LogQueueLock);
 	{
 		while (vpn_ctx->LogQueue->num_item > CRYPT_MAX_LOG_QUEUE_LINES)
 		{
@@ -470,14 +571,14 @@ void crypt_add_log_queue(char *type, char *message)
 
 		SeInsertQueue(vpn_ctx->LogQueue, SeCopyStr(tmp2));
 	}
-	SeUnlock(vpn_ctx->LogQueueLock);
+	spinlock_unlock (&vpn_ctx->LogQueueLock);
 }
 
-// Äó¶¡¥·¥¹¥Æ¥à¥³¡¼¥ë: ÊªÍı NIC ¤Î¾ğÊó¤Î¼èÆÀ
+// æä¾›ã‚·ã‚¹ãƒ†ãƒ ã‚³ãƒ¼ãƒ«: ç‰©ç† NIC ã®æƒ…å ±ã®å–å¾—
 void crypt_sys_get_physical_nic_info(SE_HANDLE nic_handle, SE_NICINFO *info)
 {
 	VPN_NIC	*n = (VPN_NIC *)nic_handle;
-	// °ú¿ô¥Á¥§¥Ã¥¯
+	// å¼•æ•°ãƒã‚§ãƒƒã‚¯
 	if (n == NULL)
 	{
 		return;
@@ -486,10 +587,10 @@ void crypt_sys_get_physical_nic_info(SE_HANDLE nic_handle, SE_NICINFO *info)
 	SeCopy(info, &n->NicInfo, sizeof(SE_NICINFO));
 }
 
-// Á÷¿®¥Ñ¥±¥Ã¥È¥­¥å¡¼¤«¤é¸Å¤¤¥Ñ¥±¥Ã¥È¤òºï½ü¤¹¤ë
+// é€ä¿¡ãƒ‘ã‚±ãƒƒãƒˆã‚­ãƒ¥ãƒ¼ã‹ã‚‰å¤ã„ãƒ‘ã‚±ãƒƒãƒˆã‚’å‰Šé™¤ã™ã‚‹
 void crypt_flush_old_packet_from_queue(SE_QUEUE *q)
 {
-	UINT64 now = SeTick64();
+	UINT64 now = get_time ();
 	UINT num = 0;
 
 	while (true)
@@ -504,7 +605,7 @@ void crypt_flush_old_packet_from_queue(SE_QUEUE *q)
 
 		time_stamp = (UINT64 *)data;
 
-		if (now <= ((*time_stamp) + CRYPT_SEND_PACKET_LIFETIME))
+		if (now <= ((*time_stamp) + CRYPT_SEND_PACKET_LIFETIME * 1000))
 		{
 			break;
 		}
@@ -517,20 +618,20 @@ void crypt_flush_old_packet_from_queue(SE_QUEUE *q)
 	}
 }
 
-// Äó¶¡¥·¥¹¥Æ¥à¥³¡¼¥ë: ÊªÍı NIC ¤òÍÑ¤¤¤Æ¥Ñ¥±¥Ã¥È¤òÁ÷¿®
+// æä¾›ã‚·ã‚¹ãƒ†ãƒ ã‚³ãƒ¼ãƒ«: ç‰©ç† NIC ã‚’ç”¨ã„ã¦ãƒ‘ã‚±ãƒƒãƒˆã‚’é€ä¿¡
 void crypt_sys_send_physical_nic(SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes)
 {
 	VPN_NIC	*n = (VPN_NIC *)nic_handle;
 	UINT i;
-	// °ú¿ô¥Á¥§¥Ã¥¯
+	// å¼•æ•°ãƒã‚§ãƒƒã‚¯
 	if (n == NULL || num_packets == 0 || packets == NULL || packet_sizes == NULL)
 	{
 		return;
 	}
 
-	SeLock(n->Lock);
+	spinlock_lock (&n->Lock);
 	{
-		// ¥Ñ¥±¥Ã¥È¤ò¥­¥å¡¼¤Ë³ÊÇ¼¤¹¤ë
+		// ãƒ‘ã‚±ãƒƒãƒˆã‚’ã‚­ãƒ¥ãƒ¼ã«æ ¼ç´ã™ã‚‹
 		for (i = 0;i < num_packets;i++)
 		{
 			void *packet = packets[i];
@@ -538,22 +639,22 @@ void crypt_sys_send_physical_nic(SE_HANDLE nic_handle, UINT num_packets, void **
 
 			UCHAR *packet_copy = SeMalloc(size + sizeof(UINT64));
 			SeCopy(packet_copy + sizeof(UINT64), packet, size);
-			*((UINT64 *)packet_copy) = SeTick64();
+			*((UINT64 *)packet_copy) = get_time ();
 
-			SeInsertQueue(n->SendPacketQueue, packet_copy);
+			SeInsertQueue2(n->SendPacketQueue, packet_copy, size + sizeof(UINT64));
 		}
 
-		// ¸Å¤¤¥Ñ¥±¥Ã¥È¤òÁ÷¿®¥­¥å¡¼¤«¤éºï½ü¤¹¤ë
+		// å¤ã„ãƒ‘ã‚±ãƒƒãƒˆã‚’é€ä¿¡ã‚­ãƒ¥ãƒ¼ã‹ã‚‰å‰Šé™¤ã™ã‚‹
 		crypt_flush_old_packet_from_queue(n->SendPacketQueue);
 	}
-	SeUnlock(n->Lock);
+	spinlock_unlock (&n->Lock);
 }
 
-// Äó¶¡¥·¥¹¥Æ¥à¥³¡¼¥ë: ÊªÍı NIC ¤«¤é¥Ñ¥±¥Ã¥È¤ò¼õ¿®¤·¤¿ºİ¤Î¥³¡¼¥ë¥Ğ¥Ã¥¯¤òÀßÄê
+// æä¾›ã‚·ã‚¹ãƒ†ãƒ ã‚³ãƒ¼ãƒ«: ç‰©ç† NIC ã‹ã‚‰ãƒ‘ã‚±ãƒƒãƒˆã‚’å—ä¿¡ã—ãŸéš›ã®ã‚³ãƒ¼ãƒ«ãƒãƒƒã‚¯ã‚’è¨­å®š
 void crypt_sys_set_physical_nic_recv_callback(SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param)
 {
 	VPN_NIC	*n = (VPN_NIC *)nic_handle;
-	// °ú¿ô¥Á¥§¥Ã¥¯
+	// å¼•æ•°ãƒã‚§ãƒƒã‚¯
 	if (n == NULL)
 	{
 		return;
@@ -563,7 +664,7 @@ void crypt_sys_set_physical_nic_recv_callback(SE_HANDLE nic_handle, SE_SYS_CALLB
 	n->RecvCallbackParam = param;
 }
 
-// Äó¶¡¥·¥¹¥Æ¥à¥³¡¼¥ë: ²¾ÁÛ NIC ¤Î¾ğÊó¤Î¼èÆÀ
+// æä¾›ã‚·ã‚¹ãƒ†ãƒ ã‚³ãƒ¼ãƒ«: ä»®æƒ³ NIC ã®æƒ…å ±ã®å–å¾—
 void crypt_sys_get_virtual_nic_info(SE_HANDLE nic_handle, SE_NICINFO *info)
 {
 	VPN_NIC	*n = (VPN_NIC *)nic_handle;
@@ -571,20 +672,20 @@ void crypt_sys_get_virtual_nic_info(SE_HANDLE nic_handle, SE_NICINFO *info)
 	SeCopy(info, &n->NicInfo, sizeof(SE_NICINFO));
 }
 
-// Äó¶¡¥·¥¹¥Æ¥à¥³¡¼¥ë: ²¾ÁÛ NIC ¤òÍÑ¤¤¤Æ¥Ñ¥±¥Ã¥È¤òÁ÷¿®
+// æä¾›ã‚·ã‚¹ãƒ†ãƒ ã‚³ãƒ¼ãƒ«: ä»®æƒ³ NIC ã‚’ç”¨ã„ã¦ãƒ‘ã‚±ãƒƒãƒˆã‚’é€ä¿¡
 void crypt_sys_send_virtual_nic(SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes)
 {
 	VPN_NIC	*n = (VPN_NIC *)nic_handle;
 	UINT i;
-	// °ú¿ô¥Á¥§¥Ã¥¯
+	// å¼•æ•°ãƒã‚§ãƒƒã‚¯
 	if (n == NULL || num_packets == 0 || packets == NULL || packet_sizes == NULL)
 	{
 		return;
 	}
 
-	SeLock(n->Lock);
+	spinlock_lock (&n->Lock);
 	{
-		// ¥Ñ¥±¥Ã¥È¤ò¥­¥å¡¼¤Ë³ÊÇ¼¤¹¤ë
+		// ãƒ‘ã‚±ãƒƒãƒˆã‚’ã‚­ãƒ¥ãƒ¼ã«æ ¼ç´ã™ã‚‹
 		for (i = 0;i < num_packets;i++)
 		{
 			void *packet = packets[i];
@@ -592,22 +693,22 @@ void crypt_sys_send_virtual_nic(SE_HANDLE nic_handle, UINT num_packets, void **p
 
 			UCHAR *packet_copy = SeMalloc(size + sizeof(UINT64));
 			SeCopy(packet_copy + sizeof(UINT64), packet, size);
-			*((UINT64 *)packet_copy) = SeTick64();
+			*((UINT64 *)packet_copy) = get_time ();
 
-			SeInsertQueue(n->SendPacketQueue, packet_copy);
+			SeInsertQueue2(n->SendPacketQueue, packet_copy, size + sizeof(UINT64));
 		}
 
-		// ¸Å¤¤¥Ñ¥±¥Ã¥È¤òÁ÷¿®¥­¥å¡¼¤«¤éºï½ü¤¹¤ë
+		// å¤ã„ãƒ‘ã‚±ãƒƒãƒˆã‚’é€ä¿¡ã‚­ãƒ¥ãƒ¼ã‹ã‚‰å‰Šé™¤ã™ã‚‹
 		crypt_flush_old_packet_from_queue(n->SendPacketQueue);
 	}
-	SeUnlock(n->Lock);
+	spinlock_unlock (&n->Lock);
 }
 
-// Äó¶¡¥·¥¹¥Æ¥à¥³¡¼¥ë: ²¾ÁÛ NIC ¤«¤é¥Ñ¥±¥Ã¥È¤ò¼õ¿®¤·¤¿ºİ¤Î¥³¡¼¥ë¥Ğ¥Ã¥¯¤òÀßÄê
+// æä¾›ã‚·ã‚¹ãƒ†ãƒ ã‚³ãƒ¼ãƒ«: ä»®æƒ³ NIC ã‹ã‚‰ãƒ‘ã‚±ãƒƒãƒˆã‚’å—ä¿¡ã—ãŸéš›ã®ã‚³ãƒ¼ãƒ«ãƒãƒƒã‚¯ã‚’è¨­å®š
 void crypt_sys_set_virtual_nic_recv_callback(SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param)
 {
 	VPN_NIC	*n = (VPN_NIC *)nic_handle;
-	// °ú¿ô¥Á¥§¥Ã¥¯
+	// å¼•æ•°ãƒã‚§ãƒƒã‚¯
 	if (n == NULL)
 	{
 		return;
@@ -617,10 +718,10 @@ void crypt_sys_set_virtual_nic_recv_callback(SE_HANDLE nic_handle, SE_SYS_CALLBA
 	n->RecvCallbackParam = param;
 }
 
-// ÊªÍı / ²¾ÁÛ NIC ¤Ç¥Ñ¥±¥Ã¥È¤ò¼õ¿®¤·¤¿¤³¤È¤òÄÌÃÎ¤·¥Ñ¥±¥Ã¥È¥Ç¡¼¥¿¤òÅÏ¤¹
+// ç‰©ç† / ä»®æƒ³ NIC ã§ãƒ‘ã‚±ãƒƒãƒˆã‚’å—ä¿¡ã—ãŸã“ã¨ã‚’é€šçŸ¥ã—ãƒ‘ã‚±ãƒƒãƒˆãƒ‡ãƒ¼ã‚¿ã‚’æ¸¡ã™
 void crypt_nic_recv_packet(VPN_NIC *n, UINT num_packets, void **packets, UINT *packet_sizes)
 {
-	// °ú¿ô¥Á¥§¥Ã¥¯
+	// å¼•æ•°ãƒã‚§ãƒƒã‚¯
 	if (n == NULL || num_packets == 0 || packets == NULL || packet_sizes == NULL)
 	{
 		return;

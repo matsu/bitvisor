@@ -32,6 +32,7 @@
 #include "config.h"
 #include "current.h"
 #include "initfunc.h"
+#include "keyboard.h"
 #include "main.h"
 #include "mm.h"
 #include "panic.h"
@@ -52,6 +53,7 @@ struct loadcfg_data {
 
 static bool enable = false;
 static u8 boot_drive;
+static u8 imr_master, imr_slave;
 
 static void
 do_boot_guest (void)
@@ -68,8 +70,9 @@ do_boot_guest (void)
 	asm_outb (0xA1, 0x70);
 	asm_outb (0xA1, 0x2);
 	asm_outb (0xA1, 0x1);
-	asm_outb (0x21, 0xFC);
-	asm_outb (0xA1, 0xFF);
+	asm_outb (0x21, imr_master);
+	asm_outb (0xA1, imr_slave);
+	keyboard_flush ();
 	/* printf ("init pit\n"); */
 	sleep_set_timer_counter ();
 	/* printf ("sleep 1 sec\n"); */
@@ -153,6 +156,8 @@ void
 vmmcall_boot_enable (u8 bios_boot_drive)
 {
 	boot_drive = bios_boot_drive;
+	asm_inb (0x21, &imr_master);
+	asm_inb (0xA1, &imr_slave);
 	enable = true;
 }
 

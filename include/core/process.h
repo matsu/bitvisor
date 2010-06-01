@@ -27,54 +27,47 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _STORAGE_H_
-#define _STORAGE_H_
+#ifndef __CORE_PROCESS_H
+#define __CORE_PROCESS_H
 
-#include <core/config.h>
-
-#define STORAGE_MAX_KEYS_PER_DEVICE 8
-
-#define LBA_INVALID	(~0ULL - 0)
-#define LBA_NONE	(~0ULL - 1)
-
-typedef u64 lba_t;
-typedef u32 count_t;
-
-enum {
-	STORAGE_READ = 0,
-	STORAGE_WRITE = 1,
+enum msgcode {
+	MSG_INT,
+	MSG_BUF,
 };
 
-struct storage_access {
-	lba_t	lba;
-	count_t	count;
-	int	rw;
+struct msgbuf {
+	void *base;
+	unsigned int len;
+	int rw;
+	long premap_handle;
 };
 
-struct storage_keys {
-	lba_t		lba_low, lba_high;
-	struct crypto	*crypto;
-	void		*keyctx;
-};
+static inline void
+setmsgbuf_premap (struct msgbuf *mbuf, void *base, unsigned int len, int rw,
+		  long premap_handle)
+{
+	mbuf->base = base;
+	mbuf->len = len;
+	mbuf->rw = rw;
+	mbuf->premap_handle = premap_handle;
+}
 
-typedef	union {
-	u32 value;
-	struct {
-		u16	device_id;
-		u8	host_id;
-		u8	type;
-	} __attribute__ ((packed));
-} storage_busid_t;
+static inline void
+setmsgbuf (struct msgbuf *mbuf, void *base, unsigned int len, int rw)
+{
+	setmsgbuf_premap (mbuf, base, len, rw, 0);
+}
 
-struct storage_device {
-	struct guid	guid; // globally unique id for a specific device (like VendorID:ProductID:SerialNumber)
-	storage_busid_t	busid;
-	int sector_size;
-	int keynum;
-	struct storage_keys keys[STORAGE_MAX_KEYS_PER_DEVICE];
-};
-
-int storage_handle_sectors(struct storage_device *device, struct storage_access *access, u8 *src, u8 *dst);
-struct storage_device *storage_new(int type, int host_id, int device_id, struct guid *guid, int sector_size);
+void *msgsetfunc (int desc, void *func);
+int msgregister (char *name, void *func);
+int msgopen (char *name);
+int msgclose (int desc);
+int msgsendint (int desc, int data);
+int msgsenddesc (int desc, int data);
+int newprocess (char *name);
+int msgsendbuf (int desc, int data, struct msgbuf *buf, int bufcnt);
+int msgunregister (int desc);
+void exitprocess (int retval);
+long msgpremapbuf (int desc, struct msgbuf *buf);
 
 #endif

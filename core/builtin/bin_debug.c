@@ -130,6 +130,7 @@ dump_mem (char *buf, int t)
 	int tmp[16], j, k;
 	int a;
 	struct memdump_data d;
+	struct msgbuf mbuf[2];
 
 	buf++;
 	buf = skip_space (buf);
@@ -175,7 +176,9 @@ dump_mem (char *buf, int t)
 		printf ("msgopen failed.\n");
 		return;
 	}
-	if (msgsendbuf (a, dtype, &d, sizeof d, memdata, sizeof memdata)) {
+	setmsgbuf (&mbuf[0], &d, sizeof d, 0);
+	setmsgbuf (&mbuf[1], memdata, sizeof memdata, 1);
+	if (msgsendbuf (a, dtype, mbuf, 2)) {
 		printf ("msgsendbuf failed.\n");
 	} else {
 		v = daddr;
@@ -228,11 +231,13 @@ void
 getlog (void)
 {
 	int d;
+	struct msgbuf mbuf;
 
 	memset (logbuf, 0, sizeof logbuf);
 	d = msgopen ("ttylog");
 	if (d >= 0) {
-		loglen = msgsendbuf (d, 0, "", 0, logbuf, sizeof logbuf);
+		setmsgbuf (&mbuf, logbuf, sizeof logbuf, 1);
+		loglen = msgsendbuf (d, 0, &mbuf, 1);
 		msgclose (d);
 		if (loglen > sizeof logbuf)
 			loglen = sizeof logbuf;

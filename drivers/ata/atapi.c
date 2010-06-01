@@ -69,11 +69,13 @@ int atapi_handle_pio_identify_packet(struct ata_channel *channel, int rw)
 	
 	old_storage_device = device->storage_device;
 	new_storage_device = storage_new(STORAGE_TYPE_ATAPI, 
-					old_storage_device->busid.host_id, 
-					old_storage_device->busid.device_id, NULL, 2048);
+					 device->storage_host_id, 
+					 device->storage_device_id, NULL,
+					 NULL);
 	if (old_storage_device && new_storage_device){
 		device->storage_device = new_storage_device;
-		free(old_storage_device);
+		device->storage_sector_size = 2048;
+		storage_free (old_storage_device);
 	}
 
 	identify_packet = (struct ata_identify_packet *)channel->pio_buf;
@@ -140,7 +142,12 @@ static int atapi_handle_pio_data(struct ata_channel *channel, int rw)
 	access.lba = channel->lba;
 	access.rw = rw;
 	access.count = 1;
-	storage_handle_sectors(ata_get_storage_device(channel),	&access, channel->pio_buf, channel->pio_buf);
+	access.sector_size = ata_get_ata_device(channel)->storage_sector_size;
+	storage_premap_handle_sectors (ata_get_storage_device(channel),
+				       &access, channel->pio_buf,
+				       channel->pio_buf,
+				       channel->pio_buf_premap,
+				       channel->pio_buf_premap);
 
 	return CORE_IO_RET_DEFAULT;
 }
@@ -198,11 +205,21 @@ static int atapi_handle_pio_packet(struct ata_channel *channel, int rw)
 		channel->status_handler = ata_handle_queued_status;
 		channel->state = ATA_STATE_QUEUED;
 	} else {
+		u16 pio_xmit_size;
 		channel->rw = packet_device.rw;
 		channel->lba = packet_device.lba;
 		channel->sector_count = packet_device.sector_count;
 		channel->state = features.dma ? ATA_STATE_DMA_READY : packet_device.state;
-		channel->pio_block_size = features.dma ? 512 : packet_device.sector_size;
+
+		pio_xmit_size =
+			(packet_device.sector_size > packet_device.data_length)
+			&& (packet_device.data_length > 0) ?
+			packet_device.data_length : packet_device.sector_size;
+
+		if (!features.dma) {
+			channel->pio_block_size = pio_xmit_size;
+		}
+
 	}
 	return CORE_IO_RET_DEFAULT;
 }

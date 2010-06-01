@@ -190,16 +190,17 @@ install_int0x15_hook (void)
 	u64 int0x15_vector_phys = 0x15 * 4;
 	u32 tmp;
 
-	/* 9 bytes hook program */
-	/* 0000:0255 E7 1F out   %ax, $0x1F */
-	/* 0000:0257 EA    ljmp             */
-	/* 0000:0258 XX YY xx yy xxyy:XXYY  */
-	/* 0000:025C CA 02 lret  $2         */
+	/* 10 bytes hook program */
+	/* 0000:0255 E7 1F        out   %ax, $0x1F */
+	/* 0000:0257 EA           ljmp             */
+	/* 0000:0258 XX YY xx yy       $yyxx,$YYXX */
+	/* 0000:025C CA 02 00     lret  $2         */
 	/* save old interrupt vector */
 	read_hphys_l (int0x15_vector_phys, &tmp, 0);
 	write_hphys_l (0x254, (HOOKIOPORT << 16) | 0xEA00E700, 0);
 	write_hphys_l (0x258, tmp, 0);
 	write_hphys_w (0x25C, 0x02CA, 0);
+	write_hphys_b (0x25E, 0x00, 0);
 	/* set interrupt vector to 0x0000:0x0255 */
 	write_hphys_l (int0x15_vector_phys, 0x00000255, 0);
 }

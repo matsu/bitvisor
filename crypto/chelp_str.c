@@ -38,10 +38,15 @@
 
 #include <chelp.h>
 
+#define UCHAR	unsigned char
+#define INT	int
+#define UINT	unsigned int
+
 #define	FLAG_NEGATIVE	1
 #define	FLAG_UNSIGNED	2
 #define	FLAG_READDIGIT	4
 #define	FLAG_OVERFLOW	8
+#define true		1
 
 // 文字の検証と加工
 int chelp_isupper(int ch)

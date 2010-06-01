@@ -37,6 +37,7 @@
 #include "ata.h"
 #include "atapi.h"
 #include "ata_init.h"
+#include "ahci.h"
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
 int add_remap() ;
@@ -44,8 +45,12 @@ u32 vmm_start_inf() ; // test
 u32 vmm_term_inf() ;  // test
 #endif // of VTD_TRANS
 
-const char ata_driver_name[] = "ata_generic_driver";
-const char ata_driver_longname[] = "Generic ATA/ATAPI para pass-through driver 0.4";
+static const char ata_driver_name[] = "ata_generic_driver";
+static const char ata_driver_longname[] = "Generic ATA/ATAPI para pass-through driver 0.4";
+static const char ahci_driver_name[] = "ahci_generic_driver";
+static const char ahci_driver_longname[] = "Generic AHCI para pass-through driver";
+static const char raid_driver_name[] = "raid_generic_driver";
+static const char raid_driver_longname[] = "Generic RAID para pass-through driver";
 
 static unsigned int host_id = 0;
 static unsigned int device_id = 0;
@@ -76,6 +81,7 @@ static void ata_init_prd(struct ata_channel *channel)
 		goto error;
 	if (buf_phys > ATA_BM_BUFADDR_LIMIT || buf_phys & ATA_BM_BUFADDR_ALIGN)
 		goto error;
+	memset (buf, 0, ATA_BM_TOTAL_BUFSIZE);
 
 	// allocate PRD table (align: dword (not cross a 64KB boundary), location < 4GB)
 	alloc_page((void *)&prd, &prd_phys);
@@ -96,6 +102,8 @@ static void ata_init_prd(struct ata_channel *channel)
 	channel->shadow_prd = prd;
 	channel->shadow_prd_phys = prd_phys;
 	channel->shadow_buf = buf;
+	channel->shadow_buf_premap = storage_premap_buf (buf,
+							 ATA_BM_TOTAL_BUFSIZE);
 	return;
 
 error:
@@ -103,9 +111,23 @@ error:
 	      __func__, buf, buf_phys, prd, prd_phys);
 }
 
+static void
+ata_init_pio_buf (struct ata_channel *channel)
+{
+	void *buf;
+
+	alloc_page (&buf, NULL);
+	memset (buf, 0, PAGESIZE);
+	channel->pio_buf = buf;
+	channel->pio_buf_premap = storage_premap_buf (buf, PAGESIZE);
+}
+
 static void ata_init_ata_device(struct ata_device *ata_device)
 {
-	ata_device->storage_device = storage_new(STORAGE_TYPE_ATA, host_id, device_id, NULL, 512);
+	ata_device->storage_device = storage_new(STORAGE_TYPE_ATA, host_id, device_id, NULL, NULL);
+	ata_device->storage_sector_size = 512;
+	ata_device->storage_host_id = host_id;
+	ata_device->storage_device_id = device_id;
 	ata_device->heads_per_cylinder = ATA_DEFAULT_HEADS;
 	ata_device->sectors_per_track = ATA_DEFAULT_SECTORS;
 	ata_device->packet_length = 12;
@@ -128,6 +150,7 @@ static struct ata_channel *ata_new_channel(struct ata_host* host)
 	channel->host = host;
 	channel->state = ATA_STATE_READY;
 	ata_init_prd(channel);
+	ata_init_pio_buf (channel);
 	host_id++; device_id = 0;
 
 	/* atapi device */
@@ -140,7 +163,7 @@ static struct ata_channel *ata_new_channel(struct ata_host* host)
 	return channel;
 }
 
-static void ata_new(struct pci_device *pci_device)
+static void ata_new(struct pci_device *pci_device, bool ahci_flag)
 {
 	struct ata_host *host;
 
@@ -157,6 +180,10 @@ static void ata_new(struct pci_device *pci_device)
 	ata_set_ctlblk_handler(host, 0);
 	ata_set_cmdblk_handler(host, 1);
 	ata_set_ctlblk_handler(host, 1);
+	if (ahci_flag)
+		host->ahci_data = ahci_new (pci_device);
+	else
+		host->ahci_data = NULL;
 
 	/* initialize bus master */
 	ata_set_bm_handler(host);
@@ -194,12 +221,46 @@ static void ata_new(struct pci_device *pci_device)
 	return;
 }
 
+static void
+ata_new_ata (struct pci_device *pci_device)
+{
+	ata_new (pci_device, false);
+}
+
+static void
+ata_new_ahci (struct pci_device *pci_device)
+{
+	ata_new (pci_device, true);
+}
+
 static struct pci_driver ata_driver = {
 	.name		= ata_driver_name,
 	.longname	= ata_driver_longname,
 	.id		= { PCI_ID_ANY, PCI_ID_ANY_MASK },	/* match with any VendorID:DeviceID */
 	.class		= { 0x010100, 0xFFFF00 },		/* class = Mass Storage, subclass = IDE */
-	.new		= ata_new,		/* called when a new PCI ATA device is found */
+	.new		= ata_new_ata,		/* called when a new PCI ATA device is found */
+	.config_read	= ata_config_read,	/* called when a config register is read */
+	.config_write	= ata_config_write,	/* called when a config register is written */
+};
+
+static struct pci_driver ahci_driver = {
+	.name		= ahci_driver_name,
+	.longname	= ahci_driver_longname,
+	.id		= { PCI_ID_ANY, PCI_ID_ANY_MASK },	/* match with any VendorID:DeviceID */
+	.class		= { 0x010601, 0xFFFFFF },
+				/* class = Mass Storage, subclass = SATA, */
+				/* programming interface = AHCI 1.0 */
+	.new		= ata_new_ahci,		/* called when a new PCI ATA device is found */
+	.config_read	= ata_config_read,	/* called when a config register is read */
+	.config_write	= ata_config_write,	/* called when a config register is written */
+};
+
+static struct pci_driver raid_driver = {
+	.name		= raid_driver_name,
+	.longname	= raid_driver_longname,
+	.id		= { PCI_ID_ANY, PCI_ID_ANY_MASK },	/* match with any VendorID:DeviceID */
+	.class		= { 0x010400, 0xFFFF00 },		/* class = Mass Storage, subclass = RAID */
+	.new		= ata_new_ahci,		/* called when a new PCI ATA device is found */
 	.config_read	= ata_config_read,	/* called when a config register is read */
 	.config_write	= ata_config_write,	/* called when a config register is written */
 };
@@ -210,6 +271,8 @@ static void ata_init(void)
 		return;
 	ASSERT(CORE_IO_DIR_IN == STORAGE_READ);
 	pci_register_driver(&ata_driver);
+	pci_register_driver(&ahci_driver);
+	pci_register_driver(&raid_driver);
 	/* may need to initialize the compatible host even if no PCI ATA device exists */
 	/* FIXME: some controller may be hidden! (see ICH8 5.16: D31, F1 is diabled by D30, F0, offset F2h, bit1) */
 	return;

@@ -60,15 +60,14 @@ ttyout_msghandler (int m, int c)
 }
 
 static int
-ttylog_msghandler (int m, int c, void *recvbuf, int recvlen, void *sendbuf,
-		   int sendlen)
+ttylog_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 {
 	int i;
 	unsigned char *q;
 
-	if (m == 1) {
-		q = sendbuf;
-		for (i = 0; i < sendlen && i < loglen; i++)
+	if (m == 1 && bufcnt >= 1) {
+		q = buf[0].base;
+		for (i = 0; i < buf[0].len && i < loglen; i++)
 			q[i] = log[(logoffset + i) % sizeof log];
 	}
 	return loglen;
@@ -93,7 +92,11 @@ tty_putchar (unsigned char c)
 		spinlock_unlock (&putchar_lock);
 	}
 #ifdef TTY_PRO1000
-	pro1000_putchar (c);
+	{
+		void pro1000_putchar (int);
+
+		pro1000_putchar (c);
+	}
 #endif
 #ifdef TTY_SERIAL
 	serial_putchar (c);

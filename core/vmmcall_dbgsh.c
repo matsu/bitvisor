@@ -124,7 +124,7 @@ dbgsh (void)
 		return;
 	spinlock_lock (&dbgsh_lock);
 	if (!i) {
-		tid = thread_new (dbgsh_thread, NULL, PAGESIZE);
+		tid = thread_new (dbgsh_thread, NULL, VMM_STACKSIZE);
 		i = true;
 	}
 	spinlock_unlock (&dbgsh_lock);

@@ -27,19 +27,26 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <core.h>
-#include "crypto.h"
+#ifndef __CRYPTO_H__
+#define __CRYPTO_H__
 
-static struct crypto *crypto_list = NULL;
+#include <storage.h>
 
-struct crypto *crypto_find(char *name)
-{
-	if (strcmp(name, crypto_list->name) == 0)
-		return crypto_list;
-	return NULL;
-}
+enum {
+	CRYPTO_DECRYPT = 0,
+	CRYPTO_ENCRYPT = 1,
+};
 
-void crypto_register(struct crypto *crypto)
-{
-	crypto_list = crypto;	// one crypto only
-}
+struct crypto {
+	void	(*encrypt)(void *dst, void *src, void *keyctx, lba_t lba, int sector_size);
+	void	(*decrypt)(void *dst, void *src, void *keyctx, lba_t lba, int sector_size);
+	void	*(*setkey)(const u8 *key, int bits);
+	int	block_size;
+	int	keyctx_size;
+	char	*name;
+};
+
+void crypto_register(struct crypto *crypto);
+struct crypto *crypto_find(char *name);
+
+#endif

@@ -30,10 +30,9 @@
 #ifndef _CORE_ICCARD_H
 #define _CORE_ICCARD_H
 
-#include "types.h"
+#include <core/iccard.h>
 
 void idman_reinit_session (void);
 void idman_reinit2 (void);
-bool get_idman_session (unsigned long *session);
 
 #endif

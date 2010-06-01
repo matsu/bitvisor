@@ -127,6 +127,7 @@ struct pci_device {
 	struct pci_config_space config_space;
 	u32 base_address_mask[PCI_CONFIG_BASE_ADDRESS_NUMS+1];
 	u8 in_base_address_mask_emulation;
+	bool conceal;
 };
 
 struct pci_driver {
@@ -154,5 +155,7 @@ extern u32 pci_read_config_data32(pci_config_address_t addr, int offset);
 extern void pci_write_config_data8(pci_config_address_t addr, int offset, u8 data);
 extern void pci_write_config_data16(pci_config_address_t addr, int offset, u16 data);
 extern void pci_write_config_data32(pci_config_address_t addr, int offset, u32 data);
+
+struct pci_device *pci_possible_new_device (pci_config_address_t addr);
 
 #endif

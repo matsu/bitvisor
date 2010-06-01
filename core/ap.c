@@ -61,6 +61,7 @@
 #define ICR_TRIGGER_LEVEL	0x8000
 #define ICR_DEST_OTHER		0xC0000
 #define ICR_DEST_ALL		0x80000
+#define SVR_APIC_ENABLED	0x100
 
 static void ap_start (void);
 
@@ -173,7 +174,7 @@ apic_send_nmi (volatile u32 *apic_icr)
 static void
 ap_start (void)
 {
-	const u32 apic_icr_phys = 0xFEE00300;
+	static const u32 apic_icr_phys = 0xFEE00300;
 	volatile u32 *apic_icr, *num;
 	u8 *apinit;
 	u32 tmp;
@@ -231,8 +232,8 @@ bsp_continue (asmlinkage void (*initproc_arg) (void))
 void
 panic_wakeup_all (void)
 {
-	const u64 apic_icr_base = 0xFEE00000;
-	const u32 apic_icr_phys = 0xFEE00300;
+	static const u64 apic_base = 0xFEE00000;
+	static const u32 apic_icr_phys = 0xFEE00300;
 	u64 tmp;
 	volatile u32 *apic_icr;
 
@@ -242,7 +243,7 @@ panic_wakeup_all (void)
 	if (!(tmp & MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT))
 		return;
 	tmp &= ~MSR_IA32_APIC_BASE_MSR_APIC_BASE_MASK;
-	tmp |= apic_icr_base;
+	tmp |= apic_base;
 	asm_wrmsr64 (MSR_IA32_APIC_BASE_MSR, tmp);
 
 	apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
@@ -251,6 +252,31 @@ panic_wakeup_all (void)
 		return;
 	apic_send_nmi (apic_icr);
 	unmapmem ((void *)apic_icr, sizeof *apic_icr);
+}
+
+void
+disable_apic (void)
+{
+	static const u64 apic_base = 0xFEE00000;
+	static const u32 apic_svr_phys = 0xFEE000F0;
+	u64 tmp;
+	volatile u32 *apic_svr;
+
+	if (!apic_available ())
+		return;
+	asm_rdmsr64 (MSR_IA32_APIC_BASE_MSR, &tmp);
+	if (!(tmp & MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT))
+		return;
+	tmp &= ~MSR_IA32_APIC_BASE_MSR_APIC_BASE_MASK;
+	tmp |= apic_base;
+	asm_wrmsr64 (MSR_IA32_APIC_BASE_MSR, tmp);
+
+	apic_svr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
+			   MAPMEM_PCD, apic_svr_phys, sizeof *apic_svr);
+	if (!apic_svr)
+		return;
+	*apic_svr &= ~SVR_APIC_ENABLED;
+	unmapmem ((void *)apic_svr, sizeof *apic_svr);
 }
 
 void

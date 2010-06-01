@@ -1882,7 +1882,8 @@ void Se4FlushIpCombineList(SE_IPV4 *p, SE_LIST *o)
 	{
 		SE_IPV4_COMBINE *c = SE_LIST_DATA(o, i);
 
-		if (c->Expire <= Se4Tick(p))
+		if (c->Expire <= Se4Tick(p) ||
+		    p->combine_current_id - c->combine_id > SE_IPV4_COMBINE_MAX_COUNT)
 		{
 			if (t == NULL)
 			{
@@ -1936,6 +1937,7 @@ SE_IPV4_COMBINE *Se4InsertIpCombine(SE_IPV4 *p, SE_IPV4_ADDR src_ip, SE_IPV4_ADD
 	c->Protocol = protocol;
 	c->Ttl = ttl;
 	c->IsBroadcast = is_broadcast;
+	c->combine_id = p->combine_current_id++;
 
 	c->DataReserved = SE_IPV4_COMBINE_INITIAL_BUF_SIZE;
 	c->Data = SeMalloc(c->DataReserved);

@@ -45,9 +45,11 @@
 
 LIST_DEFINE_HEAD(usb_busses);
 LIST_DEFINE_HEAD(usb_hc_list);
+static unsigned int usb_host_id = 0;
 
 DEFINE_ALLOC_FUNC(usb_dev_handle);
 DEFINE_ALLOC_FUNC(usb_bus);
+DEFINE_ZALLOC_FUNC(usb_host);
 
 /** 
  * @brief sets the debug level
@@ -57,8 +59,6 @@ DEFINE_ALLOC_FUNC(usb_bus);
 void 
 usb_set_debug(int level)
 {
-	extern int usb_log_level;
-
 	usb_log_level = level;
 	return;
 }
@@ -95,8 +95,7 @@ usb_find_busses(void)
 			bus->device = NULL;
 
 			/* determine bus id */
-			bus->busnum = 1;
-			LIST_FOREACH(usb_busses, bus_n) bus->busnum++;
+			bus->busnum = host->host_id + 1;
 
 			/* append it to the bus list */
 			LIST_APPEND(usb_busses, bus);
@@ -276,8 +275,8 @@ usb_release_interface(usb_dev_handle *dev, int interface)
  * @param urb struct usb_request_block 
  * @param bytes 
  * @param size 
- * @param start 
- * @param timeout
+ * @param start (usec)
+ * @param timeout (usec)
 */
 static inline int 
 _usb_async_receive(usb_dev_handle *dev, struct usb_request_block *urb, 
@@ -298,16 +297,16 @@ _usb_async_receive(usb_dev_handle *dev, struct usb_request_block *urb,
 			break;
 
 		if (timeout && 
-		    ((t = elapse_time_ms(start)) >= (u64)timeout)) {
+		    ((t = get_time() - start) >= (u64)timeout)) {
 			dprintft(2, "%s: timeout! start=%lld, "
 				"(u64)timeout=%lld, "
-				"elapse_time_ms() = %lld\n",
+				"elapse time = %lld\n",
 				__FUNCTION__, start, (u64)timeout, t);
 			break;
 		}
 
 		/* wait a while */
-		schedule();
+		/* schedule(); */
 	} 
 
 	dprintft(3, "%s: checking the status ...\n", __FUNCTION__);
@@ -367,7 +366,7 @@ _usb_control_msg(usb_dev_handle *dev, int ep, u16 pktsz,
 	u64 start;
 	int ret;
 
-	start = get_cpu_time() / 1024; /* ms */
+	start = get_time();
 
 	csetup.bRequestType = requesttype;
 	csetup.bRequest = request;
@@ -383,7 +382,7 @@ _usb_control_msg(usb_dev_handle *dev, int ep, u16 pktsz,
 	if (!urb)
 		return -1;
 
-	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout);
+	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout * 1000);
 
 #if defined(SHADOW_UHCI)
 	/* only if UHCI, short packet detection (SPD) requires 
@@ -402,7 +401,7 @@ _usb_control_msg(usb_dev_handle *dev, int ep, u16 pktsz,
 			uhci_reactivate_urb(dev->host->private, 
 					    urb, tdm);
 			ret2 = _usb_async_receive(dev, urb, NULL, 0, 
-						  start, timeout);
+						  start, timeout * 1000);
 			if (ret2 < 0)
 				ret = ret2;
 		}
@@ -578,7 +577,7 @@ usb_bulk_write(usb_dev_handle *dev, int ep, char *bytes, int size,
 	u64 start;
 	int ret;
 
-	start = get_cpu_time() / 1024; /* ms */
+	start = get_time();
 
 	epdesc = get_edesc_by_address(dev->device, ep);
 	urb = dev->host->op->
@@ -587,7 +586,7 @@ usb_bulk_write(usb_dev_handle *dev, int ep, char *bytes, int size,
 	if (!urb)
 		return -1;
 
-	ret = _usb_async_receive(dev, urb, NULL, 0, start, timeout);
+	ret = _usb_async_receive(dev, urb, NULL, 0, start, timeout * 1000);
 
 	dev->host->op->deactivate_urb(dev->host, urb);
 
@@ -603,7 +602,7 @@ usb_interrupt_write(usb_dev_handle *dev, int ep, char *bytes, int size,
 	u64 start;
 	int ret;
 
-	start = get_cpu_time() / 1024; /* ms */
+	start = get_time();
 
 	epdesc = get_edesc_by_address(dev->device, ep);
 	urb = dev->host->op->
@@ -612,7 +611,7 @@ usb_interrupt_write(usb_dev_handle *dev, int ep, char *bytes, int size,
 	if (!urb)
 		return -1;
 
-	ret = _usb_async_receive(dev, urb, NULL, 0, start, timeout);
+	ret = _usb_async_receive(dev, urb, NULL, 0, start, timeout * 1000);
 
 	dev->host->op->deactivate_urb(dev->host, urb);
 
@@ -628,7 +627,7 @@ usb_bulk_read(usb_dev_handle *dev, int ep, char *bytes, int size,
 	u64 start;
 	int ret;
 
-	start = get_cpu_time() / 1024; /* ms */
+	start = get_time();
 
 	epdesc = get_edesc_by_address(dev->device, ep);
 	urb = dev->host->op->
@@ -637,7 +636,7 @@ usb_bulk_read(usb_dev_handle *dev, int ep, char *bytes, int size,
 	if (!urb)
 		return -1;
 
-	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout);
+	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout * 1000);
 
 	dev->host->op->deactivate_urb(dev->host, urb);
 
@@ -653,7 +652,7 @@ usb_interrupt_read(usb_dev_handle *dev, int ep, char *bytes, int size,
 	u64 start;
 	int ret;
 
-	start = get_cpu_time() / 1024; /* ms */
+	start = get_time();
 
 	epdesc = get_edesc_by_address(dev->device, ep);
 	urb = dev->host->op->
@@ -662,9 +661,26 @@ usb_interrupt_read(usb_dev_handle *dev, int ep, char *bytes, int size,
 	if (!urb)
 		return -1;
 
-	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout);
+	ret = _usb_async_receive(dev, urb, bytes, size, start, timeout * 1000);
 
 	dev->host->op->deactivate_urb(dev->host, urb);
 
 	return ret;
+}
+
+struct usb_host *
+usb_register_host (void *host, struct usb_operations *op, u8 type)
+{
+	struct usb_host *hc;
+
+	hc = zalloc_usb_host();
+	ASSERT(hc != NULL);
+	hc->type = type;
+	hc->private = host;
+	hc->op = op;
+	hc->host_id = usb_host_id++;
+	spinlock_init(&hc->lock_hk);
+	LIST_APPEND(usb_hc_list, hc);
+
+	return hc;
 }

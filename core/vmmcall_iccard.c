@@ -28,6 +28,7 @@
  */
 
 #ifdef CARDSTATUS
+#include <IDMan.h>
 #include "assert.h"
 #include "config.h"
 #include "current.h"

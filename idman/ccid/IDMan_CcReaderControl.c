@@ -125,7 +125,10 @@ int GetCardStatus(ReaderMng* gReder, char SlotNum)
 	char	cmd[CCID_BULK_MSG_HDR_SIZE];
 	int		iRet;
 	int		len;
+	int		counter = 3;
+	static int	fail = 0;
 
+retry:
 	///リーダからカードへの電力供給切断要求パケット作成
 	cmd[0] = 0x65;
 	cmd[1] = cmd[2] = cmd[3] = cmd[4] = 0;
@@ -135,11 +138,17 @@ int GetCardStatus(ReaderMng* gReder, char SlotNum)
 
 	len = CCID_BULK_MSG_HDR_SIZE;
 
+	if (fail) {
+		iRet = -123;
+		goto writeerr;
+	}
 	///作成したコマンドをリーダへ送信。
 	iRet = WriteUSB(gReder, len, (unsigned char*)cmd);
 	///送信に失敗した場合、
 	if (iRet != len) {
 		///−書き込みエラー（リターン）
+		fail++;
+	writeerr:
 		return CCID_ERR_USB_WRITE;
 	}
 
@@ -148,12 +157,16 @@ int GetCardStatus(ReaderMng* gReder, char SlotNum)
 	///受信に失敗した場合、
 	if (iRet == 0) {
 		///−応答受信エラー（リターン）
+		if (counter-- > 0)
+			goto retry;
 		return CCID_ERR_USB_READ;
 	}
 
 	///スロット状態応答データがない場合、
 	if (iRet < CCID_OFFSET_ERROR+1) {
 		///−充分なサイズを読み込めていないエラー（リターン）
+		printf("%s: not ehough size(%d < %d) error!\n", 
+		       __FUNCTION__, iRet, CCID_OFFSET_ERROR+1);
 		return CCID_ERR_NO_DATA_SIZE;
 	}
 

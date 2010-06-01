@@ -127,10 +127,12 @@ int
 _start (int a1, int a2)
 {
 	int d, len;
+	struct msgbuf mbuf;
 
 	d = msgopen ("ttylog");
 	if (d >= 0) {
-		len = msgsendbuf (d, 0, "", 0, buf, sizeof buf);
+		setmsgbuf (&mbuf, buf, sizeof buf, 1);
+		len = msgsendbuf (d, 0, &mbuf, 1);
 		msgclose (d);
 		if (len > sizeof buf)
 			len = sizeof buf;

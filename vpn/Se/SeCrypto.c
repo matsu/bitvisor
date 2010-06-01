@@ -43,6 +43,7 @@
 #define	CHELP_OPENSSL_SOURCE
 
 #include <chelp.h>
+#include <Se/Se.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/bio.h>
@@ -55,8 +56,6 @@
 #include <openssl/des.h>
 #include <openssl/dh.h>
 #include <openssl/pem.h>
-
-#include <Se/Se.h>
 
 // コールバック関数用
 typedef struct CB_PARAM

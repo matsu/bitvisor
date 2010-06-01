@@ -30,30 +30,16 @@
 #ifndef _CORE_PROCESS_H
 #define _CORE_PROCESS_H
 
+#include <core/process.h>
 #include "types.h"
 
 #define NUM_OF_PID		32
 #define NUM_OF_MSGDSC		32
 #define NUM_OF_MSGDSCRECV	8
 #define PROCESS_NAMELEN		32
-
-enum msgcode {
-	MSG_INT,
-	MSG_BUF,
-};
+#define MAXNUM_OF_MSGBUF	32
 
 void process_kill (bool (*func) (void *data), void *data);
-void *msgsetfunc (int desc, void *func);
-int msgregister (char *name, void *func);
-int msgopen (char *name);
-int msgclose (int desc);
-int msgsendint (int desc, int data);
-int msgsenddesc (int desc, int data);
-int newprocess (char *name);
-int msgsendbuf (int desc, int data, void *sendbuf, int sendlen, void *recvbuf,
-		int recvlen);
-int msgunregister (int desc);
-void exitprocess (int retval);
 ulong sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong si, ulong di);
 ulong sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di);
 ulong sys_msgopen (ulong ip, ulong sp, ulong num, ulong si, ulong di);

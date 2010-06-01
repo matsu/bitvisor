@@ -27,6 +27,7 @@ SECTIONS {
 		bss = .;
 		*(.bss)
 		*(COMMON)
+		. = ALIGN (4096);
 	}
 	end = .;
 	/DISCARD/ : {

@@ -6,7 +6,7 @@ CFLAGS-$(CONFIG_SELECT_AES_GLADMAN) += -DAES_GLADMAN
 TARGET	 = driver.o
 OBJS     = $(patsubst %.c,%.o,$(wildcard *.c))
 HEADERS += $(foreach header,$(wildcard *.h),$(PWD)/$(header))
-CFLAGS  += -I$(PWD) -I../../crypto/ $(CFLAGS-1)
+CFLAGS  += -I$(PWD) -I../../../crypto/ $(CFLAGS-1)
 
 DRIVERS-1 =
 DRIVERS-$(CONFIG_SELECT_AES_GLADMAN) = aes-gladman/driver.o

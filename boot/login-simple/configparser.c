@@ -152,6 +152,10 @@ storage_conf_type (char **name, void **val, int *len)
 		t = STORAGE_TYPE_ATAPI;
 	else if (strcasecmp (*val, "USB") == 0)
 		t = STORAGE_TYPE_USB;
+	else if (strcasecmp (*val, "AHCI") == 0)
+		t = STORAGE_TYPE_AHCI;
+	else if (strcasecmp (*val, "AHCI_ATAPI") == 0)
+		t = STORAGE_TYPE_AHCI_ATAPI;
 	else if (strcasecmp (*val, "ANY") == 0)
 		t = STORAGE_TYPE_ANY;
 	else {
@@ -230,6 +234,40 @@ u64num (char **name, void **val, int *len)
 	}
 	memcpy (*val, &t, sizeof t);
 	*len = sizeof t;
+}
+
+static void
+mac_addr (char **name, void **val, int *len)
+{
+	u8 mac_address[6];
+	int i;
+	char *tmp, *tmp2;
+
+	tmp = tmp2 = *val;
+	mac_address[0] = strtol (tmp, &tmp2, 16);
+	if (tmp == tmp2)
+		goto fail;
+	for (i = 1; i < 6; i++) {
+		if (*tmp2 == '\0')
+			goto fail;
+		tmp = tmp2 + 1;
+		mac_address[i] = strtol (tmp, &tmp2, 16);
+		if (tmp == tmp2)
+			goto fail;
+	}
+	if (*tmp2 != '\0') {
+	fail:
+		fprintf (stderr, "invalid MAC address\n");
+		exit (EXIT_FAILURE);
+	}
+	free (*val);
+	*val = malloc (sizeof mac_address);
+	if (!*val) {
+		perror ("malloc");
+		exit (EXIT_FAILURE);
+	}
+	memcpy (*val, &mac_address, sizeof mac_address);
+	*len = sizeof mac_address;
 }
 
 static void
@@ -335,7 +373,11 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (uintnum, &name, &src, &len, "vmm.auto_reboot", "vmm.auto_reboot");
 	ss (uintnum, &name, &src, &len, "vmm.shell", "vmm.shell");
 	ss (uintnum, &name, &src, &len, "vmm.dbgsh", "vmm.dbgsh");
+	ss (uintnum, &name, &src, &len, "vmm.status", "vmm.status");
 	ss (uintnum, &name, &src, &len, "vmm.boot_active", "vmm.boot_active");
+	ss (uintnum, &name, &src, &len, "vmm.tty_pro1000", "vmm.tty_pro1000");
+	ss (mac_addr, &name, &src, &len, "vmm.tty_pro1000_mac_address",
+	    "vmm.tty_pro1000_mac_address");
 	ss (uintnum, &name, &src, &len, "vmm.driver.ata", "vmm.driver.ata");
 	ss (uintnum, &name, &src, &len, "vmm.driver.usb.uhci", "vmm.driver.usb.uhci");
 	ss (uintnum, &name, &src, &len, "vmm.driver.usb.ehci", "vmm.driver.usb.ehci");
@@ -343,10 +385,14 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "vmm.driver.concealEHCI");
 	ss (uintnum, &name, &src, &len, "vmm.driver.conceal1394",
 	    "vmm.driver.conceal1394");
+	ss (uintnum, &name, &src, &len, "vmm.driver.concealPRO1000",
+	    "vmm.driver.concealPRO1000");
 	ss (uintnum, &name, &src, &len, "vmm.driver.vpn.PRO100",
 	    "vmm.driver.vpn.PRO100");
 	ss (uintnum, &name, &src, &len, "vmm.driver.vpn.PRO1000",
 	    "vmm.driver.vpn.PRO1000");
+	ss (uintnum, &name, &src, &len, "vmm.driver.vpn.RTL8169",
+	    "vmm.driver.vpn.RTL8169");
 	ss (uintnum, &name, &src, &len, "vmm.driver.vpn.ve",
 	    "vmm.driver.vpn.ve");
 	ss (uintnum, &name, &src, &len, "vmm.iccard.enable",
@@ -463,6 +509,8 @@ setconfig (char *name, char *value, struct config_data *cfg)
 		       cfg->storage.keys_conf[i].keyindex);
 		CONF1 ("storage.keys_conf[%d].keybits", i,
 		       cfg->storage.keys_conf[i].keybits);
+		CONF1 ("storage.conf%d.extend", i,
+		       cfg->storage.keys_conf[i].extend);
 	}
 	/* vmm */
 	CONF (vmm.f11panic);
@@ -470,15 +518,21 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.auto_reboot);
 	CONF (vmm.shell);
 	CONF (vmm.dbgsh);
+	CONF (vmm.status);
 	CONF (vmm.boot_active);
+	CONF (vmm.tty_pro1000);
+	CONF (vmm.tty_pro1000_mac_address);
 	CONF (vmm.driver.ata);
 	CONF (vmm.driver.usb.uhci);
 	CONF (vmm.driver.usb.ehci);
 	CONF (vmm.driver.concealEHCI);
 	CONF (vmm.driver.conceal1394);
+	CONF (vmm.driver.concealPRO1000);
 	CONF (vmm.driver.vpn.PRO100);
 	CONF (vmm.driver.vpn.PRO1000);
+	CONF (vmm.driver.vpn.RTL8169);
 	CONF (vmm.driver.vpn.ve);
+	CONF (vmm.driver.pci_conceal);
 	CONF (vmm.iccard.enable);
 	CONF (vmm.iccard.status);
 	if (!dst) {

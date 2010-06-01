@@ -64,3 +64,4 @@ long IDMan_SCardStatus(unsigned long , char* , unsigned long* , unsigned long* ,
 long IDMan_SCardSizeLongToChar( unsigned long *, unsigned char * );
 long IDMan_SCardSetBinay(unsigned long,unsigned long *,unsigned char *,unsigned long, unsigned char *, unsigned long *);
 
+int IDMan_CheckCardStatus (unsigned long int SessionHandle);

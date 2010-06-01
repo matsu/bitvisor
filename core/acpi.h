@@ -30,7 +30,10 @@
 #ifndef _CORE_ACPI_H
 #define _CORE_ACPI_H
 
+#include <core/types.h>
+
 void acpi_iohook (void);
 void acpi_poweroff (void);
+bool get_acpi_time_raw (u32 *r);
 
 #endif

@@ -163,6 +163,7 @@ static bool rsdp_found;
 static struct rsdp rsdp_copy;
 static bool pm1a_cnt_found;
 static u32 pm1a_cnt_ioaddr;
+static u32 pm_tmr_ioaddr;
 static u64 facs_addr;
 
 static u8
@@ -408,6 +409,22 @@ get_pm1a_cnt_ioaddr (struct facp *q)
 }
 
 static void
+get_pm_tmr_ioaddr (struct facp *q)
+{
+	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->x_pm_tmr_blk) &&
+	    q->x_pm_tmr_blk.address_space_id == ADDRESS_SPACE_ID_IO &&
+	    q->x_pm_tmr_blk.address <= 0xFFFF) {
+		pm_tmr_ioaddr = q->x_pm_tmr_blk.address;
+	} else if (IS_STRUCT_SIZE_OK (q->header.length, q, q->pm_tmr_blk)) {
+		pm_tmr_ioaddr = q->pm_tmr_blk;
+	} else {
+		pm_tmr_ioaddr = 0;
+	}
+	if (pm_tmr_ioaddr > 0xFFFF)
+		pm_tmr_ioaddr = 0;
+}
+
+static void
 get_facs_addr (struct facp *facp)
 {
 	if (IS_STRUCT_SIZE_OK (facp->header.length, facp,
@@ -436,6 +453,20 @@ acpi_poweroff (void)
 	data |= typx & PM1_CNT_SLP_TYPX_MASK;
 	data |= PM1_CNT_SLP_EN_BIT;
 	asm_outl (pm1a_cnt_ioaddr, data);
+}
+
+bool
+get_acpi_time_raw (u32 *r)
+{
+	u32 tmp;
+
+	if (pm_tmr_ioaddr) {
+		asm_inl (pm_tmr_ioaddr, &tmp);
+		tmp &= 16777215;
+		*r = tmp;
+		return true;
+	}
+	return false;
 }
 
 static void
@@ -483,6 +514,7 @@ acpi_init_global (void)
 	acpi_dsdt_parse (q->dsdt);
 #endif
 	get_pm1a_cnt_ioaddr (q);
+	get_pm_tmr_ioaddr (q);
 	get_facs_addr (q);
 	if (0)
 		debug_dump (q, q->header.length);

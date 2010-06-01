@@ -161,10 +161,10 @@ static struct crypto aes_xts_crypto = {
 	.setkey =	aes_xts_setkey,
 };
 
-static void aes_xts_init(void) __initcode__
+void
+aes_xts_init (void)
 {
 	printf("AES/AES-XTS Encryption Engine initialized (AES=%s)\n", AES_VERSION);
 	printf(COPYRIGHT "\n");
 	crypto_register(&aes_xts_crypto);
 }
-CRYPTO_INIT(aes_xts_init);

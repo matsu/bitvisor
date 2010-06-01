@@ -40,7 +40,8 @@
 extern u8 head[];
 extern u32 entry_pd[1024];
 extern u64 entry_pdp[512], entry_pd0[512];
-extern u64 vmm_pml4[512], vmm_pdp[512], vmm_pd[512], vmm_pd1[512];
+extern u64 vmm_pml4[512], vmm_pdp[512], vmm_pd[512];
+extern u64 vmm_pd1[512], vmm_pd2[512];
 extern ulong vmm_base_cr3;
 extern u8 cpuinit_start[], cpuinit_end[];
 extern u32 apinit_procs;

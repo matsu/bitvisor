@@ -50,6 +50,7 @@ sendex (char *buf)
 {
 	unsigned char d[32];
 	int a, i;
+	struct msgbuf mbuf[2];
 
 	a = msgopen ("recvex");
 	if (a < 0) {
@@ -59,7 +60,9 @@ sendex (char *buf)
 	memset (d, 0, 32);
 	printf ("sending buf %p len 0x%x recvbuf %p len 0x%lx\n",
 		buf, strlen (buf), d, (unsigned long)sizeof d);
-	if (msgsendbuf (a, 0, buf, strlen (buf), d, sizeof d)) {
+	setmsgbuf (&mbuf[0], buf, strlen (buf), 0);
+	setmsgbuf (&mbuf[1], d, sizeof d, 1);
+	if (msgsendbuf (a, 0, mbuf, 2)) {
 		printf ("msgsendbuf failed.\n");
 		msgclose (a);
 		return;

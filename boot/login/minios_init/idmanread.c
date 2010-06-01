@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
-#include "printf.h"
-#include "string.h"
+#include <core/config.h>
+#include <core/printf.h>
+#include <core/string.h>
 
 int
 IDMan_StReadSetData (char *pMemberName, char *pInfo, unsigned long int *len)

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "acpi.h"
 #include "ap.h"
 #include "arith.h"
 #include "asm.h"
@@ -42,7 +43,7 @@
 #include "time.h"
 #include "vmmcall_status.h"
 
-static u64 volatile lasttime;
+static u64 volatile lasttime, lastacpitime;
 static spinlock_t time_lock;
 
 static u64
@@ -59,14 +60,23 @@ tsc_to_time (u64 tsc, u64 hz)
 	return tmp[0];
 }
 
-u64
-get_cpu_time (void)
+static u64
+get_cpu_time_raw (void)
 {
 	u32 tsc_l, tsc_h;
-	u64 tsc, time;
+	u64 tsc;
 
 	asm_rdtsc (&tsc_l, &tsc_h);
 	conv32to64 (tsc_l, tsc_h, &tsc);
+	return tsc;
+}
+
+u64
+get_cpu_time (void)
+{
+	u64 tsc, time;
+
+	tsc = get_cpu_time_raw ();
 	time = tsc_to_time (tsc - currentcpu->tsc, currentcpu->hz);
 	time += currentcpu->timediff;
 	spinlock_lock (&time_lock);
@@ -78,6 +88,42 @@ get_cpu_time (void)
 	}
 	spinlock_unlock (&time_lock);
 	return time;
+}
+
+bool
+get_acpi_time (u64 *r)
+{
+	u32 tmr, oldtmr;
+	u64 now, tmp[2];
+
+	if (!get_acpi_time_raw (&tmr))
+		return false;
+	spinlock_lock (&time_lock);
+	oldtmr = lastacpitime & 16777215;
+	if (tmr < oldtmr)
+		tmr += 16777216;
+	lastacpitime += tmr - oldtmr;
+	now = lastacpitime;
+	spinlock_unlock (&time_lock);
+	mpumul_64_64 (now, 1000000ULL, tmp); /* tmp = now * 1000000 */
+	mpudiv_128_32 (tmp, 3579545U, tmp); /* tmp = tmp / 3579545 */
+	*r = tmp[0];
+	return true;
+}
+
+u64
+get_time (void)
+{
+	u64 ret;
+	bool ok;
+
+	ok = false;
+#ifdef ACPI_TIME_SOURCE
+	ok = get_acpi_time (&ret);
+#endif
+	if (!ok)
+		ret = get_cpu_time ();
+	return ret;
 }
 
 static void
@@ -111,7 +157,7 @@ static int
 time_msghandler (int m, int c)
 {
 	if (m == 0)
-		printf ("time %llu\n", get_cpu_time ());
+		printf ("time %llu\n", get_time ());
 	return 0;
 }
 
@@ -153,6 +199,7 @@ time_init_global (void)
 {
 	spinlock_init (&time_lock);
 	lasttime = 0;
+	lastacpitime = 0;
 }
 
 INITFUNC ("global3", time_init_global);

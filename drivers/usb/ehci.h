@@ -44,7 +44,9 @@ alloc2_aligned(uint len, u64 *phys)
 	return alloc2(len, phys);
 }
 
-#define EHCI_DEFAULT_PACKETSIZE      (64)  
+#define EHCI_DEFAULT_PACKETSIZE       (64)
+#define EHCI_DEFAULT_SPLIT_PACKETSIZE (8)
+#define EHCI_URBHASH_SIZE 1024
 
 struct ehci_qtd {
 	phys32_t next;
@@ -84,6 +86,12 @@ struct ehci_qh {
 	phys32_t link;
 #define EHCI_LINK_TE (0x00000001U)
 	u32      epcap[2];
+#define EHCI_QH_EPCP_EPNUM_SHIFT	(8)
+#define EHCI_QH_EPCP_CTLEP_SHIFT	(27)
+#define EHCI_QH_EPCP_PKTLN_SHIFT	(16)
+#define EHCI_QH_EPCP_EPSPD_SHIFT	(12)
+#define EHCI_QH_EPCP_POTNM_SHIFT	(23)
+#define EHCI_QH_EPCP_HUBAD_SHIFT	(16)
 	u32      qtd_cur;
  	struct ehci_qtd qtd_ovlay;
  
@@ -108,15 +116,20 @@ struct ehci_host {
 	spinlock_t lock;
 	phys_t iobase;
 	phys_t headqh_phys[2];
-	struct usb_request_block *unlink_messages;
-	struct usb_request_block *head_gurb;
-	struct usb_request_block *tail_hurb;
+	LIST4_DEFINE_HEAD (unlink_messages, struct usb_request_block, list);
+	LIST4_DEFINE_HEAD (gurb, struct usb_request_block, list);
+	LIST4_DEFINE_HEAD (hurb, struct usb_request_block, list);
 	int enable_async;
 	int doorbell;
 #define EHCI_MAX_N_PORTS 0x0f
 	u32 portsc[EHCI_MAX_N_PORTS];
 	struct usb_device *device;
 	struct usb_host *usb_host; /* backward pointer */
+	LIST2_DEFINE_HEAD (urbhash[EHCI_URBHASH_SIZE],
+			   struct usb_request_block, urbhash);
+	LIST2_DEFINE_HEAD (need_shadow, struct usb_request_block, need_shadow);
+	LIST2_DEFINE_HEAD (update, struct usb_request_block, update);
+	u16 inlink_counter;
 };
 	
 struct urb_private_ehci {
@@ -245,7 +258,29 @@ is_out_qtd(struct ehci_qtd *qtd)
 	return ((qtd->token & EHCI_QTD_PID_MASK) == EHCI_QTD_PID_OUT);
 }
 
-DEFINE_LIST_FUNC(usb_request_block, urblist);	
+static inline int
+ehci_urbhash_calc (phys_t qh_phys)
+{
+	return (qh_phys >> 4) & (EHCI_URBHASH_SIZE - 1);
+}
+
+static inline void
+ehci_urbhash_add (struct ehci_host *host, struct usb_request_block *urb)
+{
+	int h;
+
+	h = ehci_urbhash_calc (URB_EHCI (urb)->qh_phys);
+	LIST2_ADD (host->urbhash[h], urbhash, urb);
+}
+
+static inline void
+ehci_urbhash_del (struct ehci_host *host, struct usb_request_block *urb)
+{
+	int h;
+
+	h = ehci_urbhash_calc (URB_EHCI (urb)->qh_phys);
+	LIST2_DEL (host->urbhash[h], urbhash, urb);
+}
 
 static inline struct usb_request_block *
 new_urb_ehci(void)
@@ -277,8 +312,7 @@ delete_urb_ehci(struct usb_request_block *urb)
 int
 ehci_shadow_buffer(struct usb_host *usbhc,
 		   struct usb_request_block *gurb, u32 flag);
-void
-ehci_cleanup_urbs(struct usb_request_block **urblist);
+void ehci_cleanup_urbs (struct ehci_host *host);
 
 int 
 ehci_check_advance(struct usb_host *usbhc);

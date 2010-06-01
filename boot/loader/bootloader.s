@@ -27,6 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/* simple boot loader for 386 and above PC */
+
 	CR0_PE_BIT = 0x1
 	.code16
 entry:					# 0x7C00
@@ -34,8 +36,8 @@ entry:					# 0x7C00
 	.org	entry+4
 	.space	4			# 0x7C04 length
 	.space	8			# 0x7C08 LBA
-	.space	4			# 0x7C10 1st module start offset/512
-	.space	4			# 0x7C14 2nd module start offset/512
+	.space	4			# 0x7C10 1st module start offset
+	.space	4			# 0x7C14 2nd module start offset
 	#.short	0x27			# 0x7C10 GDTR
 	#.long	0x7C10			# 0x7C12
 	#.short	0			# 0x7C16
@@ -58,7 +60,7 @@ start:					# 0x7C38
 	out	%al,$0x92
 
 	# Read sectors
-	mov	$0x7C00,%esi
+	lea	0x7C00,%esi
 	mov	4(%si),%ecx	# length
 	pushl	%ecx
 	lea	16(%si),%ebx
@@ -83,8 +85,15 @@ start:					# 0x7C38
 readloop:
 	sti
 	pushl	%ecx
-	movl	$0x10010,(%si)
-	movl	$0x8000,4(%si)
+	movw	$0x10,(%si)
+	mov	$0x40,%al
+	cmpl	%eax,%ecx
+	jb	readsmall
+	mov	%eax,%ecx
+readsmall:
+	mov	%cx,2(%si)
+	mov	$0x8000,%ax
+	movl	%eax,4(%si)
 	mov	$0x42,%ah
 	int	$0x13
 	jnc	copy
@@ -100,17 +109,20 @@ toreal:
 	mov	%cx,%es
 	mov	%cx,%ss
 	jc	error
-	mov	$'.'|('\b'<<8),%eax
+	pop	%ecx
+progressloop:
+	decw	2(%si)
+	js	readloop
+	lea	'.'|('\b'<<8),%eax
 	decw	(%bp)
 	jne	progressprint
 	pushw	2(%bp)
 	popw	(%bp)
-	mov	$0,%ah
+	cbtw
 progressprint:
 	call	print
-	popl	%ecx
 	dec	%ecx
-	jne	readloop
+	jne	progressloop
 	mov	$'\r'|('\n'<<8),%ax
 	call	print
 copy:	
@@ -144,15 +156,14 @@ to32:
 	mov	%ebx,%es
 	mov	%ebx,%ss
 	cld
-	jcxz	start32
+	jecxz	start32
+	addl	%ecx,8(%esi)
+	adcl	$0,12(%esi)
 	push	%esi
 	mov	4(%esi),%esi
-	xor	%ecx,%ecx
-	mov	$512/4,%cl
+	shl	$7,%ecx			# CF should be zero after this
 	rep	movsl
 	pop	%esi
-	addl	$1,8(%esi)
-	adc	%ecx,12(%esi)		# CF should be zero after this
 error2:
 	ljmpw	$0x18,$to16-entry+0x7C00
 	# Start
@@ -164,7 +175,7 @@ start32:
 	jne	error2			# No-
 	# Make a multiboot info
 	xor	%eax,%eax
-	mov	$0x8000,%edi
+	lea	4(%bp),%edi
 	push	%edi			# Clear multiboot info
 	lea	88/4(%eax),%ecx
 	rep	stosl

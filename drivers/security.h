@@ -30,7 +30,7 @@
 #ifndef _SECURITY_H_
 #define _SECURITY_H_
 
-#include "storage.h"
+#include <storage.h>
 
 #define SECURITY_ALLOW	0
 #define SECURITY_DENY	1

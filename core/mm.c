@@ -46,12 +46,11 @@
 #include "spinlock.h"
 #include "string.h"
 
-// #define VMMSIZE_ALL		(64 * 1024 * 1024)
 #define VMMSIZE_ALL		(128 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
-#define MAPMEM_ADDR_START	0x81000000
-#define MAPMEM_ADDR_END		0x83000000
+#define MAPMEM_ADDR_START	0xF0000000
+#define MAPMEM_ADDR_END		0xFF000000
 #define NUM_OF_ALLOCLIST	7
 #define ALLOCLIST_SIZE(n)	((1 << (n)) * 16)
 #define ALLOCLIST_DATABIT(n)	(PAGESIZE / ALLOCLIST_SIZE (n))
@@ -66,7 +65,8 @@
 #	define HPHYS_ADDR		(1ULL << (12 + 9 + 9 + 9))
 #else
 #	define PDPE_ATTR		PDE_P_BIT
-#	define NUM_OF_HPHYS_PAGES	4096
+#	define NUM_OF_HPHYS_PAGES	((MAPMEM_ADDR_START - HPHYS_ADDR) / \
+					PAGESIZE)
 #	define HPHYS_ADDR		0x80000000
 #endif
 
@@ -93,6 +93,28 @@ struct allocdata {
 struct sysmemmapdata {
 	u32 n, nn;
 	struct sysmemmap m;
+};
+
+struct mempool_list {
+	LIST1_DEFINE (struct mempool_list);
+	int off, len;
+};
+
+struct mempool_block_list {
+	LIST1_DEFINE (struct mempool_block_list);
+	LIST1_DEFINE_HEAD (struct mempool_list, alloc);
+	LIST1_DEFINE_HEAD (struct mempool_list, free);
+	u8 *p;
+	int len;
+};
+
+struct mempool {
+	LIST1_DEFINE_HEAD (struct mempool_block_list, block);
+	int numpages;
+	int numkeeps;
+	bool clear;
+	int keep;
+	spinlock_t lock;
 };
 
 #ifdef USE_PAE
@@ -404,14 +426,14 @@ move_vmm (void)
 		vmm_pd[i] =
 			(vmm_start_phys + (i << PAGESIZE2M_SHIFT)) |
 			PDE_P_BIT | PDE_RW_BIT | PDE_PS_BIT | PDE_A_BIT |
-			PDE_D_BIT;
-	entry_pdp[3] = (((u64)vmm_pd) - 0x40000000) | PDPE_ATTR;
+			PDE_D_BIT | PDE_G_BIT;
+	entry_pdp[3] = (((u64)(virt_t)vmm_pd) - 0x40000000) | PDPE_ATTR;
 #else
 	for (i = 0; i < VMMSIZE_ALL >> PAGESIZE4M_SHIFT; i++)
 		entry_pd[0x300 + i] =
 			(vmm_start_phys + (i << PAGESIZE4M_SHIFT)) |
 			PDE_P_BIT | PDE_RW_BIT | PDE_PS_BIT | PDE_A_BIT |
-			PDE_D_BIT;
+			PDE_D_BIT | PDE_G_BIT;
 #endif
 	asm_rdcr3 (&cr3);
 	asm_wrcr3 (cr3);
@@ -420,10 +442,11 @@ move_vmm (void)
 #ifdef USE_PAE
 	vmm_base_cr3 = sym_to_phys (vmm_pdp);
 	memcpy (vmm_pd1, entry_pd0, PAGESIZE);
+	memset (vmm_pd2, 0, PAGESIZE);
 	vmm_pdp[0] = sym_to_phys (entry_pd0) | PDPE_ATTR;
 	vmm_pdp[1] = sym_to_phys (vmm_pd)    | PDPE_ATTR;
 	vmm_pdp[2] = sym_to_phys (vmm_pd1)   | PDPE_ATTR;
-	vmm_pdp[3] = 0;
+	vmm_pdp[3] = sym_to_phys (vmm_pd2)   | PDPE_ATTR;
 #ifdef __x86_64__
 	vmm_base_cr3 = sym_to_phys (vmm_pml4);
 	vmm_pml4[0] = sym_to_phys (vmm_pdp) | PDE_P_BIT | PDE_RW_BIT |
@@ -447,34 +470,33 @@ move_vmm (void)
 static void
 map_hphys (void)
 {
-#ifdef __x86_64__
-	void *virt;
-	phys_t phys;
-	u64 *pdp, *pd;
-	u64 i;
-	int pdpi, pdi;
+	ulong cr3, addr, size;
+	u64 pde, attr, attrmask;
+	pmap_t m;
 
-	alloc_page (&virt, &phys);
-	memset (virt, 0, PAGESIZE);
-	vmm_pml4[1] = phys | PDE_P_BIT | PDE_RW_BIT | PDE_A_BIT;
-	pdp = virt;
-	pdpi = 0;
-	pdi = 512;
-	for (i = 0; i < NUM_OF_HPHYS_PAGES; i += 512) {
-		if (pdi >= 512) {
-			if (pdpi >= 512)
-				panic ("NUM_OF_HPHYS_PAGES is too large.");
-			alloc_page (&virt, &phys);
-			memset (virt, 0, PAGESIZE);
-			pdp[pdpi++] = phys | PDE_P_BIT | PDE_RW_BIT |
-				PDE_A_BIT;
-			pd = virt;
-			pdi = 0;
-		}
-		pd[pdi++] = (i << PAGESIZE_SHIFT) | PDE_P_BIT | PDE_RW_BIT |
-			PDE_PS_BIT | PDE_A_BIT | PDE_D_BIT;
-	}
+	asm_rdcr3 (&cr3);
+	pmap_open_vmm (&m, cr3, PMAP_LEVELS);
+	addr = (ulong)NUM_OF_HPHYS_PAGES * PAGESIZE;
+	attr = PDE_P_BIT | PDE_RW_BIT | PDE_PS_BIT | PDE_G_BIT;
+	attrmask = attr | PDE_US_BIT;
+#ifdef USE_PAE
+	size = PAGESIZE2M;
+#else
+	size = PAGESIZE4M;
 #endif
+	while (addr >= size) {
+		addr -= size;
+		pmap_seek (&m, HPHYS_ADDR + addr, 2);
+		pmap_autoalloc (&m);
+		pde = pmap_read (&m);
+		if ((pde & PDE_P_BIT) && (pde & PDE_ADDR_MASK64) != addr)
+			panic ("map_hphys: error");
+		pde = addr | attr;
+		pmap_write (&m, pde, attrmask);
+	}
+	if (addr)
+		panic ("map_hphys: NUM_OF_HPHYS_PAGES is bad");
+	pmap_close (&m);
 }
 
 static void
@@ -520,8 +542,8 @@ mm_init_global (void)
 		pagestruct[i].virt = VMM_START_VIRT + PAGESIZE * i;
 	}
 	for (i = 0; i < NUM_OF_PAGES; i++) {
-		if ((u64)head <= pagestruct[i].virt &&
-		    pagestruct[i].virt < (u64)end)
+		if ((u64)(virt_t)head <= pagestruct[i].virt &&
+		    pagestruct[i].virt < (u64)(virt_t)end)
 			continue;
 #ifdef FWDBG
 		if (i == 0) {
@@ -776,6 +798,152 @@ free_page_phys (phys_t phys)
 	mm_page_free (phys_to_page (phys));
 }
 
+/* mempool functions */
+struct mempool *
+mempool_new (int blocksize, int numkeeps, bool clear)
+{
+	struct mempool *p;
+
+	p = alloc (sizeof *p);
+	LIST1_HEAD_INIT (p->block);
+	p->numpages = 1;
+	while (PAGESIZE * p->numpages < blocksize)
+		p->numpages <<= 1;
+	p->numkeeps = numkeeps;
+	p->clear = clear;
+	spinlock_init (&p->lock);
+	return p;
+}
+
+void
+mempool_free (struct mempool *mp)
+{
+	struct mempool_block_list *p;
+	struct mempool_list *q;
+
+	while ((p = LIST1_POP (mp->block)) != NULL) {
+		while ((q = LIST1_POP (p->alloc)) != NULL)
+			free (q);
+		while ((q = LIST1_POP (p->free)) != NULL)
+			free (q);
+		free_page (p->p);
+		free (p);
+	}
+	free (mp);
+}
+
+void *
+mempool_allocmem (struct mempool *mp, uint len)
+{
+	struct mempool_block_list *p;
+	struct mempool_list *q, *qq;
+	uint npages;
+	void *r, *tmp;
+
+	if (len == 0)
+		return NULL;
+	spinlock_lock (&mp->lock);
+	LIST1_FOREACH (mp->block, p) {
+		LIST1_FOREACH (p->free, q) {
+			if (q->len >= len)
+				goto found;
+		}
+	}
+	npages = mp->numpages;
+	while (PAGESIZE * npages < len)
+		npages <<= 1;
+	p = alloc (sizeof *p);
+	LIST1_HEAD_INIT (p->alloc);
+	LIST1_HEAD_INIT (p->free);
+	p->len = PAGESIZE * npages;
+	alloc_pages (&tmp, NULL, npages);
+	p->p = tmp;
+	if (mp->clear)
+		memset (p->p, 0, p->len);
+	q = alloc (sizeof *q);
+	q->off = 0;
+	q->len = p->len;
+	LIST1_ADD (p->free, q);
+	LIST1_ADD (mp->block, p);
+	mp->keep++;
+found:
+	if (q->len == p->len)
+		mp->keep--;
+	if (q->len == len) {
+		LIST1_DEL (p->free, q);
+		LIST1_ADD (p->alloc, q);
+		r = &p->p[q->off];
+	} else {
+		qq = alloc (sizeof *qq);
+		qq->off = q->off;
+		qq->len = len;
+		q->off += len;
+		LIST1_ADD (p->alloc, qq);
+		r = &p->p[qq->off];
+	}
+	spinlock_unlock (&mp->lock);
+	return r;
+}
+
+void
+mempool_freemem (struct mempool *mp, void *virt)
+{
+	struct mempool_block_list *p;
+	struct mempool_list *q, *qq;
+	virt_t v = (virt_t)virt;
+	virt_t vv;
+
+	spinlock_lock (&mp->lock);
+	LIST1_FOREACH (mp->block, p) {
+		vv = (virt_t)p->p;
+		if (vv <= v && v < vv + p->len) {
+			LIST1_FOREACH (p->alloc, q) {
+				if (&p->p[q->off] == virt)
+					goto found;
+			}
+			break;
+		}
+	}
+	panic ("mempool_freemem: double free %p, %p", mp, virt);
+found:
+	LIST1_DEL (p->alloc, q);
+	LIST1_ADD (p->free, q);
+	LIST1_FOREACH (p->free, qq) {
+		if (qq->off + qq->len == q->off) {
+			qq->len += q->len;
+			LIST1_DEL (p->free, q);
+			free (q);
+			q = qq;
+			break;
+		}
+	}
+	LIST1_FOREACH (p->free, qq) {
+		if (q->off + q->len == qq->off) {
+			q->len += qq->len;
+			LIST1_DEL (p->free, qq);
+			free (qq);
+			break;
+		}
+	}
+	LIST1_FOREACH (p->free, q) {
+		if (q->len != p->len)
+			break;
+		if (mp->keep < mp->numkeeps) {
+			mp->keep++;
+			break;
+		}
+		LIST1_DEL (mp->block, p);
+		ASSERT (LIST1_POP (p->alloc) == NULL);
+		ASSERT (LIST1_POP (p->free) == q);
+		ASSERT (LIST1_POP (p->free) == NULL);
+		free (q);
+		free_page (p->p);
+		free (p);
+		break;
+	}
+	spinlock_unlock (&mp->lock);
+}
+
 /* get a physical address of a symbol sym */
 phys_t
 sym_to_phys (void *sym)
@@ -869,8 +1037,8 @@ mm_process_mappage (virt_t virt, u64 pte)
 	asm_wrcr3 (cr3);
 }
 
-static void
-mm_process_mapstack (virt_t virt)
+static int
+mm_process_mapstack (virt_t virt, bool noalloc)
 {
 	ulong cr3;
 	pmap_t m;
@@ -884,15 +1052,27 @@ mm_process_mapstack (virt_t virt)
 	pmap_autoalloc (&m);
 	pte = pmap_read (&m);
 	if (!(pte & PTE_P_BIT)) {
+		if (noalloc)
+			return -1;
 		alloc_page (&tmp, &phys);
 		memset (tmp, 0, PAGESIZE);
 		pte = phys | PTE_P_BIT | PTE_RW_BIT | PTE_US_BIT;
 	} else {
 		pte &= ~PTE_AVAILABLE1_BIT;
+		if (pte & PTE_A_BIT) {
+			printf ("warning: user stack 0x%lX is accessed.\n",
+				virt);
+			pte &= ~PTE_A_BIT;
+		}
+		if (pte & PTE_D_BIT) {
+			printf ("warning: user stack 0x%lX is dirty.\n", virt);
+			pte &= ~PTE_D_BIT;
+		}
 	}
 	pmap_write (&m, pte, 0xFFF);
 	pmap_close (&m);
 	asm_wrcr3 (cr3);
+	return 0;
 }
 
 int
@@ -973,7 +1153,7 @@ process_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
 }
 
 void *
-mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw)
+mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw, bool pre)
 {
 	virt_t uservirt = 0x30000000;
 	virt_t virt, virt_s, virt_e, off;
@@ -984,12 +1164,26 @@ mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw)
 		return NULL;
 	virt_s = (virt_t)buf;
 	virt_e = (virt_t)buf + len;
+	if (pre)
+		uservirt = 0x20000000;
 retry:
-	for (virt = virt_s & ~0xFFF; virt < virt_e; virt += PAGESIZE) {
-		uservirt -= PAGESIZE;
-		ASSERT (uservirt > 0x20000000);
-		if (!alloc_sharedmem_sub (uservirt))
-			goto retry;
+	if (pre) {
+		off = 0;
+		for (virt = virt_s & ~0xFFF; virt < virt_e; virt += PAGESIZE) {
+			uservirt += PAGESIZE;
+			ASSERT (uservirt < 0x30000000);
+			if (!alloc_sharedmem_sub (uservirt - PAGESIZE))
+				goto retry;
+			off += PAGESIZE;
+		}
+		uservirt -= off;
+	} else {
+		for (virt = virt_s & ~0xFFF; virt < virt_e; virt += PAGESIZE) {
+			uservirt -= PAGESIZE;
+			ASSERT (uservirt > 0x20000000);
+			if (!alloc_sharedmem_sub (uservirt))
+				goto retry;
+		}
 	}
 	for (virt = virt_s & ~0xFFF, off = 0; virt < virt_e;
 	     virt += PAGESIZE, off += PAGESIZE) {
@@ -1024,24 +1218,36 @@ alloc_stack_sub (virt_t virt)
 }
 
 virt_t
-mm_process_map_stack (uint len)
+mm_process_map_stack (uint len, bool noalloc, bool align)
 {
 	uint i;
-	virt_t virt = 0x3FFFF000;
+	virt_t virt;
 	uint npages;
 
 	npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
+	if (align)
+		virt = 0x40000000 - PAGESIZE * npages;
+	else
+		virt = 0x40000000 - PAGESIZE;
 retry:
 	virt -= PAGESIZE;
 	for (i = 0; i < npages; i++) {
-		ASSERT (virt - i * PAGESIZE > 0x20000000);
+		if (virt - i * PAGESIZE <= 0x20000000)
+			return 0;
 		if (!alloc_stack_sub (virt - i * PAGESIZE)) {
-			virt = virt - i * PAGESIZE;
+			if (align)
+				virt = virt - PAGESIZE * npages;
+			else
+				virt = virt - i * PAGESIZE;
 			goto retry;
 		}
 	}
-	for (i = 0; i < npages; i++)
-		mm_process_mapstack (virt - i * PAGESIZE);
+	for (i = 0; i < npages; i++) {
+		if (mm_process_mapstack (virt - i * PAGESIZE, noalloc)) {
+			mm_process_unmap_stack (virt + PAGESIZE, i * PAGESIZE);
+			return 0;
+		}
+	}
 	return virt + PAGESIZE;
 }
 
@@ -1068,7 +1274,7 @@ mm_process_unmap (virt_t virt, uint len)
 	for (v = virt; npages > 0; v += PAGESIZE, npages--) {
 		pmap_seek (&m, v, 1);
 		pte = pmap_read (&m);
-		if (!(pte & PDE_P_BIT))
+		if (!(pte & PTE_P_BIT))
 			continue;
 		if (!(pte & PTE_AVAILABLE2_BIT)) /* if not shared memory */
 			free_page_phys (pte);
@@ -1080,7 +1286,7 @@ mm_process_unmap (virt_t virt, uint len)
 }
 
 int
-mm_process_unmapstack (virt_t virt, uint len)
+mm_process_unmap_stack (virt_t virt, uint len)
 {
 	uint npages;
 	virt_t v;
@@ -1088,11 +1294,12 @@ mm_process_unmapstack (virt_t virt, uint len)
 	ulong cr3;
 	pmap_t m;
 
+	virt -= len;
 	if (virt >= VMM_START_VIRT)
 		return -1;
 	if (virt + len >= VMM_START_VIRT)
 		return -1;
-	if (virt > virt + len)
+	if (virt >= virt + len)
 		return -1;
 	len += virt & PAGESIZE_MASK;
 	virt -= virt & PAGESIZE_MASK;
@@ -1102,11 +1309,44 @@ mm_process_unmapstack (virt_t virt, uint len)
 	for (v = virt; npages > 0; v += PAGESIZE, npages--) {
 		pmap_seek (&m, v, 1);
 		pte = pmap_read (&m);
-		if (!(pte & PDE_P_BIT))
+		if (!(pte & PTE_P_BIT))
 			continue;
-		if (pte & PTE_AVAILABLE2_BIT)
+		if (pte & PTE_AVAILABLE2_BIT) {
+			printf ("shared page 0x%lX in stack?\n", v);
 			continue;
+		}
+		pte &= ~(PTE_A_BIT | PTE_D_BIT);
 		pmap_write (&m, pte | PTE_AVAILABLE1_BIT, 0xFFF);
+	}
+	/* checking about stack overflow/underflow */
+	/* process is locked in process.c */
+	pmap_seek (&m, v, 1);
+	pte = pmap_read (&m);
+	if ((pte & PTE_A_BIT) && /* accessed */
+	    (pte & PTE_P_BIT) && /* present */
+	    (pte & PTE_RW_BIT) && /* writable */
+	    (pte & PTE_US_BIT) && /* user page */
+	    (pte & PTE_AVAILABLE1_BIT) && /* unmapped stack page */
+	    !(pte & PTE_AVAILABLE2_BIT)) { /* not shared page */
+		printf ("warning: stack underflow detected."
+			" page 0x%lX is %s.\n", v,
+			(pte & PTE_D_BIT) ? "dirty" : "accessed");
+		pte &= ~(PTE_A_BIT | PTE_D_BIT);
+		pmap_write (&m, pte, 0xFFF);
+	}
+	pmap_seek (&m, virt - PAGESIZE, 1);
+	pte = pmap_read (&m);
+	if ((pte & PTE_A_BIT) && /* accessed */
+	    (pte & PTE_P_BIT) && /* present */
+	    (pte & PTE_RW_BIT) && /* writable */
+	    (pte & PTE_US_BIT) && /* user page */
+	    (pte & PTE_AVAILABLE1_BIT) && /* unmapped stack page */
+	    !(pte & PTE_AVAILABLE2_BIT)) { /* not shared page */
+		printf ("warning: stack overflow detected."
+			" page 0x%lX is %s.\n", v,
+			(pte & PTE_D_BIT) ? "dirty" : "accessed");
+		pte &= ~(PTE_A_BIT | PTE_D_BIT);
+		pmap_write (&m, pte, 0xFFF);
 	}
 	pmap_close (&m);
 	asm_wrcr3 (cr3);
@@ -1198,7 +1438,7 @@ pmap_setlevel (pmap_t *m, int level)
 void
 pmap_seek (pmap_t *m, virt_t virtaddr, int level)
 {
-	const u64 masks[3][4] = {
+	static const u64 masks[3][4] = {
 		{ 0xFFFFF000, 0xFFC00000, 0x00000000, 0x00000000, },
 		{ 0xFFFFF000, 0xFFE00000, 0xC0000000, 0x00000000, },
 		{ 0x0000FFFFFFFFF000ULL, 0x0000FFFFFFE00000ULL,
@@ -1671,8 +1911,8 @@ mapmem_domap (pmap_t *m, void *virt, int flags, u64 physaddr, uint len)
 		if (flags & MAPMEM_PAT)
 			pte |= PTE_PAT_BIT;
 		ASSERT (pmap_read (m) & PTE_P_BIT);
-		pmap_write (m, pte, PTE_P_BIT | PTE_RW_BIT | PTE_PWT_BIT |
-			PTE_PCD_BIT | PTE_PAT_BIT);
+		pmap_write (m, pte, PTE_P_BIT | PTE_RW_BIT | PTE_US_BIT |
+			    PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT);
 		asm_invlpg ((void *)(v + (i << PAGESIZE_SHIFT)));
 	}
 	return false;

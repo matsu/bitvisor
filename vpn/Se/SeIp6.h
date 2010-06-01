@@ -44,8 +44,9 @@
 #define SE_IPV6_NDP_SEND_INTERVAL	1			// NDP 送信間隔 (秒)
 #define SE_IPV6_NDP_SEND_COUNT		5			// NDP 送信回数
 #define SE_IPV6_COMBINE_INITIAL_BUF_SIZE	(4096)	// IP パケット結合のための初期バッファサイズ
-#define SE_IPV6_COMBINE_QUEUE_SIZE_QUOTA	(8 * 1024 * 1024)	// IP パケットの結合のために使用することができるメモリサイズの上限
+#define SE_IPV6_COMBINE_QUEUE_SIZE_QUOTA	(1 * 1024 * 1024)	// IP パケットの結合のために使用することができるメモリサイズの上限
 #define SE_IPV6_COMBINE_TIMEOUT		60			// IP パケット結合タイムアウト (秒)
+#define SE_IPV6_COMBINE_MAX_COUNT	256			// IP パケット結合エントリ最大数
 #define SE_IPV6_SEND_HOP_LIMIT		128			// 送信 IP パケットの Hop Limit 値
 #define SE_IPV6_MAX_GUEST_NODES		16			// ゲストノードの数
 #define SE_IPV6_RA_SEND_INTERVAL	30			// RA を送信する間隔
@@ -99,6 +100,7 @@ struct SE_IPV6_COMBINE
 	UCHAR Protocol;					// プロトコル番号
 	UCHAR HopLimit;					// Hop Limit
 	UCHAR SrcMacAddress[6];			// 送信元 MAC アドレス
+	int combine_id;				// 結合 ID
 };
 
 // ICMPv6 ヘッダ情報
@@ -174,6 +176,7 @@ struct SE_IPV6
 	SE_LIST *NdpWaitList;			// 近隣待機リスト
 	SE_LIST *IpWaitList;			// IP 待機リスト
 	SE_LIST *IpCombineList;			// IP 復元リスト
+	int combine_current_id;			// 現在の結合 ID
 	UINT CurrentIpQuota;			// IP 復元に使用できるメモリ使用量
 	UINT IdSeed;					// ID 生成用の値
 	SE_IPV6_ADDR GuestNodes[SE_IPV6_MAX_GUEST_NODES];	// ゲストノード一覧

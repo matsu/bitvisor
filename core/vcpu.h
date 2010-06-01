@@ -40,6 +40,7 @@
 #include "types.h"
 #include "vmctl.h"
 #include "vt.h"
+#include "xsetbv.h"
 
 struct exint_func {
 	void (*int_enabled) (void);
@@ -78,6 +79,7 @@ struct vcpu {
 	struct mmio_data mmio;
 	struct nmi_func nmi;
 	struct apic_func apic;
+	struct xsetbv_data xsetbv;
 };
 
 void vcpu_list_foreach (bool (*func) (struct vcpu *p, void *q), void *q);

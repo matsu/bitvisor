@@ -44,8 +44,9 @@
 #define SE_IPV4_ARP_SEND_INTERVAL	1			// ARP 送信間隔 (秒)
 #define SE_IPV4_ARP_SEND_COUNT		5			// ARP 送信回数
 #define SE_IPV4_COMBINE_INITIAL_BUF_SIZE	(4096)	// IP パケット結合のための初期バッファサイズ
-#define SE_IPV4_COMBINE_QUEUE_SIZE_QUOTA	(8 * 1024 * 1024)	// IP パケットの結合のために使用することができるメモリサイズの上限
+#define SE_IPV4_COMBINE_QUEUE_SIZE_QUOTA	(1 * 1024 * 1024)	// IP パケットの結合のために使用することができるメモリサイズの上限
 #define SE_IPV4_COMBINE_TIMEOUT		60			// IP パケット結合タイムアウト (秒)
+#define SE_IPV4_COMBINE_MAX_COUNT	256			// IP パケット結合エントリ最大数
 #define SE_IPV4_SEND_TTL			128			// 送信 IP パケットの TTL 値
 #define SE_IPV4_DHCP_SERVER_PORT	67			// DHCP サーバーポート
 #define	SE_IPV4_DHCP_CLIENT_PORT	68			// DHCP クライアントポート
@@ -102,6 +103,7 @@ struct SE_IPV4_COMBINE
 	UCHAR Ttl;						// TTL
 	UCHAR Padding2[3];
 	bool IsBroadcast;				// ブロードキャストパケット
+	int combine_id;				// 結合 ID
 };
 
 // DHCPv4 オプション
@@ -194,6 +196,7 @@ struct SE_IPV4
 	SE_LIST *ArpWaitList;			// ARP 待機リスト
 	SE_LIST *IpWaitList;			// IP 待機リスト
 	SE_LIST *IpCombineList;			// IP 復元リスト
+	int combine_current_id;			// 現在の結合 ID
 	UINT CurrentIpQuota;			// IP 復元に使用できるメモリ使用量
 	USHORT IdSeed;					// ID 生成用の値
 };

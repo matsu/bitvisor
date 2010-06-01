@@ -39,6 +39,8 @@
 #define MAPMEM_PCD			0x10
 #define MAPMEM_PAT			0x80
 
+struct mempool;
+
 int alloc_pages (void **virt, u64 *phys, int n);
 int alloc_page (void **virt, u64 *phys);
 void free_page (void *virt);
@@ -47,6 +49,10 @@ void *alloc (uint len);
 void *alloc2 (uint len, u64 *phys);
 void *realloc (void *virt, uint len);
 void free (void *virt);
+struct mempool *mempool_new (int blocksize, int numkeeps, bool clear);
+void mempool_free (struct mempool *mp);
+void *mempool_allocmem (struct mempool *mp, uint len);
+void mempool_freemem (struct mempool *mp, void *virt);
 
 /* accessing memory */
 void unmapmem (void *virt, uint len);

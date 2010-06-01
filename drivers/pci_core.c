@@ -37,6 +37,7 @@
 #include <core.h>
 #include "pci.h"
 #include "pci_internal.h"
+#include "pci_conceal.h"
 
 static spinlock_t pci_config_lock = SPINLOCK_INITIALIZER;
 static pci_config_address_t current_config_addr;
@@ -101,27 +102,62 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 	pci_config_address_t caddr;
 	u8 offset;
 	int (*func)(struct pci_device *dev, core_io_t io, u8 offset, union mem *data);
+	static spinlock_t config_data_lock = SPINLOCK_INITIALIZER;
 
 	if (current_config_addr.allow == 0)
 		return CORE_IO_RET_NEXT;	// not configration access
 
+	func = NULL;
+	spinlock_lock (&config_data_lock);
+	spinlock_lock (&pci_config_lock);
 	offset = current_config_addr.reg_no * sizeof(u32) + (io.port - PCI_CONFIG_DATA_PORT);
 	caddr = current_config_addr; caddr.reserved = caddr.reg_no = caddr.type = 0;
 	LIST_FOREACH (pci_device_list, dev) {
-		if (dev->address.value != caddr.value)
-			continue;
-		if (dev->driver == NULL)
-			break;
-		if (dev->driver->options.use_base_address_mask_emulation) {
-			ioret = pci_config_emulate_base_address_mask(dev, io, data);
-			if (ioret == CORE_IO_RET_DONE)
-				break;
+		if (dev->address.value == caddr.value) {
+			spinlock_unlock (&pci_config_lock);
+			goto found;
 		}
-
-		func = io.dir == CORE_IO_DIR_IN ? dev->driver->config_read : dev->driver->config_write;
-		ioret = func(dev, io, offset, data);
-		break;
 	}
+	dev = pci_possible_new_device (caddr);
+	pci_restore_config_addr ();
+	spinlock_unlock (&pci_config_lock);
+	if (dev && dev->conceal)
+		goto found;
+	if (dev) {
+		u32 id = dev->config_space.regs32[0];
+		u32 class = dev->config_space.class_code;
+		struct pci_driver *driver;
+
+		printf ("[%02X:%02X.%X] New PCI device found.\n",
+			caddr.bus_no, caddr.device_no, caddr.func_no);
+		LIST_FOREACH (pci_driver_list, driver) {
+			if (idmask_match (id, driver->id) &&
+			    idmask_match (class, driver->class)) {
+				dev->driver = driver;
+				driver->new (dev);
+				goto found;
+			}
+		}
+	}
+	goto ret;
+found:
+	if (dev->conceal) {
+		ioret = pci_conceal_config_data_handler (io, data, arg);
+		goto ret;
+	}
+	if (dev->driver == NULL)
+		goto ret;
+	if (dev->driver->options.use_base_address_mask_emulation) {
+		ioret = pci_config_emulate_base_address_mask(dev, io, data);
+		if (ioret == CORE_IO_RET_DONE)
+			goto ret;
+	}
+
+	func = io.dir == CORE_IO_DIR_IN ? dev->driver->config_read : dev->driver->config_write;
+ret:
+	spinlock_unlock (&config_data_lock);
+	if (func)
+		ioret = func(dev, io, offset, data);
 	return ioret;
 }
 
@@ -157,6 +193,8 @@ void pci_register_driver(struct pci_driver *driver)
 		u32 id = dev->config_space.regs32[0];
 		u32 class = dev->config_space.class_code;
 
+		if (dev->conceal)
+			continue;
 		if (idmask_match(id, driver->id) && idmask_match(class, driver->class)) {
 			dev->driver = driver;
 			driver->new(dev);

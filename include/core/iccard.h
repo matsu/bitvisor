@@ -27,26 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CRYPTO_H__
-#define __CRYPTO_H__
+#ifndef __CORE_ICCARD_H
+#define __CORE_ICCARD_H
 
-#include "storage.h"
+#include <core/types.h>
 
-enum {
-	CRYPTO_DECRYPT = 0,
-	CRYPTO_ENCRYPT = 1,
-};
-
-struct crypto {
-	void	(*encrypt)(void *dst, void *src, void *keyctx, lba_t lba, int sector_size);
-	void	(*decrypt)(void *dst, void *src, void *keyctx, lba_t lba, int sector_size);
-	void	*(*setkey)(const u8 *key, int bits);
-	int	block_size;
-	int	keyctx_size;
-	char	*name;
-};
-
-void crypto_register(struct crypto *crypto);
-struct crypto *crypto_find(char *name);
+bool get_idman_session (unsigned long *session);
 
 #endif

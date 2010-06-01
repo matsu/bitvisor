@@ -41,7 +41,7 @@ static unsigned long *GetBaudRates(ReaderMng* gReder);
  +
  +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
 
-#define USB_BULK_WRITE_TIMEOUT 5000  ///タイムアウト時間 5秒
+#define USB_BULK_WRITE_TIMEOUT 2000  ///タイムアウト時間 5秒→2秒に変更
 
 /*
  * 対応する端末情報は複数登録してもよいが同時接続しないこと。

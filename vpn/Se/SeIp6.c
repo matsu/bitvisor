@@ -1908,7 +1908,8 @@ void Se6FlushIpCombineList(SE_IPV6 *p, SE_LIST *o)
 	{
 		SE_IPV6_COMBINE *c = SE_LIST_DATA(o, i);
 
-		if (c->Expire <= Se6Tick(p))
+		if (c->Expire <= Se6Tick(p) ||
+		    p->combine_current_id - c->combine_id > SE_IPV6_COMBINE_MAX_COUNT)
 		{
 			if (t == NULL)
 			{
@@ -1961,6 +1962,7 @@ SE_IPV6_COMBINE *Se6InsertIpCombine(SE_IPV6 *p, SE_IPV6_ADDR src_ip, SE_IPV6_ADD
 	c->IpFragmentList = Se6InitIpFragmentList();
 	c->Protocol = protocol;
 	c->HopLimit = hop_limit;
+	c->combine_id = p->combine_current_id++;
 
 	c->DataReserved = SE_IPV6_COMBINE_INITIAL_BUF_SIZE;
 	c->Data = SeMalloc(c->DataReserved);

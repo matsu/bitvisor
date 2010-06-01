@@ -33,6 +33,7 @@
 #ifndef __USB_H__
 #define __USB_H__
 #include <core.h>
+#include <core/list.h>
 #include <core/spinlock.h>
 
 struct usb_ctrl_setup {
@@ -159,6 +160,7 @@ struct usb_host {
 #define USB_HOOK_NUM_PHASE     2
 	spinlock_t lock_hk;
 	struct usb_hook *hook[USB_HOOK_NUM_PHASE];
+	unsigned int host_id;
 };
 
 /***
@@ -215,12 +217,10 @@ struct usb_request_block {
 #define URB_STATUS_UNLINKED     0x7fU  /* 01111111 unlinked, ready to delete  */
 	/* maker (used by shadow monitor) */
 	u8 mark;
-#define URB_MARK_INLINK          0x01U
 #define URB_MARK_NEED_SHADOW     0x10U
 #define URB_MARK_UPDATE_REPLACED 0x20U
-#define URB_MARK_UPDATE_ADDED    0x40U
-#define URB_MARK_NEED_UPDATE     ( URB_MARK_UPDATE_REPLACED | \
-				   URB_MARK_UPDATE_ADDED )
+#define URB_MARK_NEED_UPDATE     URB_MARK_UPDATE_REPLACED
+	u16 inlink;
 	/* host controller */
 	struct usb_host *host;
 	/* destination device */
@@ -246,8 +246,10 @@ struct usb_request_block {
 	struct usb_request_block *link_next;
 
 	/* list for management */
-	struct usb_request_block *prev;
-	struct usb_request_block *next;
+	LIST4_DEFINE (struct usb_request_block, list);
+	LIST2_DEFINE (struct usb_request_block, urbhash);
+	LIST2_DEFINE (struct usb_request_block, need_shadow);
+	LIST2_DEFINE (struct usb_request_block, update);
 
 };
 
@@ -314,24 +316,8 @@ extern "C" {
 }
 #endif
 
-DEFINE_ZALLOC_FUNC(usb_host);
-
-static inline struct usb_host *
-usb_register_host(void *host, struct usb_operations *op, u8 type)
-{
-	struct usb_host *hc;
-	extern struct list usb_hc_list_head;
-
-	hc = zalloc_usb_host();
-	ASSERT(hc != NULL);
-	hc->type = type;
-	hc->private = host;
-	hc->op = op;
-	spinlock_init(&hc->lock_hk);
-	LIST_APPEND(usb_hc_list, hc);
-
-	return hc;
-}
+struct usb_host *usb_register_host (void *host, struct usb_operations *op,
+				    u8 type);
 
 #define DEFINE_GET_U16_FROM_SETUP_FUNC(type)				\
 	static inline u16						\

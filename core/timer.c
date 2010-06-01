@@ -79,7 +79,7 @@ timer_set (void *handle, u64 interval_usec)
 	u64 time;
 
 	spinlock_lock (&timer_lock);
-	time = get_cpu_time ();
+	time = get_time ();
 	p = handle;
 	if (!p->enable) {
 		LIST1_DEL (list1_timer_off, p);
@@ -127,7 +127,7 @@ timer_thread (void *thread_data)
 	for (;;) {
 		call = false;
 		spinlock_lock (&timer_lock);
-		time = get_cpu_time ();
+		time = get_time ();
 		p = LIST1_POP (list1_timer_on);
 		if (p) {
 			if (p->enable && (time - p->settime) >= p->interval) {

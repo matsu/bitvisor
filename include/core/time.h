@@ -33,6 +33,7 @@
 #include <core/types.h>
 
 u64 get_cpu_time (void);
+u64 get_time (void);
 void nsleep (u64 ns);
 
 #endif

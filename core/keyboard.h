@@ -36,5 +36,6 @@
 
 void setkbdled (int ledstatus);
 void keyboard_reset (void);
+void keyboard_flush (void);
 
 #endif

@@ -39,7 +39,7 @@ int usb_log_level = 1;
 
 #if defined(ENABLE_DPRINTF)
 int 
-dprintf(int level, char *format, ...) 
+_dprintf(int level, char *format, ...) 
 {
 	int ret = 0;
 	va_list ptrs;
@@ -54,18 +54,18 @@ dprintf(int level, char *format, ...)
 }
 
 int 
-dprintft(int level, char *format, ...)
+_dprintft(int level, char *format, ...)
 {
 	int ret = 0;
 	u64 t;
-	static u64 lastt;
+	char buf[12];
 	va_list ptrs;
 
 	if (level <= usb_log_level) {
-		t = get_cpu_time();
-		t = (t >> 8) & 0x0000000003ffffffULL;
-		lastt = t;
-		printf("[%8lld] ", t);
+		t = get_time();
+		snprintf(buf, 12, "%11lld", t);
+		buf[8] = '\0'; /* cut under 1000 value */
+		printf("[%s]", buf);
 		va_start(ptrs, format);
 		ret = vprintf(format, ptrs);
 		va_end(ptrs);

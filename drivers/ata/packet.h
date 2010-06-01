@@ -30,7 +30,7 @@
 #ifndef _PACKET_H
 #define _PACKET_H
 
-#include "storage.h"
+#include <storage.h>
 
 struct packet_device {
 	enum {

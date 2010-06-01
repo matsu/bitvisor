@@ -27,12 +27,16 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef CRYPTO_VPN
-#ifdef VPN_PRO1000
 #include <core.h>
 #include <core/mmio.h>
-#include <core/vpnsys.h>
 #include "pci.h"
+
+static const char driver_name[] = "vpn_pro1000_driver";
+static const char driver_longname[] = "Intel PRO/1000 driver";
+
+#ifdef CRYPTO_VPN
+#ifdef VPN_PRO1000
+#include <core/vpnsys.h>
 
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
@@ -51,9 +55,6 @@ u32 vmm_term_inf() ;
 #define TBUF_SIZE	PAGESIZE
 #define RBUF_SIZE	PAGESIZE
 #define SENDVIRT_MAXSIZE 1514
-
-static const char driver_name[] = "vpn_pro1000_driver";
-static const char driver_longname[] = "Intel PRO/1000 driver";
 
 struct tdesc {
 	u64 addr;		/* buffer address */
@@ -183,6 +184,7 @@ struct desc_shadow {
 			struct rdesc *rd;
 			phys_t rd_phys;
 			void *rbuf[NUM_OF_RDESC];
+			long rbuf_premap[NUM_OF_RDESC];
 		} r;
 	} u;
 };
@@ -191,7 +193,8 @@ struct data;
 
 struct data2 {
 	spinlock_t lock;
-	u8 buf[BUFSIZE];
+	u8 *buf;
+	long buf_premap;
 	uint len;
 	bool dext1_ixsm, dext1_txsm;
 	uint dext0_tucss, dext0_tucso, dext0_tucse;
@@ -205,7 +208,7 @@ struct data2 {
 	bool initialized;
 	SE_SYS_CALLBACK_RECV_NIC *recvphys_func, *recvvirt_func;
 	void *recvphys_param, *recvvirt_param;
-	u32 rctl, rfctl;
+	u32 rctl, rfctl, tctl;
 	u8 macaddr[6];
 };
 
@@ -223,7 +226,7 @@ struct data {
 
 #ifdef TTY_PRO1000
 static struct data2 *putchar_d2;
-#endif
+#endif /* TTY_PRO1000 */
 
 static int
 iohandler (core_io_t io, union mem *data, void *arg)
@@ -292,15 +295,16 @@ write_mydesc (struct desc_shadow *s, struct data2 *d2, uint off2,
 }
 
 static void
-send_physnic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
-	      UINT *packet_sizes)
+send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
+		  UINT *packet_sizes, bool print_ok)
 {
-	struct data2 *d2 = nic_handle;
 	struct desc_shadow *s;
 	uint i, off2;
 	u32 *head, *tail, h, t, nt;
 	struct tdesc *td;
 
+	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
+		return;
 	s = &d2->tdesc[0];	/* FIXME: 0 only */
 	off2 = 0x3800;		/* FIXME: 0 only */
 	write_mydesc (s, d2, off2, true);
@@ -313,11 +317,13 @@ send_physnic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
 		if (nt >= NUM_OF_TDESC)
 			nt = 0;
 		if (h == nt) {
-			printf ("transmit buffer full\n");
+			if (print_ok)
+				printf ("transmit buffer full\n");
 			break;
 		}
 		if (packet_sizes[i] >= TBUF_SIZE) {
-			printf ("transmit packet too large\n");
+			if (print_ok)
+				printf ("transmit packet too large\n");
 			continue;
 		}
 		memcpy (s->u.t.tbuf[t], packets[i], packet_sizes[i]);
@@ -342,6 +348,14 @@ send_physnic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
 		t = nt;
 	}
 	*tail = t;
+}
+
+static void
+send_physnic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
+	      UINT *packet_sizes)
+{
+	send_physnic_sub (nic_handle, num_packets, packets, packet_sizes,
+			  true);
 }
 
 static void
@@ -393,6 +407,8 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 	j = s->tail;
 	k = s->base.ll;
 	l = s->len;
+	if (d2->rctl & 0x4000000) /* SECRC: Strip CRC */
+		asize = 0;
 	pktlen += asize;
 	while (pktlen > 0) {
 		copied = 0;
@@ -400,6 +416,13 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 			return;
 		rd = mapmem_gphys (k + i * 16, sizeof *rd, MAPMEM_WRITE);
 		ASSERT (rd);
+		if (d2->rfctl & 0x8000) {
+			rd1 = (void *)rd;
+			if (rd1->ex_sta & 1) { /* DD */
+				printf ("sendvirt: DD=1!\n");
+				return;
+			}
+		}
 		buf = mapmem_gphys (rd->addr, bufsize, MAPMEM_WRITE);
 		ASSERT (buf);
 		if (pktlen <= bufsize) {
@@ -534,15 +557,13 @@ rangecheck (uint off1, uint len1, uint off2, uint len2)
 }
 
 static void
-init_desc (struct desc_shadow *s, struct data2 *d2, uint off2, bool transmit)
+init_desc_transmit (struct desc_shadow *s, struct data2 *d2, uint off2)
 {
 	int i;
 	void *tmp1;
 	phys_t tmp2;
 
-	if (s->initialized)
-		return;
-	if (transmit) {
+	if (!s->u.t.td) {
 		alloc_pages (&tmp1, &tmp2, NUM_OF_TDESC_PAGES);
 		s->u.t.td = tmp1;
 		s->u.t.td_phys = tmp2;
@@ -552,18 +573,44 @@ init_desc (struct desc_shadow *s, struct data2 *d2, uint off2, bool transmit)
 			s->u.t.tbuf[i] = tmp1;
 			s->u.t.td[i].addr = tmp2;
 		}
-		write_mydesc (s, d2, off2, transmit);
-	} else {
+	}
+	write_mydesc (s, d2, off2, true);
+}
+
+static void
+init_desc_receive (struct desc_shadow *s, struct data2 *d2, uint off2)
+{
+	int i;
+	void *tmp1;
+	phys_t tmp2;
+
+	if (!s->u.r.rd) {
 		alloc_pages (&tmp1, &tmp2, NUM_OF_RDESC_PAGES);
 		s->u.r.rd = tmp1;
 		s->u.r.rd_phys = tmp2;
 		memset (s->u.r.rd, 0, RDESC_SIZE);
 		for (i = 0; i < NUM_OF_RDESC; i++) {
 			alloc_page (&tmp1, &tmp2);
+			memset (tmp1, 0, PAGESIZE);
 			s->u.r.rbuf[i] = tmp1;
+			s->u.r.rbuf_premap[i] = vpn_premap_recvbuf (tmp1,
+								    PAGESIZE);
 			s->u.r.rd[i].addr = tmp2;
 		}
-		write_mydesc (s, d2, off2, transmit);
+
+	}
+	write_mydesc (s, d2, off2, false);
+}
+
+static void
+init_desc (struct desc_shadow *s, struct data2 *d2, uint off2, bool transmit)
+{
+	if (s->initialized)
+		return;
+	if (transmit) {
+		init_desc_transmit (s, d2, off2);
+	} else {
+		init_desc_receive (s, d2, off2);
 	}
 	s->initialized = true;
 	if (transmit && !d2->initialized) {
@@ -770,9 +817,11 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 				else if (d2->recvvirt_func) {
 					void *packet_data[1];
 					UINT packet_sizes[1];
+					long packet_premap[1];
 
 					packet_data[0] = d2->buf;
 					packet_sizes[0] = d2->len;
+					packet_premap[0] = d2->buf_premap;
 					if (td1->dcmd_tse) {
 						tse_set_header (d2, dextlast);
 						packet_sizes[0] = dextsize;
@@ -795,9 +844,11 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 							  (dextsize -
 							   d2->dext0_tucss) :
 							  0);
-					d2->recvvirt_func (d2, 1, packet_data,
-							   packet_sizes,
-							   d2->recvvirt_param);
+					vpn_premap_VirtualNicRecv
+						(d2->recvvirt_func, d2, 1,
+						 packet_data, packet_sizes,
+						 d2->recvvirt_param,
+						 packet_premap);
 					if (td1->dcmd_tse && !dextlast) {
 						memcpy (d2->buf +
 							d2->dext0_hdrlen,
@@ -850,12 +901,16 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 			if (d2->recvvirt_func) {
 				void *packet_data[1];
 				UINT packet_sizes[1];
+				long packet_premap[1];
 
 				packet_data[0] = d2->buf;
 				packet_sizes[0] = d2->len;
-				d2->recvvirt_func (d2, 1, packet_data,
-						   packet_sizes,
-						   d2->recvvirt_param);
+				packet_premap[0] = d2->buf_premap;
+				vpn_premap_VirtualNicRecv (d2->recvvirt_func,
+							   d2, 1, packet_data,
+							   packet_sizes,
+							   d2->recvvirt_param,
+							   packet_premap);
 			}
 
 			if (td->cmd_rs)
@@ -874,6 +929,8 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 	u32 i, j, l;
 	u64 k;
 
+	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
+		return;
 	i = s->head;
 	j = s->tail;
 	k = s->base.ll;
@@ -897,8 +954,8 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 {
 	u32 *head, *tail, h, t, nt;
 	void *pkt[16];
-	u8 *tmp;
 	UINT pktsize[16];
+	long pkt_premap[16];
 	int i = 0, num = 16;
 	struct rdesc *rd;
 
@@ -914,8 +971,10 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 		if (nt >= NUM_OF_RDESC)
 			nt = 0;
 		if (h == nt || i == num) {
-			d2->recvphys_func (d2, i, pkt, pktsize,
-					   d2->recvphys_param);
+			vpn_premap_PhysicalNicRecv (d2->recvphys_func, d2, i,
+						    pkt, pktsize,
+						    d2->recvphys_param,
+						    pkt_premap);
 			if (h == nt)
 				break;
 			i = 0;
@@ -923,7 +982,10 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 		t = nt;
 		rd = &s->u.r.rd[t];
 		pkt[i] = s->u.r.rbuf[t];
-		pktsize[i] = rd->len - 4;
+		pktsize[i] = rd->len;
+		pkt_premap[i] = s->u.r.rbuf_premap[t];
+		if (!(d2->rctl & 0x4000000)) /* !SECRC */
+			pktsize[i] -= 4;
 		if (!rd->status_eop) {
 			printf ("status EOP == 0!!\n");
 			continue;
@@ -940,7 +1002,6 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 			printf ("recv RX data error\n");
 			continue;
 		}
-		tmp = pkt[i];
 		i++;
 	}
 	*tail = t;
@@ -999,6 +1060,8 @@ mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
 {
 	union mem *q;
 
+	if (d1 != &d2->d1[0])
+		goto skip;
 	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, false, d2,
 			 0x3800, &d2->tdesc[0]))
 		return;
@@ -1040,6 +1103,17 @@ mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
 		}
 		return;
 	}
+	if (rangecheck (gphys - d1->mapaddr, len, 0x400, 4)) {
+		/* Transmit Control Register */
+		if (wr) {
+			d2->tctl = buf->dword;
+			*(u32 *)(void *)((u8 *)d1->map + 0x400) = d2->tctl;
+		} else {
+			d2->tctl = *(u32 *)(void *)((u8 *)d1->map + 0x400);
+			buf->dword = d2->tctl;
+		}
+		return;
+	}
 	if (rangecheck (gphys - d1->mapaddr, len, 0xC0, 4)) {
 		/* Interrupt Cause Read Register */
 		if (d2->rdesc[0].initialized)
@@ -1047,6 +1121,7 @@ mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
 		if (d2->rdesc[1].initialized)
 			receive_physnic (&d2->rdesc[0], d2, 0x2900);
 	}
+skip:
 	q = (union mem *)(void *)((u8 *)d1->map + (gphys - d1->mapaddr));
 	if (wr) {
 		if (len == 1)
@@ -1215,14 +1290,98 @@ pro1000_putchar (int c)
 
 	if (!putchar_d2)
 		return;
+	if (!putchar_d2->initialized)
+		return;
 	memcpy (pkt + 0, config.vmm.tty_pro1000_mac_address, 6);
 	memcpy (pkt + 6, putchar_d2->macaddr, 6);
 	memcpy (pkt + 12, "\x08\x00", 2);
-	pktsiz = mkudp (pkt + 14, "\x0A\x0A\x0A\x0A", 10,
+	pktsiz = mkudp (pkt + 14, "\x00\x00\x00\x00", 10,
 			"\xE0\x00\x00\x01", 10101, (char *)&c, 1) + 14;
-	send_physnic ((SE_HANDLE)putchar_d2, 1, &pkts, &pktsiz);
+	send_physnic_sub (putchar_d2, 1, &pkts, &pktsiz, false);
 }
-#endif
+
+static void
+tty_pro1000_init (struct data2 *d2)
+{
+	if (!config.vmm.tty_pro1000)
+		return;
+	putchar_d2 = d2;
+	if (config.vmm.driver.vpn.PRO1000 && !config.vmm.driver.concealPRO1000)
+		return;
+
+	/* Disable interrupts */
+	{
+		/* Interrupt Mask Clear Register */
+		volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
+		*imc = 0;
+	}
+	/* Issue a Global Reset */
+	{
+		void usleep (u32);
+
+		/* Device Control Register */
+		volatile u32 *ctrl = (void *)(u8 *)d2->d1[0].map + 0x0;
+		*ctrl = 0x00100800 | 0x84000000;
+		usleep (1000000);
+		*ctrl = 0x40;	/* 0x00100800; */
+	}
+	/* Disable interrupts */
+	{
+		/* Interrupt Mask Clear Register */
+		volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
+		*imc = 0;
+	}
+	/* Initialization for 82571EB/82572EI */
+	{
+		/* Transmit Arbitration Counter Queue 0 */
+		volatile u32 *tarc0 = (void *)(u8 *)d2->d1[0].map + 0x3840;
+		*tarc0 = 0;	/* 0x07800000 */
+	}
+	{
+		/* Transmit Arbitration Counter Queue 1 */
+		volatile u32 *tarc1 = (void *)(u8 *)d2->d1[0].map + 0x3940;
+		*tarc1 = 0;	/* 0x07400000; */
+	}
+	{
+		/* Transmit Descriptor Control */
+		volatile u32 *txdctl = (void *)(u8 *)d2->d1[0].map + 0x3828;
+		*txdctl = (*txdctl & 0x400000) | 0x1010000;
+	}
+	{
+		/* Transmit Descriptor Control 1 */
+		volatile u32 *txdctl1 = (void *)(u8 *)d2->d1[0].map + 0x3928;
+		*txdctl1 = (*txdctl1 & 0x400000) | 0x1010000;
+	}
+	/* Receive Initialization */
+	{
+		init_desc_receive (&d2->rdesc[0], d2, 0x2800);
+	}
+	{
+		/* Receive Control Register */
+		volatile u32 *rctl = (void *)(u8 *)d2->d1[0].map + 0x100;
+		*rctl = 0 |	/* receiver disabled */
+			((RBUF_SIZE & 0x3300) ? 0x20000 : 0) |
+			((RBUF_SIZE & 0x5500) ? 0x10000 : 0) |
+			((RBUF_SIZE & 0x7000) ? 0x2000000 : 0);
+	}
+	/* Transmit Initialization */
+	{
+		init_desc_transmit (&d2->tdesc[0], d2, 0x3800);
+	}
+	{
+		/* Transmit Control Register */
+		volatile u32 *tctl = (void *)(u8 *)d2->d1[0].map + 0x400;
+		d2->tctl = 0x3F0FA; /* Transmit Enable */
+		*tctl = d2->tctl;
+	}
+	{
+		/* Transmit IPG Register */
+		volatile u32 *tipg = (void *)(u8 *)d2->d1[0].map + 0x410;
+		*tipg = 0x00702008;
+	}
+	d2->initialized = true;
+}
+#endif /* TTY_PRO1000 */
 
 static void 
 vpn_pro1000_new (struct pci_device *pci_device)
@@ -1230,6 +1389,7 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	int i;
 	struct data2 *d2;
 	struct data *d;
+	void *tmp;
 
 	printf ("PRO/1000 found.\n");
 
@@ -1242,6 +1402,10 @@ vpn_pro1000_new (struct pci_device *pci_device)
 
 	d2 = alloc (sizeof *d2);
 	memset (d2, 0, sizeof *d2);
+	alloc_pages (&tmp, NULL, (BUFSIZE + PAGESIZE - 1) / PAGESIZE);
+	memset (tmp, 0, (BUFSIZE + PAGESIZE - 1) / PAGESIZE * PAGESIZE);
+	d2->buf = tmp;
+	d2->buf_premap = vpn_premap_recvbuf (tmp, BUFSIZE);
 	spinlock_init (&d2->lock);
 	d = alloc (sizeof *d * 6);
 	for (i = 0; i < 6; i++) {
@@ -1255,118 +1419,8 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
 #ifdef TTY_PRO1000
-	if (config.vmm.tty_pro1000) {
-		/* Disable interrupts */
-		{
-			/* Interrupt Mask Clear Register */
-			volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
-			*imc = 0;
-		}
-		/* Issue a Global Reset */
-		{
-			void usleep (u32);
-
-			/* Device Control Register */
-			volatile u32 *ctrl = (void *)(u8 *)d2->d1[0].map + 0x0;
-			*ctrl = 0x00100800 | 0x84000000;
-			usleep (1000000);
-			*ctrl = 0x40;//0x00100800;
-		}
-		/* Disable interrupts */
-		{
-			/* Interrupt Mask Clear Register */
-			volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
-			*imc = 0;
-		}
-		/* Initialization for 82571EB/82572EI */
-		{
-			/* Transmit Arbitration Counter Queue 0 */
-			volatile u32 *tarc0 = (void *)(u8 *)d2->d1[0].map +
-				0x3840;
-			*tarc0 = 0;	/* 0x07800000 */
-		}
-		{
-			/* Transmit Arbitration Counter Queue 1 */
-			volatile u32 *tarc1 = (void *)(u8 *)d2->d1[0].map +
-				0x3940;
-			*tarc1 = 0;	/* 0x07400000; */
-		}
-		{
-			/* Transmit Descriptor Control */
-			volatile u32 *txdctl = (void *)(u8 *)d2->d1[0].map +
-				0x3828;
-			*txdctl = (*txdctl & 0x400000) | 0x1010000;
-		}
-		{
-			/* Transmit Descriptor Control 1 */
-			volatile u32 *txdctl1 = (void *)(u8 *)d2->d1[0].map +
-				0x3928;
-			*txdctl1 = (*txdctl1 & 0x400000) | 0x1010000;
-		}
-		/* Receive Initialization */
-		{
-			int i;
-			void *tmp1;
-			phys_t tmp2;
-			struct desc_shadow *s = &d2->rdesc[0];
-			bool transmit = false;
-			uint off2 = 0x2800;
-
-			alloc_pages (&tmp1, &tmp2, NUM_OF_RDESC_PAGES);
-			s->u.r.rd = tmp1;
-			s->u.r.rd_phys = tmp2;
-			memset (s->u.r.rd, 0, RDESC_SIZE);
-			for (i = 0; i < NUM_OF_RDESC; i++) {
-				alloc_page (&tmp1, &tmp2);
-				s->u.r.rbuf[i] = tmp1;
-				s->u.r.rd[i].addr = tmp2;
-			}
-			write_mydesc (s, d2, off2, transmit);
-		}
-		{
-			/* Receive Control Register */
-			volatile u32 *rctl = (void *)(u8 *)d2->d1[0].map +
-				0x100;
-			*rctl = 0 |	/* receiver disabled */
-				((RBUF_SIZE & 0x3300) ? 0x20000 : 0) |
-				((RBUF_SIZE & 0x5500) ? 0x10000 : 0) |
-				((RBUF_SIZE & 0x7000) ? 0x2000000 : 0);
-		}
-		/* Transmit Initialization */
-		{
-			int i;
-			void *tmp1;
-			phys_t tmp2;
-			struct desc_shadow *s = &d2->tdesc[0];
-			bool transmit = true;
-			uint off2 = 0x3800;
-
-			alloc_pages (&tmp1, &tmp2, NUM_OF_TDESC_PAGES);
-			s->u.t.td = tmp1;
-			s->u.t.td_phys = tmp2;
-			memset (s->u.t.td, 0, TDESC_SIZE);
-			for (i = 0; i < NUM_OF_TDESC; i++) {
-				alloc_page (&tmp1, &tmp2);
-				s->u.t.tbuf[i] = tmp1;
-				s->u.t.td[i].addr = tmp2;
-			}
-			write_mydesc (s, d2, off2, transmit);
-		}
-		{
-			/* Transmit Control Register */
-			volatile u32 *tctl = (void *)(u8 *)d2->d1[0].map +
-				0x400;
-			*tctl = 0x3F0FA;	/* Transmit Enable */
-		}
-		{
-			/* Transmit IPG Register */
-			volatile u32 *tipg = (void *)(u8 *)d2->d1[0].map +
-				0x410;
-			*tipg = 0x00702008;
-		}
-		putchar_d2 = d2;
-	}
-#endif
+	tty_pro1000_init (d2);
+#endif /* TTY_PRO1000 */
 	return;
 }
 
@@ -1374,12 +1428,6 @@ static int
 vpn_pro1000_config_read (struct pci_device *pci_device, 
 			 core_io_t io, u8 offset, union mem *data)
 {
-#ifdef TTY_PRO1000
-	if (config.vmm.tty_pro1000) {
-		data->dword = 0UL;
-		return CORE_IO_RET_DONE;
-	}
-#endif
 	return CORE_IO_RET_DEFAULT;
 }
 
@@ -1391,10 +1439,6 @@ vpn_pro1000_config_write (struct pci_device *pci_device,
 	u32 tmp;
 	int i;
 
-#ifdef TTY_PRO1000
-	if (config.vmm.tty_pro1000)
-		return CORE_IO_RET_DONE;
-#endif
 	if (offset + io.size - 1 >= 0x10 && offset <= 0x24) {
 		if ((offset & 3) || io.size != 4)
 			panic ("%s: io:%08x, offset=%02x, data:%08x\n",
@@ -1411,15 +1455,89 @@ vpn_pro1000_config_write (struct pci_device *pci_device,
 	}
 	return CORE_IO_RET_DEFAULT;
 }
+#endif /* VPN_PRO1000 */
+#endif /* CRYPTO_VPN */
 
-static struct pci_driver vpn_pro1000_driver = {
+/* [1] defined (CRYPTO_VPN) && defined (VPN_PRO1000)
+   [2] config.vmm.driver.vpn.PRO1000
+   [3] config.vmm.tty_pro1000
+   [4] config.vmm.driver.concealPRO1000
+
+   [1] [2] [3] [4] driver   tty
+    0   -   -   0  no       no
+    0   -   -   1  conceal  no
+    1   0   0   0  no       no
+    1   0   0   1  conceal  no
+    1   0   1   0  conceal  yes if defined (TTY_PRO1000) *1
+    1   0   1   1  conceal  yes if defined (TTY_PRO1000) *1
+    1   1   0   0  vpn      no
+    1   1   0   1  conceal  no
+    1   1   1   0  vpn      yes if defined (TTY_PRO1000) *2
+    1   1   1   1  conceal  yes if defined (TTY_PRO1000) *1
+
+   *1 the VMM initialize the NIC at boot. only some desktop adapters work.
+   *2 a guest initializes the NIC. putchar works after the initialization.
+*/
+
+static void 
+pro1000_new (struct pci_device *pci_device)
+{
+#ifdef CRYPTO_VPN
+#ifdef VPN_PRO1000
+	if ((!config.vmm.driver.concealPRO1000 &&
+	     config.vmm.driver.vpn.PRO1000) || config.vmm.tty_pro1000) {
+		vpn_pro1000_new (pci_device);
+		return;
+	}
+#endif /* VPN_PRO1000 */
+#endif /* CRYPTO_VPN */
+
+	printf ("A PRO/1000 device found. Disable it.\n");
+	return;
+}
+
+static int 
+pro1000_config_read (struct pci_device *pci_device, 
+		     core_io_t io, u8 offset, union mem *data)
+{
+#ifdef CRYPTO_VPN
+#ifdef VPN_PRO1000
+	if (!config.vmm.driver.concealPRO1000 &&
+	    config.vmm.driver.vpn.PRO1000)
+		return vpn_pro1000_config_read (pci_device, io, offset, data);
+#endif /* VPN_PRO1000 */
+#endif /* CRYPTO_VPN */
+
+	/* provide fake values 
+	   for reading the PCI configration space. */
+	data->dword = 0UL;
+	return CORE_IO_RET_DONE;
+}
+
+static int 
+pro1000_config_write (struct pci_device *pci_device, 
+		      core_io_t io, u8 offset, union mem *data)
+{
+#ifdef CRYPTO_VPN
+#ifdef VPN_PRO1000
+	if (!config.vmm.driver.concealPRO1000 &&
+	    config.vmm.driver.vpn.PRO1000)
+		return vpn_pro1000_config_write (pci_device, io, offset, data);
+#endif /* VPN_PRO1000 */
+#endif /* CRYPTO_VPN */
+
+	/* do nothing, ignore any writing. */
+	return CORE_IO_RET_DONE;
+}
+
+static struct pci_driver pro1000_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
 	.id		= { 0x104B8086, 0xFFFFFFFF },
 	.class		= { 0x020000, 0xFFFFFF },
-	.new		= vpn_pro1000_new,	
-	.config_read	= vpn_pro1000_config_read,
-	.config_write	= vpn_pro1000_config_write,
+	.new		= pro1000_new,	
+	.config_read	= pro1000_config_read,
+	.config_write	= pro1000_config_write,
 };
 
 static u32 idlist[] = {
@@ -1511,17 +1629,26 @@ static void
 vpn_pro1000_init (void)
 {
 	u32 *id;
+	bool regist = false;
 
-	if (!config.vmm.driver.vpn.PRO1000)
+	if (config.vmm.driver.concealPRO1000)
+		regist = true;
+#ifdef CRYPTO_VPN
+#ifdef VPN_PRO1000
+	if (config.vmm.driver.vpn.PRO1000)
+		regist = true;
+	if (config.vmm.tty_pro1000)
+		regist = true;
+#endif /* VPN_PRO1000 */
+#endif /* CRYPTO_VPN */
+	if (!regist)
 		return;
 	for (id = idlist; *id; id++) {
-		vpn_pro1000_driver.id.id = *id;
-		pci_register_driver (&vpn_pro1000_driver);
-		vpn_pro1000_driver.longname = NULL;
+		pro1000_driver.id.id = *id;
+		pci_register_driver (&pro1000_driver);
+		pro1000_driver.longname = NULL;
 	}
 	return;
 }
 
 PCI_DRIVER_INIT (vpn_pro1000_init);
-#endif /* VPN_PRO1000 */
-#endif /* CRYPTO_VPN */

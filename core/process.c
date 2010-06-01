@@ -71,6 +71,8 @@ struct process_data {
 	int running;
 	struct msgdsc_data msgdsc[NUM_OF_MSGDSC];
 	bool exitflag;
+	bool restrict;
+	int stacksize;
 };
 
 extern ulong volatile syscallstack asm ("%gs:gs_syscallstack");
@@ -257,6 +259,8 @@ found:
 	process[pid].mm_phys = phys;
 	process[pid].running = 0;
 	process[pid].exitflag = false;
+	process[pid].restrict = false;
+	process[pid].stacksize = PAGESIZE;
 	gen = ++process[pid].gen;
 	process[pid].valid = true;
 	clearmsgdsc (process[pid].msgdsc);
@@ -305,7 +309,7 @@ process_kill (bool (*func) (void *data), void *data)
 	if (func && !func (data))
 		return;
 	process[currentcpu->pid].exitflag = true;
-	callret (0);
+	callret (-1);
 }
 
 /* free any resources of a process */
@@ -387,18 +391,22 @@ call_msgfunc0 (int pid, void *func, ulong sp)
 /* pid, gen, desc, arg=arguments, len=length of the arguments (bytes) */
 static int
 call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
-	       void *sendbuf, int sendlen, void *recvbuf, int recvlen)
+	       struct msgbuf *buf, int bufcnt)
 {
 	phys_t mm_phys;
-	ulong sp, sp2;
+	ulong sp, sp2, buf_sp;
 	int r = -1;
-	void *sendbuf_user = NULL, *recvbuf_user = NULL;
+	struct msgbuf buf_user[MAXNUM_OF_MSGBUF];
 	void *curstk;
-	int (*func) ();
+	int (*func) (int, int, struct msgbuf *, int);
+	int i;
+	long tmp;
 
 	asm_rdrsp ((ulong *)&curstk);
-	if ((u8 *)curstk - (u8 *)currentcpu->stackaddr < VMM_MINSTACKSIZE)
+	if ((u8 *)curstk - (u8 *)currentcpu->stackaddr < VMM_MINSTACKSIZE) {
+		printf ("msg: not enough stack space available for VMM\n");
 		return r;
+	}
 	spinlock_lock (&process_lock);
 	ASSERT (pid >= 0);
 	ASSERT (pid < NUM_OF_PID);
@@ -412,34 +420,69 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 		goto ret;
 	if (pid == 0) {
 		ASSERT (len == sizeof (long) * 2);
-		func = (int (*)())process[pid].msgdsc[desc].func;
+		func = (int (*)(int, int, struct msgbuf *, int))
+			process[pid].msgdsc[desc].func;
 		spinlock_unlock (&process_lock);
-		r = func (((long *)arg)[0], ((long *)arg)[1],
-			  sendbuf, sendlen, recvbuf, recvlen);
+		r = func (((long *)arg)[0], ((long *)arg)[1], buf, bufcnt);
 		return r;
 	}
+	if (bufcnt > MAXNUM_OF_MSGBUF)
+		goto ret;
 	mm_phys = mm_process_switch (process[pid].mm_phys);
-	sendbuf_user = mm_process_map_shared (mm_phys, sendbuf, sendlen,
-					      false);
-	recvbuf_user = mm_process_map_shared (mm_phys, recvbuf, recvlen, true);
-	sp2 = mm_process_map_stack (4096);
+	for (i = 0; i < bufcnt; i++) {
+		if (buf[i].premap_handle) {
+			tmp = (long)buf[i].base - buf[i].premap_handle;
+			buf_user[i].base = (void *)tmp;
+		} else {
+			buf_user[i].base = mm_process_map_shared (mm_phys,
+								  buf[i].base,
+								  buf[i].len,
+								  !!buf[i].rw,
+								  false);
+		}
+		if (!buf_user[i].base) {
+			bufcnt = i;
+			goto mapfail;
+		}
+		buf_user[i].len = buf[i].len;
+		buf_user[i].rw = buf[i].rw;
+		buf_user[i].premap_handle = 0;
+	}
+	sp2 = mm_process_map_stack (process[pid].stacksize,
+				    process[pid].restrict, true);
+	if (!sp2) {
+		printf ("cannot allocate stack for process\n");
+		goto mapfail;
+	}
 	sp = sp2;
+	for (i = bufcnt; i-- > 0;) {
+		sp -= sizeof buf_user[i];
+		memcpy ((void *)sp, &buf_user[i], sizeof buf_user[i]);
+	}
+	buf_sp = sp;
+#ifdef __x86_64__
+	/* for %r8 and %r9 */
 	sp -= sizeof (ulong);
-	*(ulong *)sp = (ulong)recvlen;
+	*(ulong *)sp = 0;
 	sp -= sizeof (ulong);
-	*(ulong *)sp = (ulong)recvbuf_user;
+	*(ulong *)sp = 0;
+#endif
 	sp -= sizeof (ulong);
-	*(ulong *)sp = (ulong)sendlen;
+	*(ulong *)sp = bufcnt;
 	sp -= sizeof (ulong);
-	*(ulong *)sp = (ulong)sendbuf_user;
+	*(ulong *)sp = buf_sp;
 	sp -= len;
 	memcpy ((void *)sp, arg, len);
 	sp -= sizeof (ulong);
 	*(ulong *)sp = 0x3FFFF100;
 	r = call_msgfunc0 (pid, process[pid].msgdsc[desc].func, sp);
-	mm_process_unmapstack (sp2, 4096);
-	mm_process_unmap ((virt_t)sendbuf_user, sendlen);
-	mm_process_unmap ((virt_t)recvbuf_user, recvlen);
+	mm_process_unmap_stack (sp2, process[pid].stacksize);
+mapfail:
+	for (i = 0; i < bufcnt; i++) {
+		if (buf[i].premap_handle)
+			continue;
+		mm_process_unmap ((virt_t)buf_user[i].base, buf_user[i].len);
+	}
 	if (process[pid].running == 0 && process[pid].exitflag)
 		cleanup (pid, mm_phys);
 	mm_process_switch (mm_phys);
@@ -472,6 +515,8 @@ msgsetfunc (int desc, void *func)
 ulong
 sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
+	if (process[currentcpu->pid].restrict)
+		return (ulong)-1L;
 	if (si >= 0 && si < NUM_OF_MSGDSC)
 		return (ulong)_msgsetfunc (currentcpu->pid, si, (void *)di);
 	return 0;
@@ -518,6 +563,8 @@ sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 
 	if (!is_range_valid (si, MSG_NAMELEN))
 		return (ulong)-1L;
+	if (process[currentcpu->pid].restrict)
+		return (ulong)-1L;
 	memcpy (name, (void *)si, MSG_NAMELEN);
 	name[MSG_NAMELEN - 1] = '\0';
 	return _msgregister (currentcpu->pid, name, (void *)di);
@@ -548,6 +595,8 @@ sys_msgopen (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 	char name[MSG_NAMELEN];
 
 	if (!is_range_valid (si, MSG_NAMELEN))
+		return (ulong)-1L;
+	if (process[currentcpu->pid].restrict)
 		return (ulong)-1L;
 	memcpy (name, (void *)si, MSG_NAMELEN);
 	name[MSG_NAMELEN - 1] = '\0';
@@ -596,8 +645,7 @@ _msgsendint (int pid, int desc, int data)
 	mgen = process[pid].msgdsc[desc].gen;
 	mdesc = process[pid].msgdsc[desc].dsc;
 	spinlock_unlock (&process_lock);
-	return call_msgfunc1 (mpid, mgen, mdesc, d, sizeof (d), NULL, 0, NULL,
-			      0);
+	return call_msgfunc1 (mpid, mgen, mdesc, d, sizeof (d), NULL, 0);
 }
 
 /* for kernel (VMM) */
@@ -668,6 +716,8 @@ msgsenddesc (int desc, int data)
 ulong
 sys_msgsenddesc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
+	if (process[currentcpu->pid].restrict)
+		return (ulong)-1L;
 	return _msgsenddesc (currentcpu->pid, si, di);
 }
 
@@ -707,6 +757,8 @@ sys_newprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	char name[PROCESS_NAMELEN];
 
+	if (process[currentcpu->pid].restrict)
+		return (ulong)-1L;
 	memcpy (name, (void *)si, PROCESS_NAMELEN);
 	name[PROCESS_NAMELEN - 1] = '\0';
 	return (ulong)_newprocess (currentcpu->pid, name);
@@ -714,8 +766,7 @@ sys_newprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 
 /* for internal use */
 static int
-_msgsendbuf (int pid, int desc, int data, void *sendbuf, int sendlen,
-	     void *recvbuf, int recvlen)
+_msgsendbuf (int pid, int desc, int data, struct msgbuf *buf, int bufcnt)
 {
 	int mpid, mgen, mdesc;
 	long d[2];
@@ -727,16 +778,14 @@ _msgsendbuf (int pid, int desc, int data, void *sendbuf, int sendlen,
 	mgen = process[pid].msgdsc[desc].gen;
 	mdesc = process[pid].msgdsc[desc].dsc;
 	spinlock_unlock (&process_lock);
-	return call_msgfunc1 (mpid, mgen, mdesc, d, sizeof (d), sendbuf,
-			      sendlen, recvbuf, recvlen);
+	return call_msgfunc1 (mpid, mgen, mdesc, d, sizeof (d), buf, bufcnt);
 }
 
 /* for kernel (VMM) */
 int
-msgsendbuf (int desc, int data, void *sendbuf, int sendlen, void *recvbuf,
-	    int recvlen)
+msgsendbuf (int desc, int data, struct msgbuf *buf, int bufcnt)
 {
-	return _msgsendbuf (0, desc, data, sendbuf, sendlen, recvbuf, recvlen);
+	return _msgsendbuf (0, desc, data, buf, bufcnt);
 }
 
 /* si=desc di=data sp=others */
@@ -745,20 +794,33 @@ sys_msgsendbuf (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	struct msgsendbuf_args {
 		int data;
-		void *sendbuf;
-		int sendlen;
-		void *recvbuf;
-		int recvlen;
-	} *q = (struct msgsendbuf_args *)di;
+		int bufcnt;
+		struct msgbuf *buf;
+	} *q = (struct msgsendbuf_args *)di, arg;
+	struct msgbuf buf[MAXNUM_OF_MSGBUF];
+	int i;
 
 	if (!is_range_valid (di, sizeof *q))
 		return (ulong)-1L;
-	if (!is_range_valid ((ulong)q->sendbuf, q->sendlen))
+	/* we need to copy the structure to kernel memory before
+	   checking it is valid because a process may modify it at the
+	   same time. */
+	memcpy (&arg, q, sizeof arg);
+	if (arg.bufcnt < 0)
 		return (ulong)-1L;
-	if (!is_range_valid ((ulong)q->recvbuf, q->recvlen))
+	if (!is_range_valid ((ulong)arg.buf, sizeof *arg.buf * arg.bufcnt))
 		return (ulong)-1L;
-	return _msgsendbuf (currentcpu->pid, si, q->data, q->sendbuf,
-			    q->sendlen, q->recvbuf, q->recvlen);
+	if (arg.bufcnt > MAXNUM_OF_MSGBUF)
+		return (ulong)-1L;
+	memcpy (buf, arg.buf, sizeof *arg.buf * arg.bufcnt);
+	for (i = 0; i < arg.bufcnt; i++) {
+		if (!buf[i].len)
+			return (ulong)-1L;
+		if (!is_range_valid ((ulong)buf[i].base, buf[i].len))
+			return (ulong)-1L;
+		buf[i].premap_handle = 0;
+	}
+	return _msgsendbuf (currentcpu->pid, si, arg.data, buf, arg.bufcnt);
 }
 
 static int
@@ -803,6 +865,65 @@ sys_exitprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 	return 0;		/* Not reached. */
 }
 
+/* si=stack size di=maximum stack size */
+static ulong
+sys_restrict (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+{
+	int r = -1;
+	virt_t tmp;
+
+	spinlock_lock (&process_lock);
+	if (process[currentcpu->pid].restrict)
+		goto ret;
+	if (si < PAGESIZE)
+		si = PAGESIZE;
+	if (di < PAGESIZE)
+		di = PAGESIZE;
+	tmp = mm_process_map_stack (di, false, false);
+	if (!tmp)
+		goto ret;
+	r = mm_process_unmap_stack (tmp, di);
+	if (r) {
+		spinlock_unlock (&process_lock);
+		panic ("unmap stack failed");
+	}
+	process[currentcpu->pid].restrict = true;
+	process[currentcpu->pid].stacksize = si;
+ret:
+	spinlock_unlock (&process_lock);
+	return (ulong)r;
+}
+
+long
+msgpremapbuf (int desc, struct msgbuf *buf)
+{
+	phys_t mm_phys;
+	int topid, togen;
+	void *base_user = NULL;
+
+	spinlock_lock (&process_lock);
+	topid = process[0].msgdsc[desc].pid;
+	togen = process[0].msgdsc[desc].gen;
+	if (topid == 0)
+		goto ret;
+	ASSERT (topid >= 0);
+	ASSERT (topid < NUM_OF_PID);
+	if (!process[topid].valid)
+		goto ret;
+	if (process[topid].gen != togen)	
+		goto ret;
+	mm_phys = mm_process_switch (process[topid].mm_phys);
+	base_user = mm_process_map_shared (mm_phys, buf->base, buf->len,
+					   !!buf->rw, true);
+	mm_process_switch (mm_phys);
+ret:
+	spinlock_unlock (&process_lock);
+	if (base_user)
+		return (long)buf->base - (long)base_user;
+	else
+		return 0;
+}
+
 static syscall_func_t syscall_table[NUM_OF_SYSCALLS] = {
 	NULL,			/* 0 */
 	sys_nop,
@@ -818,6 +939,7 @@ static syscall_func_t syscall_table[NUM_OF_SYSCALLS] = {
 	sys_msgsendbuf,
 	sys_msgunregister,
 	sys_exitprocess,
+	sys_restrict,
 };
 
 __attribute__ ((regparm (1))) void

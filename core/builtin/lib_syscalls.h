@@ -32,6 +32,35 @@ enum {
 	MSG_BUF,
 };
 
+struct msgbuf {
+	void *base;
+	unsigned int len;
+	int rw;
+	long premap_handle;
+};
+
+static inline void
+setmsgbuf_premap (struct msgbuf *mbuf, void *base, unsigned int len, int rw,
+		  long premap_handle)
+{
+	mbuf->base = base;
+	mbuf->len = len;
+	mbuf->rw = rw;
+	mbuf->premap_handle = premap_handle;
+}
+
+static inline void
+setmsgbuf (struct msgbuf *mbuf, void *base, unsigned int len, int rw)
+{
+	setmsgbuf_premap (mbuf, base, len, rw, 0);
+}
+
+static inline long
+msgpremapbuf (int desc, struct msgbuf *buf)
+{
+	return 0;
+}
+
 void nop (void);
 void *msgsetfunc (int desc, void *func);
 int msgregister (char *name, void *func);
@@ -40,7 +69,7 @@ int msgclose (int desc);
 int msgsendint (int desc, int data);
 int msgsenddesc (int desc, int data);
 int newprocess (char *name);
-int msgsendbuf (int desc, int data, void *sendbuf, int sendlen, void *recvbuf,
-		int recvlen);
+int msgsendbuf (int desc, int data, struct msgbuf *buf, int bufcnt);
 int msgunregister (int desc);
 void exitprocess (int retval);
+int restrict (int stacksize, int maxstacksize);

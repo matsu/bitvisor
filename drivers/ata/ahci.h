@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2009 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,46 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _ATA_CORE_H
-#define _ATA_CORE_H
+#ifndef _ATA_AHCI_H
+#define _ATA_AHCI_H
 
-
-/**********************************************************************************************************************
- * ATA Command handler
- *********************************************************************************************************************/
-typedef enum {
-	ATA_CMD_INVALID = 0,
-	ATA_CMD_NONDATA,
-	ATA_CMD_PIO,
-	ATA_CMD_DMA,
-	ATA_CMD_DMQ,
-	ATA_CMD_PACKET,
-	ATA_CMD_SERVICE,
-	ATA_CMD_IDENTIFY,
-	ATA_CMD_DEVPARAM,
-	ATA_CMD_THROUGH,
-} ata_cmd_class_t;
-
-typedef struct {
-	ata_cmd_class_t	class:	6;
-	unsigned int	rw:	1;
-	unsigned int	ext:	1;
-} __attribute__ ((packed)) ata_cmd_type_t;
-
-/**********************************************************************************************************************
- * ATA command-specific structures
- *********************************************************************************************************************/
-struct ata_identity {
-	union {
-		u16 data[256];
-		struct {
-			u16 tmp1[10];
-			char serial_number[20];
-			u16 tmp2[3];
-			char firmware_revision[8];
-			char model_number[40];
-		} __attribute__ ((packed));
-	};
-};
+void *ahci_new (struct pci_device *pci_device);
+void ahci_config_write (void *ahci_data, struct pci_device *pci_device, 
+			core_io_t io, u8 offset, union mem *data);
 
 #endif

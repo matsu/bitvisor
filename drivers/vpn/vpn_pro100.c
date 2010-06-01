@@ -32,11 +32,18 @@
 #ifdef CRYPTO_VPN
 #ifdef VPN_PRO100
 #include "pci.h"
-#include "../../crypto/chelp.h"
-#include "vpn_pro100.h"
+#include <core.h>
 #include <core/mmio.h>
+#include <core/time.h>
 #include <core/vpnsys.h>
+#include "vpn_pro100.h"
 #include "../../core/beep.h"	/* DEBUG */
+
+#define SeCopy			memcpy
+#define SeZero(addr, len)	memset (addr, 0, len)
+#define SeZeroMalloc(len)	memset (alloc (len), 0, len)
+#define SeMalloc		alloc
+#define SeFree			free
 
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
@@ -228,9 +235,9 @@ void pro100_sleep(UINT msecs)
 		return;
 	}
 
-	tick = SeTick64() + (UINT64)msecs;
+	tick = get_time () + msecs * 1000;
 
-	while (SeTick64() <= tick);
+	while (get_time () <= tick);
 }
 
 // ページの確保
@@ -510,9 +517,9 @@ void pro100_exec_cu_op(PRO100_CTX *ctx, PRO100_OP_BLOCK_MAX *op, UINT size)
 
 	// NIC がコマンドを完了するまで待機
 	//debugprint("[");
-	start_tick = SeTick64();
+	start_tick = get_time ();
 	timeouted = true;
-	while ((start_tick + 1000ULL) >= SeTick64())
+	while ((start_tick + 1000000ULL) >= get_time ())
 	{
 		if (b->c)
 		{
@@ -1433,7 +1440,7 @@ int pro100_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u3
 	int ret = 0;
 	PRO100_CTX *ctx = (PRO100_CTX *)data;
 
-	SeLock(ctx->lock);
+	spinlock_lock (&ctx->lock);
 
 	// 範囲チェック
 	if (((UINT64)gphys >= (UINT64)ctx->csr_mm_addr) &&
@@ -1490,7 +1497,7 @@ int pro100_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u3
 		}
 	}
 
-	SeUnlock(ctx->lock);
+	spinlock_unlock (&ctx->lock);
 
 	return ret;
 }
@@ -1500,7 +1507,7 @@ void pro100_get_int_bit_string(char *str, UCHAR value)
 {
 	PRO100_INT_BIT *ib = (PRO100_INT_BIT *)&value;
 
-	SeFormat(str, 0, "M=%u SI=%u FCP=%u ER=%u RNR=%u CNA=%u FR=%u CX=%u",
+	snprintf(str, 1024, "M=%u SI=%u FCP=%u ER=%u RNR=%u CNA=%u FR=%u CX=%u",
 		ib->mask_all, ib->si, ib->fcp, ib->er, ib->rnr, ib->cna, ib->fr, ib->cx);
 }
 
@@ -1509,7 +1516,7 @@ void pro100_get_stat_ack_string(char *str, UCHAR value)
 {
 	PRO100_STAT_ACK *sa = (PRO100_STAT_ACK *)&value;
 
-	SeFormat(str, 0, "FCP=%u SWI=%u MDI=%u RNR=%u CNA=%u FR=%u CX=%u",
+	snprintf(str, 1024, "FCP=%u SWI=%u MDI=%u RNR=%u CNA=%u FR=%u CX=%u",
 		sa->fcp, sa->swi, sa->mdi, sa->rnr, sa->cna, sa->fr, sa->cx_tno);
 }
 
@@ -1789,7 +1796,7 @@ void pro100_new(struct pci_device *dev)
 #endif // of VTD_TRANS
 
 	ctx->dev = dev;
-	ctx->lock = SeNewLock();
+	spinlock_init (&ctx->lock);
 	dev->host = ctx;
 	dev->driver->options.use_base_address_mask_emulation = 1;
 

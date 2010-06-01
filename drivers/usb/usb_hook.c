@@ -61,7 +61,7 @@ usb_match_buffers(const struct usb_hook_pattern *data,
 		/* extract the target data */
 		len = be->offset + be->len - data->offset;
 		if (len < sizeof(u64)) {
-			u8 c[sizeof(u64)];
+			core_mem_t c;
 
 			/* the target may be placed accoss buffer boundary */
 			/* former */
@@ -73,7 +73,7 @@ usb_match_buffers(const struct usb_hook_pattern *data,
 					mapmem_gphys(be->padr, be->len, 0);
 			ASSERT(vadr);
 			for (i = len; i > 0; i--)
-				c[i-1] = *(u8 *)(vadr + data->offset - 
+				c.bytes[i-1] = *(u8 *)(vadr + data->offset - 
 					       be->offset + i);
 			if (!be->vadr)
 				unmapmem((void *)vadr, be->len);
@@ -88,11 +88,11 @@ usb_match_buffers(const struct usb_hook_pattern *data,
 					mapmem_gphys(be->padr, be->len, 0);
 			ASSERT(vadr);
 			for (i = len; i < sizeof(u64); i++)
-				c[i] = *(u8 *)(vadr + data->offset - 
-					       be->offset + i);
+				c.bytes[i] = *(u8 *)(vadr + data->offset - 
+					     be->offset + i);
 			if (!be->vadr)
 				unmapmem((void *)vadr, be->len);
-			target = *(u64 *)c;
+			target = c.qword;
 		} else {
 			/* */
 			if (be->vadr)

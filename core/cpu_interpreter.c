@@ -2298,8 +2298,9 @@ opcode_idata (struct op *op, struct idata id)
 		F_SAR,
 	};
 	u32 src, dst;
-	const ulong flagmask = RFLAGS_CF_BIT | RFLAGS_PF_BIT | RFLAGS_AF_BIT |
-		RFLAGS_ZF_BIT | RFLAGS_SF_BIT | RFLAGS_DF_BIT | RFLAGS_OF_BIT;
+	static const ulong flagmask = RFLAGS_CF_BIT | RFLAGS_PF_BIT |
+		RFLAGS_AF_BIT | RFLAGS_ZF_BIT | RFLAGS_SF_BIT |
+		RFLAGS_DF_BIT | RFLAGS_OF_BIT;
 	ulong flags, newflags = ~(0UL), tmp;
 	bool update_flags = false;
 

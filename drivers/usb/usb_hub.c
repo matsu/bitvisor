@@ -28,46 +28,46 @@ static int
 usbhub_device_disconnect(struct usb_host *usbhc, u8 devadr, u64 port)
 {
 	u64 hub_port;
-	struct usb_device *tmp_dev, *dev = (struct usb_device *)NULL;
-	struct usb_hub_device *h_dev = (struct usb_hub_device *)NULL;
+	struct usb_device *dev, *rmdev = (struct usb_device *)NULL;
+	struct usb_hub_device *hubdev = (struct usb_hub_device *)NULL;
 	struct device_list *d_list;
 
 	dprintft(3, "HUB(%02x): HUB PORT(%d) status disconnect.\n",
 				 devadr, (int)(port & USB_PORT_MASK));
 	hub_port = (port & USB_HUB_MASK) >> USB_HUB_SHIFT;
-	for (tmp_dev = usbhc->device; 
-	 	   tmp_dev; tmp_dev = tmp_dev->next) {
-		if (tmp_dev->portno == port) {
+	for (dev = usbhc->device; dev; dev = dev->next) {
+		if (dev->portno == port) {
 			dprintft(1, "PORTNO ");
 			dprintf_port(1, port);
 			dprintf(1,": USB device disconnect.\n");
-			dev = tmp_dev;
-		} else if (tmp_dev->portno == hub_port) {
-			h_dev = (struct usb_hub_device *)
-				tmp_dev->handle->private_data;
+			rmdev = dev;
+		} else if (dev->portno == hub_port) {
+			hubdev = (struct usb_hub_device *)
+				dev->handle->private_data;
 		}
 
-		if (dev && h_dev)
+		if (rmdev && hubdev)
 			break;
 	}
 
-	if (!dev || !h_dev) 
+	if (!rmdev || !hubdev)
 		return USB_HOOK_PASS;
 
-	for (d_list = h_dev->list; d_list; d_list = d_list->next)
-		if (d_list->device == dev) {
-			if (d_list->next)
-				d_list->next->prev = d_list->prev;
+	for (d_list = hubdev->list; d_list; d_list = d_list->next) {
+		if (d_list->device != rmdev)
+			continue;
 
-			if (d_list->prev)
-				d_list->prev->next = d_list->next;
-			else
-				h_dev->list = d_list->next;
+		if (d_list->next)
+			d_list->next->prev = d_list->prev;
 
-			free(d_list);
-			break;
-		}
-	free_device(usbhc, dev);
+		if (d_list->prev)
+			d_list->prev->next = d_list->next;
+		else
+			hubdev->list = d_list->next;
+		free(d_list);
+		break;
+	}
+	free_device(usbhc, rmdev);
 
 	return USB_HOOK_PASS;
 }
@@ -78,7 +78,7 @@ usbhub_get_portno(struct usb_device *hubdev, struct usb_buffer_list *ub)
 	u16 port;
 
 	port = get_wIndex_from_setup(ub);
-	return ((hubdev->portno << USB_HUB_SHIFT) + port);
+	return ((hubdev->portno << USB_HUB_SHIFT) + (port & USB_PORT_MASK));
 }
 
 static int
@@ -164,7 +164,7 @@ init_hub_device(struct usb_host *usbhc,
 	struct usb_device *dev;
 	struct usb_hub_device *hub_dev;
 	struct usb_device_handle *handler;
-	const struct usb_hook_pattern pat_clrpf = {
+	static const struct usb_hook_pattern pat_clrpf = {
 		.pid = USB_PID_SETUP,
 		.mask = 0x000000000000ffffULL,
 		.pattern = 0x000000000000000123ULL,
@@ -220,7 +220,7 @@ init_hub_device(struct usb_host *usbhc,
 void 
 usbhub_init_handle(struct usb_host *host)
 {
-	const struct usb_hook_pattern pat_setconf = {
+	static const struct usb_hook_pattern pat_setconf = {
 		.pid = USB_PID_SETUP,
 		.mask = 0x000000000000ffffULL,
 		.pattern = 0x0000000000000900ULL,
@@ -245,14 +245,14 @@ void
 hub_portdevice_register(struct usb_host *host, 
 			u64 hub_port, struct usb_device *dev)
 {
-        struct usb_device *tmp_dev;
+        struct usb_device *hubdev;
 	struct usb_hub_device *hub;
 	struct device_list *d_list;
 
-	for (tmp_dev = host->device; tmp_dev; tmp_dev = tmp_dev->next)
-		if (hub_port == tmp_dev->portno) {
+	for (hubdev = host->device; hubdev; hubdev = hubdev->next)
+		if (hub_port == hubdev->portno) {
 			hub = (struct usb_hub_device*)
-				tmp_dev->handle->private_data;
+				hubdev->handle->private_data;
 			d_list = zalloc_device_list();
 			d_list->device = dev;
 
@@ -264,13 +264,14 @@ hub_portdevice_register(struct usb_host *host,
 			}
 			d_list->next = hub->list;
 			hub->list = d_list;
+			dev->parent = hubdev;
 			dprintft(3, "HUB(%02x): HUB PORT(%d) device "
 				 "checked and registered.\n",
-				 tmp_dev->devnum, 
+				 hubdev->devnum,
 				(int)dev->portno & USB_PORT_MASK);
 			break;
 		}
-	if (!tmp_dev)
+	if (!hubdev)
 		dprintft(1, "HUB(%02x): HUB device not found!?!?\n",
 						 dev->devnum);
 
