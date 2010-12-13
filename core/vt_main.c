@@ -629,14 +629,39 @@ do_task_switch (void)
 	if (r != VMMERR_SUCCESS)
 		goto err;
 	/* load segment descriptors */
-	if (rflags & RFLAGS_VM_BIT)
-		panic ("switching to virtual 8086 mode");
 	task_switch_load_segdesc (eqt.s.sel, gdtr_base, gdtr_limit,
 				  VMCS_GUEST_TR_BASE, VMCS_GUEST_TR_LIMIT,
 				  VMCS_GUEST_TR_ACCESS_RIGHTS);
 	task_switch_load_segdesc (tss32_2.ldt, gdtr_base, gdtr_limit,
 				  VMCS_GUEST_LDTR_BASE, VMCS_GUEST_LDTR_LIMIT,
 				  VMCS_GUEST_LDTR_ACCESS_RIGHTS);
+	if (rflags & RFLAGS_VM_BIT) {
+		asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS, 0xF3);
+		asm_vmwrite (VMCS_GUEST_CS_ACCESS_RIGHTS, 0xF3);
+		asm_vmwrite (VMCS_GUEST_SS_ACCESS_RIGHTS, 0xF3);
+		asm_vmwrite (VMCS_GUEST_DS_ACCESS_RIGHTS, 0xF3);
+		asm_vmwrite (VMCS_GUEST_FS_ACCESS_RIGHTS, 0xF3);
+		asm_vmwrite (VMCS_GUEST_GS_ACCESS_RIGHTS, 0xF3);
+		asm_vmwrite (VMCS_GUEST_ES_LIMIT, 0xFFFF);
+		asm_vmwrite (VMCS_GUEST_CS_LIMIT, 0xFFFF);
+		asm_vmwrite (VMCS_GUEST_SS_LIMIT, 0xFFFF);
+		asm_vmwrite (VMCS_GUEST_DS_LIMIT, 0xFFFF);
+		asm_vmwrite (VMCS_GUEST_FS_LIMIT, 0xFFFF);
+		asm_vmwrite (VMCS_GUEST_GS_LIMIT, 0xFFFF);
+		asm_vmwrite (VMCS_GUEST_ES_SEL, tss32_2.es);
+		asm_vmwrite (VMCS_GUEST_ES_BASE, tss32_2.es << 4);
+		asm_vmwrite (VMCS_GUEST_CS_SEL, tss32_2.cs);
+		asm_vmwrite (VMCS_GUEST_CS_BASE, tss32_2.cs << 4);
+		asm_vmwrite (VMCS_GUEST_SS_SEL, tss32_2.ss);
+		asm_vmwrite (VMCS_GUEST_SS_BASE, tss32_2.ss << 4);
+		asm_vmwrite (VMCS_GUEST_DS_SEL, tss32_2.ds);
+		asm_vmwrite (VMCS_GUEST_DS_BASE, tss32_2.ds << 4);
+		asm_vmwrite (VMCS_GUEST_FS_SEL, tss32_2.fs);
+		asm_vmwrite (VMCS_GUEST_FS_BASE, tss32_2.fs << 4);
+		asm_vmwrite (VMCS_GUEST_GS_SEL, tss32_2.gs);
+		asm_vmwrite (VMCS_GUEST_GS_BASE, tss32_2.gs << 4);
+		goto virtual8086mode;
+	}
 	task_switch_load_segdesc (tss32_2.es, gdtr_base, gdtr_limit,
 				  VMCS_GUEST_ES_BASE, VMCS_GUEST_ES_LIMIT,
 				  VMCS_GUEST_ES_ACCESS_RIGHTS);
@@ -655,6 +680,7 @@ do_task_switch (void)
 	task_switch_load_segdesc (tss32_2.gs, gdtr_base, gdtr_limit,
 				  VMCS_GUEST_GS_BASE, VMCS_GUEST_GS_LIMIT,
 				  VMCS_GUEST_GS_ACCESS_RIGHTS);
+virtual8086mode:
 	vt_read_control_reg (CONTROL_REG_CR0, &tmp);
 	tmp |= CR0_TS_BIT;
 	vt_write_control_reg (CONTROL_REG_CR0, tmp);

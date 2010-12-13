@@ -39,7 +39,7 @@
 #include "tty.h"
 #include "types.h"
 
-void
+enum ioact
 do_iopass_default (enum iotype type, u32 port, void *data)
 {
 	switch (type) {
@@ -63,7 +63,8 @@ do_iopass_default (enum iotype type, u32 port, void *data)
 		break;
 	default:
 		panic ("Fatal error: do_iopass_default: Bad type");
-	}		
+	}
+	return IOACT_CONT;
 }
 
 static void

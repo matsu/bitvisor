@@ -31,6 +31,6 @@
 #define _CORE_COMPHAPPY_H
 
 /* make gcc happy */
-#define VAR_IS_INITIALIZED(var) asm ("" : : "m" (var))
+#define VAR_IS_INITIALIZED(var) asm ("" : "=m" (var))
 
 #endif

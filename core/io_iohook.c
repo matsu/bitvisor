@@ -37,18 +37,19 @@
 #include "printf.h"
 
 #ifdef DEBUG_IO_MONITOR
-static void
+static enum ioact
 kbdio_monitor (enum iotype type, u32 port, void *data)
 {
 	do_io_default (type, port, data);
 	if (type == IOTYPE_INB)
 		printf ("IO Monitor test: INB PORT=0x60 DATA=0x%X\n", *(u8 *)data);
+	return IOACT_CONT;
 }
 #endif
 
 #ifdef DEBUG_IO0x20_MONITOR
 #include "vramwrite.h"
-static void
+static enum ioact
 io0x20_monitor (enum iotype type, u32 port, void *data)
 {
 	do_io_default (type, port, data);
@@ -57,12 +58,13 @@ io0x20_monitor (enum iotype type, u32 port, void *data)
 		printf ("OUT0x20,0x%02X", *(u8 *)data);
 		vramwrite_restore_cursor ();
 	}
+	return IOACT_CONT;
 }
 #endif
 
 #if defined (F11PANIC) || defined (F12MSG)
 #include "keyboard.h"
-static void
+static enum ioact
 kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 {
 	static int led = 0;
@@ -81,7 +83,7 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 		if (ps2_locked) {
 			printf ("Ignoring PS/2 input\n");
 			*(u8 *)data = 0;
-			return;
+			return IOACT_CONT;
 		}
 #endif
 		switch (*(u8 *)data) {
@@ -144,6 +146,7 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 		}
 		lk = *(u8 *)data;
 	}
+	return IOACT_CONT;
 }
 #endif
 

@@ -35,11 +35,21 @@
 
 #include "debug.h"
 #include <core.h>
+#include <core/thread.h>
+#include <core/time.h>
 #include "ata.h"
+#include "ata_bm.h"
 #include "ata_cmd.h"
 #include "ata_error.h"
 #include "atapi.h"
 #include "security.h"
+
+struct ata_command_list {
+	LIST1_DEFINE (struct ata_command_list);
+	struct storage_hc_dev_atacmd *cmd;
+	u64 start_time;
+	int port_no, dev_no;
+};
 
 #ifdef STORAGE_ENC
 static const char ata_virtual_model[40] = "BitVisor Encrypted ATA Drive            ";
@@ -138,7 +148,7 @@ static int ata_handle_device_control(struct ata_channel *channel, core_io_t io, 
 	if (dev_ctl.srst == 1)
 		channel->state = ATA_STATE_READY;
 	if (channel->interrupt_disabled)
-		dev_ctl.nien = 0;
+		dev_ctl.nien = 1;
 	ata_ctl_out(channel, dev_ctl);
 	return CORE_IO_RET_DONE;
 }
@@ -468,11 +478,15 @@ int ata_cmdblk_handler(core_io_t io, union mem *data, void *arg)
 	int regname = ata_get_regname(channel, io, ATA_ID_CMD);
 
 	ATA_VERIFY_IO(regname == ATA_Data || io.size == 1);
-	spinlock_lock(&channel->lock);
+	ata_channel_lock (channel);
 	if (io.dir == CORE_IO_DIR_OUT)
 		channel->dev_ctl.hob = 0; // HOB is cleared on a write to any cmdblk register
 	ret = ata_cmdblk_handler_table[io.dir][regname](channel, io, data);
-	spinlock_unlock(&channel->lock);
+	if (ret == CORE_IO_RET_DEFAULT) {
+		core_io_handle_default (io, data);
+		ret = CORE_IO_RET_DONE;
+	}
+	ata_channel_unlock (channel);
 	return ret;
 }
 
@@ -490,8 +504,434 @@ int ata_ctlblk_handler(core_io_t io, union mem *data, void *arg)
 	int regname = ata_get_regname(channel, io, ATA_ID_CTL);
 
 	ATA_VERIFY_IO(io.size == 1);
-	spinlock_lock(&channel->lock);
+	ata_channel_lock (channel);
 	ret = ata_ctlblk_handler_table[io.dir][regname](channel, io, data);
-	spinlock_unlock(&channel->lock);
+	if (ret == CORE_IO_RET_DEFAULT) {
+		core_io_handle_default (io, data);
+		ret = CORE_IO_RET_DONE;
+	}
+	ata_channel_unlock (channel);
 	return ret;
+}
+
+void
+ata_channel_lock (struct ata_channel *channel)
+{
+	spinlock_lock (&channel->locked_lock);
+	while (channel->locked) {
+		spinlock_unlock (&channel->locked_lock);
+		schedule ();
+		spinlock_lock (&channel->locked_lock);
+	}
+	channel->locked = true;
+	spinlock_unlock (&channel->locked_lock);
+}
+
+void
+ata_channel_unlock (struct ata_channel *channel)
+{
+	spinlock_lock (&channel->locked_lock);
+	channel->locked = false;
+	spinlock_unlock (&channel->locked_lock);
+}
+
+static bool
+ata_command_do_wait_for_ready (struct ata_channel *channel, u64 start_time,
+			       u64 timeout, bool unlock)
+{
+	u64 time;
+	ata_status_t status;
+
+	for (;;) {
+		time = get_time ();
+		if (time - start_time >= timeout)
+			return false;
+		if (channel->state == ATA_STATE_READY) {
+			status = ata_read_status (channel);
+			if (!status.bsy && status.drdy && !status.drq)
+				break;
+		}
+		if (unlock)
+			ata_channel_unlock (channel);
+		schedule ();
+		if (unlock)
+			ata_channel_lock (channel);
+	}
+	return true;
+}
+
+static bool
+ata_command_do_device_select (struct ata_channel *channel,
+			      ata_device_reg_t device_reg, u64 timeout)
+{
+	u64 time;
+	ata_status_t status;
+
+	ata_write_reg (channel, ATA_Device, device_reg.value);
+	time = get_time ();
+	/* Wait for 1us, more than 400ns */
+	while (get_time () - time < 1)
+		schedule ();
+	for (;;) {
+		status = ata_read_status (channel);
+		if (!status.bsy && !status.drq)
+			break;
+		if (get_time () - time >= timeout)
+			return false;
+		schedule ();
+	}
+	return true;
+}
+
+static bool
+ata_command_do_wait_for_drq (struct ata_channel *channel, u64 start_time,
+			     u64 timeout)
+{
+	u64 time;
+	ata_status_t status;
+
+	for (;;) {
+		time = get_time ();
+		if (time - start_time >= timeout)
+			return false;
+		status = ata_read_status (channel);
+		if (!status.bsy && status.drq)
+			break;
+		schedule ();
+	}
+	return true;
+}
+
+static void
+make_prd_entries (ata_prd_table_t **prd, phys_t *prd_phys, void **buf2,
+		  struct storage_hc_dev_atacmd *cmd)
+{
+	int i, n;
+	phys_t buf_phys;
+	unsigned int buf_len;
+
+	buf_phys = cmd->buf_phys;
+	buf_len = cmd->buf_len;
+	if (!buf_phys || (buf_phys & 1) || (buf_len & 1) || buf_len <= 1) {
+		if (buf_len <= 1)
+			buf_len = 2;
+		else if (buf_len & 1)
+			buf_len++;
+		*buf2 = alloc2 (buf_len, &buf_phys);
+		if (cmd->write)
+			memcpy (*buf2, cmd->buf, buf_len);
+	}
+	n = (buf_len - 1) / ATA_BM_BUFSIZE;
+	*prd = alloc2 (sizeof **prd * (n + 1), prd_phys);
+	for (i = 0; i < n; i++) {
+		(*prd)[i].value = 0;
+		(*prd)[i].base = buf_phys + (ATA_BM_BUFSIZE * i);
+	}
+	(*prd)[i].value = 0;
+	(*prd)[i].base = buf_phys + (ATA_BM_BUFSIZE * i);
+	(*prd)[i].count = buf_len % ATA_BM_BUFSIZE;
+	(*prd)[i].eot = 1;
+}
+
+static void
+ata_command_do (struct ata_host *host, struct ata_channel *channel,
+		struct ata_command_list *p)
+{
+	ata_device_reg_t device_reg;
+	bool device_select = false;
+	int regoff[4] = { ATA_SectorCount, ATA_LBA_Low, ATA_LBA_Mid,
+			  ATA_LBA_High };
+	int regvalue[2][4];
+	int i, j;
+	u64 time;
+	u8 *buf;
+	int remain, transfer_len;
+	ata_dev_ctl_t dev_ctl, dev_ctl_orig;
+	ata_bm_status_reg_t bm_status, bm_status_orig, bm_status_tmp;
+	ata_prd_table_t *prd = NULL;
+	phys_t prd_phys;
+	void *buf2 = NULL;
+	ata_bm_cmd_reg_t bm_cmd;
+
+	/* Wait for ready */
+	ata_channel_lock (channel);
+	if (!ata_command_do_wait_for_ready (channel, p->start_time,
+					    p->cmd->timeout_ready, true)) {
+		p->cmd->timeout_ready = -1;
+		goto timeout;
+	}
+	/* Save a bus master status register */
+	in8 (channel->base[ATA_ID_BM] + ATA_BM_Status, &bm_status.value);
+	bm_status_orig = bm_status;
+	/* Switch a PRD table */
+	if (!p->cmd->pio) {
+		if (bm_status.active) {
+			printf ("ATA: Bus master still active!\n");
+			p->cmd->timeout_ready = -1;
+			goto timeout;
+		}
+		make_prd_entries (&prd, &prd_phys, &buf2, p->cmd);
+		out32 (channel->base[ATA_ID_BM] + ATA_BM_PRD_Table, prd_phys);
+	}
+	/* Disable the ATA interrupt */
+	dev_ctl_orig = channel->dev_ctl;
+	dev_ctl = dev_ctl_orig;
+	dev_ctl.nien = 1;	/* Disable the interrupt */
+	channel->dev_ctl = dev_ctl;
+	ata_ctl_out (channel, dev_ctl);
+	/* Device selection */
+	device_reg = ata_read_device (channel);
+	if (device_reg.dev != p->dev_no) {
+		device_select = true;
+		device_reg.dev = !device_reg.dev;
+		if (!ata_command_do_device_select (channel, device_reg, 1000))
+			panic ("ATA: Device selection timeout");
+	}
+	/* Save registers */
+	for (i = 0; i <= 1; i++) {
+		ata_set_hob (channel, i);
+		for (j = 0; j < 4; j++)
+			regvalue[i][j] = ata_read_reg (channel, regoff[j]);
+	}
+	/* Set registers */
+	ata_write_reg (channel, ATA_Features, p->cmd->features_error);
+	dev_ctl.value = p->cmd->control;
+	dev_ctl.nien = 1;	/* Disable the interrupt */
+	channel->dev_ctl = dev_ctl;
+	ata_ctl_out (channel, dev_ctl);
+	ata_write_reg (channel, ATA_SectorCount, p->cmd->sector_count_exp);
+	ata_write_reg (channel, ATA_SectorCount, p->cmd->sector_count);
+	ata_write_reg (channel, ATA_LBA_Low, p->cmd->sector_number_exp);
+	ata_write_reg (channel, ATA_LBA_Low, p->cmd->sector_number);
+	ata_write_reg (channel, ATA_LBA_Mid, p->cmd->cyl_low_exp);
+	ata_write_reg (channel, ATA_LBA_Mid, p->cmd->cyl_low);
+	ata_write_reg (channel, ATA_LBA_High, p->cmd->cyl_high_exp);
+	ata_write_reg (channel, ATA_LBA_High, p->cmd->cyl_high);
+	ata_write_reg (channel, ATA_Device,
+		       (p->cmd->dev_head & ~0x10) | (p->dev_no ? 0x10 : 0));
+	/* Issue a command */
+	if (!p->cmd->pio && !p->cmd->write) {
+		bm_cmd.value = 0;
+		bm_cmd.rw = ATA_BM_READ;
+		bm_cmd.start = ATA_BM_START;
+		out8 (channel->base[ATA_ID_BM] + ATA_BM_Command, bm_cmd.value);
+	}
+	ata_write_reg (channel, ATA_Command, p->cmd->command_status);
+	if (!p->cmd->pio && p->cmd->write) {
+		bm_cmd.value = 0;
+		bm_cmd.rw = ATA_BM_WRITE;
+		bm_cmd.start = ATA_BM_START;
+		out8 (channel->base[ATA_ID_BM] + ATA_BM_Command, bm_cmd.value);
+	}
+	time = get_time ();
+	/* Wait for 1us, more than 400ns */
+	while (get_time () - time < 1)
+		schedule ();
+	/* Transfer data */
+	buf = p->cmd->buf;
+	remain = p->cmd->buf_len;
+	if (remain & 1)
+		remain--;
+	if (!p->cmd->pio) {
+		for (;;) {
+			in8 (channel->base[ATA_ID_BM] + ATA_BM_Status,
+			     &bm_status.value);
+			if (!bm_status.active)
+				break;
+			if (get_time () - time >= p->cmd->timeout_complete)
+				break;
+			schedule ();
+		}
+		bm_cmd.start = ATA_BM_STOP;
+		out8 (channel->base[ATA_ID_BM] + ATA_BM_Command, bm_cmd.value);
+		if (bm_status.active) {
+			p->cmd->timeout_complete = -1;
+			goto transfer_timeout;
+		}
+		remain = 0;
+	}
+	while (remain > 0) {
+		if (!ata_command_do_wait_for_drq (channel, time,
+						  p->cmd->timeout_complete)) {
+			p->cmd->timeout_complete = -1;
+			goto transfer_timeout;
+		}
+		transfer_len = remain > 512 ? 512 : remain;
+		if (p->cmd->write)
+			outsn (channel->base[ATA_ID_CMD] + ATA_Data, buf, 2,
+			       transfer_len);
+		else
+			insn (channel->base[ATA_ID_CMD] + ATA_Data, buf, 2,
+			      transfer_len);
+		buf += transfer_len;
+		remain -= transfer_len;
+	}
+	if (!ata_command_do_wait_for_ready (channel, time,
+					    p->cmd->timeout_complete, false))
+		p->cmd->timeout_complete = -1;
+transfer_timeout:
+	if (p->cmd->timeout_complete == -1) /* FIXME */
+		printf ("ATA: Transfer timeout, or an error occurred."
+			" need to reset the controller here\n");
+	/* Read registers */
+	p->cmd->command_status = ata_read_status (channel).value;
+	p->cmd->features_error = ata_read_reg (channel, ATA_Error);
+	ata_set_hob (channel, 1);
+	p->cmd->sector_count_exp = ata_read_reg (channel, ATA_SectorCount);
+	p->cmd->sector_number_exp = ata_read_reg (channel, ATA_LBA_Low);
+	p->cmd->cyl_low_exp = ata_read_reg (channel, ATA_LBA_Mid);
+	p->cmd->cyl_high_exp = ata_read_reg (channel, ATA_LBA_High);
+	ata_set_hob (channel, 0);
+	p->cmd->sector_count = ata_read_reg (channel, ATA_SectorCount);
+	p->cmd->sector_number = ata_read_reg (channel, ATA_LBA_Low);
+	p->cmd->cyl_low = ata_read_reg (channel, ATA_LBA_Mid);
+	p->cmd->cyl_high = ata_read_reg (channel, ATA_LBA_High);
+	/* Restore registers */
+	for (i = 0; i < 4; i++) {
+		ata_write_reg (channel, regoff[i], regvalue[1][i]);
+		ata_write_reg (channel, regoff[i], regvalue[0][i]);
+	}
+	ata_write_reg (channel, ATA_Device, device_reg.value);
+	/* Restore device selection */
+	if (device_select) {
+		device_reg.dev = !device_reg.dev;
+		if (!ata_command_do_device_select (channel, device_reg, 1000))
+			panic ("ATA: Restoring device selection timeout");
+	}
+	/* Reenable the interrupt */
+	channel->dev_ctl = dev_ctl_orig;
+	dev_ctl = dev_ctl_orig;
+	ata_ctl_out (channel, dev_ctl);
+	/* Restore the bus master status */
+	in8 (channel->base[ATA_ID_BM] + ATA_BM_Status, &bm_status.value);
+	bm_status_tmp.value = 0;
+	bm_status_tmp.interrupt = bm_status.interrupt;
+	bm_status_tmp.error = bm_status.error;
+	bm_status_tmp.value &= ~bm_status_orig.value;
+	if (bm_status_tmp.value) {
+		bm_status = bm_status_orig;
+		bm_status.interrupt = bm_status_tmp.interrupt;
+		bm_status.error = bm_status_tmp.error;
+		out8 (channel->base[ATA_ID_BM] + ATA_BM_Status,
+		      bm_status.value);
+	}
+	/* Disable the interrupt */
+	dev_ctl.nien = 1;
+	ata_ctl_out (channel, dev_ctl);
+	/* Restore the PRD table */
+	if (!p->cmd->pio) {
+		out32 (channel->base[ATA_ID_BM] + ATA_BM_PRD_Table,
+		       channel->shadow_prd_phys);
+		if (buf2) {
+			if (!p->cmd->write)
+				memcpy (p->cmd->buf, buf2, p->cmd->buf_len);
+			free (buf2);
+		}
+		if (prd)
+			free (prd);
+	}
+timeout:
+	ata_channel_unlock (channel);
+	p->cmd->callback (p->cmd->data, p->cmd);
+}
+
+static void
+ata_command_thread (void *arg)
+{
+	struct ata_host *host;
+	struct ata_channel *channel;
+	struct ata_command_list *p;
+
+	host = arg;
+	for (;;) {
+		spinlock_lock (&host->ata_cmd_lock);
+		p = LIST1_POP (host->ata_cmd_list);
+		if (!p)
+			host->ata_cmd_thread = false;
+		spinlock_unlock (&host->ata_cmd_lock);
+		if (!p)
+			break;
+		channel = host->channel[p->port_no];
+		ata_command_do (host, channel, p);
+		free (p);
+	}
+	thread_exit ();
+}
+
+static int
+ata_scandev (void *drvdata, int port_no,
+	     storage_hc_scandev_callback_t *callback, void *data)
+{
+	if (port_no == 0 || port_no == 1) {
+		if (callback (data, 0)) /* Master */
+			callback (data, 1); /* Slave */
+		return 2;
+	} else {
+		return 0;
+	}
+}
+
+static bool
+ata_openable (void *drvdata, int port_no, int dev_no)
+{
+	if ((port_no == 0 || port_no == 1) &&
+	    (dev_no == 0 || dev_no == 1))
+		return true;
+	return false;
+}
+
+static bool
+ata_command (void *drvdata, int port_no, int dev_no,
+	     struct storage_hc_dev_atacmd *cmd, int cmdsize)
+{
+	struct ata_host *host;
+	struct ata_command_list *p;
+	bool create_thread = false;
+
+	if (cmdsize != sizeof *cmd)
+		return false;
+	if (port_no != 0 && port_no != 1)
+		return false;
+	if (dev_no != 0 && dev_no != 1)
+		return false;
+	host = drvdata;
+	p = alloc (sizeof *p);
+	p->cmd = cmd;
+	p->port_no = port_no;
+	p->dev_no = dev_no;
+	p->start_time = get_time ();
+	spinlock_lock (&host->ata_cmd_lock);
+	LIST1_ADD (host->ata_cmd_list, p);
+	if (!host->ata_cmd_thread) {
+		host->ata_cmd_thread = true;
+		create_thread = true;
+	}
+	spinlock_unlock (&host->ata_cmd_lock);
+	if (create_thread)
+		thread_new (ata_command_thread, host, VMM_STACKSIZE);
+	return true;
+}
+
+void
+ata_ahci_mode (struct pci_device *pci_device, bool ahci_enabled)
+{
+	static struct storage_hc_driver_func hc_driver_func = {
+		.scandev = ata_scandev,
+		.openable = ata_openable,
+		.atacommand = ata_command,
+	};
+	struct ata_host *host;
+
+	host = pci_device->host;
+	if (ahci_enabled) {
+		if (host->hc)
+			storage_hc_unregister (host->hc);
+		host->hc = NULL;
+		host->ahci_enabled = true;
+	} else {
+		if (!host->hc)
+			host->hc = storage_hc_register (&host->hc_addr,
+							&hc_driver_func, host);
+		host->ahci_enabled = false;
+	}
 }

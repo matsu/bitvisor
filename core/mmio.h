@@ -53,7 +53,7 @@ struct mmio_data {
 
 int mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len,
 			u32 flags);
-int mmio_access_page (phys_t gphysaddr);
+int mmio_access_page (phys_t gphysaddr, bool emulation);
 void mmio_lock (void);
 void mmio_unlock (void);
 

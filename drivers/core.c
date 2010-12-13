@@ -118,7 +118,7 @@ struct handler_descriptor *alloc_handler_descriptor()
 }
 
 
-static void core_iofunc(enum iotype iotype, u32 port, void *data)
+static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
 {
 	int i, hd, ret = CORE_IO_RET_DEFAULT;
 	core_io_t io;
@@ -175,6 +175,7 @@ static void core_iofunc(enum iotype iotype, u32 port, void *data)
 		}
 		break;
 	}
+	return IOACT_CONT;
 }
 
 /** 

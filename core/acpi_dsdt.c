@@ -47,6 +47,7 @@ enum elementid {
 	AML_PkgLength_3,
 	AML_PkgLength_PUSH,
 	AML_SegCount_OK,
+	AML_ObjectList2,
 	AML_0x00,
 	AML_0x00_TO_0xFF,
 	AML_0x01,
@@ -1433,10 +1434,6 @@ loop2:
 	case AML_DataRegionOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x88, OK);
 		break;
-	case AML_DefDevice:
-		addbuf (d, AML_DeviceOp, AML_PkgLength, 
-			AML_NameString, AML_ObjectList, AML_PkgEND, OK);
-		break;
 	case AML_DeviceOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x82, OK);
 		break;
@@ -2366,6 +2363,14 @@ loop2:
 		goto err;
 		addbuf (d, AML_TermArg, OK); /* FIXME: correct? */
 		break;
+	case AML_DefDevice:
+		/* If() operator must not be in ObjectList but */
+		/* some BIOSes have a DSDT which has If() operator */
+		/* in ObjectList of Device() block. (see ACPI spec 4.0a) */
+		/* ObjectList2 includes If() operator for workaround. */
+		addbuf (d, AML_DeviceOp, AML_PkgLength, 
+			AML_NameString, AML_ObjectList2, AML_PkgEND, OK);
+		break;
 	case AML_DefMethod:
 		addbuf (d, AML_MethodOp, AML_PkgLength, 
 			AML_NameString, AML_MethodFlags, AML_ByteList, 
@@ -2382,6 +2387,11 @@ loop2:
 	case AML_NotifyObject:
 		addbuf (d, AML_SuperName, OK);
 		/* => ThermalZone | Processor | Device */
+		break;
+	case AML_ObjectList2:
+		addbuf (d, AML_Nothing, OK);
+		addbuf (d, AML_Object, AML_ObjectList2, OK);
+		addbuf (d, AML_DefIfElse, AML_ObjectList2, OK);
 		break;
 	case AML_ObjectReference:
 		addbuf (d, AML_TermArg, OK); /* FIXME: correct? */

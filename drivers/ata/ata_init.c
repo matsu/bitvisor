@@ -141,7 +141,8 @@ static struct ata_channel *ata_new_channel(struct ata_host* host)
 
 	channel = alloc_ata_channel();
 	memset(channel, 0, sizeof(*channel));
-	spinlock_init(&channel->lock);
+	spinlock_init (&channel->locked_lock);
+	channel->locked_lock = false;
 	channel->hd[ATA_ID_CMD] = -1;
 	channel->hd[ATA_ID_CTL] = -1;
 	channel->hd[ATA_ID_BM] = -1;
@@ -173,6 +174,15 @@ static void ata_new(struct pci_device *pci_device, bool ahci_flag)
 	host->interrupt_line = pci_device->config_space.interrupt_line;
 	host->channel[0] = ata_new_channel(host);
 	host->channel[1] = ata_new_channel(host);
+	host->hc = NULL;
+	host->ahci_enabled = false;
+	STORAGE_HC_ADDR_PCI (host->hc_addr.addr, pci_device);
+	host->hc_addr.type = STORAGE_HC_TYPE_ATA;
+	host->hc_addr.num_ports = 2;
+	host->hc_addr.ncq = false;
+	spinlock_init (&host->ata_cmd_lock);
+	LIST1_HEAD_INIT (host->ata_cmd_list);
+	host->ata_cmd_thread = false;
 	pci_device->host = host;
 
 	/* initialize primary and secondary channels */
@@ -190,6 +200,9 @@ static void ata_new(struct pci_device *pci_device, bool ahci_flag)
 
 	/* vendor specific init */
 	ata_init_vendor(host);
+
+	if (!host->ahci_enabled)
+		ata_ahci_mode (pci_device, false);
 
 #ifdef VTD_TRANS
 	// printf("ATA : %x:%x:%x\n",pci_device->address.bus_no ,pci_device->address.device_no ,pci_device->address.func_no) ;

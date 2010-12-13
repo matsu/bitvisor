@@ -42,6 +42,6 @@ struct io_io_data {
 	iofunc_t iofunc[NUM_OF_IOPORT];
 };
 
-void call_io (enum iotype type, u32 port, void *data);
+enum ioact call_io (enum iotype type, u32 port, void *data);
 
 #endif

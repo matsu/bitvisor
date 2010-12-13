@@ -121,8 +121,8 @@ int ata_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, uni
 	union mem *regptr = (union mem *)&config_space->regs8[offset];
 
 	/* To avoid TOCTTOU, lock the devices while the base addresses may be changed. */
-	spinlock_lock(&ata_host->channel[0]->lock);
-	spinlock_lock(&ata_host->channel[1]->lock);
+	ata_channel_lock (ata_host->channel[0]);
+	ata_channel_lock (ata_host->channel[1]);
 
 	/* update cache */
 	regcpy(regptr, data, (size_t)io.size);
@@ -178,7 +178,7 @@ int ata_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, uni
 		break;
 	}
 
-	spinlock_unlock(&ata_host->channel[1]->lock);
-	spinlock_unlock(&ata_host->channel[0]->lock);
+	ata_channel_unlock (ata_host->channel[1]);
+	ata_channel_unlock (ata_host->channel[0]);
 	return CORE_IO_RET_DONE;
 }

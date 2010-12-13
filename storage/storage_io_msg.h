@@ -27,79 +27,75 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "current.h"
-#include "panic.h"
-#include "svm_io.h"
-#include "vcpu.h"
+enum {
+	STORAGE_IO_INIT,
+	STORAGE_IO_DEINIT,
+	STORAGE_IO_GET_NUM_DEVICES,
+	STORAGE_IO_AGET_SIZE,
+	STORAGE_IO_AREADWRITE,
+};
 
-void
-svm_ioio (void)
-{
-	union {
-		struct exitinfo1_ioio s;
-		u64 v;
-	} e1;
-	enum vmmerr err;
+enum {
+	STORAGE_IO_RGET_SIZE,
+	STORAGE_IO_RREADWRITE,
+};
+
+struct storage_io_msg_init {
+	int retval;
+};
+
+struct storage_io_msg_deinit {
+	int id;
+};
+
+struct storage_io_msg_get_num_devices {
+	int id;
+	int retval;
+};
+
+struct storage_io_msg_aget_size {
+	int id;
+	int devno;
+	void *callback;
 	void *data;
-	struct vmcb *vmcb;
-	enum ioact ioret;
+	char msgname[32];
+	int retval;
+};
 
-	vmcb = current->u.svm.vi.vmcb;
-	e1.v = vmcb->exitinfo1;
-	if (e1.s.str) {
-		/* INS : IN(DX) -> ES:[DI/EDI/RDI] */
-		/* OUTS : DS/OVERRIDE:[SI/ESI/RSI] -> OUT(DX) */
-		/* EXITINFO1 includes no information about segment overrides */
-		/* we use an interpreter here to avoid the problem */
+struct storage_io_msg_areadwrite {
+	int id;
+	int devno;
+	int write;
+	long long offset;
+	void *callback;
+	void *data;
+	char msgname[32];
+	int retval;
+	void *buf;
+	int len;
+	void *tmpbuf;
+};
 
-		err = cpu_interpreter ();
-		if (err != VMMERR_SUCCESS)
-			panic ("Fatal error: I/O INSTRUCTION EMULATION FAILED"
-			       " (err: %d)", err);
-	} else {
-		data = &vmcb->rax;
-		current->updateip = false;
-		if (e1.s.type_in) {
-			if (e1.s.sz8)
-				ioret = call_io (IOTYPE_INB, e1.s.port, data);
-			else if (e1.s.sz16)
-				ioret = call_io (IOTYPE_INW, e1.s.port, data);
-			else
-				ioret = call_io (IOTYPE_INL, e1.s.port, data);
-		} else {
-			if (e1.s.sz8)
-				ioret = call_io (IOTYPE_OUTB, e1.s.port, data);
-			else if (e1.s.sz16)
-				ioret = call_io (IOTYPE_OUTW, e1.s.port, data);
-			else
-				ioret = call_io (IOTYPE_OUTL, e1.s.port, data);
-		}
-		switch (ioret) {
-		case IOACT_CONT:
-			break;
-		case IOACT_RERUN:
-			return;
-		}
-		if (!current->updateip)
-			vmcb->rip = vmcb->exitinfo2;
-	}
-}
+struct storage_io_msg_rget_size {
+	void (*callback) (void *data, long long size);
+	void *data;
+	long long size;
+};
 
-static void
-set_iobmp (struct vcpu *v, u32 port, int bit)
-{
-	u8 *p;
+struct storage_io_msg_rreadwrite {
+	void (*callback) (void *data, int len);
+	void *data;
+	int len;
+	void *buf;
+};
 
-	port &= 0xFFFF;
-	p = (u8 *)v->u.svm.io.iobmp;
-	if (bit)
-		p[port >> 3] |= 1 << (port & 7);
-	else
-		p[port >> 3] &= ~(1 << (port & 7));
-}
-
-void
-svm_extern_iopass (struct vcpu *p, u32 port, bool pass)
-{
-	set_iobmp (p, port, !pass);
-}
+int storage_io_init (void);
+void storage_io_deinit (int id);
+int storage_io_get_num_devices (int id);
+int storage_io_aget_size (int id, int devno,
+			  void (*callback) (void *data, long long size),
+			  void *data);
+int storage_io_aread (int id, int devno, void *buf, int len, long long offset,
+		      void (*callback) (void *data, int len), void *data);
+int storage_io_awrite (int id, int devno, void *buf, int len, long long offset,
+		       void (*callback) (void *data, int len), void *data);

@@ -31,6 +31,8 @@
 #define _ATA_H
 #include "pci.h"
 #include <storage.h>
+#include <storage_io.h>
+#include <core/list.h>
 
 /* ATA registers */
 #define ATA_CMD_PORT_NUMS	8
@@ -185,8 +187,9 @@ enum {
 };
 
 struct ata_channel {
-	// lock
-	spinlock_t		lock;
+	/* lock */
+	spinlock_t locked_lock;
+	bool locked;
 
 	// saved registers
 	u8			command;
@@ -249,6 +252,8 @@ struct ata_channel {
 	struct atapi_device	*atapi_device;
 };
 
+struct ata_command_list;
+
 struct ata_host {
 	struct pci_device	*pci_device;
 	struct ata_channel	*channel[2];
@@ -260,6 +265,12 @@ struct ata_host {
 		ATA_HOST_POWER_STATE_READY,
 	} power_state;
 	void *ahci_data;
+	bool ahci_enabled;
+	struct storage_hc_addr hc_addr;
+	struct storage_hc_driver *hc;
+	LIST1_DEFINE_HEAD (struct ata_command_list, ata_cmd_list);
+	spinlock_t ata_cmd_lock;
+	bool ata_cmd_thread;
 };
 
 typedef int (*ata_reg_handler_t)(struct ata_channel *channel, core_io_t io, union mem *data);
@@ -301,6 +312,7 @@ static inline void ata_restore_dev_ctl(struct ata_channel *channel)
 
 static inline void ata_restore_intrq(struct ata_channel *channel)
 {
+	channel->interrupt_disabled = false;
 	ata_restore_dev_ctl(channel);
 }
 
@@ -417,5 +429,10 @@ extern int ata_bm_handle_device_specific(struct ata_channel *channel, core_io_t 
 
 // defined in ata_init.c
 extern int ata_init_io_handler(ioport_t start, size_t num, core_io_handler_t handler, void *arg);
+
+/* ata_core.c */
+void ata_ahci_mode (struct pci_device *pci_device, bool ahci_enabled);
+void ata_channel_lock (struct ata_channel *channel);
+void ata_channel_unlock (struct ata_channel *channel);
 
 #endif

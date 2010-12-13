@@ -50,6 +50,7 @@ vt_io (void)
 	u32 port;
 	void *data;
 	enum vmmerr err;
+	enum ioact ioret = IOACT_CONT;
 
 	asm_vmread (VMCS_EXIT_QUALIFICATION, &eqi.v);
 	switch (eqi.s.op) {
@@ -69,13 +70,13 @@ vt_io (void)
 		case EXIT_QUAL_IO_DIR_IN:
 			switch (eqi.s.size) {
 			case EXIT_QUAL_IO_SIZE_1BYTE:
-				call_io (IOTYPE_INB, port, data);
+				ioret = call_io (IOTYPE_INB, port, data);
 				break;
 			case EXIT_QUAL_IO_SIZE_2BYTE:
-				call_io (IOTYPE_INW, port, data);
+				ioret = call_io (IOTYPE_INW, port, data);
 				break;
 			case EXIT_QUAL_IO_SIZE_4BYTE:
-				call_io (IOTYPE_INL, port, data);
+				ioret = call_io (IOTYPE_INL, port, data);
 				break;
 			default:
 				panic ("vt_io(IN) unknown size");
@@ -84,18 +85,24 @@ vt_io (void)
 		case EXIT_QUAL_IO_DIR_OUT:
 			switch (eqi.s.size) {
 			case EXIT_QUAL_IO_SIZE_1BYTE:
-				call_io (IOTYPE_OUTB, port, data);
+				ioret = call_io (IOTYPE_OUTB, port, data);
 				break;
 			case EXIT_QUAL_IO_SIZE_2BYTE:
-				call_io (IOTYPE_OUTW, port, data);
+				ioret = call_io (IOTYPE_OUTW, port, data);
 				break;
 			case EXIT_QUAL_IO_SIZE_4BYTE:
-				call_io (IOTYPE_OUTL, port, data);
+				ioret = call_io (IOTYPE_OUTL, port, data);
 				break;
 			default:
 				panic ("vt_io(OUT) unknown size");
 			}
 			break;
+		}
+		switch (ioret) {
+		case IOACT_CONT:
+			break;
+		case IOACT_RERUN:
+			return;
 		}
 		if (!current->updateip)
 			add_ip ();

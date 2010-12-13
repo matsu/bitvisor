@@ -74,6 +74,7 @@ static struct thread_data td[MAXNUM_OF_THREADS];
 static LIST1_DEFINE_HEAD (struct thread_data, td_free);
 static LIST1_DEFINE_HEAD (struct thread_data, td_runnable);
 static spinlock_t thread_lock;
+static void *old_stack;
 
 static void
 thread_data_init (struct thread_data *d, struct thread_context *c, void *stack,
@@ -126,6 +127,10 @@ schedule (void)
 	tid_t oldtid, newtid;
 
 	spinlock_lock (&thread_lock);
+	if (old_stack) {
+		free (old_stack);
+		old_stack = NULL;
+	}
 	LIST1_FOREACH (td_runnable, d) {
 		if (d->cpunum == CPUNUM_ANY ||
 		    d->cpunum == currentcpu->cpunum)
@@ -142,6 +147,7 @@ found:
 	thread_data_load (d);
 	switch (td[oldtid].state) {
 	case THREAD_EXIT:
+		old_stack = td[oldtid].stack;
 		LIST1_ADD (td_free, &td[oldtid]);
 		break;
 	case THREAD_RUN:
@@ -289,6 +295,7 @@ thread_init_global (void)
 	LIST1_HEAD_INIT (td_free);
 	LIST1_HEAD_INIT (td_runnable);
 	spinlock_init (&thread_lock);
+	old_stack = NULL;
 	for (i = 0; i < MAXNUM_OF_THREADS; i++) {
 		td[i].tid = i;
 		td[i].state = THREAD_EXIT;

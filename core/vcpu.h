@@ -30,6 +30,7 @@
 #ifndef _CORE_VCPU_H
 #define _CORE_VCPU_H
 
+#include "acpi.h"
 #include "cpu_mmu_spt.h"
 #include "cpuid.h"
 #include "gmm.h"
@@ -80,6 +81,7 @@ struct vcpu {
 	struct nmi_func nmi;
 	struct apic_func apic;
 	struct xsetbv_data xsetbv;
+	struct acpi_data acpi;
 };
 
 void vcpu_list_foreach (bool (*func) (struct vcpu *p, void *q), void *q);

@@ -153,7 +153,7 @@ hooke820:
 	return;
 }
 
-static void
+static enum ioact
 hookfunc (enum iotype type, u32 port, void *data)
 {
 	ulong cr0, rflags, rip;
@@ -182,6 +182,7 @@ hookfunc (enum iotype type, u32 port, void *data)
 		printf ("gmm_pass: I/O port=0x%X type=%d\n", port, type);
 		oldhookfunc (type, port, data);
 	}
+	return IOACT_CONT;
 }
 
 static void

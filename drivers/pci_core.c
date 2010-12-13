@@ -99,7 +99,7 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 {
 	int ioret = CORE_IO_RET_DEFAULT;
 	struct pci_device *dev;
-	pci_config_address_t caddr;
+	pci_config_address_t caddr, caddr0;
 	u8 offset;
 	int (*func)(struct pci_device *dev, core_io_t io, u8 offset, union mem *data);
 	static spinlock_t config_data_lock = SPINLOCK_INITIALIZER;
@@ -112,10 +112,20 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 	spinlock_lock (&pci_config_lock);
 	offset = current_config_addr.reg_no * sizeof(u32) + (io.port - PCI_CONFIG_DATA_PORT);
 	caddr = current_config_addr; caddr.reserved = caddr.reg_no = caddr.type = 0;
+	caddr0 = caddr, caddr0.func_no = 0;
 	LIST_FOREACH (pci_device_list, dev) {
 		if (dev->address.value == caddr.value) {
 			spinlock_unlock (&pci_config_lock);
 			goto found;
+		}
+		if (caddr.func_no != 0 && dev->address.value == caddr0.value &&
+		    dev->config_space.multi_function == 0) {
+			/* The guest OS is trying to access a PCI
+			   configuration header of a single-function
+			   device with function number 1 to 7. The
+			   access will be concealed. */
+			spinlock_unlock (&pci_config_lock);
+			goto conceal;
 		}
 	}
 	dev = pci_possible_new_device (caddr);
@@ -142,6 +152,7 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 	goto ret;
 found:
 	if (dev->conceal) {
+	conceal:
 		ioret = pci_conceal_config_data_handler (io, data, arg);
 		goto ret;
 	}

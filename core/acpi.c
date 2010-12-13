@@ -32,6 +32,7 @@
 #include "assert.h"
 #include "beep.h"
 #include "constants.h"
+#include "current.h"
 #include "initfunc.h"
 #include "io_io.h"
 #include "mm.h"
@@ -99,7 +100,7 @@ struct facp {
 	u8 reserved1;
 	u8 preferred_pm_profile;
 	u16 sci_int;
-	u32 sci_cmd;
+	u32 smi_cmd;
 	u8 acpi_enable;
 	u8 acpi_disable;
 	u8 s4bios_req;
@@ -165,6 +166,7 @@ static bool pm1a_cnt_found;
 static u32 pm1a_cnt_ioaddr;
 static u32 pm_tmr_ioaddr;
 static u64 facs_addr;
+static u32 smi_cmd;
 
 static u8
 acpi_checksum (void *p, int len)
@@ -357,7 +359,7 @@ acpi_pm1_sleep (u32 v)
 	acpi_poweroff ();
 }
 
-static void
+static enum ioact
 acpi_io_monitor (enum iotype type, u32 port, void *data)
 {
 	u32 v;
@@ -381,7 +383,29 @@ acpi_io_monitor (enum iotype type, u32 port, void *data)
 		goto def;
 	}
 def:
-	do_io_default (type, port, data);
+	return do_io_default (type, port, data);
+}
+
+static enum ioact
+acpi_smi_monitor (enum iotype type, u32 port, void *data)
+{
+	if (current->acpi.smi_hook_disabled)
+		panic ("SMI monitor called while SMI hook is disabled");
+	cpu_mmu_spt_map_1mb ();
+	current->vmctl.extern_iopass (current, smi_cmd, true);
+	current->acpi.smi_hook_disabled = true;
+	return IOACT_RERUN;
+}
+
+void
+acpi_smi_hook (void)
+{
+	if (!current->vcpu0->acpi.iopass)
+		return;
+	if (current->acpi.smi_hook_disabled) {
+		current->vmctl.extern_iopass (current, smi_cmd, false);
+		current->acpi.smi_hook_disabled = false;
+	}
 }
 
 void
@@ -389,6 +413,10 @@ acpi_iohook (void)
 {
 	if (pm1a_cnt_found)
 		set_iofunc (pm1a_cnt_ioaddr, acpi_io_monitor);
+	if (smi_cmd > 0 && smi_cmd <= 0xFFFF) {
+		current->vcpu0->acpi.iopass = true;
+		set_iofunc (smi_cmd, acpi_smi_monitor);
+	}
 }
 
 static void
@@ -516,6 +544,7 @@ acpi_init_global (void)
 	get_pm1a_cnt_ioaddr (q);
 	get_pm_tmr_ioaddr (q);
 	get_facs_addr (q);
+	smi_cmd = q->smi_cmd;
 	if (0)
 		debug_dump (q, q->header.length);
 	if (0)

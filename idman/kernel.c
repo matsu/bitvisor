@@ -347,8 +347,6 @@ copy_usb_bus (struct usb_bus *buf, int len, struct usb_bus *bus)
 			qd->lock_dev = 0;
 			qd->portno = pd->portno;
 			qd->devnum = pd->devnum;
-			qd->num_children = pd->num_children;
-			qd->children = NULL;
 			qd->host = NULL;
 			qd->bStatus = pd->bStatus;
 			qd->handle = NULL;

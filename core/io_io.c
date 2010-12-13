@@ -44,7 +44,7 @@ struct call_iopass_data {
 	bool pass;
 };
 
-void
+enum ioact
 do_io_nothing (enum iotype type, u32 port, void *data)
 {
 	switch (type) {
@@ -63,7 +63,8 @@ do_io_nothing (enum iotype type, u32 port, void *data)
 		break;
 	default:
 		panic ("Fatal error: do_io_nothing: Bad type");
-	}		
+	}
+	return IOACT_CONT;
 }
 
 static bool
@@ -106,10 +107,11 @@ io_io_init (void)
 			set_iofunc (i, do_io_nothing);
 }
 
-void
+enum ioact
 call_io (enum iotype type, u32 port, void *data)
 {
-	current->vcpu0->io.iofunc[port & 0xFFFF] (type, port & 0xFFFF, data);
+	port &= 0xFFFF;
+	return current->vcpu0->io.iofunc[port] (type, port, data);
 }
 
 INITFUNC ("vcpu0", io_io_init);

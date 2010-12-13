@@ -154,16 +154,22 @@ int ata_bm_handle_status(struct ata_channel *channel, core_io_t io, union mem *d
 
 	if (io.size != 1)
 		error_handle_unexpected_io ("io=0x%X", *(int *)&io);
-	if (channel->state != ATA_STATE_DMA_READ)
+	if (channel->state != ATA_STATE_DMA_READ &&
+	    channel->state != ATA_STATE_DMA_WRITE)
 		goto end;
 
 	core_io_handle_default (io, data);
-	bm_status_reg.value = data->byte;
+	if (io.dir == CORE_IO_DIR_IN)
+		bm_status_reg.value = data->byte;
+	else
+		in8 (io.port, &bm_status_reg.value);
 	if (bm_status_reg.active != 0)
 		goto done;
 
-	ata_dma_handle_rw_sectors (channel, STORAGE_READ);
-	ata_copy_shadow_buf(channel, STORAGE_READ);
+	if (channel->state == ATA_STATE_DMA_READ) {
+		ata_dma_handle_rw_sectors (channel, STORAGE_READ);
+		ata_copy_shadow_buf (channel, STORAGE_READ);
+	}
 	channel->state = ATA_STATE_READY;
  done:	return CORE_IO_RET_DONE;
  end:	return CORE_IO_RET_DEFAULT;
@@ -207,8 +213,12 @@ int ata_bm_handler(core_io_t io, union mem *data, void *arg)
 	int regname = ata_get_regname(channel, io, ATA_ID_BM);
 
 	ATA_VERIFY_IO(regname >= ATA_BM_PRD_Table || io.size == 1)
-	spinlock_lock(&channel->lock);
+	ata_channel_lock (channel);
 	ret = ata_bm_handler_table[regname](channel, io, data);
-	spinlock_unlock(&channel->lock);
+	if (ret == CORE_IO_RET_DEFAULT) {
+		core_io_handle_default (io, data);
+		ret = CORE_IO_RET_DONE;
+	}
+	ata_channel_unlock (channel);
 	return ret;
 }

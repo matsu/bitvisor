@@ -31,6 +31,7 @@
 #include "ap.h"
 #include "arith.h"
 #include "asm.h"
+#include "comphappy.h"
 #include "constants.h"
 #include "convert.h"
 #include "initfunc.h"
@@ -43,7 +44,8 @@
 #include "time.h"
 #include "vmmcall_status.h"
 
-static u64 volatile lasttime, lastacpitime;
+static u64 volatile lasttime;
+static u64 lastacpitime;
 static spinlock_t time_lock;
 
 static u64
@@ -94,17 +96,20 @@ bool
 get_acpi_time (u64 *r)
 {
 	u32 tmr, oldtmr;
-	u64 now, tmp[2];
+	u64 now, tmp[2], oldnow;
 
+	VAR_IS_INITIALIZED (oldnow);
+	asm_lock_cmpxchgq (&lastacpitime, &oldnow, oldnow);
 	if (!get_acpi_time_raw (&tmr))
 		return false;
-	spinlock_lock (&time_lock);
-	oldtmr = lastacpitime & 16777215;
-	if (tmr < oldtmr)
-		tmr += 16777216;
-	lastacpitime += tmr - oldtmr;
-	now = lastacpitime;
-	spinlock_unlock (&time_lock);
+	oldtmr = oldnow & 16777215;
+	now = oldnow;
+	if (tmr != oldtmr) {
+		if (tmr < oldtmr)
+			tmr += 16777216;
+		now += tmr - oldtmr;
+		asm_lock_cmpxchgq (&lastacpitime, &oldnow, now);
+	}
 	mpumul_64_64 (now, 1000000ULL, tmp); /* tmp = now * 1000000 */
 	mpudiv_128_32 (tmp, 3579545U, tmp); /* tmp = tmp / 3579545 */
 	*r = tmp[0];

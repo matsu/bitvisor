@@ -29,6 +29,7 @@
 
 /* MMU emulation, Shadow Page Tables (SPT) */
 
+#include "acpi.h"
 #include "asm.h"
 #include "constants.h"
 #include "cpu_mmu.h"
@@ -2494,6 +2495,7 @@ void
 cpu_mmu_spt_updatecr3 (void)
 {
 	update_cr3 ();
+	acpi_smi_hook ();
 }
 
 /* this function is called by INVLPG in a guest */
@@ -2594,7 +2596,7 @@ cpu_mmu_spt_pagefault (ulong err, ulong cr2)
 		set_m2 (entries, levels, m2);
 		set_gfns (entries, levels, gfns);
 		mmio_lock ();
-		if (!mmio_access_page (gfns[0] << PAGESIZE_SHIFT))
+		if (!mmio_access_page (gfns[0] << PAGESIZE_SHIFT, true))
 			map_page (cr2, m1, m2, gfns, levels);
 		mmio_unlock ();
 		current->vmctl.event_virtual ();
@@ -2608,6 +2610,39 @@ bool
 cpu_mmu_spt_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 {
 	return extern_mapsearch (p, start, end);
+}
+
+/* Workaround for freezing in some BIOSes (SMI related problem) */
+void
+cpu_mmu_spt_map_1mb (void)
+{
+	int levels;
+	enum vmmerr r;
+	bool wr, us, ex, wp;
+	ulong cr0, cr3, cr4;
+	struct map_page_data1 m1;
+	struct map_page_data2 m2[5];
+	u64 efer, gfns[5], entries[5];
+	ulong cr2;
+
+	get_cr0_cr3_cr4_and_efer (&cr0, &cr3, &cr4, &efer);
+	wr = false;
+	us = true;
+	ex = false;
+	wp = !!(cr0 & CR0_WP_BIT);
+	for (cr2 = 0; cr2 < 0x100000; cr2 += PAGESIZE) {
+		r = cpu_mmu_get_pte (cr2, cr0, cr3, cr4, efer, wr, us, ex,
+				     entries, &levels);
+		if (r != VMMERR_SUCCESS)
+			continue;
+		set_m1 (entries[0], wr, us, wp, &m1);
+		set_m2 (entries, levels, m2);
+		set_gfns (entries, levels, gfns);
+		mmio_lock ();
+		if (!mmio_access_page (gfns[0] << PAGESIZE_SHIFT, false))
+			map_page (cr2, m1, m2, gfns, levels);
+		mmio_unlock ();
+	}
 }
 
 static void

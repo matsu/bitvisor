@@ -29,14 +29,32 @@
 
 #include <core.h>
 #include <core/mmio.h>
+#include <core/thread.h>
+#include <core/time.h>
 #include <storage.h>
+#include <storage_io.h>
+#include "ata.h"
 #include "pci.h"
 #include "ata_cmd.h"
 #include "packet.h"
 
 #define NUM_OF_AHCI_PORTS	32
 #define PxCMD_ST_BIT		1
+#define PxSSTS_DET_MASK		0xF
+#define PxSSTS_DET_MASK_NODEV	0x0
 #define NUM_OF_COMMAND_HEADER	32
+#define GLOBAL_CAP		0x00
+#define GLOBAL_CAP_SNCQ_BIT	0x40000000
+#define GLOBAL_CAP_NCS_MASK	0x1F00
+#define GLOBAL_CAP_NCS_SHIFT	8
+#define GLOBAL_CAP_NP_MASK	0x1F
+#define GLOBAL_GHC		0x04
+#define GLOBAL_GHC_AE_BIT	0x80000000
+#define GLOBAL_PI		0x0C
+
+/* According to the AHCI 1.3 specification, bit0-6 of CTBA is
+   reserved, but 88SE91xx is different. */
+#define CTBA_MASK		0x3F /* for supporting 88SE91xx */
 
 static const char driver_name[] = "ahci_driver";
 static int ahci_host_id = 0;
@@ -44,7 +62,12 @@ static int ahci_host_id = 0;
 enum port_off {
 	PxCLB  = 0x00, /* Port x Command List Base Address */
 	PxCLBU = 0x04, /* Port x Command List Base Address Upper 32-bits */
+	PxFB   = 0x08, /* Port x FIS Base Address */
+	PxFBU  = 0x0C, /* Port x FIS Base Address Upper 32-bits */
+	PxIS   = 0x10, /* Port x Interrupt Status */
+	PxIE   = 0x14, /* Port x Interrupt Enable */
 	PxCMD  = 0x18, /* Port x Command and Status */
+	PxSSTS = 0x28, /* Port x Serial ATA Status (SCR0: SStatus) */
 	PxSACT = 0x34, /* Port x Serial ATA Active (SCR3: SActive) */
 	PxCI   = 0x38, /* Port x Command Issue */
 };
@@ -53,6 +76,12 @@ enum hooktype {
 	HOOK_ANY,
 	HOOK_IOSPACE,
 	HOOK_MEMSPACE,
+};
+
+enum ahci_command_do_ret {
+	COMMAND_FAILED,
+	COMMAND_SKIPPED,
+	COMMAND_QUEUED,
 };
 
 struct prdtbl {
@@ -169,12 +198,95 @@ struct ahci_port {
 	} my[NUM_OF_COMMAND_HEADER];
 };
 
+struct d2hrfis_0x34 {
+	/* 0 */
+	u8 fis_type;
+	unsigned int reserved1 : 5;
+	unsigned int reserved2 : 1;
+	unsigned int i : 1;
+	unsigned int reserved3 : 1;
+	u8 status;
+	u8 error;
+	/* 1 */
+	u8 sector_number;
+	u8 cyl_low;
+	u8 cyl_high;
+	u8 dev_head;
+	/* 2 */
+	u8 sector_number_exp;
+	u8 cyl_low_exp;
+	u8 cyl_high_exp;
+	u8 reserved4;
+	/* 3 */
+	u8 sector_count;
+	u8 sector_count_exp;
+	u8 reserved5;
+	u8 reserved6;
+	/* 4 */
+	u8 reserved7[4];
+} __attribute__ ((packed));
+
+union d2hrfis {
+	u8 rfis[0x14];
+	u8 fis_type;
+	struct d2hrfis_0x34 fis_0x34;
+} __attribute__ ((packed));
+
+struct recvfis {
+	/* 0x00 */
+	u8 dsfis[0x1C];
+	u8 reserved1[0x4];
+	/* 0x20 */
+	u8 psfis[0x14];
+	u8 reserved2[0xC];
+	/* 0x40 */
+	union d2hrfis rfis;
+	u8 reserved3[0x4];
+	u8 sdbfis[0x8];
+	/* 0x60 */
+	u8 ufis[0x40];
+	/* 0xA0 */
+	u8 reserved4[0x60];
+} __attribute__ ((packed));
+
+struct ahci_command_data {
+	u32 init, init2;
+	struct {
+		u32 orig_fb, orig_fbu;
+		u32 pxsact, pxsact2;
+		u32 pxci, pxci2;
+		u32 pxis, pxie;
+		u32 queued;
+		void *fis;
+	} port[NUM_OF_AHCI_PORTS];
+};
+
+struct ahci_command_list {
+	LIST2_DEFINE (struct ahci_command_list, list);
+	struct storage_hc_dev_atacmd *cmd;
+	u64 start_time;
+	int port_no, dev_no;
+	int slot;
+};
+
 struct ahci_data {
-	spinlock_t lock;
+	spinlock_t locked_lock;
+	bool locked;
 	int host_id;
 	struct ahci_port port[NUM_OF_AHCI_PORTS];
 	struct ahci_hook ahci_io, ahci_mem;
+	bool enabled, not_ahci;
+	struct pci_device *pci;
+	struct storage_hc_addr hc_addr;
+	struct storage_hc_driver *hc;
+	u32 pi;
+	unsigned int ncs;	/* Number of command slots */
+	spinlock_t ahci_cmd_lock;
+	LIST2_DEFINE_HEAD (ahci_cmd_list, struct ahci_command_list, list);
+	bool ahci_cmd_thread;
 };
+
+static void ahci_ae_bit_changed (struct ahci_data *ad);
 
 /************************************************************/
 /* I/O functions */
@@ -197,6 +309,19 @@ ahci_write (struct ahci_data *ad, u32 offset, u32 data)
 	p = ad->ahci_mem.map;
 	p += offset;
 	*(u32 *)p = data;
+}
+
+static void
+ahci_readwrite (struct ahci_data *ad, u32 offset, bool wr, void *buf, uint len)
+{
+	u8 *p;
+
+	p = ad->ahci_mem.map;
+	p += offset;
+	if (wr)
+		memcpy (p, buf, len);
+	else
+		memcpy (buf, p, len);
 }
 
 static u32
@@ -333,6 +458,87 @@ err:
 	       eq_port_off);
 }
 
+static bool
+ahci_probe (struct ahci_data *ad, bool wrote_ghc, u32 value)
+{
+	int n;
+	u32 cap, ghc, pi;
+	unsigned int num_of_ports;
+
+	if (!ad->ahci_mem.e) {	/* AHCI must have a memory space */
+		printf ("AHCI: No memory space mapped\n");
+		goto not_ahci;
+	}
+	if (wrote_ghc && ad->enabled && (value & GLOBAL_GHC_AE_BIT))
+		return true;	/* fast path */
+	ghc = ahci_read (ad, GLOBAL_GHC);
+	if (wrote_ghc && (value & GLOBAL_GHC_AE_BIT) &&
+	    !(ghc & GLOBAL_GHC_AE_BIT))	{ /* AE bit must be able to be set 1 */
+		printf ("AHCI: Cannot set AE\n");
+		goto not_ahci;
+	}
+	if (ad->enabled) {
+		if (!(ghc & GLOBAL_GHC_AE_BIT)) {
+			printf ("AHCI: Disabled\n");
+			ad->enabled = false;
+			ahci_ae_bit_changed (ad);
+		}
+		return true;
+	}
+	if (!(ghc & GLOBAL_GHC_AE_BIT))
+		return true;
+	cap = ahci_read (ad, GLOBAL_CAP);
+	num_of_ports = (cap & GLOBAL_CAP_NP_MASK) + 1;
+	if (ad->ahci_mem.maplen < 0x100 + 0x80 * num_of_ports) {
+		printf ("AHCI: Too small memory space\n");
+		goto not_ahci;
+	}
+	pi = ahci_read (ad, GLOBAL_PI);
+	ad->pi = pi;
+	for (n = 0; pi; pi >>= 1)
+		if (pi & 1)
+			n++;
+	if (!n) {	   /* At least one port must be implemented */
+		printf ("AHCI: No ports implemented\n");
+		goto not_ahci;
+	}
+	if (n > num_of_ports) {
+		printf ("AHCI: PI and NP inconsistency detected\n");
+		goto not_ahci;
+	}
+	printf ("AHCI: Enabled\n");
+	ad->enabled = true;
+	ad->hc_addr.num_ports = num_of_ports;
+	ad->hc_addr.ncq = !!(cap & GLOBAL_CAP_SNCQ_BIT);
+	ad->ncs = ((cap & GLOBAL_CAP_NCS_MASK) >> GLOBAL_CAP_NCS_SHIFT) + 1;
+	ahci_ae_bit_changed (ad);
+	return true;
+not_ahci:
+	ad->not_ahci = true;
+	return false;
+}
+
+static void
+ahci_lock (struct ahci_data *ad)
+{
+	spinlock_lock (&ad->locked_lock);
+	while (ad->locked) {
+		spinlock_unlock (&ad->locked_lock);
+		schedule ();
+		spinlock_lock (&ad->locked_lock);
+	}
+	ad->locked = true;
+	spinlock_unlock (&ad->locked_lock);
+}
+
+static void
+ahci_unlock (struct ahci_data *ad)
+{
+	spinlock_lock (&ad->locked_lock);
+	ad->locked = false;
+	spinlock_unlock (&ad->locked_lock);
+}
+
 /************************************************************/
 /* Initialize */
 
@@ -419,16 +625,26 @@ ahci_handle_cmd_rw_dma (struct ahci_data *ad, struct ahci_port *port,
 	ASSERT (cfis->fis_0x27.dev_head & 0x40); /* must be LBA */
 	ASSERT ((port->my[cmdhdr_index].dmabuflen % 512) == 0);
 	ASSERT ((!port->mycmdlist->cmdhdr[cmdhdr_index].w) == (!rw));
-	lba = cfis->fis_0x27.cyl_high_exp;
-	lba = (lba << 8) | cfis->fis_0x27.cyl_low_exp;
-	lba = (lba << 8) | cfis->fis_0x27.sector_number_exp;
-	lba = (lba << 8) | cfis->fis_0x27.cyl_high;
-	lba = (lba << 8) | cfis->fis_0x27.cyl_low;
-	lba = (lba << 8) | cfis->fis_0x27.sector_number;
-	nsec = cfis->fis_0x27.sector_count_exp;
-	nsec = (nsec << 8) | cfis->fis_0x27.sector_count;
-	if (nsec == 0)
-		nsec = 65536;
+	if (ext) {
+		lba = cfis->fis_0x27.cyl_high_exp;
+		lba = (lba << 8) | cfis->fis_0x27.cyl_low_exp;
+		lba = (lba << 8) | cfis->fis_0x27.sector_number_exp;
+		lba = (lba << 8) | cfis->fis_0x27.cyl_high;
+		lba = (lba << 8) | cfis->fis_0x27.cyl_low;
+		lba = (lba << 8) | cfis->fis_0x27.sector_number;
+		nsec = cfis->fis_0x27.sector_count_exp;
+		nsec = (nsec << 8) | cfis->fis_0x27.sector_count;
+		if (nsec == 0)
+			nsec = 65536;
+	} else {
+		lba = cfis->fis_0x27.dev_head & 0xF;
+		lba = (lba << 8) | cfis->fis_0x27.cyl_high;
+		lba = (lba << 8) | cfis->fis_0x27.cyl_low;
+		lba = (lba << 8) | cfis->fis_0x27.sector_number;
+		nsec = cfis->fis_0x27.sector_count;
+		if (nsec == 0)
+			nsec = 256;
+	}
 	if ((port->my[cmdhdr_index].dmabuflen >> 9) != nsec) {
 		printf ("AHCI: rw_dma: DMA %u nsec %u\n",
 			port->my[cmdhdr_index].dmabuflen, nsec);
@@ -579,6 +795,26 @@ ahci_cmd_posthook (struct ahci_data *ad, struct ahci_port *port,
 /* Parsing a command list */
 
 static void
+ahci_cmd_cancel (struct ahci_port *port)
+{
+	int i;
+
+	if (!port->shadowbit)
+		return;
+	for (i = 0; i < NUM_OF_COMMAND_HEADER; i++) {
+		if (!(port->shadowbit & (1 << i)))
+			continue;
+		port->shadowbit &= ~(1 << i);
+		if (port->my[i].dmabuf) {
+			free (port->my[i].dmabuf);
+			port->my[i].dmabuf = NULL;
+		}
+		if (!port->shadowbit)
+			break;
+	}
+}
+
+static void
 ahci_cmd_complete (struct ahci_data *ad, struct ahci_port *port, u32 pxsact,
 		   u32 pxci)
 {
@@ -601,7 +837,7 @@ ahci_cmd_complete (struct ahci_data *ad, struct ahci_port *port, u32 pxsact,
 		prdtl = cmdlist->cmdhdr[i].prdtl;
 		if (prdtl > 0) {
 			ctphys = ahci_get_phys
-				(cmdlist->cmdhdr[i].ctba & ~0x7F,
+				(cmdlist->cmdhdr[i].ctba & ~CTBA_MASK,
 				 cmdlist->cmdhdr[i].ctbau);
 			cmdtbl = mapmem_gphys (ctphys, cmdtbl_size (prdtl),
 					       MAPMEM_WRITE);
@@ -634,14 +870,14 @@ ahci_cmd_start (struct ahci_data *ad, struct ahci_port *pt, u32 pxci)
 	cmdlist = mapmem_gphys (ahci_get_phys (pt->clb, pt->clbu),
 				sizeof *cmdlist, MAPMEM_WRITE);
 	for (i = 0; i < NUM_OF_COMMAND_HEADER; i++) {
-		if(!(pxci & (1 << i)))
+		if (!(pxci & (1 << i)))
 			continue;
 		memcpy (&pt->mycmdlist->cmdhdr[i], &cmdlist->cmdhdr[i],
 			sizeof (struct command_header));
 		prdtl = pt->mycmdlist->cmdhdr[i].prdtl;
 		if (prdtl > 0) {
 			ctphys = ahci_get_phys
-				(cmdlist->cmdhdr[i].ctba & ~0x7F,
+				(cmdlist->cmdhdr[i].ctba & ~CTBA_MASK,
 				 cmdlist->cmdhdr[i].ctbau);
 			cmdtbl = mapmem_gphys (ctphys, cmdtbl_size (prdtl),
 					       MAPMEM_WRITE);
@@ -681,7 +917,7 @@ ahci_cmd_start (struct ahci_data *ad, struct ahci_port *pt, u32 pxci)
 /************************************************************/
 /* I/O handlers */
 
-static int
+static void
 mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 	    u32 flags)
 {
@@ -690,6 +926,21 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 	int port_num, port_off;
 	int r = 0, i;
 
+	if (ad->not_ahci) {
+		ahci_readwrite (ad, offset, wr, buf32, len);
+		return;
+	}
+	if (!ad->enabled) {
+		ahci_readwrite (ad, offset, wr, buf32, len);
+		if (wr) {
+			if (offset == GLOBAL_GHC && len >= 4)
+				ahci_probe (ad, true, *buf32);
+			else if (offset < GLOBAL_GHC + 4 &&
+				 offset + len > GLOBAL_GHC)
+				ahci_probe (ad, false, 0);
+		}
+		return;
+	}
 	port_num = (int)(offset >> 7) - 2;
 	port_off = offset & 0x7F;
 	ASSERT (port_num >= -2 && port_num < NUM_OF_AHCI_PORTS);
@@ -714,7 +965,7 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 		}
 	}
 	if (r)
-		return r;
+		return;
 	if (port_num >= 0)
 		port = &ad->port[port_num];
 	else
@@ -727,50 +978,59 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 				ahci_port_data_init (ad, port_num);
 			port->clb = *buf32 & ~0x3FF;
 			ahci_port_write (ad, port_num, PxCLB, port->myclb);
-			return 1;
+			return;
 		}
 		if (port && ahci_port_eq (port_off, len, PxCLBU)) {
 			if (!port->storage_device)
 				ahci_port_data_init (ad, port_num);
 			port->clbu = *buf32;
 			ahci_port_write (ad, port_num, PxCLBU, port->myclbu);
-			return 1;
+			return;
+		}
+		if (port && ahci_port_eq (port_off, len, PxCMD)) {
+			if (port->shadowbit && !(*buf32 & PxCMD_ST_BIT)) {
+				pxcmd = ahci_port_read (ad, port_num, PxCMD);
+				if (pxcmd & PxCMD_ST_BIT)
+					ahci_cmd_cancel (port);
+			}
 		}
 		if (port && ahci_port_eq (port_off, len, PxCI)) {
+			/* PxCI is written before PxCMD.ST is set to 1
+			   in some BIOSes */
 			ASSERT (port->storage_device);
-			pxcmd = ahci_port_read (ad, port_num, PxCMD);
-			if (pxcmd & PxCMD_ST_BIT)
-				ahci_cmd_start (ad, port, *buf32);
-			else	/* do not start any command if ST=0 */
-				return 1;
+			ahci_cmd_start (ad, port, *buf32);
+		}
+		if (ahci_port_eq (offset, len, GLOBAL_GHC)) {
+			ahci_write (ad, GLOBAL_GHC, *buf32);
+			ahci_probe (ad, true, *buf32);
+			return;
 		}
 	} else {
 		/* Read */
 		if (port && ahci_port_eq (port_off, len, PxCLB)) {
 			*buf32 = port->clb;
-			return 1;
+			return;
 		}
 		if (port && ahci_port_eq (port_off, len, PxCLBU)) {
 			*buf32 = port->clbu;
-			return 1;
+			return;
 		}
 	}
-	return 0;
+	ahci_readwrite (ad, offset, wr, buf32, len);
 }
 
 static int
 mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 {
-	int r;
 	struct ahci_hook *d;
 	struct ahci_data *ad;
 
 	d = data;
 	ad = d->ad;
-	spinlock_lock (&ad->lock);
-	r = mmhandler2 (ad, gphys - ad->ahci_mem.mapaddr, wr, buf, len, flags);
-	spinlock_unlock (&ad->lock);
-	return r;
+	ahci_lock (ad);
+	mmhandler2 (ad, gphys - ad->ahci_mem.mapaddr, wr, buf, len, flags);
+	ahci_unlock (ad);
+	return 1;
 }
 
 static int
@@ -779,11 +1039,10 @@ iohandler (core_io_t io, union mem *data, void *arg)
 	struct ahci_hook *d;
 	struct ahci_data *ad;
 	u32 io_offset;
-	int r;
 
 	d = arg;
 	ad = d->ad;
-	ASSERT (io.size == 4);
+	ASSERT (io.size == 1 || io.size == 2 || io.size == 4);
 	switch (io.port - d->iobase) {
 	case 0:
 		break;
@@ -792,18 +1051,389 @@ iohandler (core_io_t io, union mem *data, void *arg)
 		ASSERT (ad->ahci_mem.e);
 		ASSERT (!(io_offset & 3));
 		ASSERT (io_offset >= 0 && io_offset < ad->ahci_mem.maplen);
-		spinlock_lock (&ad->lock);
-		r = mmhandler2 (ad, io_offset, io.dir == CORE_IO_DIR_OUT,
-				&data->dword, 4, 0);
-		spinlock_unlock (&ad->lock);
-		if (r)
-			return CORE_IO_RET_DONE;
-		break;
+		ahci_lock (ad);
+		mmhandler2 (ad, io_offset, io.dir == CORE_IO_DIR_OUT,
+			    &data->dword, io.size, 0);
+		ahci_unlock (ad);
+		return CORE_IO_RET_DONE;
 	default:
 		panic ("%s: (%u) io:%08x, data:%08x\n", __func__,
 		       io.port - d->iobase, *(int*)&io, data->dword);
 	}
 	return CORE_IO_RET_DEFAULT;
+}
+
+/************************************************************/
+/* storage_io related functions */
+
+static void
+ahci_command_fill (struct ahci_port *port, int slot,
+		   struct storage_hc_dev_atacmd *cmd)
+{
+	struct command_header *cmdhdr;
+	struct cmdfis_0x27 *cfis;
+	struct prdtbl *prdt;
+
+	cmdhdr = &port->mycmdlist->cmdhdr[slot];
+	memset (cmdhdr, 0, sizeof *cmdhdr);
+	cmdhdr->prdtl = 1;
+	cmdhdr->w = !!cmd->write;
+	cmdhdr->cfl = 5;
+	cmdhdr->ctba = port->my[slot].cmdtbl_p;
+	cmdhdr->ctbau = port->my[slot].cmdtbl_p >> 32;
+	memset (port->my[slot].cmdtbl, 0, sizeof *port->my[slot].cmdtbl);
+	cfis = &port->my[slot].cmdtbl->cfis.fis_0x27;
+	cfis->fis_type = 0x27;
+	cfis->c = 1;
+	cfis->command = cmd->command_status;
+	cfis->features = cmd->features_error;
+	cfis->sector_number = cmd->sector_number;
+	cfis->cyl_low = cmd->cyl_low;
+	cfis->cyl_high = cmd->cyl_high;
+	cfis->dev_head = cmd->dev_head;
+	cfis->sector_number_exp = cmd->sector_number_exp;
+	cfis->cyl_low_exp = cmd->cyl_low_exp;
+	cfis->cyl_high_exp = cmd->cyl_high_exp;
+	cfis->features_exp = cmd->features_exp;
+	cfis->sector_count = cmd->sector_count;
+	if (cmd->ncq)
+		cfis->sector_count |= slot << 3;
+	cfis->sector_count_exp = cmd->sector_count_exp;
+	cfis->control = cmd->control;
+	if (cmd->buf_phys && !(cmd->buf_phys & 0x7F) && !(cmd->buf_len & 1) &&
+	    cmd->buf_len >= 2) {
+		port->my[slot].dmabuf = NULL;
+		port->my[slot].dmabuf_p = cmd->buf_phys;
+	} else {
+		port->my[slot].dmabuf = alloc2 ((cmd->buf_len + 0x7F) & ~0x7F,
+						&port->my[slot].dmabuf_p);
+		if (cmd->write)
+			memcpy (port->my[slot].dmabuf, cmd->buf, cmd->buf_len);
+	}
+	prdt = &port->my[slot].cmdtbl->prdt[0];
+	prdt[0].dba = port->my[slot].dmabuf_p;
+	prdt[0].dbau = port->my[slot].dmabuf_p >> 32;
+	if (cmd->buf_len >= 2) {
+		if (cmd->buf_len <= 0x400000)
+			prdt[0].dbc = (cmd->buf_len - 2) | 1;
+		else
+			prdt[0].dbc = 0x3FFFFF;
+	} else {
+		prdt[0].dbc = 0x1;
+	}
+}
+
+static enum ahci_command_do_ret
+ahci_command_do (struct ahci_data *ad, struct ahci_command_list *p,
+		 struct ahci_command_data *data)
+{
+	int pno;
+	u32 pxsact, pxci, pxcmd, pxfb, pxfbu;
+	struct ahci_port *port;
+	unsigned int slot;
+	phys_t phys;
+
+	pno = p->port_no;
+	port = &ad->port[pno];
+	if (!(data->init & (1 << pno))) {
+		pxcmd = ahci_port_read (ad, pno, PxCMD);
+		if (!(pxcmd & PxCMD_ST_BIT))
+			goto not_ready;
+		pxsact = ahci_port_read (ad, pno, PxSACT);
+		pxci = ahci_port_read (ad, pno, PxCI);
+		if (port->shadowbit)
+			ahci_cmd_complete (ad, port, pxsact, pxci);
+		if (p->cmd->ncq) {
+			/* do not issue NCQ commands while legacy ATA commands
+			   are in the command list to avoid intermixing them */
+			if ((pxsact ^ pxci) & pxci)
+				goto not_ready;
+		} else {
+			if (port->shadowbit)
+				goto not_ready;
+			if (pxsact || pxci)
+				goto not_ready;
+		}
+		data->port[pno].pxsact = pxsact;
+		data->port[pno].pxci = pxci;
+		data->port[pno].queued = 0;
+		data->init |= (1 << pno);
+	} else {
+		pxsact = data->port[pno].pxsact;
+		pxci = data->port[pno].pxci;
+	}
+	if (p->cmd->ncq) {
+		slot = p->cmd->ncq;
+		if (pxci && !pxsact)
+			goto not_ready;
+	} else {
+		slot = ad->ncs;
+		if (pxsact)
+			goto not_ready;
+	}
+	while (slot-- > 0) {
+		if (!((pxsact | pxci) & (1 << slot)))
+			goto found;
+	}
+not_ready:
+	if (get_time () - p->start_time >= p->cmd->timeout_ready) {
+		p->cmd->timeout_ready = -1;
+		return COMMAND_FAILED;
+	} else {
+		return COMMAND_SKIPPED;
+	}
+found:
+	if (!data->port[pno].queued++) {
+		if (pxsact || pxci) {
+			data->port[pno].fis = NULL;
+			goto mix_with_guest;
+		}
+		data->port[pno].orig_fb = ahci_port_read (ad, pno, PxFB);
+		data->port[pno].orig_fbu = ahci_port_read (ad, pno, PxFBU);
+		alloc_page (&data->port[pno].fis, &phys);
+		pxfb = phys;
+		pxfbu = phys >> 32;
+		ahci_port_write (ad, pno, PxFB, pxfb);
+		ahci_port_write (ad, pno, PxFBU, pxfbu);
+		data->port[pno].pxis = ahci_port_read (ad, pno, PxIS);
+	mix_with_guest:
+		data->port[pno].pxie = ahci_port_read (ad, pno, PxIE);
+		ahci_port_write (ad, pno, PxIE, 0); /* Disable the interrupt */
+	}
+	ahci_command_fill (port, slot, p->cmd);
+	if (p->cmd->ncq) {
+		ahci_port_write (ad, pno, PxSACT, 1 << slot);
+		data->port[pno].pxsact = pxsact | (1 << slot);
+	}
+	ahci_port_write (ad, pno, PxCI, 1 << slot);
+	data->port[pno].pxci = pxci | (1 << slot);
+	p->slot = slot;
+	p->start_time = get_time ();
+	return COMMAND_QUEUED;
+}
+
+static bool
+ahci_command_completion (struct ahci_data *ad, struct ahci_command_list *p,
+			 struct ahci_command_data *data, u32 time)
+{
+	struct recvfis *fis;
+	struct storage_hc_dev_atacmd *cmd;
+	u32 pxsact, pxci, pxis1;
+	int pno, slot;
+	struct ahci_port *port;
+
+	pno = p->port_no;
+	port = &ad->port[pno];
+	if (!(data->init2 & (1 << pno))) {
+		pxsact = ahci_port_read (ad, pno, PxSACT);
+		pxci = ahci_port_read (ad, pno, PxCI);
+		data->port[pno].pxsact2 = pxsact;
+		data->port[pno].pxci2 = pxci;
+		data->init2 |= (1 << pno);
+	} else {
+		pxsact = data->port[pno].pxsact2;
+		pxci = data->port[pno].pxci2;
+	}
+	slot = p->slot;
+	if ((pxsact | pxci) & (1 << slot)) {
+		if (time - p->start_time >= p->cmd->timeout_complete)
+			p->cmd->timeout_complete = -1;
+		else
+			return false;
+	}
+	cmd = p->cmd;
+	if (port->my[slot].dmabuf) {
+		if (!cmd->write)
+			memcpy (cmd->buf, port->my[slot].dmabuf, cmd->buf_len);
+		free (port->my[slot].dmabuf);
+		port->my[slot].dmabuf = NULL;
+	}
+	fis = data->port[pno].fis;
+	if (fis) {
+		cmd->command_status = fis->rfis.fis_0x34.status;
+		cmd->features_error = fis->rfis.fis_0x34.error;
+		cmd->sector_number = fis->rfis.fis_0x34.sector_number;
+		cmd->cyl_low = fis->rfis.fis_0x34.cyl_low;
+		cmd->cyl_high = fis->rfis.fis_0x34.cyl_high;
+		cmd->dev_head = fis->rfis.fis_0x34.dev_head;
+		cmd->sector_number_exp = fis->rfis.fis_0x34.sector_number_exp;
+		cmd->cyl_low_exp = fis->rfis.fis_0x34.cyl_low_exp;
+		cmd->cyl_high_exp = fis->rfis.fis_0x34.cyl_high_exp;
+		cmd->sector_count = fis->rfis.fis_0x34.sector_count;
+		cmd->sector_count_exp = fis->rfis.fis_0x34.sector_count_exp;
+	}
+	if (!--data->port[pno].queued) {
+		if (!data->port[pno].fis)
+			goto mix_with_guest;
+		pxis1 = ahci_port_read (ad, pno, PxIS) & ~data->port[pno].pxis;
+		if (pxis1)
+			ahci_port_write (ad, pno, PxIS, pxis1);
+		ahci_port_write (ad, pno, PxFB, data->port[pno].orig_fb);
+		ahci_port_write (ad, pno, PxFBU, data->port[pno].orig_fbu);
+		free_page (data->port[pno].fis);
+	mix_with_guest:
+		ahci_port_write (ad, pno, PxIE, data->port[pno].pxie);
+	}
+	return true;
+}
+
+static void
+ahci_command_thread (void *arg)
+{
+	struct ahci_data *ad;
+	struct ahci_command_list *p, *pn, *q = NULL, *head = NULL;
+	LIST2_DEFINE_HEAD (working, struct ahci_command_list, list);
+	struct ahci_command_data data;
+	int count = 0;
+	u64 time;
+
+	ad = arg;
+	LIST2_HEAD_INIT (working, list);
+	for (;;) {
+		spinlock_lock (&ad->ahci_cmd_lock);
+		if (q) {
+			LIST2_ADD (ad->ahci_cmd_list, list, q);
+			if (!head)
+				head = q;
+			q = NULL;
+		}
+		p = LIST2_POP (ad->ahci_cmd_list, list);
+		if (!p && !count)
+			ad->ahci_cmd_thread = false;
+		spinlock_unlock (&ad->ahci_cmd_lock);
+		if (!p && !count)
+			break;
+		if (p) {
+			if (p == head) {
+				schedule ();
+				head = NULL;
+			}
+			if (!count++) {
+				data.init = 0;
+				ahci_lock (ad);
+			}
+			switch (ahci_command_do (ad, p, &data)) {
+			case COMMAND_QUEUED:
+				LIST2_ADD (working, list, p);
+				/* keep ahci lock until finished */
+				continue;
+			case COMMAND_FAILED:
+				p->cmd->callback (p->cmd->data, p->cmd);
+				free (p);
+				break;
+			case COMMAND_SKIPPED:
+				q = p;
+				break;
+			}
+			if (!--count)
+				ahci_unlock (ad);
+		} else {
+			schedule ();
+		}
+		data.init2 = 0;
+		time = 0;
+		LIST2_FOREACH_DELETABLE (working, list, p, pn) {
+			if (!time)
+				time = get_time ();
+			if (ahci_command_completion (ad, p, &data, time)) {
+				if (!--count)
+					ahci_unlock (ad);
+				p->cmd->callback (p->cmd->data, p->cmd);
+				LIST2_DEL (working, list, p);
+				free (p);
+			}
+		}
+	}
+	thread_exit ();
+}
+
+static int
+ahci_scandev (void *drvdata, int port_no,
+	      storage_hc_scandev_callback_t *callback, void *data)
+{
+	struct ahci_data *ad;
+
+	ad = drvdata;
+	if (!(port_no >= 0 && port_no < NUM_OF_AHCI_PORTS))
+		return 0;
+	if (!(ad->pi & (1 << port_no)))
+		return 0;
+	/* Port multiplier is not yet supported */
+	callback (data, 0);
+	return 1;
+}
+
+static bool
+ahci_openable (void *drvdata, int port_no, int dev_no)
+{
+	struct ahci_data *ad;
+	u32 pxssts;
+
+	ad = drvdata;
+	if (!(port_no >= 0 && port_no < NUM_OF_AHCI_PORTS))
+		return false;
+	if (!(ad->pi & (1 << port_no)))
+		return false;
+	if (dev_no != 0)
+		return false;
+	pxssts = ahci_port_read (ad, port_no, PxSSTS);
+	if ((pxssts & PxSSTS_DET_MASK) == PxSSTS_DET_MASK_NODEV)
+		return false;
+	return true;
+}
+
+static bool
+ahci_command (void *drvdata, int port_no, int dev_no,
+	      struct storage_hc_dev_atacmd *cmd, int cmdsize)
+{
+	struct ahci_data *ad;
+	struct ahci_command_list *p;
+	bool create_thread = false;
+
+	ad = drvdata;
+	if (cmdsize != sizeof *cmd)
+		return false;
+	if (!ahci_openable (drvdata, port_no, dev_no))
+		return false;
+	if (!ad->port[port_no].storage_device)
+		ahci_port_data_init (ad, port_no);
+	p = alloc (sizeof *p);
+	p->cmd = cmd;
+	p->port_no = port_no;
+	p->dev_no = dev_no;
+	p->start_time = get_time ();
+	spinlock_lock (&ad->ahci_cmd_lock);
+	LIST2_ADD (ad->ahci_cmd_list, list, p);
+	if (!ad->ahci_cmd_thread) {
+		ad->ahci_cmd_thread = true;
+		create_thread = true;
+	}
+	spinlock_unlock (&ad->ahci_cmd_lock);
+	if (create_thread)
+		thread_new (ahci_command_thread, ad, VMM_STACKSIZE);
+	return true;
+}
+
+static void
+ahci_ae_bit_changed (struct ahci_data *ad)
+{
+	static struct storage_hc_driver_func hc_driver_func = {
+		.scandev = ahci_scandev,
+		.openable = ahci_openable,
+		.atacommand = ahci_command,
+	};
+
+	if (ad->enabled) {
+		ata_ahci_mode (ad->pci, true);
+		if (!ad->hc)
+			ad->hc = storage_hc_register (&ad->hc_addr,
+						      &hc_driver_func, ad);
+	} else {
+		if (ad->hc)
+			storage_hc_unregister (ad->hc);
+		ad->hc = NULL;
+		ata_ahci_mode (ad->pci, false);
+	}
 }
 
 /************************************************************/
@@ -854,10 +1484,8 @@ reghook (struct ahci_hook *d, int i, u32 a, u32 b, enum hooktype ht)
 		a &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
 		b &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
 		num = getnum (b);
-		if (num != 32) {
-			printf ("AHCI: unknown I/O space 0x%X, 0x%X\n", a, b);
+		if (num != 32)
 			return;
-		}
 		d->io = 1;
 		d->iobase = a + 16;
 		d->hd = core_io_register_handler (a + 16, 16, iohandler, d,
@@ -869,6 +1497,9 @@ reghook (struct ahci_hook *d, int i, u32 a, u32 b, enum hooktype ht)
 		a &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
 		b &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
 		num = getnum (b);
+		if (num < 0x180)
+			/* The memory space is too small for AHCI */
+			return;
 		d->mapaddr = a;
 		d->maplen = num;
 		d->map = mapmem_gphys (a, num, MAPMEM_WRITE);
@@ -892,17 +1523,25 @@ ahci_new (struct pci_device *pci_device)
 	memset (ad, 0, sizeof *ad);
 	ad->ahci_io.ad = ad;
 	ad->ahci_mem.ad = ad;
-	reghook (&ad->ahci_io, 4, pci_device->config_space.base_address[4],
-		 pci_device->base_address_mask[4], HOOK_IOSPACE);
+	ad->pci = pci_device;
+	STORAGE_HC_ADDR_PCI (ad->hc_addr.addr, pci_device);
+	ad->hc_addr.type = STORAGE_HC_TYPE_AHCI;
+	LIST2_HEAD_INIT (ad->ahci_cmd_list, list);
 	reghook (&ad->ahci_mem, 5, pci_device->config_space.base_address[5],
 		 pci_device->base_address_mask[5], HOOK_MEMSPACE);
-	spinlock_init (&ad->lock);
+	if (!ahci_probe (ad, false, 0)) {
+		unreghook (&ad->ahci_mem);
+		free (ad);
+		return NULL;
+	}
+	reghook (&ad->ahci_io, 4, pci_device->config_space.base_address[4],
+		 pci_device->base_address_mask[4], HOOK_IOSPACE);
+	spinlock_init (&ad->locked_lock);
+	ad->locked = false;
 	for (i = 0; i < NUM_OF_AHCI_PORTS; i++)
 		ad->port[i].storage_device = NULL;
 	ad->host_id = ahci_host_id++;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
-	if (ad->ahci_mem.e)
-		printf ("AHCI found.\n");
 	return ad;
 }
 

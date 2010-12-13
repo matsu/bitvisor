@@ -142,7 +142,7 @@ mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len, u32 f)
 }
 
 int
-mmio_access_page (phys_t gphysaddr)
+mmio_access_page (phys_t gphysaddr, bool emulation)
 {
 	enum vmmerr e;
 	struct mmio_list *p;
@@ -156,6 +156,8 @@ mmio_access_page (phys_t gphysaddr)
 	LIST1_FOREACH (current->vcpu0->mmio.mmio[i], p) {
 		h = p->handle;
 		if (rangecheck (h, gphysaddr, PAGESIZE, NULL, NULL)) {
+			if (!emulation)
+				return 1;
 			e = cpu_interpreter ();
 			if (e == VMMERR_SUCCESS)
 				return 1;

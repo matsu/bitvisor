@@ -27,19 +27,4 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_ACPI_H
-#define _CORE_ACPI_H
-
-#include <core/types.h>
-
-struct acpi_data {
-	bool iopass;
-	bool smi_hook_disabled;
-};
-
-void acpi_iohook (void);
-void acpi_poweroff (void);
-bool get_acpi_time_raw (u32 *r);
-void acpi_smi_hook (void);
-
-#endif
+#include "../../storage/storage_io_msg.h"

@@ -1266,7 +1266,7 @@ opcode_into (struct op *op)
 	return VMMERR_UNIMPLEMENTED_OPCODE;
 }
 
-static void
+static bool
 execinst_io (void *execdata, void *data, u32 len)
 {
 	struct execinst_io_data *e;
@@ -1274,12 +1274,19 @@ execinst_io (void *execdata, void *data, u32 len)
 
 	e = (struct execinst_io_data *)execdata;
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
-	call_io (e->type, rdx & 0xFFFF, data);
+	switch (call_io (e->type, rdx & 0xFFFF, data)) {
+	case IOACT_CONT:
+		return true;
+	case IOACT_RERUN:
+		return false;
+	}
+	panic ("execinst_io: bad ioact");
+	return false;
 }
 
 static enum vmmerr
 string_instruction (struct op *op, bool rd, bool wr, u32 len, void *execdata,
-		    void (*execinst) (void *execdata, void *data, u32 len))
+		    bool (*execinst) (void *execdata, void *data, u32 len))
 {
 	u64 data;
 	enum sreg segr, segw;
@@ -1350,7 +1357,8 @@ reploop:
 			break;
 		}
 	}
-	execinst (execdata, &data, len);
+	if (!execinst (execdata, &data, len))
+		return VMMERR_SUCCESS;
 	if (wr) {
 		if (op->addrtype == ADDRTYPE_16BIT)
 			offw = (*(u16 *)&regw);
@@ -1443,10 +1451,17 @@ static enum vmmerr
 opcode_inb_imm (struct op *op)
 {
 	ulong rax;
+	enum ioact ioret;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->updateip = false;
-	call_io (IOTYPE_INB, op->imm & 0xFF, &rax);
+	ioret = call_io (IOTYPE_INB, op->imm & 0xFF, &rax);
+	switch (ioret) {
+	case IOACT_CONT:
+		break;
+	case IOACT_RERUN:
+		return VMMERR_SUCCESS;
+	}
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
 	if (!current->updateip)
 		UPDATE_IP (op);
@@ -1457,6 +1472,7 @@ static enum vmmerr
 opcode_in_imm (struct op *op)
 {
 	ulong rax;
+	enum ioact ioret;
 
 	if (op->optype == OPTYPE_64BIT)
 		op->optype = OPTYPE_32BIT;
@@ -1466,9 +1482,15 @@ opcode_in_imm (struct op *op)
 		current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->updateip = false;
 	if (op->optype == OPTYPE_16BIT)
-		call_io (IOTYPE_INW, op->imm & 0xFF, &rax);
+		ioret = call_io (IOTYPE_INW, op->imm & 0xFF, &rax);
 	else
-		call_io (IOTYPE_INL, op->imm & 0xFF, &rax);
+		ioret = call_io (IOTYPE_INL, op->imm & 0xFF, &rax);
+	switch (ioret) {
+	case IOACT_CONT:
+		break;
+	case IOACT_RERUN:
+		return VMMERR_SUCCESS;
+	}
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
 	if (!current->updateip)
 		UPDATE_IP (op);
@@ -1479,11 +1501,18 @@ static enum vmmerr
 opcode_inb_dx (struct op *op)
 {
 	ulong rax, rdx;
+	enum ioact ioret;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
 	current->updateip = false;
-	call_io (IOTYPE_INB, rdx & 0xFFFF, &rax);
+	ioret = call_io (IOTYPE_INB, rdx & 0xFFFF, &rax);
+	switch (ioret) {
+	case IOACT_CONT:
+		break;
+	case IOACT_RERUN:
+		return VMMERR_SUCCESS;
+	}
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
 	if (!current->updateip)
 		UPDATE_IP (op);
@@ -1494,6 +1523,7 @@ static enum vmmerr
 opcode_in_dx (struct op *op)
 {
 	ulong rax, rdx;
+	enum ioact ioret;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
 	if (op->optype == OPTYPE_64BIT)
@@ -1504,9 +1534,15 @@ opcode_in_dx (struct op *op)
 		current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->updateip = false;
 	if (op->optype == OPTYPE_16BIT)
-		call_io (IOTYPE_INW, rdx & 0xFFFF, &rax);
+		ioret = call_io (IOTYPE_INW, rdx & 0xFFFF, &rax);
 	else
-		call_io (IOTYPE_INL, rdx & 0xFFFF, &rax);
+		ioret = call_io (IOTYPE_INL, rdx & 0xFFFF, &rax);
+	switch (ioret) {
+	case IOACT_CONT:
+		break;
+	case IOACT_RERUN:
+		return VMMERR_SUCCESS;
+	}
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
 	if (!current->updateip)
 		UPDATE_IP (op);
@@ -1534,10 +1570,17 @@ static enum vmmerr
 opcode_outb_imm (struct op *op)
 {
 	ulong rax;
+	enum ioact ioret;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->updateip = false;
-	call_io (IOTYPE_OUTB, op->imm & 0xFF, &rax);
+	ioret = call_io (IOTYPE_OUTB, op->imm & 0xFF, &rax);
+	switch (ioret) {
+	case IOACT_CONT:
+		break;
+	case IOACT_RERUN:
+		return VMMERR_SUCCESS;
+	}
 	if (!current->updateip)
 		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
@@ -1547,15 +1590,22 @@ static enum vmmerr
 opcode_out_imm (struct op *op)
 {
 	ulong rax;
+	enum ioact ioret;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	if (op->optype == OPTYPE_64BIT)
 		op->optype = OPTYPE_32BIT;
 	current->updateip = false;
 	if (op->optype == OPTYPE_16BIT)
-		call_io (IOTYPE_OUTW, op->imm & 0xFF, &rax);
+		ioret = call_io (IOTYPE_OUTW, op->imm & 0xFF, &rax);
 	else
-		call_io (IOTYPE_OUTL, op->imm & 0xFF, &rax);
+		ioret = call_io (IOTYPE_OUTL, op->imm & 0xFF, &rax);
+	switch (ioret) {
+	case IOACT_CONT:
+		break;
+	case IOACT_RERUN:
+		return VMMERR_SUCCESS;
+	}
 	if (!current->updateip)
 		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
@@ -1565,11 +1615,18 @@ static enum vmmerr
 opcode_outb_dx (struct op *op)
 {
 	ulong rax, rdx;
+	enum ioact ioret;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
 	current->updateip = false;
-	call_io (IOTYPE_OUTB, rdx & 0xFFFF, &rax);
+	ioret = call_io (IOTYPE_OUTB, rdx & 0xFFFF, &rax);
+	switch (ioret) {
+	case IOACT_CONT:
+		break;
+	case IOACT_RERUN:
+		return VMMERR_SUCCESS;
+	}
 	if (!current->updateip)
 		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
@@ -1579,6 +1636,7 @@ static enum vmmerr
 opcode_out_dx (struct op *op)
 {
 	ulong rax, rdx;
+	enum ioact ioret;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
 	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
@@ -1586,9 +1644,15 @@ opcode_out_dx (struct op *op)
 		op->optype = OPTYPE_32BIT;
 	current->updateip = false;
 	if (op->optype == OPTYPE_16BIT)
-		call_io (IOTYPE_OUTW, rdx & 0xFFFF, &rax);
+		ioret = call_io (IOTYPE_OUTW, rdx & 0xFFFF, &rax);
 	else
-		call_io (IOTYPE_OUTL, rdx & 0xFFFF, &rax);
+		ioret = call_io (IOTYPE_OUTL, rdx & 0xFFFF, &rax);
+	switch (ioret) {
+	case IOACT_CONT:
+		break;
+	case IOACT_RERUN:
+		return VMMERR_SUCCESS;
+	}
 	if (!current->updateip)
 		UPDATE_IP (op);
 	return VMMERR_SUCCESS;
@@ -1901,15 +1965,17 @@ opcode_retf (struct op *op)
 	return VMMERR_UNIMPLEMENTED_OPCODE;
 }
 
-static void
+static bool
 execinst_stos (void *execdata, void *data, u32 len)
 {
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, data);
+	return true;
 }
 
-static void
+static bool
 execinst_movs (void *execdata, void *data, u32 len)
 {
+	return true;
 }
 
 static enum vmmerr
