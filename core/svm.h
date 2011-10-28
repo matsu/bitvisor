@@ -63,6 +63,7 @@ struct svm {
 	struct svm_msr msr;
 	struct svm_np *np;
 	bool lme, lma;
+	struct vmcb *saved_vmcb;
 };
 
 struct svm_pcpu_data {

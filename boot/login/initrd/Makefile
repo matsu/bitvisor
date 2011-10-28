@@ -17,6 +17,7 @@ initrd.gz : $(MINIOS_INIT) $(MINIOS_CONF)/bitvisor.conf
 	mkdir work/lib
 	#cp $(MINIOS_LIBS) work/lib/
 	cp $(MINIOS_INIT) work/init
+	strip work/init
 	cp $(MINIOS_FILES) work/
 	cp -r $(MINIOS_CONF) work/
 	(cd work/ && find . | cpio -H newc -o) | gzip -9c > initrd.gz

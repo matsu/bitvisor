@@ -34,6 +34,7 @@
 #include <storage.h>
 #include <storage_io.h>
 #include "ata.h"
+#include "atapi.h"
 #include "pci.h"
 #include "ata_cmd.h"
 #include "packet.h"
@@ -178,6 +179,12 @@ struct ahci_hook {
 	struct ahci_data *ad;
 };
 
+enum identify_type {
+	IDENTIFY_NONE = 0,
+	IDENTIFY_DEVICE,
+	IDENTIFY_PACKET,
+};
+
 struct ahci_port {
 	struct storage_device *storage_device;
 	bool atapi;
@@ -195,6 +202,7 @@ struct ahci_port {
 		u32 dmabuf_nsec;
 		u32 dmabuf_ssiz;
 		int dmabuf_rwflag;
+		enum identify_type dmabuf_identify;
 	} my[NUM_OF_COMMAND_HEADER];
 };
 
@@ -272,6 +280,7 @@ struct ahci_command_list {
 struct ahci_data {
 	spinlock_t locked_lock;
 	bool locked;
+	int waiting;
 	int host_id;
 	struct ahci_port port[NUM_OF_AHCI_PORTS];
 	struct ahci_hook ahci_io, ahci_mem;
@@ -522,7 +531,24 @@ static void
 ahci_lock (struct ahci_data *ad)
 {
 	spinlock_lock (&ad->locked_lock);
-	while (ad->locked) {
+	if (ad->locked) {
+		ad->waiting++;
+		do {
+			spinlock_unlock (&ad->locked_lock);
+			schedule ();
+			spinlock_lock (&ad->locked_lock);
+		} while (ad->locked);
+		ad->waiting--;
+	}
+	ad->locked = true;
+	spinlock_unlock (&ad->locked_lock);
+}
+
+static void
+ahci_lock_lowpri (struct ahci_data *ad)
+{
+	spinlock_lock (&ad->locked_lock);
+	while (ad->locked || ad->waiting) {
 		spinlock_unlock (&ad->locked_lock);
 		schedule ();
 		spinlock_lock (&ad->locked_lock);
@@ -581,6 +607,7 @@ ahci_handle_cmd_invalid (struct ahci_data *ad, struct ahci_port *port,
 			 unsigned int ext)
 {
 	port->my[cmdhdr_index].dmabuf_rwflag = 0;
+	port->my[cmdhdr_index].dmabuf_identify = IDENTIFY_NONE;
 	panic ("AHCI: Invalid ATA command 0x%02X", cfis->fis_0x27.command);
 }
 
@@ -590,6 +617,7 @@ ahci_handle_cmd_through (struct ahci_data *ad, struct ahci_port *port,
 			 unsigned int ext)
 {
 	port->my[cmdhdr_index].dmabuf_rwflag = 0;
+	port->my[cmdhdr_index].dmabuf_identify = IDENTIFY_NONE;
 }
 
 static void
@@ -598,19 +626,35 @@ ahci_handle_cmd_identify (struct ahci_data *ad, struct ahci_port *port,
 			  unsigned int rw, unsigned int ext)
 {
 	port->my[cmdhdr_index].dmabuf_rwflag = 0;
-	if (ext) {
+	port->my[cmdhdr_index].dmabuf_identify =
+		ext ? IDENTIFY_PACKET : IDENTIFY_DEVICE;
+}
+
+static void
+ahci_identity_check (struct ahci_data *ad, struct ahci_port *port,
+		     int cmdhdr_index)
+{
+	struct ata_identify_packet *identity;
+
+	switch (port->my[cmdhdr_index].dmabuf_identify) {
+	case IDENTIFY_PACKET:
+		identity = port->my[cmdhdr_index].dmabuf;
 		printf ("AHCI %d:%lu IDENTIFY PACKET\n", ad->host_id,
 			(unsigned long)(port - ad->port));
-		if (!port->atapi) {
+		if (identity->atapi == 2 && !port->atapi) {
 			storage_free (port->storage_device);
 			port->storage_device = storage_new
 				(STORAGE_TYPE_AHCI_ATAPI, ad->host_id,
 				 port - ad->port, NULL, NULL);
 			port->atapi = true;
 		}
-	} else {
+		break;
+	case IDENTIFY_DEVICE:
 		printf ("AHCI %d:%lu IDENTIFY\n", ad->host_id,
 			(unsigned long)(port - ad->port));
+		break;
+	default:
+		panic ("wrong identify type");
 	}
 }
 
@@ -654,6 +698,7 @@ ahci_handle_cmd_rw_dma (struct ahci_data *ad, struct ahci_port *port,
 	port->my[cmdhdr_index].dmabuf_lba = lba;
 	port->my[cmdhdr_index].dmabuf_nsec = nsec;
 	port->my[cmdhdr_index].dmabuf_ssiz = 512;
+	port->my[cmdhdr_index].dmabuf_identify = IDENTIFY_NONE;
 }
 
 static void
@@ -686,6 +731,7 @@ ahci_handle_cmd_rw_ncq (struct ahci_data *ad, struct ahci_port *port,
 	port->my[cmdhdr_index].dmabuf_lba = lba;
 	port->my[cmdhdr_index].dmabuf_nsec = nsec;
 	port->my[cmdhdr_index].dmabuf_ssiz = 512;
+	port->my[cmdhdr_index].dmabuf_identify = IDENTIFY_NONE;
 }
 
 static const struct {
@@ -778,6 +824,11 @@ ahci_cmd_posthook (struct ahci_data *ad, struct ahci_port *port,
 {
 	struct storage_access access;
 
+	if (port->my[cmdhdr_index].dmabuf_identify) {
+		/* check atapi or not */
+		ahci_identity_check (ad, port, cmdhdr_index);
+		return;
+	}
 	if (!port->my[cmdhdr_index].dmabuf_rwflag)
 		return;
 	if (port->mycmdlist->cmdhdr[cmdhdr_index].w) /* write */
@@ -1310,7 +1361,7 @@ ahci_command_thread (void *arg)
 			}
 			if (!count++) {
 				data.init = 0;
-				ahci_lock (ad);
+				ahci_lock_lowpri (ad);
 			}
 			switch (ahci_command_do (ad, p, &data)) {
 			case COMMAND_QUEUED:
@@ -1538,6 +1589,7 @@ ahci_new (struct pci_device *pci_device)
 		 pci_device->base_address_mask[4], HOOK_IOSPACE);
 	spinlock_init (&ad->locked_lock);
 	ad->locked = false;
+	ad->waiting = 0;
 	for (i = 0; i < NUM_OF_AHCI_PORTS; i++)
 		ad->port[i].storage_device = NULL;
 	ad->host_id = ahci_host_id++;

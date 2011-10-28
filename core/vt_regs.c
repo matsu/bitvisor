@@ -346,6 +346,35 @@ pe_change (bool pe)
 	pe_change_enable_sw (pe);
 }
 
+static void
+vt_spt_disable (void)
+{
+#ifdef CPU_MMU_SPT_DISABLE
+	ulong t1, t2;
+
+	if (current->u.vt.vr.pe && current->u.vt.vr.pg) {
+		asm_vmread (VMCS_GUEST_CR0, &t1);
+		asm_vmread (VMCS_CR0_READ_SHADOW, &t2);
+		t1 &= ~CR0_WP_BIT;
+		t1 |= t2 & CR0_WP_BIT;
+		asm_vmwrite (VMCS_GUEST_CR0, t1);
+		asm_vmread (VMCS_GUEST_CR4, &t1);
+		asm_vmread (VMCS_CR4_READ_SHADOW, &t2);
+		t1 &= ~CR4_PAE_BIT;
+		t1 |= t2 & CR4_PAE_BIT;
+		asm_vmwrite (VMCS_GUEST_CR4, t1);
+		asm_vmwrite (VMCS_GUEST_CR3, current->u.vt.vr.cr3);
+	} else {
+		asm_vmread (VMCS_GUEST_CR0, &t1);
+		t1 |= CR0_WP_BIT;
+		asm_vmwrite (VMCS_GUEST_CR0, t1);
+		asm_vmread (VMCS_GUEST_CR4, &t1);
+		t1 |= CR4_PAE_BIT;
+		asm_vmwrite (VMCS_GUEST_CR4, t1);
+	}
+#endif
+}
+
 void
 vt_write_control_reg (enum control_reg reg, ulong val)
 {
@@ -372,6 +401,7 @@ vt_write_control_reg (enum control_reg reg, ulong val)
 		val |= CR0_WP_BIT;
 		asm_vmwrite (VMCS_GUEST_CR0, val);
 		cpu_mmu_spt_updatecr3 ();
+		vt_spt_disable ();
 		break;
 	case CONTROL_REG_CR2:
 		current->u.vt.vr.cr2 = val;
@@ -379,6 +409,7 @@ vt_write_control_reg (enum control_reg reg, ulong val)
 	case CONTROL_REG_CR3:
 		current->u.vt.vr.cr3 = val;
 		cpu_mmu_spt_updatecr3 ();
+		vt_spt_disable ();
 		break;
 	case CONTROL_REG_CR4:
 		asm_vmwrite (VMCS_CR4_READ_SHADOW, val);
@@ -391,6 +422,7 @@ vt_write_control_reg (enum control_reg reg, ulong val)
 #endif
 		asm_vmwrite (VMCS_GUEST_CR4, val);
 		cpu_mmu_spt_updatecr3 ();
+		vt_spt_disable ();
 		break;
 	default:
 		panic ("Fatal error: unknown control register.");
@@ -728,26 +760,32 @@ vt_write_realmode_seg (enum sreg s, u16 val)
 	case SREG_ES:
 		asm_vmwrite (VMCS_GUEST_ES_SEL, val);
 		asm_vmwrite (VMCS_GUEST_ES_BASE, val << 4);
+		current->u.vt.vr.sw.enable &= ~SW_SREG_ES_BIT;
 		break;
 	case SREG_CS:
 		asm_vmwrite (VMCS_GUEST_CS_SEL, val);
 		asm_vmwrite (VMCS_GUEST_CS_BASE, val << 4);
+		current->u.vt.vr.sw.enable &= ~SW_SREG_CS_BIT;
 		break;
 	case SREG_SS:
 		asm_vmwrite (VMCS_GUEST_SS_SEL, val);
 		asm_vmwrite (VMCS_GUEST_SS_BASE, val << 4);
+		current->u.vt.vr.sw.enable &= ~SW_SREG_SS_BIT;
 		break;
 	case SREG_DS:
 		asm_vmwrite (VMCS_GUEST_DS_SEL, val);
 		asm_vmwrite (VMCS_GUEST_DS_BASE, val << 4);
+		current->u.vt.vr.sw.enable &= ~SW_SREG_DS_BIT;
 		break;
 	case SREG_FS:
 		asm_vmwrite (VMCS_GUEST_FS_SEL, val);
 		asm_vmwrite (VMCS_GUEST_FS_BASE, val << 4);
+		current->u.vt.vr.sw.enable &= ~SW_SREG_FS_BIT;
 		break;
 	case SREG_GS:
 		asm_vmwrite (VMCS_GUEST_GS_SEL, val);
 		asm_vmwrite (VMCS_GUEST_GS_BASE, val << 4);
+		current->u.vt.vr.sw.enable &= ~SW_SREG_GS_BIT;
 		break;
 	default:
 		panic ("Fatal error: unknown sreg.");

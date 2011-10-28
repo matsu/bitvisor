@@ -98,6 +98,8 @@ static struct vmctl_func func = {
 	svm_reset,
 	svm_extern_flush_tlb_entry,
 	call_xsetbv,
+	svm_enable_resume,
+	svm_resume,
 };
 
 static void

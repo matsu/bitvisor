@@ -27,12 +27,61 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_GUEST_BOOT_H
-#define _CORE_GUEST_BOOT_H
+#include "asm.h"
+#include "constants.h"
+#include "int.h"
+#include "mm.h"
+#include "savemsr.h"
 
-#define GUEST_BOOT_OFFSET 0x800
-#define GUEST_BOOT_LENGTH (guest_boot_end - guest_boot_start)
+struct msrarg {
+	u32 msrindex;
+	u64 *msrdata;
+};
 
-extern char guest_boot_start[], guest_boot_end[];
+u32 savemsr_index[NUM_OF_SAVEMSR_DATA] = {
+	MSR_IA32_SYSENTER_CS,
+	MSR_IA32_STAR,
+	MSR_IA32_LSTAR,
+	MSR_AMD_CSTAR,
+	MSR_IA32_FMASK,
+	MSR_IA32_SYSENTER_EIP,
+	MSR_IA32_SYSENTER_ESP,
+};
 
-#endif
+static asmlinkage void
+do_read_msr_sub (void *arg)
+{
+	struct msrarg *p;
+
+	p = arg;
+	asm_rdmsr64 (p->msrindex, p->msrdata);
+}
+
+void
+savemsr_save (struct savemsr *p)
+{
+	struct msrarg m;
+	int i, num;
+
+	for (i = 0; i < NUM_OF_SAVEMSR_DATA; i++) {
+		p->data[i].exist = false;
+		m.msrindex = savemsr_index[i];
+		m.msrdata = &p->data[i].msrdata;
+		if (!m.msrindex && i > 0)
+			continue;
+		num = callfunc_and_getint (do_read_msr_sub, &m);
+		if (num == -1)
+			p->data[i].exist = true;
+	}
+}
+
+void
+savemsr_load (struct savemsr *p)
+{
+	int i;
+
+	for (i = 0; i < NUM_OF_SAVEMSR_DATA; i++) {
+		if (p->data[i].exist)
+			asm_wrmsr64 (savemsr_index[i], p->data[i].msrdata);
+	}
+}

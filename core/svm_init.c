@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "assert.h"
 #include "constants.h"
 #include "cpu.h"
 #include "current.h"
@@ -138,6 +139,7 @@ svm_vmcb_init (void)
 {
 	struct vmcb *p;
 
+	current->u.svm.saved_vmcb = NULL;
 	alloc_page ((void **)&current->u.svm.vi.vmcb,
 		    &current->u.svm.vi.vmcb_phys);
 	alloc_pages (&current->u.svm.io.iobmp,
@@ -223,4 +225,35 @@ svm_init (void)
 	memset (v, 0, PAGESIZE);
 	currentcpu->svm.vmcbhost = v;
 	currentcpu->svm.vmcbhost_phys = p;
+}
+
+void
+svm_enable_resume (void)
+{
+	void *virt;
+
+	ASSERT (!current->u.svm.saved_vmcb);
+	alloc_page (&virt, NULL);
+	current->u.svm.saved_vmcb = virt;
+	memcpy (current->u.svm.saved_vmcb, current->u.svm.vi.vmcb, PAGESIZE);
+	spinlock_lock (&currentcpu->suspend_lock);
+}
+
+void
+svm_resume (void)
+{
+	u64 tmp;
+	ulong efer;
+
+	ASSERT (current->u.svm.saved_vmcb);
+	asm_rdmsr (MSR_IA32_EFER, &efer);
+	efer |= MSR_IA32_EFER_SVME_BIT;
+	asm_wrmsr (MSR_IA32_EFER, efer);
+	asm_rdmsr64 (MSR_AMD_VM_CR, &tmp);
+	tmp |= MSR_AMD_VM_CR_DIS_A20M_BIT;
+	asm_wrmsr64 (MSR_AMD_VM_CR, tmp);
+	asm_wrmsr64 (MSR_AMD_VM_HSAVE_PA, currentcpu->svm.hsave_phys);
+	memcpy (current->u.svm.vi.vmcb, current->u.svm.saved_vmcb, PAGESIZE);
+	spinlock_init (&currentcpu->suspend_lock);
+	spinlock_lock (&currentcpu->suspend_lock);
 }

@@ -45,10 +45,42 @@
 DEFINE_ZALLOC_FUNC(usb_device);
 DEFINE_ZALLOC_FUNC(usb_endpoint_descriptor);
 DEFINE_ZALLOC_FUNC(usb_interface);
+DEFINE_ZALLOC_FUNC(usb_device_handle);
 
 DEFINE_GET_U16_FROM_SETUP_FUNC(wValue);
 DEFINE_GET_U16_FROM_SETUP_FUNC(wIndex);
 DEFINE_GET_U16_FROM_SETUP_FUNC(wLength);
+
+static void
+cpy_config_descriptor(struct usb_config_descriptor *d_cdesc,
+		      struct usb_config_descriptor *cdesc)
+{
+	d_cdesc->bLength = cdesc->bLength;
+	d_cdesc->bDescriptorType = cdesc->bDescriptorType;
+	d_cdesc->wTotalLength = cdesc->wTotalLength;
+	d_cdesc->bNumInterfaces = cdesc->bNumInterfaces;
+	d_cdesc->bConfigurationValue = cdesc->bConfigurationValue;
+	d_cdesc->iConfiguration = cdesc->iConfiguration;
+	d_cdesc->bmAttributes = cdesc->bmAttributes;
+	d_cdesc->MaxPower = cdesc->MaxPower;
+}
+
+static int
+cmp_config_descriptor(struct usb_config_descriptor *cdesc_a,
+		      struct usb_config_descriptor *cdesc_b)
+{
+	if (cdesc_a->bLength != cdesc_b->bLength ||
+	    cdesc_a->bDescriptorType != cdesc_b->bDescriptorType ||
+	    cdesc_a->wTotalLength != cdesc_b->wTotalLength ||
+	    cdesc_a->bNumInterfaces != cdesc_b->bNumInterfaces ||
+	    cdesc_a->bConfigurationValue != cdesc_b->bConfigurationValue ||
+	    cdesc_a->iConfiguration != cdesc_b->iConfiguration ||
+	    cdesc_a->bmAttributes != cdesc_b->bmAttributes ||
+	    cdesc_a->MaxPower != cdesc_b->MaxPower)
+		return 1;
+	else
+		return 0;
+}
 
 /**
  * @brief free all the n number of endpoints
@@ -125,6 +157,46 @@ free_config_descriptors(struct usb_config_descriptor *cdesc, int n)
 }
 
 /**
+ * @brief free nobody refer handler
+ * @params hostc usb host controller data
+ */
+static int
+free_unref_handle(struct usb_host *host)
+{
+	struct usb_device_handle *handle, *nhandle;
+
+	LIST1_FOREACH_DELETABLE (host->handle, handle, nhandle) {
+		if (!handle->ref) {
+			LIST1_DEL(host->handle, handle);
+			free(handle->private_data);
+			free(handle);
+		}
+	}
+	return 0;
+}
+
+/**
+ * @brief free a device handler
+ * @params hostc usb host controller data
+ * @params dev usb device
+ */
+static int
+free_handle(struct usb_host *host, struct usb_device *dev)
+{
+	struct usb_device_handle *handle, *nhandle;
+
+	LIST1_FOREACH_DELETABLE (host->handle, handle, nhandle) {
+		if (!memcmp(&handle->ddesc, &dev->descriptor, dev->l_ddesc) &&
+		    !cmp_config_descriptor(&handle->cdesc, &dev->cdesc) &&
+		    !memcmp(handle->serial, dev->serial, dev->serial_len)) {
+			LIST1_DEL(host->handle, handle);
+			handle->remove(dev);
+		}
+	}
+	return 0;
+}
+
+/**
  * @brief called when a device has been removed
  * @params hostc usb host controller data
  * @params dev usb device
@@ -153,8 +225,8 @@ free_device(struct usb_host *host, struct usb_device *dev)
 	if (dev->config)
 		free_config_descriptors(dev->config, 1);
 
-	if (dev->handle && dev->handle->remove)
-		dev->handle->remove(dev);
+	if (dev->handle)
+		dev->handle->ref--;
 
 	/* remove it from device list */
 	if (host->device == dev) {
@@ -189,12 +261,19 @@ handle_connect_status(struct usb_host *ub_host, u64 portno, u16 status)
 
 	if (status & 0x0002) {
 		ASSERT(ub_host != NULL);
-		dprintft(3, "PORTSC 0-0-0-0-%d: Port status disconnect.\n",
+		dprintft(3, "PORTSC 0-0-0-0-%d: Port status is changed.\n",
 								portno + 1);
 		dev = get_device_by_port(ub_host, portno + 1);
 		if (dev) {
-			dprintft(1, "PORTNO 0-0-0-0-%d: USB device "
-				    "disconnect.\n", (int)dev->portno);
+			if (!(status & 0x0001)) {
+				dprintft(1, "PORTNO 0-0-0-0-%d: USB device "
+					 "disconnect.\n", (int)dev->portno);
+				/* the device is disconnected. */
+				if (dev->handle && dev->handle->ref == 1)
+					free_handle(ub_host, dev);
+				/* find handles nobody refer and delete them */
+				free_unref_handle(ub_host);
+			}
 			free_device(ub_host, dev);
 		}
 	}
@@ -492,9 +571,7 @@ parse_descriptor(struct usb_host *usbhc, u16 desc, virt_t buf,
 		 size_t len, struct usb_device *dev)
 {
 	struct usb_device_descriptor *ddesc;
-	size_t l_ddesc;
 	struct usb_config_descriptor *cdesc;
-	size_t l_cdesc;
 	int n_idesc = 0;
 	int n_edesc = 0;
 	unsigned char *odesc;
@@ -520,13 +597,13 @@ parse_descriptor(struct usb_host *usbhc, u16 desc, virt_t buf,
 	switch (desc) {
 	case USB_DT_DEVICE:
 		ddesc = (struct usb_device_descriptor *)buf;
-		l_ddesc = len;
+		dev->l_ddesc = len;
 
-		dprintft(3, "sizeof(descriptor) = %d\n", l_ddesc);
+		dprintft(3, "sizeof(descriptor) = %d\n", dev->l_ddesc);
 		if (ddesc) {
-			memcpy(&dev->descriptor, ddesc, l_ddesc);
+			memcpy(&dev->descriptor, ddesc, dev->l_ddesc);
 
-			if (l_ddesc > 8) {
+			if (dev->l_ddesc > 8) {
 				dprintft(3, "bDeviceClass = 0x%02x\n", 
 					 dev->descriptor.bDeviceClass);
 				dprintft(3, "bDeviceSubClass = 0x%02x\n", 
@@ -536,7 +613,7 @@ parse_descriptor(struct usb_host *usbhc, u16 desc, virt_t buf,
 				dprintft(3, "bMaxPacketSize0 = 0x%04x\n", 
 					 dev->descriptor.bMaxPacketSize0);
 			}
-			if (l_ddesc >= 14) {
+			if (dev->l_ddesc >= 14) {
 				dprintft(3, "idVendor = 0x%04x\n", 
 					 dev->descriptor.idVendor);
 				dprintft(3, "idProduct = 0x%04x\n", 
@@ -548,19 +625,20 @@ parse_descriptor(struct usb_host *usbhc, u16 desc, virt_t buf,
 
 		break;
 	case USB_DT_CONFIG:
-		l_cdesc = extract_config_descriptors(usbhc, buf, len,
-						     &cdesc, &odesc);
-		dprintft(3, "sizeof(descriptor) = %d\n", l_cdesc);
+		dev->l_cdesc = extract_config_descriptors(usbhc, buf, len,
+							  &cdesc, &odesc);
+		dprintft(3, "sizeof(descriptor) = %d\n", dev->l_cdesc);
 
 		if (!cdesc)
 			break;
+		cpy_config_descriptor(&dev->cdesc, cdesc);
 
 		/* FIXME: it assumes that there is only one config.
 		   descriptor. */
 
 		/* ignore incomplete descriptors */
 		if ((cdesc->bNumInterfaces != 0) &&
-		    (l_cdesc <= USB_DT_CONFIG_SIZE)) {
+		    (dev->l_cdesc <= USB_DT_CONFIG_SIZE)) {
 			free_config_descriptors(cdesc, 1);
 			break;
 		}
@@ -570,7 +648,7 @@ parse_descriptor(struct usb_host *usbhc, u16 desc, virt_t buf,
 			free_config_descriptors(dev->config, 1);
 
 		dev->config = cdesc;
-		if (l_cdesc >= 7) {
+		if (dev->l_cdesc >= 7) {
 			/* only bNumInterfaces interests. */
 			n_idesc = cdesc->bNumInterfaces;
 			dprintft(3, "bNumberInterfaces = %d\n", n_idesc);
@@ -791,6 +869,12 @@ new_usb_device(struct usb_host *usbhc,
 	if (ret > 0)
 		parse_descriptor(usbhc, USB_DT_DEVICE, 
 				 (virt_t)buf, ret, dev);
+	else {
+		dprintft(0, "WARNING: Can't get a DEVICE descriptor.\n");
+		usb_close(udev);
+		free_device(usbhc, dev);
+		return USB_HOOK_DISCARD;
+	}
 
 	/* GetDescriptor(DEVICE, 255) for config and other descriptors */
 	memset(buf, 0, 255);
@@ -800,8 +884,23 @@ new_usb_device(struct usb_host *usbhc,
 	if (ret > 0)
 		parse_descriptor(usbhc, USB_DT_CONFIG, 
 				 (virt_t)buf, ret, dev);
+	else
+		dev->l_cdesc = 0;
 
+	/* GetSerial */
+	memset(buf, 0, 255);
+	if (dev->descriptor.iSerialNumber)
+		ret = usb_get_string_simple(udev,
+					    dev->descriptor.iSerialNumber,
+					    (char *)buf, sizeof(buf));
 	usb_close(udev);
+	if (ret <= 0 || !dev->descriptor.iSerialNumber) {
+		dprintft(0, "No USB device serial number.\n");
+		dev->serial_len = 0;
+	} else if (ret > 0) {
+		memcpy(dev->serial, buf, ret);
+		dev->serial_len = ret;
+	}
 
 	spinlock_lock(&usbhc->lock_hk);
 	/* register a hook for SetConfiguration() */
@@ -849,3 +948,39 @@ usb_init_device_monitor(struct usb_host *host)
 	return;
 }
 
+void *
+usb_find_dev_handle (struct usb_host *usbhc, struct usb_device *dev) {
+
+	struct usb_device_handle *handler;
+
+	LIST1_FOREACH (usbhc->handle, handler) {
+		if (!memcmp(&handler->ddesc, &dev->descriptor, dev->l_ddesc) &&
+		    !cmp_config_descriptor(&handler->cdesc, &dev->cdesc) &&
+		    !memcmp(handler->serial, dev->serial, dev->serial_len)) {
+			handler->ref++;
+			break;
+		}
+	}
+	return handler;
+}
+
+void *
+usb_new_dev_handle (struct usb_host *usbhc, void *devinfo,
+		    void (*remove)(struct usb_device *),
+		    struct usb_device *dev) {
+
+	struct usb_device_handle *handler;
+
+	/* allocate new handler */
+	handler = zalloc_usb_device_handle();
+	handler->remove = remove;
+	handler->private_data = devinfo;
+	handler->ref = 1;
+	memcpy(&handler->ddesc, &dev->descriptor, dev->l_ddesc);
+	cpy_config_descriptor(&handler->cdesc, &dev->cdesc);
+	memcpy(handler->serial, dev->serial, dev->serial_len);
+	handler->serial_len = dev->serial_len;
+	LIST1_PUSH (usbhc->handle, handler);
+
+	return handler;
+}

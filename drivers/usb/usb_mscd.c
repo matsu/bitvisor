@@ -44,7 +44,6 @@
 #include "usb_hook.h"
 #include "usb_mscd.h"
 
-DEFINE_ALLOC_FUNC(usb_device_handle);
 DEFINE_ZALLOC_FUNC(usbmsc_device);
 DEFINE_ZALLOC_FUNC(usbmsc_unit);
 
@@ -728,6 +727,13 @@ usbmsc_create_unit(struct usb_host *usbhc, struct usb_device *dev)
 	return mscunit;
 }
 
+static void
+usbmsc_remove_unit (struct usbmsc_unit *mscunit)
+{
+	storage_free (mscunit->storage);
+	free (mscunit);
+}
+
 static int
 usbmsc_getmaxlun(struct usb_host *usbhc, 
 		 struct usb_request_block *urb, void *arg)
@@ -762,9 +768,10 @@ usbmsc_getmaxlun(struct usb_host *usbhc,
 	}
 
 	/* create instances for additional units */
-	for (i=1; i<=mscdev->lun_max; i++)
-		mscdev->unit[i] = usbmsc_create_unit(usbhc, dev);
-		
+	for (i = 1; i <= mscdev->lun_max; i++)
+		if (!mscdev->unit[i])
+			mscdev->unit[i] = usbmsc_create_unit (usbhc, dev);
+
 	spinlock_unlock(&mscdev->lock);
 	
 	return USB_HOOK_PASS;
@@ -777,8 +784,13 @@ usbmsc_remove(struct usb_device *dev)
 	int i;
 
 	mscdev = (struct usbmsc_device *)dev->handle->private_data;
-	for (i=0; i<=mscdev->lun_max; i++)
-		storage_free (mscdev->unit[i]->storage);
+	/* If the device returns different maxlun value when the
+	   getmaxlun command is issued twice or more, the value of
+	   mscdev->lun_max can be smaller than before.  This loop uses
+	   USBMSC_LUN_MAX to avoid memory leaks in such case. */
+	for (i = 0; i <= USBMSC_LUN_MAX; i++)
+		if (mscdev->unit[i])
+			usbmsc_remove_unit (mscdev->unit[i]);
 	free(dev->handle->private_data);
 	free(dev->handle);
 	dev->handle = NULL;
@@ -894,9 +906,10 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	
 	mscdev->unit[0] = usbmsc_create_unit(usbhc, dev);
 
-	handler = alloc_usb_device_handle();
-	handler->remove = usbmsc_remove;
-	handler->private_data = (void *)mscdev;
+	handler = usb_find_dev_handle(usbhc, dev);
+	if (!handler)
+		handler = usb_new_dev_handle(usbhc, mscdev, usbmsc_remove,
+					     dev);
 	dev->handle = handler;
 	
 	spinlock_unlock(&mscdev->lock);

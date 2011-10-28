@@ -29,23 +29,22 @@
 
 /* address translation for pass-through */
 
+#include "assert.h"
 #include "callrealmode.h"
 #include "constants.h"
 #include "convert.h"
 #include "cpu_seg.h"
 #include "current.h"
+#include "gmm_pass.h"
+#include "guest_bioshook.h"
 #include "initfunc.h"
 #include "io_io.h"
-#include "panic.h"
-#include "gmm_pass.h"
 #include "mm.h"
+#include "panic.h"
 #include "printf.h"
 #include "string.h"
 
-#define HOOKIOPORT 0x1F
-
 static u64 phys_blank;
-static iofunc_t oldhookfunc;
 
 static struct gmm_func func = {
 	gmm_pass_gp2hp,
@@ -76,142 +75,94 @@ gmm_pass_gp2hp (u64 gp, bool *fakerom)
 }
 
 static void
-int0x15hook (void)
-{
-	ulong rax, rbx, rcx, rdx, rdi, rflags;
-	u8 ah, al;
-	u32 type;
-	u64 base, len;
-
-	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
-	conv16to8 ((u16)rax, &al, &ah);
-	if (ah == 0xE8) {
-		if (al == 0x20)
-			goto hooke820;
-		if (al == 0x01)
-			goto hooke801;
-		if (al == 0x81)
-			goto errret;
-	} else if (ah == 0x88)
-		goto errret;
-	/* continue, jump to the original interrupt handler (BIOS) */
-	return;
-errret:
-	/* on error, ah=0x86 and set CF */
-	rax = (rax & ~0xFF00UL) | 0x8600;
-	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
-	current->vmctl.write_ip (0x25C);
-	current->vmctl.read_flags (&rflags);
-	current->vmctl.write_flags (rflags | RFLAGS_IF_BIT | RFLAGS_CF_BIT);
-	return;
-hooke801:
-	/* E801 */
-	current->vmctl.read_general_reg (GENERAL_REG_RAX, &rax);
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	current->vmctl.read_general_reg (GENERAL_REG_RCX, &rcx);
-	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
-	*(u16 *)&rax = e801_fake_ax;
-	*(u16 *)&rbx = e801_fake_bx;
-	*(u16 *)&rcx = e801_fake_ax;
-	*(u16 *)&rdx = e801_fake_bx;
-	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
-	current->vmctl.write_general_reg (GENERAL_REG_RBX, rbx);
-	current->vmctl.write_general_reg (GENERAL_REG_RCX, rcx);
-	current->vmctl.write_general_reg (GENERAL_REG_RDX, rdx);
-	current->vmctl.write_ip (0x25C);
-	current->vmctl.read_flags (&rflags);
-	current->vmctl.write_flags ((rflags | RFLAGS_IF_BIT) & ~RFLAGS_CF_BIT);
-	return;
-hooke820:
-	/* E820 */
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	current->vmctl.read_general_reg (GENERAL_REG_RCX, &rcx);
-	current->vmctl.read_general_reg (GENERAL_REG_RDX, &rdx);
-	current->vmctl.read_general_reg (GENERAL_REG_RDI, &rdi);
-	rdi = (u16)rdi;
-	if ((u32)rdx != 0x534D4150)
-		goto errret;
-	if ((u32)rcx < 0x14)
-		goto errret;
-	rbx = getfakesysmemmap ((u32)rbx, &base, &len, &type);
-	/* FIXME: cpu_seg_write fails if ES:[DI] page is not present */
-	/* nor writable (virtual 8086 mode only) */
-	rax = rdx;
-	rcx = 0x14;
-	if (cpu_seg_write_q (SREG_ES, rdi + 0x0, base))
-		panic ("int0x15hook: write base failed");
-	if (cpu_seg_write_q (SREG_ES, rdi + 0x8, len))
-		panic ("int0x15hook: write len failed");
-	if (cpu_seg_write_l (SREG_ES, rdi + 0x10, type))
-		panic ("int0x15hook: write type failed");
-	current->vmctl.write_general_reg (GENERAL_REG_RAX, rax);
-	current->vmctl.write_general_reg (GENERAL_REG_RBX, rbx);
-	current->vmctl.write_general_reg (GENERAL_REG_RCX, rcx);
-	current->vmctl.write_ip (0x25C);
-	current->vmctl.read_flags (&rflags);
-	current->vmctl.write_flags ((rflags | RFLAGS_IF_BIT) & ~RFLAGS_CF_BIT);
-	return;
-}
-
-static enum ioact
-hookfunc (enum iotype type, u32 port, void *data)
-{
-	ulong cr0, rflags, rip;
-	bool ok = false;
-
-	/* first check: port, type and cpu mode */
-	if (port == HOOKIOPORT && type == IOTYPE_OUTW) {
-		current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr0);
-		if (cr0 & CR0_PE_BIT) {
-			current->vmctl.read_flags (&rflags);
-			if (rflags & RFLAGS_VM_BIT)
-				ok = true; /* virtual 8086 mode */
-		} else {
-			ok = true; /* real mode */
-		}
-	}
-	/* second check: ip is correct */
-	if (ok) {
-		current->vmctl.read_ip (&rip);
-		if (rip != 0x255)
-			ok = false;
-	}
-	if (ok) {
-		int0x15hook ();
-	} else {
-		printf ("gmm_pass: I/O port=0x%X type=%d\n", port, type);
-		oldhookfunc (type, port, data);
-	}
-	return IOACT_CONT;
-}
-
-static void
 install_int0x15_hook (void)
 {
+	u64 int0x15_code, int0x15_data, int0x15_base;
 	u64 int0x15_vector_phys = 0x15 * 4;
-	u32 tmp;
+	int count, len1, len2, i;
+	struct e820_data *q;
+	u64 b1, l1, b2, l2;
+	u32 n, nn1, nn2;
+	u32 t1, t2;
+	void *p;
 
-	/* 10 bytes hook program */
-	/* 0000:0255 E7 1F        out   %ax, $0x1F */
-	/* 0000:0257 EA           ljmp             */
-	/* 0000:0258 XX YY xx yy       $yyxx,$YYXX */
-	/* 0000:025C CA 02 00     lret  $2         */
+	len1 = guest_int0x15_hook_end - guest_int0x15_hook;
+	int0x15_code = alloc_realmodemem (len1);
+
+	count = 0;
+	for (n = 0, nn1 = 1; nn1; n = nn1) {
+		nn1 = getfakesysmemmap (n, &b1, &l1, &t1);
+		nn2 = getsysmemmap (n, &b2, &l2, &t2);
+		if (nn1 == nn2 && b1 == b2 && l1 == l2 && t1 == t2)
+			continue;
+		count++;
+	}
+	len2 = count * sizeof (struct e820_data);
+	int0x15_data = alloc_realmodemem (len2);
+
+	if (int0x15_data > int0x15_code)
+		int0x15_base = int0x15_code;
+	else
+		int0x15_base = int0x15_data;
+	int0x15_base &= 0xFFFF0;
+
 	/* save old interrupt vector */
-	read_hphys_l (int0x15_vector_phys, &tmp, 0);
-	write_hphys_l (0x254, (HOOKIOPORT << 16) | 0xEA00E700, 0);
-	write_hphys_l (0x258, tmp, 0);
-	write_hphys_w (0x25C, 0x02CA, 0);
-	write_hphys_b (0x25E, 0x00, 0);
-	/* set interrupt vector to 0x0000:0x0255 */
-	write_hphys_l (int0x15_vector_phys, 0x00000255, 0);
+	read_hphys_l (int0x15_vector_phys, &guest_int0x15_orig, 0);
+
+	/* write parameters properly */
+	guest_int0x15_e801_fake_ax = e801_fake_ax;
+	guest_int0x15_e801_fake_bx = e801_fake_bx;
+	guest_int0x15_e820_data_minus0x18 = int0x15_data - int0x15_base - 0x18;
+	guest_int0x15_e820_end = int0x15_data + len2 - int0x15_base;
+
+	/* copy the program code */
+  	p = mapmem_hphys (int0x15_code, len1, MAPMEM_WRITE);
+	memcpy (p, guest_int0x15_hook, len1);
+	unmapmem (p, len1);
+
+	/* create e820_data */
+	q = mapmem_hphys (int0x15_data, len2, MAPMEM_WRITE);
+	i = 0;
+	for (n = 0, nn1 = 1; nn1; n = nn1) {
+		nn1 = getfakesysmemmap (n, &b1, &l1, &t1);
+		nn2 = getsysmemmap (n, &b2, &l2, &t2);
+		if (nn1 == nn2 && b1 == b2 && l1 == l2 && t1 == t2)
+			continue;
+		ASSERT (i < count);
+		q[i].n = n;
+		q[i].nn = nn1;
+		q[i].base = b1;
+		q[i].len = l1;
+		q[i].type = t1;
+		i++;
+	}
+	unmapmem (q, len2);
+
+	/* set interrupt vector */
+	write_hphys_l (int0x15_vector_phys, (int0x15_code - int0x15_base) |
+		       (int0x15_base << 12), 0);
 }
 
-static void
-gmm_pass_iohook (void)
+static u64
+get_pte_addr_mask (void)
 {
-	if (current->vcpu0 != current)
-		return;
-	oldhookfunc = set_iofunc (HOOKIOPORT, hookfunc);
+	u32 a, b, c, d;
+	unsigned int nbits;
+
+	asm_cpuid (CPUID_EXT_0, 0, &a, &b, &c, &d);
+	if (a < CPUID_EXT_8)
+		return PTE_ADDR_MASK64;
+	asm_cpuid (CPUID_EXT_8, 0, &a, &b, &c, &d);
+	nbits = a & CPUID_EXT_8_EAX_PHYSADDRSIZE_MASK;
+	if (nbits < 32) {
+		printf ("Invalid PhysAddrSize %u. Assumed 32.\n", nbits);
+		nbits = 32;
+	}
+	if (nbits > 52) {
+		printf ("Invalid PhysAddrSize %u. Assumed 52.\n", nbits);
+		nbits = 52;
+	}
+	return ~(PAGESIZE_MASK | ~0ULL << nbits);
 }
 
 static void
@@ -222,8 +173,8 @@ gmm_pass_init (void)
 	alloc_page (&tmp, &phys_blank);
 	memset (tmp, 0, PAGESIZE);
 	memcpy ((void *)&current->gmm, (void *)&func, sizeof func);
+	current->pte_addr_mask = get_pte_addr_mask ();
 }
 
 INITFUNC ("bsp0", install_int0x15_hook);
 INITFUNC ("pass0", gmm_pass_init);
-INITFUNC ("pass1", gmm_pass_iohook);

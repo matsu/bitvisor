@@ -184,6 +184,16 @@ svm_read_control_reg (enum control_reg reg, ulong *val)
 	}
 }
 
+static void
+svm_spt_disable (struct vmcb *vmcb)
+{
+#ifdef CPU_MMU_SPT_DISABLE
+	vmcb->cr0 = current->u.svm.vr.cr0;
+	vmcb->cr3 = current->u.svm.vr.cr3;
+	vmcb->cr4 = current->u.svm.vr.cr4;
+#endif
+}
+
 void
 svm_write_control_reg (enum control_reg reg, ulong val)
 {
@@ -202,6 +212,7 @@ svm_write_control_reg (enum control_reg reg, ulong val)
 		else
 			svm_np_updatecr3 ();
 		vmcb->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
+		svm_spt_disable (vmcb);
 		break;
 	case CONTROL_REG_CR2:
 		vmcb->cr2 = val;
@@ -215,6 +226,7 @@ svm_write_control_reg (enum control_reg reg, ulong val)
 			cpu_mmu_spt_updatecr3 ();
 		}
 		vmcb->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
+		svm_spt_disable (vmcb);
 		break;
 	case CONTROL_REG_CR4:
 		current->u.svm.vr.cr4 = val;
@@ -228,6 +240,7 @@ svm_write_control_reg (enum control_reg reg, ulong val)
 		else
 			svm_np_updatecr3 ();
 		vmcb->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
+		svm_spt_disable (vmcb);
 		break;
 	case CONTROL_REG_CR8:
 		current->apic.write_cr8 (val);

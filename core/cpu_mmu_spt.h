@@ -34,6 +34,16 @@
 #include "spinlock.h"
 #include "types.h"
 
+#ifdef CPU_MMU_SPT_DISABLE
+#	ifndef CPU_MMU_SPT_1
+#		ifndef CPU_MMU_SPT_2
+#			ifndef CPU_MMU_SPT_3
+#				define CPU_MMU_SPT_3
+#			endif
+#		endif
+#	endif
+#endif
+
 #ifdef CPU_MMU_SPT_1
 #define NUM_OF_SPTTBL 32
 struct cpu_mmu_spt_data {

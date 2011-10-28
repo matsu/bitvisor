@@ -114,6 +114,16 @@ svm_read_msr (u32 msrindex, u64 *msrdata)
 	return r;
 }
 
+static void
+svm_msr_spt_disable (struct vmcb *vmcb)
+{
+#ifdef CPU_MMU_SPT_DISABLE
+	vmcb->cr0 = current->u.svm.vr.cr0;
+	vmcb->cr3 = current->u.svm.vr.cr3;
+	vmcb->cr4 = current->u.svm.vr.cr4;
+#endif
+}
+
 bool
 svm_write_msr (u32 msrindex, u64 msrdata)
 {
@@ -141,6 +151,7 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 			cpu_mmu_spt_updatecr3 ();
 		else
 			svm_np_updatecr3 ();
+		svm_msr_spt_disable (vmcb);
 		break;
 	case MSR_IA32_STAR:
 		vmcb->star = msrdata;
@@ -162,6 +173,9 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 		break;
 	case MSR_IA32_KERNEL_GS_BASE:
 		vmcb->kernel_gs_base = msrdata;
+		break;
+	case MSR_IA32_MTRR_DEF_TYPE:
+		/* FIXME: This is just a workaround for Linux guest. */
 		break;
 	default:
 		r = current->msr.write_msr (msrindex, msrdata);

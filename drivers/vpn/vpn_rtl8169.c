@@ -36,6 +36,7 @@
 #include "pci.h"
 #include "../../crypto/chelp.h"
 #include <core/mmio.h>
+#include <core/tty.h>
 #include <core/vpnsys.h>
 #include <core.h>
 #include <Se/SeVpn.h>
@@ -62,12 +63,22 @@ static struct pci_driver vpn_rtl8169_driver = {
 static bool
 sendenabled (RTL8169_CTX *ctx)
 {
+#ifdef TTY_RTL8169
+	if (!config.vmm.driver.vpn.RTL8169 &&
+	    config.vmm.tty_rtl8169) /* tty only */
+		return !!(ctx->enableflag & 1);
+#endif	/* TTY_RTL8169 */
 	return ctx->enableflag == 3;
 }
 
 static bool
 recvenabled (RTL8169_CTX *ctx)
 {
+#ifdef TTY_RTL8169
+	if (!config.vmm.driver.vpn.RTL8169 &&
+	    config.vmm.tty_rtl8169) /* tty only */
+		return !!(ctx->enableflag & 2);
+#endif	/* TTY_RTL8169 */
 	return ctx->enableflag == 3;
 }
 
@@ -1561,7 +1572,8 @@ rtl8169_io_handler(core_io_t io, union mem *data, void *arg)
 // PCI コンフィグレーションレジスタの読み込み処理
 //
 static int
-rtl8169_config_read(struct pci_device *dev, core_io_t io, u8 offset, union mem *data)
+rtl8169_config_read_sub (struct pci_device *dev, core_io_t io,
+			 u8 offset, union mem *data)
 {
 	int ret = CORE_IO_RET_DONE;
 
@@ -1596,7 +1608,8 @@ rtl8169_config_read(struct pci_device *dev, core_io_t io, u8 offset, union mem *
 // PCI コンフィグレーションレジスタの書き込み処理
 //
 static int
-rtl8169_config_write(struct pci_device *dev, core_io_t io, u8 offset, union mem *data)
+rtl8169_config_write_sub (struct pci_device *dev, core_io_t io,
+			  u8 offset, union mem *data)
 {
 	int ret = CORE_IO_RET_DONE;
 
@@ -1631,7 +1644,7 @@ rtl8169_config_write(struct pci_device *dev, core_io_t io, u8 offset, union mem 
 // 新しいデバイスの検出
 //
 static void
-rtl8169_new(struct pci_device *dev)
+rtl8169_new_sub (struct pci_device *dev)
 {
 	RTL8169_CTX		*ctx;
 	RTL8169_SUB_CTX	*sctx;
@@ -1706,13 +1719,119 @@ rtl8169_new(struct pci_device *dev)
 	}
 }
 
+#ifdef TTY_RTL8169
+#define printd(X...) do { if (0) printf (X); } while (0)
+
+static void
+rtl8169_tty_send (void *handle, void *packet, unsigned int packet_size)
+{
+	char *pkt;
+	RTL8169_CTX *ctx;
+
+	ctx = handle;
+	if (!sendenabled (ctx))
+		return;
+	pkt = packet;
+	memcpy (pkt + 0, config.vmm.tty_rtl8169_mac_address, 6);
+	memcpy (pkt + 6, ctx->macaddr, 6);
+	SendPhysicalNic ((SE_HANDLE)ctx, 1, &packet, &packet_size);
+}
+
+/* reset RTL8169 controller */
+static void
+rtl8169_reset (RTL8169_SUB_CTX *sctx, RTL8169_CTX *ctx)
+{
+	int i;
+
+	printf ("Resetting RTL8169 controller...");
+	rtl8169_write (sctx, RTL8169_REG_CR, 0x10, 1);
+	do {
+		printf (".");
+	} while (rtl8169_read (sctx, RTL8169_REG_CR, 1) & 0x10);
+	printf ("done.\n");
+
+	printd ("Get MAC addr.\n");
+	if (!rtl8169_get_macaddr (sctx, ctx->macaddr))
+		panic ("failed to get mac addr");
+	printf ("MacAddr: %02x", ctx->macaddr[0]);
+	for (i = 1; i < 6; i++)
+		printf (":%02x", ctx->macaddr[i]);
+	printf ("\n");
+
+	printd ("Disable interrupt.\n");
+	rtl8169_write (sctx, RTL8169_REG_ISR,
+		       0xffff, 2); /* clear pending interrupts */
+	rtl8169_write (sctx, RTL8169_REG_IMR,
+		       0, 2);	/* disable all interrupts */
+
+	printd ("Enable transmit.\n");
+	/* set descriptors */
+	rtl8169_write (sctx, RTL8169_REG_TNPDS, ctx->TNPDSphys,
+		       4); /* normal */
+	rtl8169_write (sctx, RTL8169_REG_CR, 1 << 2, 1); /* transmit enabled */
+	ctx->sendindex = 0;
+	ctx->enableflag |= 1;
+
+	printd ("Start tty via RTL8169.\n");
+	tty_udp_register (rtl8169_tty_send, ctx);
+}
+
+static void
+rtl8169_tty_init (struct pci_device *dev)
+{
+	RTL8169_SUB_CTX *sctx;
+
+	/* get sub context */
+	sctx = (RTL8169_SUB_CTX *) dev->host;
+	sctx = sctx->ctx->sctx_mmio;	/* get sctx with mmio */
+	if (!sctx)
+		panic ("mmio not found");
+
+	if (config.vmm.driver.vpn.RTL8169) /* vpn enabled */
+		tty_udp_register (rtl8169_tty_send,
+				  sctx->ctx); /* don't reset */
+	else
+		rtl8169_reset (sctx, sctx->ctx); /* do reset */
+}
+#endif	/* TTY_RTL8169 */
+
+static int
+rtl8169_config_read (struct pci_device *dev, core_io_t io,
+		     u8 offset, union mem *data)
+{
+	if (config.vmm.driver.vpn.RTL8169) /* vpn enabled */
+		return rtl8169_config_read_sub (dev, io, offset, data);
+	data->dword = 0UL;
+	return CORE_IO_RET_DONE;
+}
+
+static int
+rtl8169_config_write (struct pci_device *dev, core_io_t io,
+		      u8 offset, union mem *data)
+{
+	if (config.vmm.driver.vpn.RTL8169) /* vpn enabled */
+		return rtl8169_config_write_sub (dev, io, offset, data);
+	return CORE_IO_RET_DONE;
+}
+
+static void
+rtl8169_new (struct pci_device *dev)
+{
+	rtl8169_new_sub (dev);
+#ifdef TTY_RTL8169
+	if (config.vmm.tty_rtl8169) /* tty enabled */
+		rtl8169_tty_init (dev);
+#endif	/* TTY_RTL8169 */
+}
+
 //
 // RTL8169の初期化
 //
 static void
 rtl8169_init()
 {
-	if (!config.vmm.driver.vpn.RTL8169)
+	if (!config.vmm.driver.vpn.RTL8169 &&
+	    !config.vmm.tty_rtl8169) /* disabled all of them */
 		return;
 #ifdef _DEBUG
 	time = get_cpu_time(); 

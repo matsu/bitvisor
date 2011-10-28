@@ -64,7 +64,6 @@ typedef struct {
 
 extern u16 e801_fake_ax, e801_fake_bx;
 extern bool use_pae;
-extern ulong vmm_base_cr3;
 extern u64 memorysize, vmmsize;
 
 phys_t sym_to_phys (void *sym);
@@ -73,6 +72,7 @@ virt_t phys_to_virt (phys_t phys);
 int num_of_available_pages (void);
 u32 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type);
 u32 getfakesysmemmap (u32 n, u64 *base, u64 *len, u32 *type);
+void mm_flush_wb_cache (void);
 
 /* process */
 int mm_process_alloc (phys_t *phys);

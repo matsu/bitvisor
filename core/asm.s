@@ -74,6 +74,7 @@ asm_vmlaunch_regs_32:
 	vmlaunch
 	xor	%eax,%eax
 	dec	%eax
+	pop	%edi
 	jmp	2f
 	.align	16
 1:
@@ -121,6 +122,7 @@ asm_vmresume_regs_32:
 	vmresume
 	xor	%eax,%eax
 	dec	%eax
+	pop	%edi
 	jmp	2f
 	.align	16
 1:
@@ -213,6 +215,7 @@ asm_vmlaunch_regs_64:
 	vmlaunch
 	xor	%rax,%rax
 	dec	%rax
+	pop	%rdi
 	jmp	2f
 	.align	16
 1:
@@ -279,6 +282,7 @@ asm_vmresume_regs_64:
 	vmresume
 	xor	%rax,%rax
 	dec	%rax
+	pop	%rdi
 	jmp	2f
 	.align	16
 1:

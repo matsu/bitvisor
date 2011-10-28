@@ -142,7 +142,8 @@ static struct ata_channel *ata_new_channel(struct ata_host* host)
 	channel = alloc_ata_channel();
 	memset(channel, 0, sizeof(*channel));
 	spinlock_init (&channel->locked_lock);
-	channel->locked_lock = false;
+	channel->locked = false;
+	channel->waiting = 0;
 	channel->hd[ATA_ID_CMD] = -1;
 	channel->hd[ATA_ID_CTL] = -1;
 	channel->hd[ATA_ID_BM] = -1;

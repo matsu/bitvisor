@@ -66,19 +66,24 @@ int atapi_handle_pio_identify_packet(struct ata_channel *channel, int rw)
 	struct storage_device *old_storage_device, *new_storage_device;
 	u8 busid = ata_get_busid(channel);
 	char model[40+1], revision[8+1], serial[20+1];
-	
-	old_storage_device = device->storage_device;
-	new_storage_device = storage_new(STORAGE_TYPE_ATAPI, 
-					 device->storage_host_id, 
-					 device->storage_device_id, NULL,
-					 NULL);
+
+	identify_packet = (struct ata_identify_packet *)channel->pio_buf;
+	if (identify_packet->atapi == 2) { /* 2 indicates ATAPI device */
+		old_storage_device = device->storage_device;
+		new_storage_device = storage_new (STORAGE_TYPE_ATAPI,
+						  device->storage_host_id,
+						  device->storage_device_id,
+						  NULL, NULL);
+	} else {
+		old_storage_device = NULL;
+		new_storage_device = NULL;
+	}
 	if (old_storage_device && new_storage_device){
 		device->storage_device = new_storage_device;
 		device->storage_sector_size = 2048;
 		storage_free (old_storage_device);
 	}
 
-	identify_packet = (struct ata_identify_packet *)channel->pio_buf;
 	device->packet_length =
 		identify_packet->packet_length == ATAPI_PACKET_LENGTH_12BYTES ?	12 : 16;
 	ata_convert_string(identify_packet->serial_number, serial, 20); serial[20] = '\0';

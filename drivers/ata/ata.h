@@ -190,6 +190,7 @@ struct ata_channel {
 	/* lock */
 	spinlock_t locked_lock;
 	bool locked;
+	int waiting;
 
 	// saved registers
 	u8			command;

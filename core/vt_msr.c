@@ -207,6 +207,17 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 	return r;
 }
 
+static void
+vt_msr_spt_disable (void)
+{
+#ifdef CPU_MMU_SPT_DISABLE
+	ulong cr0;
+
+	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr0);
+	current->vmctl.write_control_reg (CONTROL_REG_CR0, cr0);
+#endif
+}
+
 bool
 vt_write_msr (u32 msrindex, u64 msrdata)
 {
@@ -235,6 +246,7 @@ vt_write_msr (u32 msrindex, u64 msrdata)
 		r = vt_write_guest_msr (current->u.vt.msr.efer, data);
 		vt_msr_update_lma ();
 		cpu_mmu_spt_updatecr3 ();
+		vt_msr_spt_disable ();
 		break;
 	case MSR_IA32_STAR:
 		r = vt_write_guest_msr (current->u.vt.msr.star, msrdata);

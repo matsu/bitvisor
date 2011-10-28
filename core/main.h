@@ -30,8 +30,6 @@
 #ifndef _CORE_MAIN_H
 #define _CORE_MAIN_H
 
-#include "types.h"
-
-void reinitialize_vm (bool bsp, u8 bios_boot_drive);
+void resume_vm (u32 wake_addr);
 
 #endif

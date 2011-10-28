@@ -44,6 +44,43 @@
 
 extern phys32_t uhci_monitor_boost_hc;
 
+/**
+ * @brief set IOC bits to host skelton URB.
+ * @param host structure uhci_host
+ * @param interval int
+ */
+static inline int
+set_ioc_to_host_skelton(struct uhci_host *host, int interval)
+{
+	struct usb_request_block *skelurb;
+
+	skelurb = host->host_skelton[interval];
+
+	/* sometime TD for skelton already might be allocated */
+	if (!URB_UHCI(skelurb)->tdm_head) {
+
+		/* create new td meta structure*/
+		URB_UHCI(skelurb)->tdm_head = uhci_new_td_meta(host, NULL);
+		if (!URB_UHCI(skelurb)->tdm_head)
+			return -1;
+
+		/* initialize TD */
+		URB_UHCI(skelurb)->tdm_head->td->link = UHCI_TD_LINK_TE;
+		URB_UHCI(skelurb)->tdm_head->td->token =
+			UHCI_TD_TOKEN_DEVADDRESS(0x7f)|
+			UHCI_TD_TOKEN_ENDPOINT(0) |
+			UHCI_TD_TOKEN_PID_IN | uhci_td_explen(0);
+		URB_UHCI(skelurb)->tdm_head->td->buffer = 0U;
+		URB_UHCI(skelurb)->qh->element = (phys32_t)
+			URB_UHCI(skelurb)->tdm_head->td_phys;
+	}
+
+	/* set IOC bits */
+	URB_UHCI(skelurb)->tdm_head->td->status = UHCI_TD_STAT_IC;
+
+	return 0;
+}
+
 /** 
  * @brief skip all the isochronous TDs (not yet supported)
  * @param host structure uhci_host 
@@ -778,8 +815,33 @@ mark_inlinked_urbs (struct uhci_host *host,
 		    struct usb_request_block *skelurblist[],
 		    int interval)
 {
+	struct usb_request_block *nexturb, *urb = skelurblist[interval];
+	u32 tdstat;
+
 	for (; interval < UHCI_NUM_INTERVALS; interval++)
 		mark_inlinked_urbs_sub (host, interval, skelurblist[interval]);
+
+	/* check guest skelton's IOC bit update. */
+	while (urb) {
+		nexturb = LIST4_NEXT (urb, list);
+		if (is_skelton(urb)) {
+			tdstat = get_toptd_stat(host, urb);
+			if (tdstat & UHCI_TD_STAT_IC) {
+				/* If a guest skelton TD status IOC was marked,
+				   a host skelton IOC have to be marked. */
+				if (interval > UHCI_NUM_SKELTYPES - 1)
+					interval = UHCI_NUM_SKELTYPES - 1;
+				set_ioc_to_host_skelton(host, interval);
+			} else {
+				if (URB_UHCI(urb)->tdm_head &&
+				    (!uhci_monitor_boost_hc ||
+				    interval != UHCI_TICK_INTERVAL))
+					URB_UHCI(urb)->tdm_head->td->status &=
+						~UHCI_TD_STAT_IC;
+			}
+		}
+		urb = nexturb;
+	}
 }
 
 /**
@@ -1040,31 +1102,8 @@ unregister_monitor_boost(struct uhci_host *host)
 static inline int
 register_monitor_boost(struct uhci_host *host)
 {
-	struct usb_request_block *skelurb;
-
-	skelurb = host->host_skelton[UHCI_TICK_INTERVAL];
-
-	/* sometime TD for skelton already might be allocated */
-	if (!URB_UHCI(skelurb)->tdm_head) {
-
-		/* create new td meta structure*/
-		URB_UHCI(skelurb)->tdm_head = uhci_new_td_meta(host, NULL);
-		if (!URB_UHCI(skelurb)->tdm_head)
-			return -1;
-
-		/* initialize TD */
-		URB_UHCI(skelurb)->tdm_head->td->link = UHCI_TD_LINK_TE;
-		URB_UHCI(skelurb)->tdm_head->td->token = 
-			UHCI_TD_TOKEN_DEVADDRESS(0x7f)| 
-			UHCI_TD_TOKEN_ENDPOINT(0) | 
-			UHCI_TD_TOKEN_PID_IN | uhci_td_explen(0);
-		URB_UHCI(skelurb)->tdm_head->td->buffer = 0U;
-		URB_UHCI(skelurb)->qh->element = (phys32_t)
-			URB_UHCI(skelurb)->tdm_head->td_phys;
-	}
-
-	/* set IOC bits */
-	URB_UHCI(skelurb)->tdm_head->td->status = UHCI_TD_STAT_IC;
+	int ret;
+	ret = set_ioc_to_host_skelton(host, UHCI_TICK_INTERVAL);
 
 	/* uhci_monitor_boost_hc is protected by 'host->lock_gfl' */
 	uhci_monitor_boost_hc = host->iobase;
@@ -1073,7 +1112,7 @@ register_monitor_boost(struct uhci_host *host)
 		 " (threshold: %d ms).\n",
 		 host->iobase, 1 << UHCI_TICK_INTERVAL);
 
-	return 0;
+	return ret;
 }
 
 /**
@@ -1152,9 +1191,62 @@ uhci_framelist_monitor(void *data)
 				 "%d urb(s) advanced.\n", 
 				 host->iobase, __FUNCTION__, n);
 	skip_a_turn:
+		if (host->usb_stopped) {
+			dprintft(1, "=>%04x: uhci monitor thread is stopped."
+				"<=\n", host->iobase);
+			goto exit_thread;
+		}
 		schedule();
 	}
 
+exit_thread:
+	{
+		int intvl, n_skels, i;
+		struct usb_request_block *urb, *nurb;
+
+		host->gframelist = 0;
+		host->usb_stopped = 0;
+		free_page(host->hframelist_virt);
+
+		/* Remove free ISO USBs */
+		for (i = 0; i < UHCI_NUM_FRAMES; i++) {
+			if (host->iso_urbs[i]) {
+				free(host->iso_urbs[i]);
+				host->iso_urbs[i] = NULL;
+			}
+		}
+
+		/* Remove guest URB */
+		LIST4_FOREACH_DELETABLE (host->guest_urbs, list, urb, nurb) {
+			urb->address = 0;
+			remove_and_deactivate_urb(host, urb);
+		}
+
+		LIST4_FOREACH_DELETABLE (host->inproc_urbs, list, urb, nurb) {
+			LIST4_DEL (host->inproc_urbs, list, urb);
+			if (urb->shadow)
+				urb->shadow->shadow = NULL;
+			destroy_urb(host, urb);
+		}
+
+		/* Remove guest skeltons */
+		for (intvl = 0; intvl < UHCI_NUM_INTERVALS; intvl++) {
+			urb = host->guest_skeltons[intvl];
+			host->guest_skeltons[intvl] = NULL;
+		}
+
+		/* Remove host skeltons */
+		unregister_monitor_boost(host);
+		for (n_skels = 0; n_skels < UHCI_NUM_SKELTYPES; n_skels++) {
+			urb = host->host_skelton[n_skels];
+			urb->status = URB_STATUS_UNLINKED;
+			destroy_urb(host, urb);
+			host->host_skelton[n_skels] = NULL;
+		}
+
+		/* Remove all devices information which has is connected */
+		usb_unregister_devices (host->hc);
+	}
 	return;
 }
 

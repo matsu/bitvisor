@@ -68,6 +68,9 @@
 	((head).next ? LIST1_DEL (head, (head).next) : NULL)
 #define LIST1_FOREACH(head, var) \
 	for (var = (head).next; var; var = var->next)
+#define LIST1_FOREACH_DELETABLE(head, var, varn) \
+	for (var = (head).next; var && ((varn = var->next), 1); \
+	     var = varn)
 #define LIST1_INSERT(head, nextd, data) \
 	((nextd) ? list1_insert ((nextd)->pnext, (data), &(data)->pnext, \
 				 &(data)->next, (nextd), &(nextd)->pnext) \

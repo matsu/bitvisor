@@ -35,5 +35,7 @@ void svm_reset (void);
 void svm_vminit (void);
 void svm_vmexit (void);
 void svm_init (void);
+void svm_enable_resume (void);
+void svm_resume (void);
 
 #endif

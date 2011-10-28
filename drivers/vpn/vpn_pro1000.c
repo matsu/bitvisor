@@ -28,7 +28,9 @@
  */
 
 #include <core.h>
+#include <core/initfunc.h>
 #include <core/mmio.h>
+#include <core/tty.h>
 #include "pci.h"
 
 static const char driver_name[] = "vpn_pro1000_driver";
@@ -217,6 +219,7 @@ struct data {
 	int e;
 	int io;
 	int hd;
+	bool disable;
 	void *h;
 	void *map;
 	uint maplen;
@@ -225,6 +228,8 @@ struct data {
 };
 
 #ifdef TTY_PRO1000
+static u32 regs_at_init[PCI_CONFIG_REGS32_NUM];
+static struct pci_device *pro1000_pci_device;
 static struct data2 *putchar_d2;
 #endif /* TTY_PRO1000 */
 
@@ -303,6 +308,8 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 	u32 *head, *tail, h, t, nt;
 	struct tdesc *td;
 
+	if (d2->d1->disable)	/* PCI config reg is disabled */
+		return;
 	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
 		return;
 	s = &d2->tdesc[0];	/* FIXME: 0 only */
@@ -312,6 +319,8 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
 	h = *head;
 	t = *tail;
+	if (h == 0xFFFFFFFF)
+		return;
 	for (i = 0; i < num_packets; i++) {
 		nt = t + 1;
 		if (nt >= NUM_OF_TDESC)
@@ -929,6 +938,8 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 	u32 i, j, l;
 	u64 k;
 
+	if (d2->d1->disable)	/* PCI config reg is disabled */
+		return;
 	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
 		return;
 	i = s->head;
@@ -1219,85 +1230,18 @@ reghook (struct data *d, int i, u32 a, u32 b)
 
 #ifdef TTY_PRO1000
 static void
-wshort (char *off, unsigned short x)
+pro1000_tty_send (void *handle, void *packet, unsigned int packet_size)
 {
-	off[0] = (x >> 8);
-	off[1] = x;
-}
+	char *pkt;
+	struct data2 *d2;
 
-static u16
-udpsum (char *buf, int len, u16 val)
-{
-	u16 *p = (void *)buf;
-	u32 r = val;
-	int i;
-
-	for (i = len / 2; i; i--) {
-		r += *p++;
-		if (r > 0xFFFF)
-			r -= 0xFFFF;
-	}
-	if (len & 1) {
-		r += *(u8 *)p;
-		if (r > 0xFFFF)
-			r -= 0xFFFF;
-	}
-	return (u16)r;
-}
-
-static int
-mkudp (char *buf, char *src, int sport, char *dst, int dport,
-       char *data, int datalen)
-{
-	u16 ipchecksum (void *buf, u32 len);
-	u16 sum;
-
-	memcpy (buf, "\x45\x00\x00\x00\x00\x01\x00\x00\x01\x11\x00\x00", 12);
-	wshort (buf + 2,  datalen + 8 + 20);
-	memcpy (buf + 12, src, 4);
-	memcpy (buf + 16, dst, 4);
-	wshort (buf + 20, sport);
-	wshort (buf + 22, dport);
-	wshort (buf + 24, datalen + 8);
-	memcpy (buf + 26, "\x00\x11", 2);
-	memcpy (buf + 28, data, datalen);
-	sum = udpsum (buf + 20, datalen + 8, 0);
-	sum = udpsum (buf + 24, 2, sum);
-	sum = udpsum (buf + 12, 8, sum);
-	sum = ~sum;
-	if (!sum)
-		sum = ~sum;
-	memcpy (buf + 26, &sum, 2);
-	sum = udpsum (buf, 20, 0);
-	sum = ~sum;
-	if (!sum)
-		sum = ~sum;
-	memcpy (buf + 10, &sum, 2);
-	return datalen + 8 + 20;
-}
-
-/* how to receive the messages:
-   perl -e '$|=1;use Socket;
-   socket(S, PF_INET, SOCK_DGRAM, 0);
-   bind(S, pack_sockaddr_in(10101,INADDR_ANY));
-   while(recv(S,$buf,1,0)){print $buf;}' */
-void
-pro1000_putchar (int c)
-{
-	static char pkt[64];
-	static void *pkts = pkt;
-	static UINT pktsiz;
-
-	if (!putchar_d2)
+	d2 = handle;
+	if (!d2->initialized)
 		return;
-	if (!putchar_d2->initialized)
-		return;
+	pkt = packet;
 	memcpy (pkt + 0, config.vmm.tty_pro1000_mac_address, 6);
-	memcpy (pkt + 6, putchar_d2->macaddr, 6);
-	memcpy (pkt + 12, "\x08\x00", 2);
-	pktsiz = mkudp (pkt + 14, "\x00\x00\x00\x00", 10,
-			"\xE0\x00\x00\x01", 10101, (char *)&c, 1) + 14;
-	send_physnic_sub (putchar_d2, 1, &pkts, &pktsiz, false);
+	memcpy (pkt + 6, d2->macaddr, 6);
+	send_physnic_sub (d2, 1, &packet, &packet_size, false);
 }
 
 static void
@@ -1305,6 +1249,10 @@ tty_pro1000_init (struct data2 *d2)
 {
 	if (!config.vmm.tty_pro1000)
 		return;
+	if (putchar_d2 && putchar_d2 != d2)
+		return;
+	if (!putchar_d2)
+		tty_udp_register (pro1000_tty_send, d2);
 	putchar_d2 = d2;
 	if (config.vmm.driver.vpn.PRO1000 && !config.vmm.driver.concealPRO1000)
 		return;
@@ -1313,23 +1261,41 @@ tty_pro1000_init (struct data2 *d2)
 	{
 		/* Interrupt Mask Clear Register */
 		volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
-		*imc = 0;
+		*imc = 0xFFFFFFFF;
 	}
 	/* Issue a Global Reset */
 	{
 		void usleep (u32);
+		int n = 10;
 
 		/* Device Control Register */
 		volatile u32 *ctrl = (void *)(u8 *)d2->d1[0].map + 0x0;
-		*ctrl = 0x00100800 | 0x84000000;
+		/* Device Status Register */
+		volatile u32 *status = (void *)(u8 *)d2->d1[0].map + 0x8;
+
+		*ctrl = 0x80000000;
 		usleep (1000000);
-		*ctrl = 0x40;	/* 0x00100800; */
+		*ctrl = 0x04000000;
+                usleep (1000000);
+		*ctrl = 0x40;
+		printf ("Wait for PHY reset and link setup completion.");
+		for (;;) {
+			usleep (500 * 1000);
+			if (*status & 0x2)
+				break;
+			printf(".");
+			if (!--n) {
+				printf ("Giving up.");
+				break;
+			}
+		}
+		printf("\n");
 	}
 	/* Disable interrupts */
 	{
 		/* Interrupt Mask Clear Register */
 		volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
-		*imc = 0;
+		*imc = 0xFFFFFFFF;
 	}
 	/* Initialization for 82571EB/82572EI */
 	{
@@ -1371,7 +1337,7 @@ tty_pro1000_init (struct data2 *d2)
 	{
 		/* Transmit Control Register */
 		volatile u32 *tctl = (void *)(u8 *)d2->d1[0].map + 0x400;
-		d2->tctl = 0x3F0FA; /* Transmit Enable */
+		d2->tctl = 0x1003F0FA; /* Transmit Enable */
 		*tctl = d2->tctl;
 	}
 	{
@@ -1380,6 +1346,15 @@ tty_pro1000_init (struct data2 *d2)
 		*tipg = 0x00702008;
 	}
 	d2->initialized = true;
+	{
+		int i;
+		pci_config_address_t addr = pro1000_pci_device->address;
+
+		for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
+			addr.reg_no = i;
+			regs_at_init[i] = pci_read_config_data32 (addr, 0);
+		}
+	}
 }
 #endif /* TTY_PRO1000 */
 
@@ -1414,11 +1389,13 @@ vpn_pro1000_new (struct pci_device *pci_device)
 		reghook (&d[i], i, pci_device->config_space.base_address[i],
 			 pci_device->base_address_mask[i]);
 	}
+	d->disable = false;
 	d2->d1 = d;
 	get_macaddr (d2, d2->macaddr);
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
 #ifdef TTY_PRO1000
+	pro1000_pci_device = pci_device;
 	tty_pro1000_init (d2);
 #endif /* TTY_PRO1000 */
 	return;
@@ -1438,6 +1415,14 @@ vpn_pro1000_config_write (struct pci_device *pci_device,
 	struct data *d = pci_device->host;
 	u32 tmp;
 	int i;
+
+	/* check PCI command enable or disable. */
+	if (offset == PCI_CONFIG_COMMAND &&
+	    !(data->dword & (PCI_CONFIG_COMMAND_IOENABLE |
+			     PCI_CONFIG_COMMAND_MEMENABLE)))
+		d->disable = true;
+	else
+		d->disable = false;
 
 	if (offset + io.size - 1 >= 0x10 && offset <= 0x24) {
 		if ((offset & 3) || io.size != 4)
@@ -1670,4 +1655,36 @@ vpn_pro1000_init (void)
 	return;
 }
 
+static void
+suspend_pro1000 (void)
+{
+#ifdef TTY_PRO1000
+	if (!putchar_d2)
+		return;
+	putchar_d2->initialized = false;
+#endif /* TTY_PRO1000 */
+}
+
+static void
+resume_pro1000 (void)
+{
+#ifdef TTY_PRO1000
+	int i;
+	pci_config_address_t addr;
+
+	if (!putchar_d2)
+		return;
+	if (!pro1000_pci_device)
+		return;
+	addr = pro1000_pci_device->address;
+	for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
+		addr.reg_no = i;
+		pci_write_config_data32 (addr, 0, regs_at_init[i]);
+	}
+	tty_pro1000_init (putchar_d2);
+#endif /* TTY_PRO1000 */
+}
+
 PCI_DRIVER_INIT (vpn_pro1000_init);
+INITFUNC ("resume1", resume_pro1000);
+INITFUNC ("suspend1", suspend_pro1000);

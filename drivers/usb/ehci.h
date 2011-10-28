@@ -130,6 +130,10 @@ struct ehci_host {
 	LIST2_DEFINE_HEAD (need_shadow, struct usb_request_block, need_shadow);
 	LIST2_DEFINE_HEAD (update, struct usb_request_block, update);
 	u16 inlink_counter;
+	int hcreset;
+	int usb_stopped;
+	int running;
+	int intr;
 };
 	
 struct urb_private_ehci {

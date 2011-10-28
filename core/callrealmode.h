@@ -54,10 +54,42 @@ struct sysmemmap {
 	u32 type;
 };
 
+struct bootcd_specification_packet {
+	u8 packet_size;
+	u8 boot_media_type;
+	u8 drive_number;
+	u8 controller_index;
+	u32 lba;
+	u16 device_specification;
+	u16 user_buffer_segment;
+	u16 load_segment;
+	u16 sector_count;
+	u8 ch;
+	u8 cl;
+	u8 dh;
+} __attribute__ ((packed));
+
+struct tcgbios_args {
+	u32 out_eax, out_ebx, out_ecx, out_edx, out_esi, out_edi, out_ds;
+	u32 in_ebx, in_ecx, in_edx, in_esi, in_edi, in_es, in_ds;
+} __attribute__ ((packed));
+
+struct vcpu;
+
+u32 callrealmode_endofcodeaddr (void);
+void callrealmode_usevcpu (struct vcpu *p);
 void callrealmode_printmsg (u32 message);
 int callrealmode_getsysmemmap (u32 ebx, struct sysmemmap *m, u32 *ebx_ret);
 int callrealmode_getshiftflags (void);
 void callrealmode_setvideomode (int mode);
 void callrealmode_reboot (void);
+unsigned int callrealmode_disk_readmbr (u8 drive, u32 buf_phys);
+unsigned int callrealmode_disk_readlba (u8 drive, u32 buf_phys, u64 lba,
+					u16 num_of_blocks);
+bool callrealmode_bootcd_getstatus (u8 drive,
+				    struct bootcd_specification_packet *data);
+void callrealmode_setcursorpos (u8 page_num, u8 row, u8 column);
+void callrealmode_startkernel32 (u32 paramsaddr, u32 startaddr);
+void callrealmode_tcgbios (u32 al, struct tcgbios_args *args);
 
 #endif

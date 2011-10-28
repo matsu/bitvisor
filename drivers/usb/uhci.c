@@ -149,6 +149,11 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 
 		dprintft(3, "%04x: USBCMD: ",  host->iobase);
 		host->running = (*data).word & 0x0001;
+		if (!host->running && !host->intr) {
+			dprintf(3, "%04x: USBINTR:0x0000->USBCMD:STOP\n",
+				host->iobase);
+			host->usb_stopped = 1;
+		}
 		dprintf(3, host->running ? 
 			"RUN," : "STOP,");
 		if ((*data).word & 0x0002)
@@ -199,6 +204,16 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 				dprintf(5, "[SPAC]");
 			dprintf(5, " %s-abled. \n", 
 				(*data).word ? "en" : "dis");
+			host->intr = (*data).word & 0x000f;
+			if (!host->intr && !host->running) {
+				dprintf(3, "%04x: USBCMD:STOP->USBINTR:0x0000"
+					"\n", host->iobase);
+				/*
+				   MEMO: WinXP uhci driver set
+                                   INTR=0,USBCMD(STOP) after FRAMEBASEADD.
+				   host->usb_stopped = 1;
+				*/
+			}
 		}
 		break;
 	case UHCI_REG_FRNUM:
@@ -217,6 +232,7 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 					 "created.\n", host->iobase);
 				out32(host->iobase + UHCI_REG_FRBASEADD, 
 				      (phys32_t)host->hframelist);
+				host->usb_stopped = 0;
 				thread_new(uhci_framelist_monitor, 
 					   (void *)host, VMM_STACKSIZE);
 			} else if (host->gframelist != (*data).dword) {

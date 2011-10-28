@@ -180,7 +180,7 @@ static bool
 extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 {
 #ifdef CPU_MMU_SPT_USE_PAE
-	u64 *e, tmp, mask = PTE_ADDR_MASK64;
+	u64 *e, tmp, mask = p->pte_addr_mask;
 	unsigned int n = 512;
 #else
 	u32 *e, tmp, mask = PTE_ADDR_MASK;
@@ -479,7 +479,7 @@ is_shadow1_pde_ok (u64 pde, u64 key)
 
 	i = current->spt.shadow1_modified;
 	j = current->spt.shadow1_free;
-	phys = pde & PDE_ADDR_MASK64;
+	phys = pde & current->pte_addr_mask;
 	while (i != j) {
 		if (key == current->spt.shadow1[i].key &&
 		    phys == current->spt.shadow1[i].phys) {
@@ -499,7 +499,7 @@ is_shadow2_pdpe_ok (u64 pdpe, u64 key)
 
 	i = current->spt.shadow2_modified;
 	j = current->spt.shadow2_free;
-	phys = pdpe & PDE_ADDR_MASK64;
+	phys = pdpe & current->pte_addr_mask;
 	while (i != j) {
 		if (key == current->spt.shadow2[i].key &&
 		    phys == current->spt.shadow2[i].phys) {
@@ -1028,7 +1028,7 @@ map_page (u64 v, struct map_page_data1 m1, struct map_page_data2 m2[5],
 static bool
 extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 {
-	u64 *e, tmp, mask = PTE_ADDR_MASK64;
+	u64 *e, tmp, mask = p->pte_addr_mask;
 	unsigned int n = 512;
 	unsigned int i, j, k;
 
@@ -1212,12 +1212,22 @@ init_vcpu (void)
 /* key:
    bit 63-12: gfn
    bit 11,10: 2to3
-   bit 9-7:   glevels (not largepage) */
+   bit 9-7:   glevels (not largepage)
+   bit 6:     largepage
+   bit 5:     wp=0
+   bit 4:     nx=1
+   bit 3:     us=0
+   bit 2:     rw=0
+   bit 0:     modified */
 
 #define KEY_GFNMASK	0xFFFFFFFFFFFFF000ULL
 #define KEY_GFN_SHIFT	12
 #define KEY_2TO3_SHIFT	10
 #define KEY_LARGEPAGE	0x40ULL
+#define KEY_WP0		0x20ULL
+#define KEY_NX		0x10ULL
+#define KEY_US0		0x8ULL
+#define KEY_RW0		0x4ULL
 #define KEY_GLVL2	(2 << 7)
 #define KEY_GLVL3	(3 << 7)
 #define KEY_GLVL4	(4 << 7)
@@ -1375,13 +1385,14 @@ update_rwmap (spt_t *cspt, u64 gfn, void *pte, u64 hphys)
 	unsigned int hr, hrtmp;
 	bool r = false;
 	u64 oldpte;
+	const u64 mask = current->pte_addr_mask;
 
 	spinlock_lock (&cspt->rwmap_lock);
 	while ((p = LIST3_POP (cspt->rwmap_fail, rwmap))) {
 		hrtmp = rwmap_hash_index (p->gfn >> 1);
 		LIST3_DEL (cspt->rwmap_hash[hrtmp], hash, p);
 		oldpte = *p->pte;
-		if ((oldpte & PTE_ADDR_MASK64) == p->hphys) {
+		if ((oldpte & mask) == p->hphys) {
 			*p->pte = oldpte & ~(PTE_D_BIT | PTE_RW_BIT);
 			LIST3_PUSH (cspt->rwmap_free, rwmap, p);
 		}
@@ -1402,7 +1413,7 @@ update_rwmap (spt_t *cspt, u64 gfn, void *pte, u64 hphys)
 			hrtmp = rwmap_hash_index (p->gfn >> 1);
 			LIST3_DEL (cspt->rwmap_hash[hrtmp], hash, p);
 			oldpte = *p->pte;
-			if ((oldpte & PTE_ADDR_MASK64) == p->hphys)
+			if ((oldpte & mask) == p->hphys)
 				*p->pte = oldpte & ~(PTE_D_BIT | PTE_RW_BIT);
 		}
 		p->pte = pte;
@@ -1557,12 +1568,13 @@ find_shadow2_from_hash (spt_t *cspt, u64 key, struct findshadow *q)
 }
 
 static bool
-is_shadow1_pde_ok (spt_t *cspt, u64 pde, u64 v, struct findshadow *fs)
+is_shadow1_pde_ok (spt_t *cspt, u64 pde, u64 v, struct findshadow *fs,
+		   u64 mask)
 {
 	u64 phys;
 	struct cpu_mmu_spt_shadow *p;
 
-	phys = pde & PDE_ADDR_MASK64;
+	phys = pde & mask;
 	p = fs->pm;
 	if (p && phys == p->phys) {
 		if (p->clear_n == 0)
@@ -1581,12 +1593,13 @@ is_shadow1_pde_ok (spt_t *cspt, u64 pde, u64 v, struct findshadow *fs)
 }
 
 static bool
-is_shadow2_pdpe_ok (spt_t *cspt, u64 pdpe, u64 v, struct findshadow *fs)
+is_shadow2_pdpe_ok (spt_t *cspt, u64 pdpe, u64 v, struct findshadow *fs,
+		    u64 mask)
 {
 	u64 phys;
 	struct cpu_mmu_spt_shadow *p;
 
-	phys = pdpe & PDE_ADDR_MASK64;
+	phys = pdpe & mask;
 	p = fs->pm;
 	if (p && phys == p->phys) {
 		if (p->clear_n == 0)
@@ -1911,7 +1924,7 @@ add_shadow1map (spt_t *cspt, struct cpu_mmu_spt_shadow *shadow1, u64 *pde)
 }
 
 static bool
-setpde (spt_t *cspt, pmap_t *p, u64 pde, u64 key, u64 gfnw, u64 v,
+setpde (spt_t *cspt, pmap_t *p, u64 pde, u64 key, u64 gfnw, u64 v, u64 mask,
 	struct map_page_data2 m)
 {
 	bool r = true;
@@ -1925,8 +1938,10 @@ setpde (spt_t *cspt, pmap_t *p, u64 pde, u64 key, u64 gfnw, u64 v,
 	if (pde) {
 		rw_spinlock_lock_sh (&cspt->shadow1_lock);
 		find_shadow1_from_hash (cspt, key, &fs);
-		if (is_shadow1_pde_ok (cspt, pde, v, &fs)) {
+		if (is_shadow1_pde_ok (cspt, pde, v, &fs, mask)) {
 			rw_spinlock_unlock_sh (&cspt->shadow1_lock);
+			pde &= ~(PDE_RW_BIT | PDE_US_BIT | PDE_NX_BIT);
+			pmap_write (p, pde | pdeflags, u);
 			STATUS_UPDATE (asm_lock_incl (&stat_ptgoodcnt));
 			return r;
 		}
@@ -1971,7 +1986,7 @@ ret:
 }
 
 static bool
-setpdpe (spt_t *cspt, pmap_t *p, u64 pdpe, u64 key, u64 gfnw, u64 v)
+setpdpe (spt_t *cspt, pmap_t *p, u64 pdpe, u64 key, u64 gfnw, u64 v, u64 mask)
 {
 	bool r = true;
 	struct findshadow fs;
@@ -1979,7 +1994,7 @@ setpdpe (spt_t *cspt, pmap_t *p, u64 pdpe, u64 key, u64 gfnw, u64 v)
 	if (pdpe) {
 		rw_spinlock_lock_sh (&cspt->shadow2_lock);
 		find_shadow2_from_hash (cspt, key, &fs);
-		if (is_shadow2_pdpe_ok (cspt, pdpe, v, &fs)) {
+		if (is_shadow2_pdpe_ok (cspt, pdpe, v, &fs, mask)) {
 			rw_spinlock_unlock_sh (&cspt->shadow2_lock);
 			STATUS_UPDATE (asm_lock_incl (&stat_pdgoodcnt));
 			return r;
@@ -2062,14 +2077,9 @@ map_page (u64 v, struct map_page_data1 m1, struct map_page_data2 m2[5],
 	static const int levels = 3;
 	u64 pte;
 	spt_t *const cspt = current->spt.data;
+	const u64 mask = current->pte_addr_mask;
 
 	STATUS_UPDATE (asm_lock_incl (&stat_mapcnt));
-	if (!cspt->wp) {
-		if (!m1.user && m1.write) {
-			m2[0].us = 0;
-			m2[0].rw = 1;
-		}
-	}
 	if (glvl == 1) {
 		key1 = ((gfns[0] << KEY_GFN_SHIFT) & KEY_LPMASK) |
 			KEY_LARGEPAGE;
@@ -2097,6 +2107,37 @@ map_page (u64 v, struct map_page_data1 m1, struct map_page_data2 m2[5],
 		panic ("map_page: glvl error");
 		for (;;);
 	}
+	if (!cspt->wp) {
+		/* guest us,rw	user,write	shadow us,rw
+			0,0	0,0		0,1	   [B]
+			0,0	0,1		0,1	[A][B]
+			0,1	*,*		0,1	   [B]
+			1,0	0,0		1,0
+			1,0	0,1		0,1	[A][B]
+			1,0	1,0		1,0
+			1,0	1,1		(page fault)
+			1,1	*,*		1,1 */
+		if (!m1.user && m1.write) {
+			if (!m2[0].rw)
+				m2[0].us = 0;	/* [A] */
+			if (!m2[1].rw)
+				m2[1].us = 0;	/* [A] */
+		}
+		if (!m2[0].us)
+			m2[0].rw = 1;		/* [B] */
+		if (!m2[1].us)
+			m2[1].rw = 1;		/* [B] */
+		key1 |= KEY_WP0;
+		key2 |= KEY_WP0;
+	}
+	if (glvl >= 2) {
+		if (m2[2].nx)
+			key2 |= KEY_NX;
+		if (!m2[2].us)
+			key2 |= KEY_US0;
+		if (!m2[2].rw)
+			key2 |= KEY_RW0;
+	}
 	gfnw = GFN_UNUSED;
 	if (m1.write)
 		gfnw = gfns[0];
@@ -2106,22 +2147,22 @@ map_page (u64 v, struct map_page_data1 m1, struct map_page_data2 m2[5],
 		if (!mapsub (cspt, &p, &tmp, levels, true))
 			panic ("mapsub failed 1");
 	}
-	if (!setpdpe (cspt, &p, tmp, key2, gfnw, v)) {
+	if (!setpdpe (cspt, &p, tmp, key2, gfnw, v, mask)) {
 		if (!mapsub (cspt, &p, &tmp, levels, true))
 			panic ("mapsub failed 2");
-		if (!setpdpe (cspt, &p, tmp, key2, gfnw, v))
+		if (!setpdpe (cspt, &p, tmp, key2, gfnw, v, mask))
 			panic ("setpdpe failed 1");
 	}
 	pmap_setlevel (&p, 2);
 	tmp = pmap_read (&p);
-	if (!setpde (cspt, &p, tmp, key1, gfnw, v, m2[1])) {
+	if (!setpde (cspt, &p, tmp, key1, gfnw, v, mask, m2[1])) {
 		if (!mapsub (cspt, &p, &tmp, levels, true))
 			panic ("mapsub failed 3");
-		if (!setpdpe (cspt, &p, tmp, key2, gfnw, v))
+		if (!setpdpe (cspt, &p, tmp, key2, gfnw, v, mask))
 			panic ("setpdpe failed 2");
 		pmap_setlevel (&p, 2);
 		tmp = pmap_read (&p);
-		if (!setpde (cspt, &p, tmp, key1, gfnw, v, m2[1]))
+		if (!setpde (cspt, &p, tmp, key1, gfnw, v, mask, m2[1]))
 			panic ("setpde failed 1");
 	}
 	pmap_setlevel (&p, 1);
@@ -2155,7 +2196,7 @@ static bool
 extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 {
 	struct cpu_mmu_spt_shadow *q;
-	u64 *e, tmp, mask = PTE_ADDR_MASK64;
+	u64 *e, tmp, mask = p->pte_addr_mask;
 	unsigned int n = 512;
 	unsigned int j;
 
@@ -2168,16 +2209,22 @@ extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 		e = (u64 *)phys_to_virt (q->phys);
 		for (j = 0; j < n; j++) {
 			tmp = e[j] & mask;
-			if ((e[j] & PTE_P_BIT) && start <= tmp && tmp <= end)
-				return true;
+			if ((e[j] & PTE_P_BIT) && start <= tmp && tmp <= end) {
+				if (p != current)
+					return true;
+				e[j] = 0;
+			}
 		}
 	}
 	LIST3_FOREACH (p->spt.data->shadow1_normal, shadow, q) {
 		e = (u64 *)phys_to_virt (q->phys);
 		for (j = 0; j < n; j++) {
 			tmp = e[j] & mask;
-			if ((e[j] & PTE_P_BIT) && start <= tmp && tmp <= end)
-				return true;
+			if ((e[j] & PTE_P_BIT) && start <= tmp && tmp <= end) {
+				if (p != current)
+					return true;
+				e[j] = 0;
+			}
 		}
 	}
 	return false;
@@ -2331,16 +2378,10 @@ update_cr3 (void)
 	current->vmctl.spt_setcr3 (cspt->cr3tbl_phys);
 	if (cspt->wp && !(cr0 & CR0_WP_BIT)) {
 		cspt->wp = false;
-		clear_rwmap (cspt);
-		clear_shadow1 (cspt);
-		clear_shadow2 (cspt);
 		STATUS_UPDATE (asm_lock_incl (&stat_wpcnt));
 	}
 	if (!cspt->wp && (cr0 & CR0_WP_BIT)) {
 		cspt->wp = true;
-		clear_rwmap (cspt);
-		clear_shadow1 (cspt);
-		clear_shadow2 (cspt);
 		STATUS_UPDATE (asm_lock_incl (&stat_wpcnt));
 	}
 	update_rwmap (cspt, 0, NULL, 0);
@@ -2545,6 +2586,7 @@ set_gfns (u64 entries[5], int levels, u64 gfns[5])
 {
 	int i;
 	u64 entry;
+	const u64 mask = current->pte_addr_mask;
 
 	for (i = levels; i >= 0; i--) {
 		entry = entries[i];
@@ -2555,7 +2597,7 @@ set_gfns (u64 entries[5], int levels, u64 gfns[5])
 				gfns[i] = GFN_UNUSED;
 			continue;
 		}
-		gfns[i] = (entry & PTE_ADDR_MASK64) >> PAGESIZE_SHIFT;
+		gfns[i] = (entry & mask) >> PAGESIZE_SHIFT;
 	}
 }
 

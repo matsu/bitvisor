@@ -33,8 +33,8 @@
 #include "callrealmode.h"
 #include "types.h"
 
-#define CALLREALMODE_OFFSET 0xF000
-extern char callrealmode_start[], callrealmode_end[];
+#define CALLREALMODE_OFFSET 0x5000
+extern char callrealmode_start[], callrealmode_end[], callrealmode_start2[];
 
 enum callrealmode_func {
 	CALLREALMODE_FUNC_PRINTMSG = 0x0,
@@ -42,6 +42,12 @@ enum callrealmode_func {
 	CALLREALMODE_FUNC_GETSHIFTFLAGS = 0x2,
 	CALLREALMODE_FUNC_SETVIDEOMODE = 0x3,
 	CALLREALMODE_FUNC_REBOOT = 0x4,
+	CALLREALMODE_FUNC_DISK_READMBR = 0x5,
+	CALLREALMODE_FUNC_DISK_READLBA = 0x6,
+	CALLREALMODE_FUNC_BOOTCD_GETSTATUS = 0x7,
+	CALLREALMODE_FUNC_SETCURSORPOS = 0x8,
+	CALLREALMODE_FUNC_STARTKERNEL32 = 0x9,
+	CALLREALMODE_FUNC_TCGBIOS = 0xA,
 };
 
 struct callrealmode_printmsg {
@@ -63,6 +69,43 @@ struct callrealmode_setvideomode {
 	u8 al;
 };
 
+struct callrealmode_disk_readmbr {
+	u32 buffer_addr;	/* segment:offset */
+	u8 drive;
+	u8 status;
+} __attribute__ ((packed));
+
+struct callrealmode_disk_readlba {
+	u32 buffer_addr;	/* segment:offset */
+	u64 lba;
+	u16 num_of_blocks;
+	u8 drive;
+	u8 status;
+} __attribute__ ((packed));
+
+struct callrealmode_bootcd_getstatus {
+	u8 drive;
+	u8 error;
+	u16 retcode;
+	struct bootcd_specification_packet data;
+} __attribute__ ((packed));
+
+struct callrealmode_setcursorpos {
+	u8 page_num;
+	u8 row;
+	u8 column;
+} __attribute__ ((packed));
+
+struct callrealmode_startkernel32 {
+	u32 paramsaddr;
+	u32 startaddr;
+} __attribute__ ((packed));
+
+struct callrealmode_tcgbios {
+	struct tcgbios_args args;
+	u32 al;
+} __attribute__ ((packed));
+
 struct callrealmode_data {
 	enum callrealmode_func func : 32;
 	union {
@@ -70,6 +113,12 @@ struct callrealmode_data {
 		struct callrealmode_getsysmemmap getsysmemmap;
 		struct callrealmode_getshiftflags getshiftflags;
 		struct callrealmode_setvideomode setvideomode;
+		struct callrealmode_disk_readmbr disk_readmbr;
+		struct callrealmode_disk_readlba disk_readlba;
+		struct callrealmode_bootcd_getstatus bootcd_getstatus;
+		struct callrealmode_setcursorpos setcursorpos;
+		struct callrealmode_startkernel32 startkernel32;
+		struct callrealmode_tcgbios tcgbios;
 	} u;
 } __attribute__ ((packed));
 

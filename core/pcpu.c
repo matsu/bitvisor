@@ -28,8 +28,10 @@
  */
 
 #include "pcpu.h"
+#include "spinlock.h"
 
 struct pcpu pcpu_default = {
+	.suspend_lock = SPINLOCK_INITIALIZER,
 };
 
 #define DEFINE_GS_OFFSET(name, offset) \
@@ -40,3 +42,40 @@ DEFINE_GS_OFFSET (gs_currentcpu, 8);
 DEFINE_GS_OFFSET (gs_syscallstack, 16);
 DEFINE_GS_OFFSET (gs_current, 24);
 DEFINE_GS_OFFSET (gs_nmi, 32);
+
+static struct pcpu *pcpu_list_head;
+static spinlock_t pcpu_list_lock;
+
+/* call func with every pcpu */
+/* return immediately if func returns true */
+/* q is a pointer for any purpose */
+void
+pcpu_list_foreach (bool (*func) (struct pcpu *p, void *q), void *q)
+{
+	struct pcpu *p;
+
+	for (p = pcpu_list_head; p; p = p->next)
+		if (func (p, q))
+			break;
+}
+
+void
+pcpu_list_add (struct pcpu *d)
+{
+	struct pcpu **p;
+
+	d->next = NULL;
+	p = &pcpu_list_head;
+	spinlock_lock (&pcpu_list_lock);
+	while (*p)
+		p = &(*p)->next;
+	*p = d;
+	spinlock_unlock (&pcpu_list_lock);
+}
+
+void
+pcpu_init (void)
+{
+	pcpu_list_head = NULL;
+	spinlock_init (&pcpu_list_lock);
+}

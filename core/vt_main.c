@@ -34,7 +34,6 @@
 #include "current.h"
 #include "exint_pass.h"
 #include "gmm_pass.h"
-#include "guest_boot.h"
 #include "initfunc.h"
 #include "linkage.h"
 #include "panic.h"
@@ -345,7 +344,16 @@ vt__vm_run (void)
 {
 	enum vt__status status;
 
+	if (current->u.vt.first) {
+		vt__vm_run_first ();
+		current->u.vt.first = false;
+		return;
+	}
+	if (current->u.vt.saved_vmcs)
+		spinlock_unlock (&currentcpu->suspend_lock);
 	status = call_vt__vmresume ();
+	if (current->u.vt.saved_vmcs)
+		spinlock_lock (&currentcpu->suspend_lock);
 	if (status != VT__VMEXIT) {
 		if (status == VT__VMENTRY_FAILED)
 			panic ("Fatal error: VM entry failed.");
@@ -372,27 +380,32 @@ vt__vm_run_with_tf (void)
 static void
 vt__event_delivery_check (void)
 {
+	ulong err;
 	union {
 		struct intr_info s;
 		ulong v;
 	} ivif;
 	struct vt_intr_data *vid = &current->u.vt.intr;
 
-	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID) {
-		asm_vmread (VMCS_IDT_VECTORING_INFO_FIELD, &ivif.v);
-		if (ivif.s.valid == INTR_INFO_VALID_INVALID)
-			vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
-		else if (ivif.v == vid->vmcs_intr_info.v)
-			;
-		else
-			/* panic ("Fatal error:\n" */
-			/* this should not happen but */
-			/* Atom Z520 makes this message occasionally */
-			printf ("Ignoring storange behavior of CPU:\n"
-			       "VMCS_IDT_VECTORING_INFO_FIELD == 0x%lX\n"
-			       "VMCS_VMENTRY_INTR_INFO == 0x%X\n",
-			       ivif.v, vid->vmcs_intr_info.v);
+	/* The IDT-vectoring information field has event information
+	   that is not delivered yet. The event will be the next
+	   event if no other events will have been injected.
+	   This field may or may not be the same as the VM-entry
+	   interruption-information field. Atom Z520/Z530 seems to
+	   behave differently from other processors about this field. */
+	asm_vmread (VMCS_IDT_VECTORING_INFO_FIELD, &ivif.v);
+	if (ivif.s.valid == INTR_INFO_VALID_VALID) {
+		if (ivif.s.type == INTR_INFO_TYPE_SOFT_INTR) {
+			/* Ignore software interrupt to
+			   make this function simple.
+			   The INT instruction will be executed again. */
+			ivif.s.valid = INTR_INFO_VALID_INVALID;
+		} else if (ivif.s.err == INTR_INFO_ERR_VALID) {
+			asm_vmread (VMCS_IDT_VECTORING_ERRCODE, &err);
+			vid->vmcs_exception_errcode = err;
+		}
 	}
+	vid->vmcs_intr_info.v = ivif.v;
 }
 
 static void
@@ -982,11 +995,6 @@ vt_start_vm (void)
 {
 	ulong pin;
 
-	vt__event_delivery_setup ();
-	vt__vm_run_first ();
-	vt__event_delivery_check ();
-	vt__exit_reason ();
-	vt__event_delivery_update ();
 	asm_vmread (VMCS_PIN_BASED_VMEXEC_CTL, &pin);
 	pin |= VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT;
 	asm_vmwrite (VMCS_PIN_BASED_VMEXEC_CTL, pin);

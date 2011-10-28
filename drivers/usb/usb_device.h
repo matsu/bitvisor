@@ -220,6 +220,21 @@ struct usb_device_descriptor {
 } __attribute__ ((packed));
 
 /*
+ * USB device handle
+ */
+struct usb_device_handle {
+	void *private_data;
+	void (*remove)(struct usb_device *);
+	struct usb_device_descriptor ddesc;
+	struct usb_config_descriptor cdesc;
+	size_t l_ddesc, l_cdesc;
+	u8 serial[256];
+	u8 serial_len;
+	LIST1_DEFINE(struct usb_device_handle);
+	u8 ref;
+};
+
+/*
  * To maintain compatibility with applications already built with libusb,
  * we must only add entries to the end of this structure. NEVER delete or
  * move members and only change types if you really know what you're doing.
@@ -259,6 +274,11 @@ struct usb_device {
 #define UD_SPEED_FULL			0x00U
 #define UD_SPEED_HIGH			0x02U
 #define UD_SPEED_UNDEF			0xFFU
+
+	struct usb_config_descriptor cdesc;
+	size_t l_ddesc, l_cdesc;
+	u8 serial[256];
+	u8 serial_len;
 };
 
 void
@@ -312,6 +332,26 @@ get_device_by_port(struct usb_host *host, u64 portno)
 
 	return dev;
 }
+
+/**
+ * @brief find a allocated usb handle
+ * @param device struct usb_host
+ * @param device struct usb_device
+ */
+void *
+usb_find_dev_handle (struct usb_host *usbhc, struct usb_device *dev);
+
+/**
+ * @brief allocate a new usb handle
+ * @param device struct usb_host
+ * @param device info void *
+ * @param remove device function
+ * @param device struct usb_device
+ */
+void *
+usb_new_dev_handle (struct usb_host *usbhc, void *devinfo,
+		    void (*remove)(struct usb_device *),
+		    struct usb_device *dev);
 
 /**
  * @brief returns the end point descriptor of the enpoint 

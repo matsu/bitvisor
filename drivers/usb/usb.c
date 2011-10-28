@@ -679,8 +679,22 @@ usb_register_host (void *host, struct usb_operations *op, u8 type)
 	hc->private = host;
 	hc->op = op;
 	hc->host_id = usb_host_id++;
+	LIST1_HEAD_INIT(hc->handle);
 	spinlock_init(&hc->lock_hk);
 	LIST_APPEND(usb_hc_list, hc);
 
 	return hc;
+}
+
+int
+usb_unregister_devices (struct usb_host *uhc)
+{
+	struct usb_device *udev, *nudev;
+
+	for (udev = uhc->device; udev; udev = nudev) {
+		nudev = udev->next;
+		/* free all devices and related hooks */
+		free_device(uhc, udev);
+	}
+	return 0;
 }

@@ -32,6 +32,7 @@
 
 #include "types.h"
 
-void vmmcall_boot_enable (u8 bios_boot_drive);
+void vmmcall_boot_continue (void);
+void vmmcall_boot_enable (void (*func) (void *), void *arg);
 
 #endif

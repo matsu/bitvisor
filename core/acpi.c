@@ -40,6 +40,7 @@
 #include "printf.h"
 #include "sleep.h"
 #include "string.h"
+#include "wakeup.h"
 #include "passthrough/vtd.h"
 #include "passthrough/iodom.h"
 
@@ -304,10 +305,11 @@ debug_dump (void *p, int len)
 	}
 }
 
-static void
+static bool
 acpi_pm1_sleep (u32 v)
 {
 	struct facs *facs;
+	u32 new_waking_vector;
 #ifdef ACPI_DSDT
 	bool m[6];
 	int i;
@@ -324,39 +326,26 @@ acpi_pm1_sleep (u32 v)
 			m[i] = false;
 	}
 	if (!m[2] && !m[3])
-		return;
+		return false;
 #endif
 	facs = acpi_mapmem (facs_addr, sizeof *facs);
 	if (IS_STRUCT_SIZE_OK (facs->length, facs,
 			       facs->x_firmware_waking_vector))
 		facs->x_firmware_waking_vector = 0;
-	if (IS_STRUCT_SIZE_OK (facs->length, facs,
-			       facs->firmware_waking_vector))
-		facs->firmware_waking_vector = 0xFFFF0;
-	else
-		for (;;); /* FIXME: ERROR */
-	/* DEBUG */
-	/* the computer is going to sleep */
-	/* most devices are suspended */
-	/* vmm can't write anything to a screen here */
-	/* vmm can't input from/output to a keyboard here */
-	/* vmm can beep! */
-	beep_on ();
-	beep_set_freq (880);
-	usleep (500000);
-	beep_set_freq (440);
-	usleep (500000);
-	beep_set_freq (880);
-	usleep (500000);
-	beep_set_freq (440);
-	usleep (500000);
-	beep_set_freq (880);
-	usleep (500000);
-	beep_set_freq (440);
-	usleep (500000);
-	beep_set_freq (880);
-
-	acpi_poweroff ();
+	if (!IS_STRUCT_SIZE_OK (facs->length, facs,
+				facs->firmware_waking_vector)) {
+		printf ("FACS ERROR\n");
+		return true;
+	}
+	new_waking_vector = prepare_for_sleep (facs->firmware_waking_vector);
+	facs->firmware_waking_vector = new_waking_vector;
+	/* Flush all write back caches including the internal caches
+	   on the other processors, or the processors will lose them
+	   and the VMM will not work correctly. */
+	mm_flush_wb_cache ();
+	asm_outl (pm1a_cnt_ioaddr, v);
+	cancel_sleep ();
+	return true;
 }
 
 static enum ioact
@@ -379,7 +368,8 @@ acpi_io_monitor (enum iotype type, u32 port, void *data)
 			goto def;
 		}
 		if (v & PM1_CNT_SLP_EN_BIT)
-			acpi_pm1_sleep (v);
+			if (acpi_pm1_sleep (v))
+				return IOACT_CONT;
 		goto def;
 	}
 def:
@@ -506,6 +496,7 @@ acpi_init_global (void)
 	struct acpi_ent_dmar *r;
 	struct domain *create_dom() ;
 
+	wakeup_init ();
 	rsdp_found = false;
 	pm1a_cnt_found = false;
 

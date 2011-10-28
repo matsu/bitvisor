@@ -212,6 +212,8 @@ struct config_data_vmm {
 	int boot_active;
 	int tty_pro1000;
 	char tty_pro1000_mac_address[6];
+	int tty_rtl8169;
+	char tty_rtl8169_mac_address[6];
 	struct config_data_vmm_driver driver;
 	struct config_data_vmm_iccard iccard;
 };

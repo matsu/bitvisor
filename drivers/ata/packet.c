@@ -60,11 +60,11 @@ typedef union {
 		unsigned int	ope_code10:	 8;
 	} __attribute__ ((packed));
 	struct {
-		unsigned int	reserved3:	 8;
-		unsigned int	reserved2:	 8;
+		unsigned int	reserved8:	 8;
+		unsigned int	reserved7:	 8;
 		unsigned long	sector_count12:	32;
 		unsigned long	lba12:		32;
-		unsigned int	reserved1:	 8;
+		unsigned int	reserved6:	 8;
 		unsigned int	ope_code12:	 8;
 	} __attribute__ ((packed));
 } command_packet_t;

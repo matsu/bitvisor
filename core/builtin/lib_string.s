@@ -146,35 +146,12 @@ memcmp32:
 	mov	20(%esp),%ecx
 	xor	%eax,%eax
 	cld
-	shr	%ecx
-	jc	1f
-	shr	%ecx
-	jc	2f
-	repe	cmpsl
-	jne	3f
-	pop	%edi
-	pop	%esi
-	ret
-1:
-	repe	cmpsw
-	jne	3f
-	cmpsb
-	jne	3f
-	pop	%edi
-	pop	%esi
-	ret
-2:
-	repe	cmpsl
-	jne	3f
-	cmpsw
-	jne	3f
-	pop	%edi
-	pop	%esi
-	ret
-3:
+	repe	cmpsb
+	je	1f
 	setnc	%al
 	setc	%ah
 	ror	%eax
+1:
 	pop	%edi
 	pop	%esi
 	ret
@@ -282,37 +259,12 @@ memcmp64:
 	mov	%rdx,%rcx
 	xor	%eax,%eax
 	cld
-	shr	%rcx
-	jc	1f
-	shr	%rcx
-	jc	2f
-	shr	%rcx
-	jc	3f
-	repe	cmpsq
-	jne	4f
-	ret
-1:
-	repe	cmpsw
-	jne	4f
-	cmpsb
-	jne	4f
-	ret
-2:
-	repe	cmpsl
-	jne	4f
-	cmpsw
-	jne	4f
-	ret
-3:
-	repe	cmpsq
-	jne	4f
-	cmpsl
-	jne	4f
-	ret
-4:
+	repe	cmpsb
+	je	1f
 	setnc	%al
 	setc	%ah
 	ror	%eax
+1:
 	ret
 
 	.align	64

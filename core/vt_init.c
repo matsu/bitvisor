@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "assert.h"
 #include "constants.h"
 #include "cpu_mmu_spt.h"
 #include "current.h"
@@ -165,7 +166,9 @@ vt__vmcs_init (void)
 	ulong sysenter_cs, sysenter_esp, sysenter_eip;
 	ulong exitctl64;
 
+	current->u.vt.first = true;
 	current->u.vt.io.iobmpflag = false;
+	current->u.vt.saved_vmcs = NULL;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
@@ -369,4 +372,31 @@ vt_init (void)
 {
 	vt__vmx_init ();
 	vt__vmxon ();
+}
+
+void
+vt_enable_resume (void)
+{
+	ASSERT (!current->u.vt.saved_vmcs);
+	alloc_page (&current->u.vt.saved_vmcs, NULL);
+	asm_vmclear (&current->u.vt.vi.vmcs_region_phys);
+	memcpy (current->u.vt.saved_vmcs, current->u.vt.vi.vmcs_region_virt,
+		PAGESIZE);
+	asm_vmptrld (&current->u.vt.vi.vmcs_region_phys);
+	current->u.vt.first = true;
+	spinlock_lock (&currentcpu->suspend_lock);
+}
+
+void
+vt_resume (void)
+{
+	ASSERT (current->u.vt.saved_vmcs);
+	vt__vmxon ();
+	memcpy (current->u.vt.vi.vmcs_region_virt, current->u.vt.saved_vmcs,
+		PAGESIZE);
+	asm_vmclear (&current->u.vt.vi.vmcs_region_phys);
+	asm_vmptrld (&current->u.vt.vi.vmcs_region_phys);
+	current->u.vt.first = true;
+	spinlock_init (&currentcpu->suspend_lock);
+	spinlock_lock (&currentcpu->suspend_lock);
 }

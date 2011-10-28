@@ -38,7 +38,7 @@ struct usbmsc_device {
 	u32        tag;
 	u8	   lun_max;
 	u8	   lun;
-	struct usbmsc_unit *unit[USBMSC_LUN_MAX];
+	struct usbmsc_unit *unit[USBMSC_LUN_MAX + 1];
 };
 
 struct usbmsc_unit {

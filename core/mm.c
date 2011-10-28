@@ -139,6 +139,7 @@ static spinlock_t mapmem_lock;
 static virt_t mapmem_lastvirt;
 static struct sysmemmapdata sysmemmap[MAXNUM_OF_SYSMEMMAP];
 static int sysmemmaplen;
+static u32 realmodemem_base, realmodemem_limit, realmodemem_fakelimit;
 
 #define E801_16MB 0x1000000
 #define E801_AX_MAX 0x3C00
@@ -176,6 +177,8 @@ getfakesysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
 
 	r = getsysmemmap (n, base, len, type);
 	if (*type == SYSMEMMAP_TYPE_AVAILABLE) {
+		if (*base == realmodemem_base)
+			*len = realmodemem_fakelimit - realmodemem_base + 1;
 		if (*base == e820_vmm_base)
 			*len = e820_vmm_fake_len;
 		if (*base > e820_vmm_base && *base < e820_vmm_end)
@@ -290,6 +293,57 @@ find_vmm_phys (void)
 	memorysize = memsize;
 	update_e801_fake (phys);
 	return phys;
+}
+
+u32
+alloc_realmodemem (uint len)
+{
+	u16 *int0x12_ret, size;
+
+	ASSERT (len > 0);
+	ASSERT (len < realmodemem_fakelimit - realmodemem_base + 1);
+	realmodemem_fakelimit -= len;
+	size = (realmodemem_fakelimit + 1) >> 10;
+	int0x12_ret = mapmem_hphys (0x413, sizeof *int0x12_ret, MAPMEM_WRITE);
+	if (*int0x12_ret > size)
+		*int0x12_ret = size;
+	unmapmem (int0x12_ret, sizeof *int0x12_ret);
+	return realmodemem_fakelimit + 1;
+}
+
+static void
+find_realmodemem (void)
+{
+	u32 n, nn;
+	u32 base32, limit32;
+	u64 limit64;
+	u64 base, len;
+	u32 type;
+
+	n = 0;
+	realmodemem_base = 0;
+	realmodemem_limit = 0;
+	realmodemem_fakelimit = 0;
+	for (nn = 1; nn; n = nn) {
+		nn = getsysmemmap (n, &base, &len, &type);
+		if (type != SYSMEMMAP_TYPE_AVAILABLE)
+			continue;
+		if (base >= 0x100000ULL)
+			continue;
+		limit64 = base + len - 1;
+		if (limit64 >= 0x100000ULL)
+			continue;
+		base32 = base;
+		limit32 = limit64;
+		if (base32 > limit32)
+			continue;
+		if (limit32 - base32 >=
+		    realmodemem_limit - realmodemem_base) {
+			realmodemem_base = base32;
+			realmodemem_limit = limit32;
+			realmodemem_fakelimit = limit32;
+		}
+	}
 }
 
 static struct page *
@@ -506,6 +560,7 @@ unmap_user_area (void)
 
 	mm_process_alloc (&phys);
 	asm_wrcr3 (phys);
+	currentcpu->cr3 = phys;
 }
 
 static void
@@ -518,6 +573,7 @@ mm_init_global (void)
 	spinlock_init (&mm_lock_process_virt_to_phys);
 	spinlock_init (&mapmem_lock);
 	getallsysmemmap ();
+	find_realmodemem ();
 	vmm_start_phys = find_vmm_phys ();
 	if (vmm_start_phys == 0) {
 		printf ("Out of memory.\n");
@@ -1993,4 +2049,18 @@ mapmem_gphys (u64 physaddr, uint len, int flags)
 	return mapmem (MAPMEM_GPHYS | flags, physaddr, len);
 }
 
+/* Flush all write back caches including other processors */
+void
+mm_flush_wb_cache (void)
+{
+	int tmp;
+
+	/* Read all VMM memory to let other processors write back */
+	asm volatile ("cld ; rep lodsl"
+		      : "=a" (tmp), "=c" (tmp), "=S" (tmp)
+		      : "S" (VMM_START_VIRT), "c" (VMMSIZE_ALL / 4));
+	asm_wbinvd ();		/* write back all caches */
+}
+
 INITFUNC ("global2", mm_init_global);
+INITFUNC ("ap0", unmap_user_area);

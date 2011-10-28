@@ -117,6 +117,10 @@ struct pci_config_space {
 #define PCI_CONFIG_BASE_ADDRESS3 PCI_CONFIG_SPACE_GET_OFFSET(base_address[3])
 #define PCI_CONFIG_BASE_ADDRESS4 PCI_CONFIG_SPACE_GET_OFFSET(base_address[4])
 #define PCI_CONFIG_BASE_ADDRESS5 PCI_CONFIG_SPACE_GET_OFFSET(base_address[5])
+#define PCI_CONFIG_COMMAND PCI_CONFIG_SPACE_GET_OFFSET(command)
+
+#define PCI_CONFIG_COMMAND_IOENABLE	0x1
+#define PCI_CONFIG_COMMAND_MEMENABLE	0x2
 
 // data structures
 struct pci_device {

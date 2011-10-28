@@ -32,7 +32,9 @@
 
 #include "types.h"
 
+#define OSLOADER_BOOTPARAMS_SIZE 0x2000
+
 u32 load_minios (u32 kernelstart, u32 kernelsize, u32 ramdiskstart,
-		 u32 ramdisksize);
+		 u32 ramdisksize, u32 paramsstart, void *bootparams);
 
 #endif

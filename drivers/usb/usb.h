@@ -100,11 +100,6 @@ struct usb_device;
 /* Data types */
 struct usb_bus;
 
-struct usb_device_handle {
-	void *private_data;
-	void (*remove)(struct usb_device *);
-};
-
 /***
  *** HOST CONTROLLER
  ***/
@@ -156,6 +151,7 @@ struct usb_host {
 	u64 last_changed_port;
 	void *private;
 	struct usb_device *device;
+	LIST1_DEFINE_HEAD(struct usb_device_handle, handle);
 	struct usb_operations *op;
 #define USB_HOOK_NUM_PHASE     2
 	spinlock_t lock_hk;
@@ -318,6 +314,7 @@ extern "C" {
 
 struct usb_host *usb_register_host (void *host, struct usb_operations *op,
 				    u8 type);
+int usb_unregister_devices (struct usb_host *uhc);
 
 #define DEFINE_GET_U16_FROM_SETUP_FUNC(type)				\
 	static inline u16						\

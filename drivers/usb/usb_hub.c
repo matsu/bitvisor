@@ -10,7 +10,6 @@
 
 DEFINE_ZALLOC_FUNC(usb_hub_device);
 DEFINE_ZALLOC_FUNC(device_list);
-DEFINE_ZALLOC_FUNC(usb_device_handle);
 DEFINE_GET_U16_FROM_SETUP_FUNC(wIndex);
 DEFINE_GET_U16_FROM_SETUP_FUNC(wValue);
 
@@ -196,15 +195,16 @@ init_hub_device(struct usb_host *usbhc,
 	}
 
 	hub_dev = zalloc_usb_hub_device();
-	handler = zalloc_usb_device_handle();
+	handler = usb_find_dev_handle(usbhc, dev);
 
 	if (!hub_dev) {
 		dprintft(1, "HUB(%02x): hub device can't use.\n", devadr);
 		return USB_HOOK_DISCARD;
 	}
 
-	handler->private_data = (void *)hub_dev;
-	handler->remove = usbhub_remove;
+	if (!handler)
+		handler = usb_new_dev_handle(usbhc, hub_dev, usbhub_remove,
+					     dev);
 	dev->handle = handler;
 
 	/* notify whenever ClearPortFeature() issued. */

@@ -28,11 +28,50 @@
  */
 
 #include "asm.h"
+#include "assert.h"
 #include "callrealmode.h"
 #include "callrealmode_asm.h"
+#include "current.h"
+#include "entry.h"
+#include "initfunc.h"
 #include "mm.h"
+#include "pcpu.h"
+#include "savemsr.h"
 #include "seg.h"
 #include "string.h"
+#include "vmmcall_boot.h"
+
+static struct vcpu *callrealmode_vcpu;
+
+u32
+callrealmode_endofcodeaddr (void)
+{
+	return CALLREALMODE_OFFSET + callrealmode_end - callrealmode_start;
+}
+
+static void
+callrealmode_clearvcpu (void)
+{
+	callrealmode_vcpu = NULL;
+}
+
+static void
+callrealmode_init_global (void)
+{
+	callrealmode_clearvcpu ();
+}
+
+static void
+callrealmode_panic (void)
+{
+	callrealmode_clearvcpu ();
+}
+
+void
+callrealmode_usevcpu (struct vcpu *p)
+{
+	callrealmode_vcpu = p;
+}
 
 static void
 callrealmode_copy (void)
@@ -41,15 +80,69 @@ callrealmode_copy (void)
 		callrealmode_end - callrealmode_start);
 }
 
+static void
+callrealmode_call_vcpu (struct vcpu *c, struct callrealmode_data *d)
+{
+	ulong sp16, ip;
+	void *p;
+	int size;
+
+	ASSERT (c && c->vcpu0 == current->vcpu0);
+
+	/* copy code */
+	size = callrealmode_end - callrealmode_start;
+	p = mapmem_hphys (CALLREALMODE_OFFSET, size, MAPMEM_WRITE);
+	memcpy (p, callrealmode_start, size);
+	unmapmem (p, size);
+	ip = CALLREALMODE_OFFSET + (callrealmode_start2 - callrealmode_start);
+
+	/* copy stack */
+	sp16 = CALLREALMODE_OFFSET - sizeof *d;
+	p = mapmem_hphys (sp16, sizeof *d, MAPMEM_WRITE);
+	memcpy (p, d, sizeof *d);
+	unmapmem (p, size);
+
+	/* set registers */
+	c->vmctl.reset ();
+	c->vmctl.write_control_reg (CONTROL_REG_CR0, CR0_PE_BIT | CR0_ET_BIT);
+	c->vmctl.write_control_reg (CONTROL_REG_CR0, CR0_ET_BIT);
+	c->vmctl.write_control_reg (CONTROL_REG_CR3, 0);
+	c->vmctl.write_control_reg (CONTROL_REG_CR4, 0);
+	c->vmctl.write_control_reg (CONTROL_REG_CR4, 0);
+	c->vmctl.write_realmode_seg (SREG_ES, 0);
+	c->vmctl.write_realmode_seg (SREG_CS, 0);
+	c->vmctl.write_realmode_seg (SREG_SS, 0);
+	c->vmctl.write_realmode_seg (SREG_DS, 0);
+	c->vmctl.write_realmode_seg (SREG_FS, 0);
+	c->vmctl.write_realmode_seg (SREG_GS, 0);
+	c->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
+	if (currentcpu->fullvirtualize == FULLVIRTUALIZE_VT)
+		c->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
+	c->vmctl.write_general_reg (GENERAL_REG_RSP, sp16);
+	c->vmctl.write_ip (ip);
+	c->vmctl.write_flags (RFLAGS_ALWAYS1_BIT);
+	c->vmctl.write_idtr (0, 0x3FF);
+
+	/* call */
+	vmmcall_boot_continue ();
+
+	/* copy stack */
+	p = mapmem_hphys (sp16, sizeof *d, 0);
+	memcpy (d, p, sizeof *d);
+	unmapmem (p, size);
+}
+
 /* interrupts must be disabled */
 static void
-callrealmode_call (struct callrealmode_data *d)
+callrealmode_call_directly (struct callrealmode_data *d)
 {
 	ulong sp16;
 	u32 sp32;
 	ulong idtr_base, idtr_limit;
 	ulong cr3;
+	struct savemsr msr;
 
+	savemsr_save (&msr);
 	asm_rdcr3 (&cr3);
 	asm_wrcr3 (vmm_base_cr3);
 	callrealmode_copy ();
@@ -138,6 +231,16 @@ callrealmode_call (struct callrealmode_data *d)
 	asm_wridtr (idtr_base, idtr_limit);
 	memcpy (d, (u8 *)sp16, sizeof *d);
 	asm_wrcr3 (cr3);
+	savemsr_load (&msr);
+}
+
+static void
+callrealmode_call (struct callrealmode_data *d)
+{
+	if (callrealmode_vcpu)
+		callrealmode_call_vcpu (callrealmode_vcpu, d);
+	else
+		callrealmode_call_directly (d);
 }
 
 void
@@ -191,3 +294,92 @@ callrealmode_reboot (void)
 	d.func = CALLREALMODE_FUNC_REBOOT;
 	callrealmode_call (&d);
 }
+
+void
+callrealmode_tcgbios (u32 al, struct tcgbios_args *args)
+{
+	struct callrealmode_data d;
+
+	d.func = CALLREALMODE_FUNC_TCGBIOS;
+	d.u.tcgbios.al = al;
+	memcpy (&d.u.tcgbios.args, args, sizeof *args);
+	callrealmode_call (&d);
+	memcpy (args, &d.u.tcgbios.args, sizeof *args);
+}
+
+unsigned int
+callrealmode_disk_readmbr (u8 drive, u32 buf_phys)
+{
+	struct callrealmode_data d;
+	u32 segoff;
+
+	if (buf_phys >= 0x100000)
+		return 0x100;	/* address error */
+	segoff = (buf_phys & 0xF) | ((buf_phys >> 4) << 16);
+	d.func = CALLREALMODE_FUNC_DISK_READMBR;
+	d.u.disk_readmbr.drive = drive;
+	d.u.disk_readmbr.buffer_addr = segoff;
+	callrealmode_call (&d);
+	return d.u.disk_readmbr.status;
+}
+
+unsigned int
+callrealmode_disk_readlba (u8 drive, u32 buf_phys, u64 lba, u16 num_of_blocks)
+{
+	struct callrealmode_data d;
+	u32 segoff;
+
+	if (buf_phys >= 0x100000)
+		return 0x100;	/* address error */
+	segoff = (buf_phys & 0xF) | ((buf_phys >> 4) << 16);
+	d.func = CALLREALMODE_FUNC_DISK_READLBA;
+	d.u.disk_readlba.drive = drive;
+	d.u.disk_readlba.buffer_addr = segoff;
+	d.u.disk_readlba.lba = lba;
+	d.u.disk_readlba.num_of_blocks = num_of_blocks;
+	callrealmode_call (&d);
+	return d.u.disk_readlba.status;
+}
+
+bool
+callrealmode_bootcd_getstatus (u8 drive,
+			       struct bootcd_specification_packet *data)
+{
+	struct callrealmode_data d;
+	bool ok = false;
+
+	d.func = CALLREALMODE_FUNC_BOOTCD_GETSTATUS;
+	d.u.bootcd_getstatus.drive = drive;
+	callrealmode_call (&d);
+	if (d.u.bootcd_getstatus.error == 0) {
+		memcpy (data, &d.u.bootcd_getstatus.data, sizeof *data);
+		ok = true;
+	}
+	return ok;
+}
+
+void
+callrealmode_setcursorpos (u8 page_num, u8 row, u8 column)
+{
+	struct callrealmode_data d;
+
+	d.func = CALLREALMODE_FUNC_SETCURSORPOS;
+	d.u.setcursorpos.page_num = page_num;
+	d.u.setcursorpos.row = row;
+	d.u.setcursorpos.column = column;
+	callrealmode_call (&d);
+}
+
+void
+callrealmode_startkernel32 (u32 paramsaddr, u32 startaddr)
+{
+	struct callrealmode_data d;
+
+	d.func = CALLREALMODE_FUNC_STARTKERNEL32;
+	d.u.startkernel32.paramsaddr = paramsaddr;
+	d.u.startkernel32.startaddr = startaddr;
+	callrealmode_call (&d);
+}
+
+INITFUNC ("global0", callrealmode_init_global);
+INITFUNC ("panic0", callrealmode_panic);

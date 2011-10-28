@@ -69,6 +69,8 @@ struct vt {
 	struct vt_io_data io;
 	struct vt_msr msr;
 	bool lme, lma;
+	bool first;
+	void *saved_vmcs;
 };
 
 struct vt_pcpu_data {

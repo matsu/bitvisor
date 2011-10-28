@@ -58,8 +58,12 @@ svm_event_injection_setup (void)
 static void
 svm_vm_run ()
 {
+	if (current->u.svm.saved_vmcb)
+		spinlock_unlock (&currentcpu->suspend_lock);
 	asm_vmrun_regs (&current->u.svm.vr, current->u.svm.vi.vmcb_phys,
 			currentcpu->svm.vmcbhost_phys);
+	if (current->u.svm.saved_vmcb)
+		spinlock_lock (&currentcpu->suspend_lock);
 }
 
 static void
@@ -132,7 +136,7 @@ svm_task_switch (void)
 	enum vmmerr r;
 	union {
 		struct exitinfo2_task_switch s;
-		ulong v;
+		u64 v;
 	} e2;
 	ulong tr_sel, to_sel;
 	ulong gdtr_base, gdtr_limit;

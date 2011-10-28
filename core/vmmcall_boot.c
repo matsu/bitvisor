@@ -32,17 +32,14 @@
 #include "config.h"
 #include "current.h"
 #include "initfunc.h"
-#include "keyboard.h"
 #include "main.h"
 #include "mm.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
-#include "sleep.h"
 #include "string.h"
 #include "vmmcall.h"
 #include "vmmcall_boot.h"
-#include "vramwrite.h"
 #include "../crypto/decryptcfg.h"
 
 struct loadcfg_data {
@@ -51,34 +48,41 @@ struct loadcfg_data {
 	u32 data, datalen;
 };
 
+struct vmmcall_boot_thread_data {
+	void (*func) (void *);
+	void *arg;
+};
+
 static bool enable = false;
-static u8 boot_drive;
-static u8 imr_master, imr_slave;
+static bool volatile continue_flag;
+
+void
+vmmcall_boot_continue (void)
+{
+	ASSERT (enable);
+	continue_flag = true;
+	while (continue_flag)
+		schedule ();
+}
 
 static void
-do_boot_guest (void)
+wait_for_boot_continue (void)
 {
+	continue_flag = false;
+	while (!continue_flag)
+		schedule ();
+}
+
+static void
+vmmcall_boot_thread (void *arg)
+{
+	struct vmmcall_boot_thread_data *data;
+
+	data = arg;
+	data->func (data->arg);
+	continue_flag = true;
 	enable = false;
-	/* clear screen */
-	vramwrite_clearscreen ();
-	/* printf ("init pic\n"); */
-	asm_outb (0x20, 0x11);
-	asm_outb (0x21, 0x8);
-	asm_outb (0x21, 0x4);
-	asm_outb (0x21, 0x1);
-	asm_outb (0xA0, 0x11);
-	asm_outb (0xA1, 0x70);
-	asm_outb (0xA1, 0x2);
-	asm_outb (0xA1, 0x1);
-	asm_outb (0x21, imr_master);
-	asm_outb (0xA1, imr_slave);
-	keyboard_flush ();
-	/* printf ("init pit\n"); */
-	sleep_set_timer_counter ();
-	/* printf ("sleep 1 sec\n"); */
-	usleep (1000000);
-	/* printf ("Starting\n"); */
-	reinitialize_vm (true, boot_drive);
+	free (data);
 }
 
 static void
@@ -94,14 +98,16 @@ boot_guest (void)
 		panic ("boot from AP");
 	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
 	rbx &= 0xFFFFFFFF;
-	d = mapmem_hphys (rbx, sizeof *d, 0);
-	ASSERT (d);
-	if (d->len != sizeof *d)
-		panic ("config size mismatch: %d, %d\n", d->len,
-		       (int)sizeof *d);
-	memcpy (&config, d, sizeof *d);
-	unmapmem (d, sizeof *d);
-	do_boot_guest ();
+	if (rbx) {
+		d = mapmem_hphys (rbx, sizeof *d, 0);
+		ASSERT (d);
+		if (d->len != sizeof *d)
+			panic ("config size mismatch: %d, %d\n", d->len,
+			       (int)sizeof *d);
+		memcpy (&config, d, sizeof *d);
+		unmapmem (d, sizeof *d);
+	}
+	wait_for_boot_continue ();
 }
 
 static void
@@ -153,12 +159,16 @@ loadcfg (void)
 }
 
 void
-vmmcall_boot_enable (u8 bios_boot_drive)
+vmmcall_boot_enable (void (*func) (void *), void *arg)
 {
-	boot_drive = bios_boot_drive;
-	asm_inb (0x21, &imr_master);
-	asm_inb (0xA1, &imr_slave);
+	struct vmmcall_boot_thread_data *data;
+
 	enable = true;
+	data = alloc (sizeof *data);
+	data->func = func;
+	data->arg = arg;
+	thread_new (vmmcall_boot_thread, data, VMM_STACKSIZE);
+	wait_for_boot_continue ();
 }
 
 static void

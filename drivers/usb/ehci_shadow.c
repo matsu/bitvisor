@@ -1022,13 +1022,39 @@ ehci_check_advance(struct usb_host *usbhc)
 }
 
 void
+ehci_end_monitor_async(struct ehci_host *host){
+	struct usb_request_block *gurb, *ngurb;
+	int i;
+
+	/* Clear ASYNCLISTADDR address */
+	host->headqh_phys[0] = 0;
+	host->headqh_phys[1] = 0;
+
+	/* Remove all guest urbs */
+	LIST4_FOREACH_DELETABLE (host->gurb, list, gurb, ngurb) {
+		deactivate_and_delete_urb(host, gurb);
+	}
+	/* Remove all host urbs */
+	ehci_cleanup_urbs (host);
+
+	for (i = 0; i < EHCI_MAX_N_PORTS; i++)
+		host->portsc[i] = 0;
+
+	/* Remove all devices information which has is connectted */
+	usb_unregister_devices (host->usb_host);
+}
+
+void
 ehci_monitor_async_list(void *arg)
 {
 	struct ehci_host *host = (struct ehci_host *)arg;
 monitor_loop:
 
-	while (!host->enable_async)
+	while (host->usb_stopped || !host->enable_async) {
+		if (host->hcreset)
+			goto exit_thread;
 		schedule();
+	}
 
 	spinlock_lock(&host->lock);
 
@@ -1053,8 +1079,12 @@ monitor_loop:
 	spinlock_unlock(&host->lock);
 
 	schedule();
-	goto monitor_loop;
+	if (!host->hcreset)
+		goto monitor_loop;
 
+exit_thread:
+	dprintft(2, "=> ehci async monitor thread is stopped <=\n");
+	ehci_end_monitor_async(host);
 	return;
 }
 

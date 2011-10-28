@@ -36,5 +36,7 @@ void vt_init (void);
 void vt_vminit (void);
 void vt_vmexit (void);
 void shutdown_vmm (void);
+void vt_enable_resume (void);
+void vt_resume (void);
 
 #endif

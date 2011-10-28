@@ -34,9 +34,10 @@
 #include "convert.h"
 #include "current.h"
 #include "debug.h"
-#include "guest_boot.h"
 #include "initfunc.h"
+#include "keyboard.h"
 #include "linkage.h"
+#include "loadbootsector.h"
 #include "main.h"
 #include "mm.h"
 #include "multiboot.h"
@@ -46,6 +47,7 @@
 #include "printf.h"
 #include "process.h" 
 #include "regs.h"
+#include "sleep.h"
 #include "string.h"
 #include "svm.h"
 #include "svm_init.h"
@@ -59,8 +61,11 @@
 
 static struct multiboot_info mi;
 static u32 minios_startaddr;
+static u32 minios_paramsaddr;
+static u8 minios_params[OSLOADER_BOOTPARAMS_SIZE];
 static void *bios_data_area;
 static int shiftkey;
+static u8 imr_master, imr_slave;
 
 static void
 print_boot_msg (void)
@@ -103,17 +108,22 @@ copy_minios (void)
 	if (mi.flags.mods && mi.mods_count) {
 		q = mapmem (MAPMEM_HPHYS, mi.mods_addr, sizeof *q * 2);
 		ASSERT (q);
+		minios_paramsaddr = callrealmode_endofcodeaddr ();
 		if (mi.mods_count >= 2)
 			minios_startaddr = load_minios (q[0].mod_start,
 							q[0].mod_end -
 							q[0].mod_start,
 							q[1].mod_start,
 							q[1].mod_end -
-							q[1].mod_start);
+							q[1].mod_start,
+							minios_paramsaddr,
+							minios_params);
 		else
 			minios_startaddr = load_minios (q[0].mod_start,
 							q[0].mod_end -
-							q[0].mod_start, 0, 0);
+							q[0].mod_start, 0, 0,
+							minios_paramsaddr,
+							minios_params);
 		unmapmem (q, sizeof *q * 2);
 	} else {
 		printf ("Module not found.\n");
@@ -192,10 +202,8 @@ set_fullvirtualize (void)
 }
 
 static void
-initregs (bool bsp, u8 bios_boot_drive)
+initregs (void)
 {
-	void *p;
-
 	current->vmctl.reset ();
 	current->vmctl.write_control_reg (CONTROL_REG_CR0,
 					  CR0_PE_BIT | CR0_ET_BIT);
@@ -220,33 +228,15 @@ initregs (bool bsp, u8 bios_boot_drive)
 	current->vmctl.write_ip (0);
 	current->vmctl.write_flags (RFLAGS_ALWAYS1_BIT);
 	current->vmctl.write_idtr (0, 0x3FF);
-	if (bsp) {
-		p = mapmem_hphys (GUEST_BOOT_OFFSET, GUEST_BOOT_LENGTH,
-				  MAPMEM_WRITE);
-		ASSERT (p);
-		memcpy (p, guest_boot_start, GUEST_BOOT_LENGTH);
-		unmapmem (p, GUEST_BOOT_LENGTH);
-		current->vmctl.write_general_reg (GENERAL_REG_RCX,
-						  bios_boot_drive);
-		if (config.vmm.boot_active)
-			current->vmctl.write_general_reg (GENERAL_REG_RSI, 1);
-		current->vmctl.write_realmode_seg (SREG_CS, 0x0);
-		current->vmctl.write_ip (GUEST_BOOT_OFFSET);
-	} else {
-		current->vmctl.init_signal ();
-	}
 }
 
 static void
 sync_cursor_pos (void)
 {
 	unsigned int row, col;
-	u16 dx;
 
 	vramwrite_get_cursor_pos (&col, &row);
-	conv8to16 (col, row, &dx);
-	current->vmctl.write_general_reg (GENERAL_REG_RBX, 0);
-	current->vmctl.write_general_reg (GENERAL_REG_RDX, dx);
+	callrealmode_setcursorpos (0, row, col);
 }
 
 static void
@@ -261,12 +251,76 @@ save_bios_data_area (void)
 	unmapmem (p, 0xA0000);
 }
 
-void
-reinitialize_vm (bool bsp, u8 bios_boot_drive)
+static void
+bsp_reinitialize_devices (void)
 {
+	/* clear screen */
+	vramwrite_clearscreen ();
+	/* printf ("init pic\n"); */
+	asm_outb (0x20, 0x11);
+	asm_outb (0x21, 0x8);
+	asm_outb (0x21, 0x4);
+	asm_outb (0x21, 0x1);
+	asm_outb (0xA0, 0x11);
+	asm_outb (0xA1, 0x70);
+	asm_outb (0xA1, 0x2);
+	asm_outb (0xA1, 0x1);
+	asm_outb (0x21, imr_master);
+	asm_outb (0xA1, imr_slave);
+	keyboard_flush ();
+	/* printf ("init pit\n"); */
+	sleep_set_timer_counter ();
+	/* printf ("sleep 1 sec\n"); */
+	usleep (1000000);
+	/* printf ("Starting\n"); */
+}
+
+static void
+get_tmpbuf (u32 *tmpbufaddr, u32 *tmpbufsize)
+{
+	u32 n, type;
+	u64 base, len;
+
+	*tmpbufaddr = callrealmode_endofcodeaddr ();
+	n = 0;
+	do {
+		n = getfakesysmemmap (n, &base, &len, &type);
+		if (type != SYSMEMMAP_TYPE_AVAILABLE)
+			continue;
+		if (base > *tmpbufaddr)
+			continue;
+		if (base + len <= *tmpbufaddr)
+			continue;
+		if (base + len > 0xA0000)
+			len = 0xA0000 - base;
+		*tmpbufsize = base + len - *tmpbufaddr;
+		return;
+	} while (n);
+	panic ("tmpbuf not found");
+}
+
+static void
+bsp_init_thread (void *args)
+{
+	u32 tmpbufaddr, tmpbufsize;
+	u8 bios_boot_drive;
 	void *p;
 
-	if (bsp) {
+	bios_boot_drive = detect_bios_boot_device (&mi);
+	save_bios_data_area ();
+	callrealmode_usevcpu (current);
+	if (minios_startaddr) {
+		asm_inb (0x21, &imr_master);
+		asm_inb (0xA1, &imr_slave);
+		p = mapmem_hphys (minios_paramsaddr, OSLOADER_BOOTPARAMS_SIZE,
+				  MAPMEM_WRITE);
+		ASSERT (p);
+		memcpy (p, minios_params, OSLOADER_BOOTPARAMS_SIZE);
+		unmapmem (p, OSLOADER_BOOTPARAMS_SIZE);
+		callrealmode_startkernel32 (minios_paramsaddr,
+					    minios_startaddr);
+		bsp_reinitialize_devices ();
+		/* reinitialize_vm */
 		p = mapmem_hphys (0, 0xA0000, MAPMEM_WRITE);
 		ASSERT (p);
 		memcpy (p, bios_data_area, 0xA0000);
@@ -275,24 +329,24 @@ reinitialize_vm (bool bsp, u8 bios_boot_drive)
 		call_initfunc ("config0");
 		load_drivers ();
 		call_initfunc ("config1");
-		initregs (bsp, bios_boot_drive);
-		sync_cursor_pos ();
 	} else {
-		panic ("reinitialize_vm: !bsp");
+		load_drivers ();
 	}
+	get_tmpbuf (&tmpbufaddr, &tmpbufsize);
+	load_bootsector (bios_boot_drive, tmpbufaddr, tmpbufsize);
+	sync_cursor_pos ();
+	initregs ();
+	copy_bootsector ();
 }
 
 static void
 create_pass_vm (void)
 {
 	bool bsp = false;
-	u8 bios_boot_drive = 0;
 	static struct vcpu *vcpu0;
 
-	if (currentcpu->cpunum == 0) {
+	if (currentcpu->cpunum == 0)
 		bsp = true;
-		bios_boot_drive = detect_bios_boot_device (&mi);
-	}
 	sync_all_processors ();
 	if (bsp) {
 		load_new_vcpu (NULL);
@@ -305,29 +359,42 @@ create_pass_vm (void)
 	sync_all_processors ();
 	current->vmctl.vminit ();
 	call_initfunc ("pass");
-	if (bsp)
-		save_bios_data_area ();
-	initregs (bsp, bios_boot_drive);
+	if (bsp) {
+		vmmcall_boot_enable (bsp_init_thread, NULL);
+	} else {
+		initregs ();
+		current->vmctl.init_signal ();
+	}
+	current->vmctl.enable_resume ();
 	current->initialized = true;
 	sync_all_processors ();
-	if (bsp) {
-		if (!minios_startaddr)
-			load_drivers ();
+	if (bsp)
 		print_startvm_msg ();
-		sync_cursor_pos ();
-	}
-	sync_all_processors ();
 #ifdef DEBUG_GDB
 	if (!bsp)
 		for (;;)
 			asm_cli_and_hlt ();
 #endif
-	if (bsp && minios_startaddr) {
-		current->vmctl.write_general_reg (GENERAL_REG_RSI,
-						  0x10000);
-		current->vmctl.write_general_reg (GENERAL_REG_RDI,
-						  minios_startaddr);
-		vmmcall_boot_enable (bios_boot_drive);
+	current->vmctl.start_vm ();
+	panic ("VM stopped.");
+}
+
+void
+resume_vm (u32 wake_addr)
+{
+	current->vmctl.resume ();
+	initregs ();
+	if (currentcpu->cpunum == 0) {
+		current->vmctl.write_realmode_seg (SREG_SS, 0);
+		current->vmctl.write_general_reg (GENERAL_REG_RSP, 0x1000);
+		current->vmctl.write_realmode_seg (SREG_CS, wake_addr >> 4);
+		current->vmctl.write_ip (wake_addr & 0xF);
+	} else {
+		current->vmctl.init_signal ();
+#ifdef DEBUG_GDB
+		for (;;)
+			asm_cli_and_hlt ();
+#endif
 	}
 	current->vmctl.start_vm ();
 	panic ("VM stopped.");

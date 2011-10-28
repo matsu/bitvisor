@@ -125,16 +125,12 @@ ramdisk_load (void *ramdisk, uint ramdisksize)
 }
 
 static void
-setup_bootparams_for_linux (u32 ramdisk_startaddr, u32 ramdisksize)
+setup_bootparams_for_linux (u32 ramdisk_startaddr, u32 ramdisksize,
+			    u32 paramsstart, void *tmp)
 {
-	void *tmp;
-
-	/* linux boot params at 0x10000 */
-	tmp = mapmem (MAPMEM_HPHYS, 0x10000, 0x2000);
-	ASSERT (tmp);
 	memset (tmp, 0, 0x1000);
 	*(u32 *)((u8 *)tmp + 0x1E0) = MINMEM / 1024; /* memory size */
-	*(u32 *)((u8 *)tmp + 0x228) = 0x11000; /* command line */
+	*(u32 *)((u8 *)tmp + 0x228) = paramsstart + 0x1000; /* command line */
 	*(u8 *)((u8 *)tmp + 0x7) = 80; /* video cols */
 	*(u8 *)((u8 *)tmp + 0xE) = 25; /* video lines */
 	*(u16 *)((u8 *)tmp + 0x10) = 16; /* video points */
@@ -148,13 +144,12 @@ setup_bootparams_for_linux (u32 ramdisk_startaddr, u32 ramdisksize)
 		  "ohci1394_dma=early "
 #endif
 		  "quiet");
-	unmapmem (tmp, 0x2000);
 }
 
 /* FIXME: kernelsize and ramdisksize must be small. not checked */
 u32
 load_minios (u32 kernelstart, u32 kernelsize, u32 ramdiskstart,
-	     u32 ramdisksize)
+	     u32 ramdisksize, u32 paramsstart, void *bootparams)
 {
 	void *kernel = NULL, *ramdisk = NULL;
 	u32 minios_startaddr, ramdisk_startaddr;
@@ -170,6 +165,7 @@ load_minios (u32 kernelstart, u32 kernelsize, u32 ramdiskstart,
 	osunalloc (kernel, kernelsize);
 	osunmap (ramdisk, ramdisksize);
 
-	setup_bootparams_for_linux (ramdisk_startaddr, ramdisksize);
+	setup_bootparams_for_linux (ramdisk_startaddr, ramdisksize,
+				    paramsstart, bootparams);
 	return minios_startaddr;
 }

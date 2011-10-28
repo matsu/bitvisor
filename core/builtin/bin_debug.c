@@ -130,7 +130,8 @@ dump_mem (char *buf, int t)
 	int tmp[16], j, k;
 	int a;
 	struct memdump_data d;
-	struct msgbuf mbuf[2];
+	struct msgbuf mbuf[3];
+	char errbuf[64];
 
 	buf++;
 	buf = skip_space (buf);
@@ -178,7 +179,8 @@ dump_mem (char *buf, int t)
 	}
 	setmsgbuf (&mbuf[0], &d, sizeof d, 0);
 	setmsgbuf (&mbuf[1], memdata, sizeof memdata, 1);
-	if (msgsendbuf (a, dtype, mbuf, 2)) {
+	setmsgbuf (&mbuf[2], errbuf, sizeof errbuf, 1);
+	if (msgsendbuf (a, dtype, mbuf, 3)) {
 		printf ("msgsendbuf failed.\n");
 	} else {
 		v = daddr;
@@ -223,6 +225,8 @@ dump_mem (char *buf, int t)
 		} while (k < sizeof memdata);
 		v = v + sizeof memdata;
 		daddr = v;
+		if (errbuf[0])
+			printf ("Error: %s\n", errbuf);
 	}
 	msgclose (a);
 }

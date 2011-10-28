@@ -143,6 +143,8 @@ struct urb_private_uhci {
 struct uhci_hook;
 
 struct uhci_host {
+	int			usb_stopped;
+	u16			intr;
 	struct pci_device      *pci_device;
 	int			interrupt_line;
         u32                     iobase;

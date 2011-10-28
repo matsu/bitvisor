@@ -33,6 +33,7 @@
 #include "asm.h"
 #include "desc.h"
 #include "seg.h"
+#include "spinlock.h"
 #include "svm.h"
 #include "thread.h"
 #include "types.h"
@@ -51,6 +52,7 @@ struct pcpu_func {
 };
 
 struct pcpu {
+	struct pcpu *next;
 	struct pcpu_func func;
 	struct segdesc segdesctbl[NUM_OF_SEGDESCTBL];
 	struct tss32 tss32;
@@ -63,6 +65,8 @@ struct pcpu {
 	tid_t tid;
 	void *stackaddr;
 	u64 tsc, hz, timediff;
+	spinlock_t suspend_lock;
+	phys_t cr3;
 };
 
 struct pcpu_gs {
@@ -89,5 +93,9 @@ currentcpu_available (void)
 	else
 		return false;
 }
+
+void pcpu_list_foreach (bool (*func) (struct pcpu *p, void *q), void *q);
+void pcpu_list_add (struct pcpu *d);
+void pcpu_init (void);
 
 #endif

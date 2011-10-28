@@ -51,6 +51,14 @@ struct ata_command_list {
 	int port_no, dev_no;
 };
 
+struct ata_device_state {
+	u8 regvalue[2][2][4];	/* [DeviceNo][HobBit][RegIndex] */
+	u8 devvalue[2];		/* [DeviceNo] */
+};
+
+static const int state_regoff[4] = { ATA_SectorCount, ATA_LBA_Low,
+				     ATA_LBA_Mid, ATA_LBA_High };
+
 #ifdef STORAGE_ENC
 static const char ata_virtual_model[40] = "BitVisor Encrypted ATA Drive            ";
 #else
@@ -518,7 +526,24 @@ void
 ata_channel_lock (struct ata_channel *channel)
 {
 	spinlock_lock (&channel->locked_lock);
-	while (channel->locked) {
+	if (channel->locked) {
+		channel->waiting++;
+		do {
+			spinlock_unlock (&channel->locked_lock);
+			schedule ();
+			spinlock_lock (&channel->locked_lock);
+		} while (channel->locked);
+		channel->waiting--;
+	}
+	channel->locked = true;
+	spinlock_unlock (&channel->locked_lock);
+}
+
+static void
+ata_channel_lock_lowpri (struct ata_channel *channel)
+{
+	spinlock_lock (&channel->locked_lock);
+	while (channel->locked || channel->waiting) {
 		spinlock_unlock (&channel->locked_lock);
 		schedule ();
 		spinlock_lock (&channel->locked_lock);
@@ -537,26 +562,40 @@ ata_channel_unlock (struct ata_channel *channel)
 
 static bool
 ata_command_do_wait_for_ready (struct ata_channel *channel, u64 start_time,
-			       u64 timeout, bool unlock)
+			       u64 timeout, bool unlock, bool bm_check)
 {
 	u64 time;
 	ata_status_t status;
+	ata_bm_status_reg_t bm_status;
 
 	for (;;) {
 		time = get_time ();
 		if (time - start_time >= timeout)
 			return false;
 		if (channel->state == ATA_STATE_READY) {
+			/* Check BM Status if necessary */
+			if (bm_check) {
+				in8 (channel->base[ATA_ID_BM] + ATA_BM_Status,
+				     &bm_status.value);
+				if (bm_status.interrupt || bm_status.error ||
+				    bm_status.active)
+					goto not_ready;
+			}
+
+			/* Read Alternate Status */
 			status = ata_read_status (channel);
 			if (!status.bsy && status.drdy && !status.drq)
 				break;
 		}
+	not_ready:
 		if (unlock)
 			ata_channel_unlock (channel);
 		schedule ();
 		if (unlock)
-			ata_channel_lock (channel);
+			ata_channel_lock_lowpri (channel);
 	}
+	/* Read Status */
+	ata_read_reg (channel, ATA_Status);
 	return true;
 }
 
@@ -568,6 +607,7 @@ ata_command_do_device_select (struct ata_channel *channel,
 	ata_status_t status;
 
 	ata_write_reg (channel, ATA_Device, device_reg.value);
+	ata_read_status (channel);
 	time = get_time ();
 	/* Wait for 1us, more than 400ns */
 	while (get_time () - time < 1)
@@ -602,6 +642,82 @@ ata_command_do_wait_for_drq (struct ata_channel *channel, u64 start_time,
 	return true;
 }
 
+static bool
+ata_command_do_wait_for_dma (struct ata_channel *channel, u64 start_time,
+			     u64 timeout)
+{
+	u64 time;
+	ata_status_t status;
+
+	for (;;) {
+		time = get_time ();
+		if (time - start_time >= timeout)
+			return false;
+		status = ata_read_status (channel);
+		if ((!status.drq) || (!status.drq))
+			break;
+		schedule ();
+	}
+	return true;
+}
+
+static void
+do_software_reset (struct ata_channel *channel)
+{
+	u64 time;
+
+	out8 (channel->base[ATA_ID_CTL] + ATA_Device_Control,
+	      1 << 1 | 1 << 2); /* nIEN, SRST */
+	time = get_time ();
+	while (get_time () - time < 5) /* 5 usecs */
+		schedule ();
+	out8 (channel->base[ATA_ID_CTL] + ATA_Device_Control,
+	      1 << 1);		/* nIEN */
+	time = get_time ();
+	while (get_time () - time < 2000) /* 2000 usecs */
+		schedule ();
+}
+
+static void
+do_device_reset (struct ata_channel *channel, int dev_no)
+{
+	u64 time;
+	ata_device_reg_t device_reg;
+
+	device_reg.value = 0;
+	device_reg.dev = dev_no;
+	ata_write_reg (channel, ATA_Device, device_reg.value);
+	ata_write_reg (channel, ATA_Command, 0x08); /* Device Reset */
+	ata_read_status (channel);
+	/* Wait for 1us, more than 400ns */
+	time = get_time ();
+	while (get_time () - time < 1)
+		schedule ();
+	if (!ata_command_do_wait_for_ready (channel, time, 1000000, false,
+					    false))
+		printf ("Failed to device reset...\n");
+}
+
+static void
+do_cache_flush (struct ata_channel *channel, int dev_no)
+{
+	u64 time;
+	ata_device_reg_t device_reg;
+
+	device_reg.value = 0;
+	device_reg.dev = dev_no;
+	ata_write_reg (channel, ATA_Device, device_reg.value);
+	ata_write_reg (channel, ATA_Command, 0xE7); /* Cache Flush */
+	ata_read_status (channel);
+	/* Wait for 1us, more than 400ns */
+	time = get_time ();
+	while (get_time () - time < 1)
+		schedule ();
+	if (!ata_command_do_wait_for_ready (channel, time, 1000000, false,
+					    false))
+		printf ("Failed to cache flush...\n");
+}
+
 static void
 make_prd_entries (ata_prd_table_t **prd, phys_t *prd_phys, void **buf2,
 		  struct storage_hc_dev_atacmd *cmd)
@@ -634,15 +750,66 @@ make_prd_entries (ata_prd_table_t **prd, phys_t *prd_phys, void **buf2,
 }
 
 static void
+save_device_state (struct ata_channel *channel,
+		   struct ata_device_state *state, int dev_no)
+{
+	int i, j;
+
+	/* Save a device register */
+	state->devvalue[dev_no] = ata_read_device (channel).value;
+	/* Save other registers */
+	for (i = 0; i <= 1; i++) {
+		ata_set_hob (channel, i);
+		for (j = 0; j < 4; j++)
+			state->regvalue[dev_no][i][j] =
+				ata_read_reg (channel, state_regoff[j]);
+	}
+#ifdef ATA_PB_DBG
+	printf ("-----------------------------------\n");
+	printf ("Device %d state:\n", dev_no);
+	printf ("Device: %02x\n", state->devvalue[dev_no]);
+	printf ("Status: %02x\n", ata_read_reg (channel, ATA_Status));
+	printf ("Error : %02x\n", ata_read_reg (channel, ATA_Error));
+	printf ("FIFOs : [%02x:%02x:%02x:%02x/%02x:%02x:%02x:%02x]\n",
+		state->regvalue[dev_no][0][0],	/* SectorCount */
+		state->regvalue[dev_no][0][1],	/* LBA Low */
+		state->regvalue[dev_no][0][2],	/* LBA Mid */
+		state->regvalue[dev_no][0][3],	/* LBA High */
+		state->regvalue[dev_no][1][0],	/* SectorCount Exp */
+		state->regvalue[dev_no][1][1],	/* LBA Low Exp */
+		state->regvalue[dev_no][1][2],	/* LBA Mid Exp */
+		state->regvalue[dev_no][1][3]); /* LBA High Exp */
+	printf ("-----------------------------------\n");
+#endif	/* ATA_PB_DBG */
+}
+
+static void
+restore_device_state (struct ata_channel *channel,
+		      struct ata_device_state *state, int dev_no)
+{
+	int i;
+
+	/* Restore other registers */
+	for (i = 0; i < 4; i++) {
+		ata_write_reg (channel, state_regoff[i],
+			       state->regvalue[dev_no][1][i]);
+		ata_write_reg (channel, state_regoff[i],
+			       state->regvalue[dev_no][0][i]);
+	}
+	/* Restore a device register */
+	ata_write_reg (channel, ATA_Device, state->devvalue[dev_no]);
+#ifdef ATA_PB_DBG
+	save_device_state (channel, state, dev_no);
+#endif	/* ATA_PB_DBG */
+}
+
+static void
 ata_command_do (struct ata_host *host, struct ata_channel *channel,
 		struct ata_command_list *p)
 {
+	struct ata_device_state state;
 	ata_device_reg_t device_reg;
 	bool device_select = false;
-	int regoff[4] = { ATA_SectorCount, ATA_LBA_Low, ATA_LBA_Mid,
-			  ATA_LBA_High };
-	int regvalue[2][4];
-	int i, j;
 	u64 time;
 	u8 *buf;
 	int remain, transfer_len;
@@ -651,20 +818,90 @@ ata_command_do (struct ata_host *host, struct ata_channel *channel,
 	ata_prd_table_t *prd = NULL;
 	phys_t prd_phys;
 	void *buf2 = NULL;
-	ata_bm_cmd_reg_t bm_cmd;
+	ata_bm_cmd_reg_t bm_cmd, bm_cmd_orig;
 
-	/* Wait for ready */
-	ata_channel_lock (channel);
+	/* Wait for ready with BM check */
+	ata_channel_lock_lowpri (channel);
 	if (!ata_command_do_wait_for_ready (channel, p->start_time,
-					    p->cmd->timeout_ready, true)) {
+					    p->cmd->timeout_ready, true,
+					    true)) {
 		p->cmd->timeout_ready = -1;
 		goto timeout;
 	}
-	/* Save a bus master status register */
+
+	/* Disable the ATA interrupt */
+	dev_ctl_orig = channel->dev_ctl;
+	dev_ctl = dev_ctl_orig;
+	dev_ctl.nien = 1;	/* Disable the interrupt */
+	channel->dev_ctl = dev_ctl;
+	ata_ctl_out (channel, dev_ctl);
+#ifdef ATA_PB_DBG
+	printf ("IRQ: %s\n", dev_ctl.nien ? "Disabled" : "Enabled");
+#endif  /* ATA_PB_DBG */
+
+	/* Save current device state */
+	device_reg = ata_read_device (channel);
+	save_device_state (channel, &state, device_reg.dev);
+
+	/* Device selection */
+	if (device_reg.dev != p->dev_no) {
+		device_select = true;
+		device_reg.dev = !device_reg.dev;
+		if (!ata_command_do_device_select (channel, device_reg,
+						   1000)) {
+			p->cmd->timeout_ready = -1;
+			printf ("Device Selection Timeout.\n");
+
+			/* Reset and switch back to original device */
+			do_software_reset (channel);
+			device_select = false;
+			device_reg.dev = !device_reg.dev;
+			do_cache_flush (channel, device_reg.dev);
+			goto dev_sel_timeout;
+		}
+
+		/* Save device state selected */
+		save_device_state (channel, &state, device_reg.dev);
+	}
+
+	/* Setup ATA registers */
+	ata_write_reg (channel, ATA_Features, p->cmd->features_error);
+	dev_ctl.value = p->cmd->control;
+	dev_ctl.nien = 1;	/* Disable the interrupt */
+	channel->dev_ctl = dev_ctl;
+	ata_ctl_out (channel, dev_ctl);
+	ata_write_reg (channel, ATA_SectorCount, p->cmd->sector_count_exp);
+	ata_write_reg (channel, ATA_LBA_Low, p->cmd->sector_number_exp);
+	ata_write_reg (channel, ATA_LBA_Mid, p->cmd->cyl_low_exp);
+	ata_write_reg (channel, ATA_LBA_High, p->cmd->cyl_high_exp);
+	ata_write_reg (channel, ATA_SectorCount, p->cmd->sector_count);
+	ata_write_reg (channel, ATA_LBA_Low, p->cmd->sector_number);
+	ata_write_reg (channel, ATA_LBA_Mid, p->cmd->cyl_low);
+	ata_write_reg (channel, ATA_LBA_High, p->cmd->cyl_high);
+	ata_write_reg (channel, ATA_Device,
+		       (p->cmd->dev_head & ~0x10) | (p->dev_no ? 0x10 : 0));
+
+#ifdef ATA_PB_DBG
+	in8 (channel->base[ATA_ID_BM] + ATA_BM_Status, &bm_status.value);
+	in8 (channel->base[ATA_ID_BM] + ATA_BM_Command, &bm_cmd.value);
+	in32 (channel->base[ATA_ID_BM] + ATA_BM_PRD_Table, (u32 *) &prd_phys);
+	printf ("-----------------------------------\n");
+	printf ("BM initial state:\n");
+	printf ("BM Command: %02x\n", bm_cmd.value);
+	printf ("BM Status: %02x\n", bm_status.value);
+	printf ("BM PRD Table: %08x\n", (u32) prd_phys);
+	printf ("-----------------------------------\n");
+#endif  /* ATA_PB_DBG */
+
+	/* Save BM registers */
 	in8 (channel->base[ATA_ID_BM] + ATA_BM_Status, &bm_status.value);
 	bm_status_orig = bm_status;
-	/* Switch a PRD table */
+	in8 (channel->base[ATA_ID_BM] + ATA_BM_Command, &bm_cmd.value);
+	bm_cmd_orig = bm_cmd;
+
+	/* Setup DMA (prior to issuing ATA command) */
 	if (!p->cmd->pio) {
+		/* Switch a PRD table */
 		if (bm_status.active) {
 			printf ("ATA: Bus master still active!\n");
 			p->cmd->timeout_ready = -1;
@@ -672,88 +909,75 @@ ata_command_do (struct ata_host *host, struct ata_channel *channel,
 		}
 		make_prd_entries (&prd, &prd_phys, &buf2, p->cmd);
 		out32 (channel->base[ATA_ID_BM] + ATA_BM_PRD_Table, prd_phys);
-	}
-	/* Disable the ATA interrupt */
-	dev_ctl_orig = channel->dev_ctl;
-	dev_ctl = dev_ctl_orig;
-	dev_ctl.nien = 1;	/* Disable the interrupt */
-	channel->dev_ctl = dev_ctl;
-	ata_ctl_out (channel, dev_ctl);
-	/* Device selection */
-	device_reg = ata_read_device (channel);
-	if (device_reg.dev != p->dev_no) {
-		device_select = true;
-		device_reg.dev = !device_reg.dev;
-		if (!ata_command_do_device_select (channel, device_reg, 1000))
-			panic ("ATA: Device selection timeout");
-	}
-	/* Save registers */
-	for (i = 0; i <= 1; i++) {
-		ata_set_hob (channel, i);
-		for (j = 0; j < 4; j++)
-			regvalue[i][j] = ata_read_reg (channel, regoff[j]);
-	}
-	/* Set registers */
-	ata_write_reg (channel, ATA_Features, p->cmd->features_error);
-	dev_ctl.value = p->cmd->control;
-	dev_ctl.nien = 1;	/* Disable the interrupt */
-	channel->dev_ctl = dev_ctl;
-	ata_ctl_out (channel, dev_ctl);
-	ata_write_reg (channel, ATA_SectorCount, p->cmd->sector_count_exp);
-	ata_write_reg (channel, ATA_SectorCount, p->cmd->sector_count);
-	ata_write_reg (channel, ATA_LBA_Low, p->cmd->sector_number_exp);
-	ata_write_reg (channel, ATA_LBA_Low, p->cmd->sector_number);
-	ata_write_reg (channel, ATA_LBA_Mid, p->cmd->cyl_low_exp);
-	ata_write_reg (channel, ATA_LBA_Mid, p->cmd->cyl_low);
-	ata_write_reg (channel, ATA_LBA_High, p->cmd->cyl_high_exp);
-	ata_write_reg (channel, ATA_LBA_High, p->cmd->cyl_high);
-	ata_write_reg (channel, ATA_Device,
-		       (p->cmd->dev_head & ~0x10) | (p->dev_no ? 0x10 : 0));
-	/* Issue a command */
-	if (!p->cmd->pio && !p->cmd->write) {
-		bm_cmd.value = 0;
-		bm_cmd.rw = ATA_BM_READ;
-		bm_cmd.start = ATA_BM_START;
+		/* Setup DMA transfer direction */
+		in8 (channel->base[ATA_ID_BM] + ATA_BM_Command, &bm_cmd.value);
+		bm_cmd.rw = p->cmd->write ? ATA_BM_WRITE : ATA_BM_READ;
+		bm_cmd.start = ATA_BM_STOP; /* Make sure to be cleared */
 		out8 (channel->base[ATA_ID_BM] + ATA_BM_Command, bm_cmd.value);
 	}
+
+	/* Issue ATA command */
 	ata_write_reg (channel, ATA_Command, p->cmd->command_status);
-	if (!p->cmd->pio && p->cmd->write) {
-		bm_cmd.value = 0;
-		bm_cmd.rw = ATA_BM_WRITE;
-		bm_cmd.start = ATA_BM_START;
-		out8 (channel->base[ATA_ID_BM] + ATA_BM_Command, bm_cmd.value);
-	}
-	time = get_time ();
+	ata_read_status (channel);
 	/* Wait for 1us, more than 400ns */
+	time = get_time ();
 	while (get_time () - time < 1)
 		schedule ();
+
+	if (!p->cmd->pio) {
+		/* Start DMA transfer */
+		in8 (channel->base[ATA_ID_BM] + ATA_BM_Command, &bm_cmd.value);
+		bm_cmd.start = ATA_BM_START;
+		out8 (channel->base[ATA_ID_BM] + ATA_BM_Command, bm_cmd.value);
+	}
+
 	/* Transfer data */
 	buf = p->cmd->buf;
 	remain = p->cmd->buf_len;
 	if (remain & 1)
 		remain--;
 	if (!p->cmd->pio) {
+		/* DMA transfer */
+		if (!ata_command_do_wait_for_dma (channel, p->start_time,
+						  p->cmd->timeout_complete)) {
+			p->cmd->timeout_complete = -1;
+			printf ("DMA Beginning Timeout.\n");
+			goto transfer_timeout;
+		}
+		/* Wait for a while before you touch any BM registers */
+		time = get_time ();
+		while (get_time () - time < 400)
+			schedule ();
 		for (;;) {
 			in8 (channel->base[ATA_ID_BM] + ATA_BM_Status,
 			     &bm_status.value);
 			if (!bm_status.active)
 				break;
-			if (get_time () - time >= p->cmd->timeout_complete)
+			if (get_time () - p->start_time >=
+			    p->cmd->timeout_complete)
 				break;
 			schedule ();
 		}
+		/* Stop DMA transfer */
+		in8 (channel->base[ATA_ID_BM] + ATA_BM_Command, &bm_cmd.value);
 		bm_cmd.start = ATA_BM_STOP;
 		out8 (channel->base[ATA_ID_BM] + ATA_BM_Command, bm_cmd.value);
-		if (bm_status.active) {
+		/* Clear interrupt and error */
+		out8 (channel->base[ATA_ID_BM] + ATA_BM_Status,
+		      bm_status.value);
+		if (bm_status.active || bm_status.error) {
 			p->cmd->timeout_complete = -1;
+			printf ("DMA End Timeout.\n");
 			goto transfer_timeout;
 		}
 		remain = 0;
 	}
+
 	while (remain > 0) {
-		if (!ata_command_do_wait_for_drq (channel, time,
+		if (!ata_command_do_wait_for_drq (channel, p->start_time,
 						  p->cmd->timeout_complete)) {
 			p->cmd->timeout_complete = -1;
+			printf ("PIO Beginning Timeout.\n");
 			goto transfer_timeout;
 		}
 		transfer_len = remain > 512 ? 512 : remain;
@@ -766,13 +990,61 @@ ata_command_do (struct ata_host *host, struct ata_channel *channel,
 		buf += transfer_len;
 		remain -= transfer_len;
 	}
-	if (!ata_command_do_wait_for_ready (channel, time,
-					    p->cmd->timeout_complete, false))
+
+	if (!ata_command_do_wait_for_ready (channel, p->start_time,
+					    p->cmd->timeout_complete, false,
+					    false)) {
+		printf ("Completion Timeout.\n");
 		p->cmd->timeout_complete = -1;
+	}
+
 transfer_timeout:
-	if (p->cmd->timeout_complete == -1) /* FIXME */
-		printf ("ATA: Transfer timeout, or an error occurred."
-			" need to reset the controller here\n");
+	if (p->cmd->timeout_complete == -1) {
+		do_device_reset (channel, device_reg.dev);
+		do_cache_flush (channel, device_reg.dev);
+	}
+
+	/* Restore BM registers */
+	in8 (channel->base[ATA_ID_BM] + ATA_BM_Status, &bm_status.value);
+	bm_status_tmp.value = 0;
+	bm_status_tmp.interrupt = bm_status.interrupt;
+	bm_status_tmp.error = bm_status.error;
+	bm_status_tmp.value &= ~bm_status_orig.value;
+	if (bm_status_tmp.value) {
+		bm_status = bm_status_orig;
+		bm_status.interrupt = bm_status_tmp.interrupt;
+		bm_status.error = bm_status_tmp.error;
+		out8 (channel->base[ATA_ID_BM] + ATA_BM_Status,
+		      bm_status.value);
+	}
+	if (!bm_cmd_orig.start)
+		out8 (channel->base[ATA_ID_BM] + ATA_BM_Command,
+		      bm_cmd_orig.value);
+	/* Restore the PRD table */
+	if (!p->cmd->pio) {
+		out32 (channel->base[ATA_ID_BM] + ATA_BM_PRD_Table,
+		       channel->shadow_prd_phys);
+		if (buf2) {
+			if (!p->cmd->write)
+				memcpy (p->cmd->buf, buf2, p->cmd->buf_len);
+			free (buf2);
+		}
+		if (prd)
+			free (prd);
+	}
+
+#ifdef ATA_PB_DBG
+	printf ("-----------------------------------\n");
+	printf ("BM final state:\n");
+	in8 (channel->base[ATA_ID_BM] + ATA_BM_Status, &bm_status.value);
+	in8 (channel->base[ATA_ID_BM] + ATA_BM_Command, &bm_cmd.value);
+	in32 (channel->base[ATA_ID_BM] + ATA_BM_PRD_Table, (u32 *) &prd_phys);
+	printf ("BM Command: %02x\n", bm_cmd.value);
+	printf ("BM Status: %02x\n", bm_status.value);
+	printf ("BM PRD Table: %08x\n", (u32) prd_phys);
+	printf ("-----------------------------------\n");
+#endif  /* ATA_PB_DBG */
+
 	/* Read registers */
 	p->cmd->command_status = ata_read_status (channel).value;
 	p->cmd->features_error = ata_read_reg (channel, ATA_Error);
@@ -786,50 +1058,24 @@ transfer_timeout:
 	p->cmd->sector_number = ata_read_reg (channel, ATA_LBA_Low);
 	p->cmd->cyl_low = ata_read_reg (channel, ATA_LBA_Mid);
 	p->cmd->cyl_high = ata_read_reg (channel, ATA_LBA_High);
+dev_sel_timeout:
 	/* Restore registers */
-	for (i = 0; i < 4; i++) {
-		ata_write_reg (channel, regoff[i], regvalue[1][i]);
-		ata_write_reg (channel, regoff[i], regvalue[0][i]);
-	}
-	ata_write_reg (channel, ATA_Device, device_reg.value);
+	restore_device_state (channel, &state, device_reg.dev);
 	/* Restore device selection */
 	if (device_select) {
 		device_reg.dev = !device_reg.dev;
 		if (!ata_command_do_device_select (channel, device_reg, 1000))
 			panic ("ATA: Restoring device selection timeout");
+		/* Restore device state selected back */
+		restore_device_state (channel, &state, device_reg.dev);
 	}
 	/* Reenable the interrupt */
 	channel->dev_ctl = dev_ctl_orig;
 	dev_ctl = dev_ctl_orig;
 	ata_ctl_out (channel, dev_ctl);
-	/* Restore the bus master status */
-	in8 (channel->base[ATA_ID_BM] + ATA_BM_Status, &bm_status.value);
-	bm_status_tmp.value = 0;
-	bm_status_tmp.interrupt = bm_status.interrupt;
-	bm_status_tmp.error = bm_status.error;
-	bm_status_tmp.value &= ~bm_status_orig.value;
-	if (bm_status_tmp.value) {
-		bm_status = bm_status_orig;
-		bm_status.interrupt = bm_status_tmp.interrupt;
-		bm_status.error = bm_status_tmp.error;
-		out8 (channel->base[ATA_ID_BM] + ATA_BM_Status,
-		      bm_status.value);
-	}
-	/* Disable the interrupt */
-	dev_ctl.nien = 1;
-	ata_ctl_out (channel, dev_ctl);
-	/* Restore the PRD table */
-	if (!p->cmd->pio) {
-		out32 (channel->base[ATA_ID_BM] + ATA_BM_PRD_Table,
-		       channel->shadow_prd_phys);
-		if (buf2) {
-			if (!p->cmd->write)
-				memcpy (p->cmd->buf, buf2, p->cmd->buf_len);
-			free (buf2);
-		}
-		if (prd)
-			free (prd);
-	}
+#ifdef ATA_PB_DBG
+	printf ("IRQ: %s\n", dev_ctl.nien ? "Disabled" : "Enabled");
+#endif	/* ATA_PB_DBG */
 timeout:
 	ata_channel_unlock (channel);
 	p->cmd->callback (p->cmd->data, p->cmd);

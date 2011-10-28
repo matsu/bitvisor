@@ -1,11 +1,11 @@
-CFLAGS = -Wall -idirafter ../../../include -idirafter ../../login-simple
+CFLAGS = -m32 -Wall -idirafter ../../../include -idirafter ../../login-simple
 CFLAGS_IDMAN = -Wall \
 	-DIDMAN_CLIENT -idirafter ../../../idman/ccid \
 	-idirafter ../../../idman/iccard \
 	-idirafter ../../../idman/idman_pkcs11 -idirafter ../../../idman/pcsc \
 	-idirafter ../../../idman/pkcs11 -idirafter ../../../idman/standardio \
 	-idirafter idmaninc
-LDFLAGS = -static -s
+LDFLAGS = -m32 -static
 LDLIBS = -lusb -lssl -lcrypto
 OBJS   = boot.o minios_init.o passinput.o usbmem.o idman.o configparser.o \
 	dl.o keymapload.o

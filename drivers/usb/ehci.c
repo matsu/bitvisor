@@ -193,12 +193,21 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 			} else {
 				u32 cmd = *(u32 *)buf;
 				dprintft(3, "write(USBCMD, %08x[", cmd);
-				if (cmd & 0x00000001)
+				if (cmd & 0x00000001) {
 					dprintf(3, "RUN,");
-				else
+					host->running = 1;
+					if (host->intr)
+						host->usb_stopped = 0;
+				} else {
 					dprintf(3, "STOP,");
-				if (cmd & 0x00000002)
+					host->running = 0;
+					if (!host->intr)
+						host->usb_stopped = 1;
+				}
+				if (cmd & 0x00000002) {
 					dprintf(3, "HCRESET,");
+					host->hcreset = 1;
+				}
 				if (cmd & 0x00000010)
 					dprintf(3, "PSEN,");
 				if (cmd & 0x00000020) {
@@ -293,6 +302,11 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				if (intr & 0x00000020)
 					dprintf(3, "ASADV,");
 				dprintf(3, "], %d)\n", len);
+				host->intr = intr & 0x003f;
+				if (!host->intr && !host->running)
+					host->usb_stopped = 1;
+				else if (host->intr && host->running)
+					host->usb_stopped = 0;
 			}
 			break;
 		case 0x0c: /* FRINDEX */
@@ -318,6 +332,8 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 						 "overwrite address!!\n");
 				host->headqh_phys[0] = 
 					*(u32 *)buf & 0xffffffe0U;
+				host->usb_stopped = 0;
+				host->hcreset = 0;
 				if (host->headqh_phys[0] && 
 				    !host->headqh_phys[1]) {
 					host->headqh_phys[1] = 

@@ -8,7 +8,7 @@ clean :
 	rm -f module1.bin module2.bin makedata readdata config config.raw
 
 module1.bin : asm.s main.c $(INC)
-	gcc -Wall -s -Wl,-Ttext,0x8000 -nostdlib -nostdinc \
+	gcc -m32 -Wall -s -Wl,-Ttext,0x8000 -nostdlib -nostdinc \
 		-idirafter ../../include -o module1.bin asm.s main.c
 
 makedata : makedata.c

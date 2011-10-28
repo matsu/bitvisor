@@ -65,7 +65,7 @@
 
 static void ap_start (void);
 
-static volatile int num_of_processors; /* number of application processors  */
+volatile int num_of_processors; /* number of application processors */
 static void (*initproc_bsp) (void), (*initproc_ap) (void);
 static spinlock_t ap_lock;
 static void *newstack_tmp;
@@ -112,11 +112,8 @@ bspinitproc1 (void)
 asmlinkage void
 apinitproc0 (void)
 {
-	void *newstack;
-
-	alloc_pages (&newstack, NULL, VMM_STACKSIZE / PAGESIZE);
-	newstack_tmp = newstack;
-	asm_wrrsp_and_jmp ((ulong)newstack + VMM_STACKSIZE, apinitproc1);
+	newstack_tmp = alloc (VMM_STACKSIZE);
+	asm_wrrsp_and_jmp ((ulong)newstack_tmp + VMM_STACKSIZE, apinitproc1);
 }
 
 bool
@@ -156,11 +153,11 @@ apic_deassert_init (volatile u32 *apic_icr)
 }
 
 static void
-apic_send_startup_ipi (volatile u32 *apic_icr)
+apic_send_startup_ipi (volatile u32 *apic_icr, u32 addr)
 {
 	apic_wait_for_idle (apic_icr);
 	*apic_icr = ICR_DEST_OTHER | ICR_LEVEL_ASSERT | ICR_MODE_STARTUP |
-		(APINIT_ADDR >> 12);
+		addr;
 }
 
 static void
@@ -171,11 +168,41 @@ apic_send_nmi (volatile u32 *apic_icr)
 	apic_wait_for_idle (apic_icr);
 }
 
+void
+ap_start_addr (u8 addr, bool (*loopcond) (void *data), void *data)
+{
+	static const u32 apic_icr_phys = 0xFEE00300;
+	volatile u32 *apic_icr;
+
+	if (!apic_available ())
+		return;
+	apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
+			   MAPMEM_PCD, apic_icr_phys, sizeof *apic_icr);
+	ASSERT (apic_icr);
+	apic_assert_init (apic_icr);
+	usleep (200000);
+	apic_deassert_init (apic_icr);
+	usleep (200000);
+	while (loopcond (data)) {
+		apic_send_startup_ipi (apic_icr, addr);
+		usleep (200000);
+	}
+	unmapmem ((void *)apic_icr, sizeof *apic_icr);
+}
+
+static bool
+ap_start_loopcond (void *data)
+{
+	int *p;
+
+	p = data;
+	return (*p)++ < 3;
+}
+
 static void
 ap_start (void)
 {
-	static const u32 apic_icr_phys = 0xFEE00300;
-	volatile u32 *apic_icr, *num;
+	volatile u32 *num;
 	u8 *apinit;
 	u32 tmp;
 	int i;
@@ -194,28 +221,16 @@ ap_start (void)
 	apinitlock = (spinlock_t *)APINIT_POINTER (apinit_lock);
 	*num = 0;
 	spinlock_init (apinitlock);
-	apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
-			   MAPMEM_PCD, apic_icr_phys, sizeof *apic_icr);
-	ASSERT (apic_icr);
-	if (apic_available ()) {
-		apic_assert_init (apic_icr);
-		usleep (200000);
-		apic_deassert_init (apic_icr);
-		usleep (200000);
-		for (i = 0; i < 3; i++) {
-			apic_send_startup_ipi (apic_icr);
-			usleep (200000);
-		}
-		for (;;) {
-			spinlock_lock (&ap_lock);
-			tmp = num_of_processors;
-			spinlock_unlock (&ap_lock);
-			if (*num == tmp)
-				break;
-			usleep (1000000);
-		}
+	i = 0;
+	ap_start_addr (APINIT_ADDR >> 12, ap_start_loopcond, &i);
+	for (;;) {
+		spinlock_lock (&ap_lock);
+		tmp = num_of_processors;
+		spinlock_unlock (&ap_lock);
+		if (*num == tmp)
+			break;
+		usleep (1000000);
 	}
-	unmapmem ((void *)apic_icr, sizeof *apic_icr);
 	unmapmem ((void *)apinit, APINIT_SIZE);
 }
 
@@ -224,7 +239,7 @@ bsp_continue (asmlinkage void (*initproc_arg) (void))
 {
 	void *newstack;
 
-	alloc_pages (&newstack, NULL, VMM_STACKSIZE / PAGESIZE);
+	newstack = alloc (VMM_STACKSIZE);
 	currentcpu->stackaddr = newstack;
 	asm_wrrsp_and_jmp ((ulong)newstack + VMM_STACKSIZE, initproc_arg);
 }

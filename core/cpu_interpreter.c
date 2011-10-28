@@ -873,6 +873,8 @@ static struct idata grp3[8] = {
 static enum vmmerr
 read_next_b (struct op *op, u8 *data)
 {
+	if (op->ip_off >= 15)
+		return VMMERR_INSTRUCTION_TOO_LONG;
 	return cpu_seg_read_b (SREG_CS, op->ip + op->ip_off++,
 			       data);
 }
@@ -2488,7 +2490,6 @@ cpu_interpreter (void)
 {
 	struct op *op, op1;
 	u8 code;
-	int i;
 	ulong acr;
 	struct idata idat;
 	ulong cr0;
@@ -2506,7 +2507,7 @@ cpu_interpreter (void)
 	op->ip_off = 0;
 	READ_NEXT_B (op, &code);
 	clear_prefix (&op->prefix);
-	for (i = 0; i < 4; i++) {
+	for (;;) {
 		switch (code) {
 		case PREFIX_LOCK:
 			op->prefix.lock = 1;
@@ -2547,7 +2548,6 @@ cpu_interpreter (void)
 		}
 		READ_NEXT_B (op, &code);
 	}
-	return VMMERR_PREFIX_TOO_LONG;
 parse_opcode:
 	current->vmctl.read_sreg_acr (SREG_CS, &acr);
 	if ((efer & MSR_IA32_EFER_LMA_BIT) && (acr & ACCESS_RIGHTS_L_BIT)) {

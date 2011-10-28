@@ -27,19 +27,31 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-	CALLREALMODE_OFFSET = 0xF000
+	CALLREALMODE_OFFSET = 0x5000
 	CALLREALMODE_FUNC_PRINTMSG = 0x0
 	CALLREALMODE_FUNC_GETSYSMEMMAP = 0x1
 	CALLREALMODE_FUNC_GETSHIFTFLAGS = 0x2
 	CALLREALMODE_FUNC_SETVIDEOMODE = 0x3
 	CALLREALMODE_FUNC_REBOOT = 0x4
+	CALLREALMODE_FUNC_DISK_READMBR = 0x5
+	CALLREALMODE_FUNC_DISK_READLBA = 0x6
+	CALLREALMODE_FUNC_BOOTCD_GETSTATUS = 0x7
+	CALLREALMODE_FUNC_SETCURSORPOS = 0x8
+	CALLREALMODE_FUNC_STARTKERNEL32 = 0x9
+	CALLREALMODE_FUNC_TCGBIOS = 0xA
 
 	SEG_SEL_CODE_REAL = 0x0000
 	SEG_SEL_DATA_REAL = 0x0000
+	SEG_SEL_DATA32    = (2 * 8)
 	SEG_SEL_CODE16    = (6 * 8)
 	SEG_SEL_DATA16    = (7 * 8)
 
+	CPUID_0x80000001_EDX_64_BIT = 0x20000000
+	MSR_IA32_EFER = 0xC0000080
+	MSR_IA32_EFER_LMA_BIT = 0x400
+
 	.globl	callrealmode_start
+	.globl	callrealmode_start2
 	.globl	callrealmode_end
 
 	.text
@@ -49,6 +61,66 @@ callrealmode_start:
 	push	%ebp
 	mov	%sp,%bp
 
+	OFF_SAVED_CR0 = -0x04
+	OFF_SAVED_CR3 = -0x08
+	OFF_SAVED_CR4 = -0x0C
+	OFF_SAVED_EFER = -0x14
+	OFF_SAVED_TR = -0x16
+	OFF_SAVED_GDTR = -0x1C
+	sub	$0x1C,%sp
+
+	call	paging_and_protection_off
+	call	callrealmode_switch
+	call	protection_and_paging_on
+
+	mov	%bp,%sp
+	pop	%ebp
+	lretl			# Return to 32bit segment
+
+callrealmode_start2:
+	sub	$0x2C,%sp
+	mov	%sp,%bp
+	push	%eax
+	call	callrealmode_switch
+	cli
+	mov	%cr0,%eax
+	lgdtw	%cs:(start2_gdtr-callrealmode_start+CALLREALMODE_OFFSET)
+	or	$1,%eax
+	mov	%eax,%cr0
+	ljmp	$0x8,$(1f-callrealmode_start+CALLREALMODE_OFFSET)
+1:
+	.code32
+	mov	$0x10,%ax
+	mov	%eax,%ds
+	mov	%eax,%es
+	mov	%eax,%fs
+	mov	%eax,%gs
+	mov	%eax,%ss
+	mov	$(3f-callrealmode_start+CALLREALMODE_OFFSET),%ebx
+	pop	%eax
+	test	%eax,%eax
+	je	1f
+	xor	%eax,%eax
+2:
+	vmcall
+	xor	%ebx,%ebx
+	jmp	2b
+1:
+	vmmcall
+	xor	%ebx,%ebx
+	jmp	1b
+3:
+	.code16
+	.string	"boot"
+start2_gdtr:
+	.short	0x17
+	.long	start2_gdt-callrealmode_start+CALLREALMODE_OFFSET
+start2_gdt:
+	.quad	0
+	.quad   0x00CF9B000000FFFF      # 0x08  CODE32, DPL=0
+	.quad   0x00CF93000000FFFF      # 0x10  DATA32, DPL=0
+
+callrealmode_switch:
 	OFF_EBP = 0x00
 	OFF_EIP = 0x04
 	OFF_CS  = 0x08
@@ -68,6 +140,38 @@ callrealmode_start:
 	OFF_GETSYSMEMMAP_DESC = 0x3C
 	OFF_GETSHIFTFLAGS_AL_RET = 0x30
 	OFF_SETVIDEOMODE_AL = 0x30
+	OFF_DISK_READMBR_BUFFER_ADDR = 0x30
+	OFF_DISK_READMBR_DRIVE = 0x34
+	OFF_DISK_READMBR_STATUS = 0x35
+	OFF_DISK_READLBA_BUFFER_ADDR = 0x30
+	OFF_DISK_READLBA_LBA = 0x34
+	OFF_DISK_READLBA_NUM_OF_BLOCKS = 0x3C
+	OFF_DISK_READLBA_DRIVE = 0x3E
+	OFF_DISK_READLBA_STATUS = 0x3F
+	OFF_BOOTCD_GETSTATUS_DRIVE = 0x30
+	OFF_BOOTCD_GETSTATUS_ERROR = 0x31
+	OFF_BOOTCD_GETSTATUS_RETCODE = 0x32
+	OFF_BOOTCD_GETSTATUS_DATA = 0x34
+	OFF_SETCURSORPOS_PAGE_NUM = 0x30
+	OFF_SETCURSORPOS_ROW = 0x31
+	OFF_SETCURSORPOS_COLUMN = 0x32
+	OFF_STARTKERNEL32_PARAMSADDR = 0x30
+	OFF_STARTKERNEL32_STARTADDR = 0x34
+	OFF_TCGBIOS_OUT_EAX = 0x30
+	OFF_TCGBIOS_OUT_EBX = 0x34
+	OFF_TCGBIOS_OUT_ECX = 0x38
+	OFF_TCGBIOS_OUT_EDX = 0x3C
+	OFF_TCGBIOS_OUT_ESI = 0x40
+	OFF_TCGBIOS_OUT_EDI = 0x44
+	OFF_TCGBIOS_OUT_DS = 0x48
+	OFF_TCGBIOS_IN_EBX = 0x4C
+	OFF_TCGBIOS_IN_ECX = 0x50
+	OFF_TCGBIOS_IN_EDX = 0x54
+	OFF_TCGBIOS_IN_ESI = 0x58
+	OFF_TCGBIOS_IN_EDI = 0x5C
+	OFF_TCGBIOS_IN_ES = 0x60
+	OFF_TCGBIOS_IN_DS = 0x64
+	OFF_TCGBIOS_AL = 0x68
 
 	# Which function?
 	mov	OFF_FUNC(%bp),%ax
@@ -81,6 +185,18 @@ callrealmode_start:
 	je	setvideomode
 	cmp	$CALLREALMODE_FUNC_REBOOT,%ax
 	je	reboot
+	cmp	$CALLREALMODE_FUNC_DISK_READMBR,%ax
+	je	disk_readmbr
+	cmp	$CALLREALMODE_FUNC_DISK_READLBA,%ax
+	je	disk_readlba
+	cmp	$CALLREALMODE_FUNC_BOOTCD_GETSTATUS,%ax
+	je	bootcd_getstatus
+	cmp	$CALLREALMODE_FUNC_SETCURSORPOS,%ax
+	je	setcursorpos
+	cmp	$CALLREALMODE_FUNC_STARTKERNEL32,%ax
+	je	startkernel32
+	cmp	$CALLREALMODE_FUNC_TCGBIOS,%ax
+	je	tcgbios
 	# Error!
 	cld
 	mov	$(errormsg_data-1-callrealmode_start+CALLREALMODE_OFFSET),%di
@@ -118,17 +234,11 @@ errormsg:
 errormsg_data:
 	.space	128
 
-callrealmode_ret:
-	pop	%ebp
-	lretl			# Return to 32bit segment
-
 # printmsg
 #
 printmsg:
 	mov	OFF_PRINTMSG_MESSAGE(%bp),%si
 printmsg_cont:
-	call	paging_off
-	call	protection_off
 	call	init_pic
 	sti
 	# Set mode 80x25 text
@@ -152,8 +262,6 @@ printmsg_cont:
 # getsysmemmap
 #
 getsysmemmap:
-	call	paging_off
-	call	protection_off
 	# Enable interrupts
 	sti
 	# Call int $0x15
@@ -170,29 +278,23 @@ getsysmemmap:
 1:
 	mov	%ax,OFF_GETSYSMEMMAP_FAIL(%bp)
 	mov	%ebx,OFF_GETSYSMEMMAP_EBX_RET(%bp)
-	call	protection_and_paging_on
-	jmp	callrealmode_ret
+	ret
 
 # getshiftflags
 #
 getshiftflags:
-	call	paging_off
-	call	protection_off
 	# Enable interrupts
 	sti
 	# Call int $0x16
 	mov	$0x02,%ah
 	int	$0x16
 	mov	%al,OFF_GETSHIFTFLAGS_AL_RET(%bp)
-	call	protection_and_paging_on
-	jmp	callrealmode_ret
+	ret
 
 # setvideomode
 #
 setvideomode:
 	mov	OFF_SETVIDEOMODE_AL(%bp),%si
-	call	paging_off
-	call	protection_off
 	call	init_pic
 	# Enable interrupts
 	sti
@@ -208,32 +310,152 @@ setvideomode:
 	pop	%ax
 	mov	$0x00,%ah
 	int	$0x10
-	call	protection_and_paging_on
-	jmp	callrealmode_ret
+	ret
 
 # reboot
 #
 reboot:
-	call	paging_off
-	call	protection_off
 	ljmp	$0xFFFF,$0x0
+
+# disk_readmbr
+#
+disk_readmbr:
+	sti
+	mov	OFF_DISK_READMBR_DRIVE(%bp),%dl
+	mov	$0x00,%ah	# DRIVE RESET
+	int	$0x13		# CALL DISK BIOS
+	jc	1f
+	mov	$0x0201,%ax	# READ, 1 SECTOR
+	mov	$0x0001,%cx	# CYLINDER 0, SECTOR 1
+	mov	$0x00,%dh	# HEAD 0
+	les	OFF_DISK_READMBR_BUFFER_ADDR(%bp),%bx
+	int	$0x13		# CALL DISK BIOS
+	jc	1f
+	mov	$0,%ah
+1:
+	mov	%ah,OFF_DISK_READMBR_STATUS(%bp)
+	ret
+
+# disk_readlba
+#
+disk_readlba:
+	sti
+	pushl	OFF_DISK_READLBA_LBA+4(%bp)
+	pushl	OFF_DISK_READLBA_LBA+0(%bp)
+	pushl	OFF_DISK_READLBA_BUFFER_ADDR(%bp)
+	pushw	OFF_DISK_READLBA_NUM_OF_BLOCKS(%bp)
+	pushw	$0x10
+	mov	%sp,%si		# %ss and %ds are the same
+	mov	OFF_DISK_READLBA_DRIVE(%bp),%dl
+	mov     $0x42,%ah	# EXTENDED READ
+	int	$0x13		# CALL DISK BIOS
+	mov	%ah,OFF_DISK_READLBA_STATUS(%bp)
+	add	$0x10,%sp
+	ret
+
+# bootcd_getstatus
+#
+bootcd_getstatus:
+	sti
+	# %ss and %ds are the same
+	lea	OFF_BOOTCD_GETSTATUS_DATA(%bp),%si
+	mov	OFF_BOOTCD_GETSTATUS_DRIVE(%bp),%dl
+	mov	$0x4B01,%ax	# GET STATUS
+	int	$0x13		# CALL DISK BIOS
+	mov	%ax,OFF_BOOTCD_GETSTATUS_RETCODE(%bp)
+	sbb	%ax,%ax
+	mov	%al,OFF_BOOTCD_GETSTATUS_ERROR(%bp)
+	ret
+
+# setcursorpos
+#
+setcursorpos:
+	mov	OFF_SETCURSORPOS_PAGE_NUM(%bp),%bh
+	mov	OFF_SETCURSORPOS_ROW(%bp),%dh
+	mov	OFF_SETCURSORPOS_COLUMN(%bp),%dl
+	mov	$0x02,%ah
+	int	$0x10
+	ret
+
+# startkernel32
+#
+startkernel32:
+	mov	OFF_STARTKERNEL32_PARAMSADDR(%bp),%esi
+	mov	OFF_STARTKERNEL32_STARTADDR(%bp),%edi
+	cli
+	mov	%cr0,%eax
+	lgdtw	%cs:(start2_gdtr-callrealmode_start+CALLREALMODE_OFFSET)
+	or	$1,%eax
+	mov	%eax,%cr0
+	ljmp	$0x8,$(1f-callrealmode_start+CALLREALMODE_OFFSET)
+1:
+	.code32
+	mov	$0x10,%ax
+	mov	%eax,%ds
+	mov	%eax,%es
+	mov	%eax,%fs
+	mov	%eax,%gs
+	mov	%eax,%ss
+	jmp	*%edi
+	.code16
+
+# tcgbios
+#
+tcgbios:
+	# Enable interrupts
+	sti
+	# Call int $0x1A
+	mov	OFF_TCGBIOS_IN_EBX(%bp),%ebx
+	mov	OFF_TCGBIOS_IN_ECX(%bp),%ecx
+	mov	OFF_TCGBIOS_IN_EDX(%bp),%edx
+	mov	OFF_TCGBIOS_IN_ESI(%bp),%esi
+	mov	OFF_TCGBIOS_IN_EDI(%bp),%edi
+	mov	OFF_TCGBIOS_IN_ES(%bp),%es
+	mov	OFF_TCGBIOS_IN_DS(%bp),%ds
+	mov	$0xBB00,%eax
+	mov	OFF_TCGBIOS_AL(%bp),%al
+	int	$0x1A
+	mov	%eax,OFF_TCGBIOS_OUT_EAX(%bp)
+	mov	%ebx,OFF_TCGBIOS_OUT_EBX(%bp)
+	mov	%ecx,OFF_TCGBIOS_OUT_ECX(%bp)
+	mov	%edx,OFF_TCGBIOS_OUT_EDX(%bp)
+	mov	%esi,OFF_TCGBIOS_OUT_ESI(%bp)
+	mov	%edi,OFF_TCGBIOS_OUT_EDI(%bp)
+	mov	%ds,OFF_TCGBIOS_OUT_DS(%bp)
+	ret
 
 # Subroutines
 #
-paging_off:
-	# PG BIT (PAGING) OFF
+paging_and_protection_off:
+	cli
 	mov	%cr0,%eax
-	and	$0x7FFFFFFF,%eax
+	mov	%eax,OFF_SAVED_CR0(%bp)
+	mov	%cr3,%eax
+	mov	%eax,OFF_SAVED_CR3(%bp)
+	mov	%cr4,%eax
+	mov	%eax,OFF_SAVED_CR4(%bp)
+	mov	$0x80000000,%eax
+	cpuid
+	cmp	$0x80000000,%eax
+	jbe	1f
+	mov	$0x80000001,%eax
+	cpuid
+	test	$CPUID_0x80000001_EDX_64_BIT,%edx
+	je	1f
+	mov	$MSR_IA32_EFER,%ecx
+	rdmsr
+	and	$~MSR_IA32_EFER_LMA_BIT,%eax
+	mov	%eax,OFF_SAVED_EFER+0(%bp)
+	mov	%edx,OFF_SAVED_EFER+4(%bp)
+1:
+	strw	OFF_SAVED_TR(%bp)
+	sgdtl	OFF_SAVED_GDTR(%bp)
+	# PG BIT (PAGING) AND PE BIT OFF
+	mov	%cr0,%eax
+	and	$0x7FFFFFFE,%eax
 	mov	%eax,%cr0
 	mov	%cr3,%eax
 	mov	%eax,%cr3
-	ret
-protection_off:
-	cli
-	# PE BIT OFF
-	mov	%cr0,%eax
-	and	$0xFFFFFFFE,%eax
-	mov	%eax,%cr0
 	jmp	1f
 1:
 	ljmp	$SEG_SEL_CODE_REAL,$1f-callrealmode_start+CALLREALMODE_OFFSET
@@ -250,9 +472,30 @@ protection_off:
 	ret
 protection_and_paging_on:
 	cli
-	# PE BIT, TS BIT AND PG BIT ON
-	mov	%cr0,%eax
-	or	$0x80000009,%eax
+	lgdtl	OFF_SAVED_GDTR(%bp)
+	mov	$0x80000000,%eax
+	cpuid
+	cmp	$0x80000000,%eax
+	jbe	1f
+	mov	$0x80000001,%eax
+	cpuid
+	test	$CPUID_0x80000001_EDX_64_BIT,%edx
+	je	1f
+	mov	$MSR_IA32_EFER,%ecx
+	# Do not change EFER.LMA, or
+	# an exception (#GP) occurs on AMD processors.
+	rdmsr
+	and	$MSR_IA32_EFER_LMA_BIT,%eax
+	or	OFF_SAVED_EFER+0(%bp),%eax
+	mov	OFF_SAVED_EFER+4(%bp),%edx
+	wrmsr
+1:
+	mov	OFF_SAVED_CR4(%bp),%eax
+	mov	%eax,%cr4
+	mov	OFF_SAVED_CR3(%bp),%eax
+	mov	%eax,%cr3
+	# PE BIT AND PG BIT ON
+	mov	OFF_SAVED_CR0(%bp),%eax
 	mov	%eax,%cr0
 	jmp	1f
 1:
@@ -266,6 +509,14 @@ protection_and_paging_on:
 	xor	%ax,%ax
 	mov	%ax,%fs
 	mov	%ax,%gs
+	push	%ds
+	mov	$SEG_SEL_DATA32,%ax
+	mov	%ax,%ds
+	movzwl	OFF_SAVED_TR(%bp),%eax
+	mov	OFF_SAVED_GDTR+2(%bp),%edx
+	andb	$~2,5(%edx,%eax)
+	pop	%ds
+	ltrw	%ax
 	ret
 
 init_pic:

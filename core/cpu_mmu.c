@@ -62,19 +62,19 @@ static u64 reserved_bit_table[2][3][5] = {
 		},
 		/* levels = 3 (32-bit, PAE = 1) */
 		{
-			0xFFFFFF00001FE000ULL, /* PDE, 2-MByte page */
-			0xFFFFFF0000000000ULL, /* PTE */
-			0xFFFFFF0000000000ULL, /* PDE, 4-KByte page */
-			0xFFFFFF00000001E6ULL, /* PDPTE */
+			0xFFFFFFF0001FE000ULL, /* PDE, 2-MByte page */
+			0xFFFFFFF000000000ULL, /* PTE */
+			0xFFFFFFF000000000ULL, /* PDE, 4-KByte page */
+			0xFFFFFFF0000001E6ULL, /* PDPTE */
 			0xFFFFFFFFFFFFFFFFULL, /* PML4E */
 		},
 		/* levels = 4 (64-bit) */
 		{
-			0x800FFF00001FE000ULL, /* PDE, 2-MByte page */
-			0x800FFF0000000000ULL, /* PTE */
-			0x800FFF0000000000ULL, /* PDE, 4-KByte page */
-			0x800FFF0000000000ULL, /* PDPTE */
-			0x800FFF0000000000ULL, /* PML4E */
+			0x800FFFF0001FE000ULL, /* PDE, 2-MByte page */
+			0x800FFFF000000000ULL, /* PTE */
+			0x800FFFF000000000ULL, /* PDE, 4-KByte page */
+			0x800FFFF000000000ULL, /* PDPTE */
+			0x800FFFF000000000ULL, /* PML4E */
 		},
 	},
 	/* NXE = 1 */
@@ -89,19 +89,19 @@ static u64 reserved_bit_table[2][3][5] = {
 		},
 		/* levels = 3 (32-bit, PAE = 1) */
 		{
-			0x7FFFFF00001FE000ULL, /* PDE, 2-MByte page */
-			0x7FFFFF0000000000ULL, /* PTE */
-			0x7FFFFF0000000000ULL, /* PDE, 4-KByte page */
-			0xFFFFFF00000001E6ULL, /* PDPTE */
+			0x7FFFFFF0001FE000ULL, /* PDE, 2-MByte page */
+			0x7FFFFFF000000000ULL, /* PTE */
+			0x7FFFFFF000000000ULL, /* PDE, 4-KByte page */
+			0xFFFFFFF0000001E6ULL, /* PDPTE */
 			0xFFFFFFFFFFFFFFFFULL, /* PML4E */
 		},
 		/* levels = 4 (64-bit) */
 		{
-			0x000FFF00001FE000ULL, /* PDE, 2-MByte page */
-			0x000FFF0000000000ULL, /* PTE */
-			0x000FFF0000000000ULL, /* PDE, 4-KByte page */
-			0x000FFF0000000000ULL, /* PDPTE */
-			0x000FFF0000000000ULL, /* PML4E */
+			0x000FFFF0001FE000ULL, /* PDE, 2-MByte page */
+			0x000FFFF000000000ULL, /* PTE */
+			0x000FFFF000000000ULL, /* PDE, 4-KByte page */
+			0x000FFFF000000000ULL, /* PDPTE */
+			0x000FFFF000000000ULL, /* PML4E */
 		},
 	},
 };		
@@ -117,6 +117,7 @@ test_pmap_entry_reserved_bit (u64 entry, int level, int levels,
 	if (level == 2 && (entry & PDE_PS_BIT))
 		level = 0;
 	mask = reserved_bit_table[d.nxe][levels - 2][level];
+	mask ^= current->pte_addr_mask ^ PTE_ADDR_MASK64;
 	ASSERT (mask != 0xFFFFFFFFFFFFFFFFULL);
 	if (entry & mask)
 		return true;
@@ -160,8 +161,8 @@ get_pte_sub (ulong virt, ulong cr3, struct get_pte_data d, u64 entries[5],
 	if (!d.pg) {
 		/* Paging disabled */
 		/* simplify1 */
-		entries[0] = (virt & PTE_ADDR_MASK64) | PTE_P_BIT | PTE_RW_BIT
-			| PTE_US_BIT | PTE_A_BIT | PTE_D_BIT;
+		entries[0] = (virt & current->pte_addr_mask) | PTE_P_BIT
+			| PTE_RW_BIT | PTE_US_BIT | PTE_A_BIT | PTE_D_BIT;
 		entries[1] = PDE_P_BIT | PDE_RW_BIT | PDE_US_BIT | PDE_A_BIT
 			| PDE_D_BIT | PDE_PS_BIT;
 		*plevels = 1;
@@ -305,7 +306,7 @@ write_linearaddr_b (ulong linear, u8 data)
 	u64 pte;
 
 	RIE (get_pte (linear, true, false /*FIXME*/, false /*FIXME*/, &pte));
-	write_gphys_b ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+	write_gphys_b ((pte & current->pte_addr_mask) | (linear & 0xFFF), data,
 		       pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
 	return VMMERR_SUCCESS;
 }
@@ -321,7 +322,7 @@ write_linearaddr_w (ulong linear, u16 data)
 		return VMMERR_SUCCESS;
 	}
 	RIE (get_pte (linear, true, false /*FIXME*/, false /*FIXME*/, &pte));
-	write_gphys_w ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+	write_gphys_w ((pte & current->pte_addr_mask) | (linear & 0xFFF), data,
 		       pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
 	return VMMERR_SUCCESS;
 }
@@ -337,7 +338,7 @@ write_linearaddr_l (ulong linear, u32 data)
 		return VMMERR_SUCCESS;
 	}
 	RIE (get_pte (linear, true, false /*FIXME*/, false /*FIXME*/, &pte));
-	write_gphys_l ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+	write_gphys_l ((pte & current->pte_addr_mask) | (linear & 0xFFF), data,
 		       pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
 	return VMMERR_SUCCESS;
 }
@@ -353,7 +354,7 @@ write_linearaddr_q (ulong linear, u64 data)
 		return VMMERR_SUCCESS;
 	}
 	RIE (get_pte (linear, true, false /*FIXME*/, false /*FIXME*/, &pte));
-	write_gphys_q ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+	write_gphys_q ((pte & current->pte_addr_mask) | (linear & 0xFFF), data,
 		       pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
 	return VMMERR_SUCCESS;
 }
@@ -364,7 +365,7 @@ read_linearaddr_b (ulong linear, void *data)
 	u64 pte;
 
 	RIE (get_pte (linear, false, false /*FIXME*/, false /*FIXME*/, &pte));
-	read_gphys_b ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+	read_gphys_b ((pte & current->pte_addr_mask) | (linear & 0xFFF), data,
 		      pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
 	return VMMERR_SUCCESS;
 }
@@ -380,7 +381,7 @@ read_linearaddr_w (ulong linear, void *data)
 		return VMMERR_SUCCESS;
 	}
 	RIE (get_pte (linear, false, false /*FIXME*/, false /*FIXME*/, &pte));
-	read_gphys_w ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+	read_gphys_w ((pte & current->pte_addr_mask) | (linear & 0xFFF), data,
 		      pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
 	return VMMERR_SUCCESS;
 }
@@ -396,7 +397,7 @@ read_linearaddr_l (ulong linear, void *data)
 		return VMMERR_SUCCESS;
 	}
 	RIE (get_pte (linear, false, false /*FIXME*/, false /*FIXME*/, &pte));
-	read_gphys_l ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+	read_gphys_l ((pte & current->pte_addr_mask) | (linear & 0xFFF), data,
 		      pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
 	return VMMERR_SUCCESS;
 }
@@ -412,7 +413,7 @@ read_linearaddr_q (ulong linear, void *data)
 		return VMMERR_SUCCESS;
 	}
 	RIE (get_pte (linear, false, false /*FIXME*/, false /*FIXME*/, &pte));
-	read_gphys_q ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), data,
+	read_gphys_q ((pte & current->pte_addr_mask) | (linear & 0xFFF), data,
 		      pte & (PTE_PWT_BIT | PTE_PCD_BIT | PTE_PAT_BIT));
 	return VMMERR_SUCCESS;
 }
@@ -427,7 +428,8 @@ read_linearaddr_tss (ulong linear, void *tss, uint len)
 	void *p;
 
 	RIE (get_pte (linear, false, false, false, &pte));
-	p = mapmem_gphys ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), len, 0);
+	p = mapmem_gphys ((pte & current->pte_addr_mask) | (linear & 0xFFF),
+			  len, 0);
 	if (!p)
 		return VMMERR_NOMEM;
 	memcpy (tss, p, len);
@@ -442,8 +444,8 @@ write_linearaddr_tss (ulong linear, void *tss, uint len)
 	void *p;
 
 	RIE (get_pte (linear, true, false, false, &pte));
-	p = mapmem_gphys ((pte & PTE_ADDR_MASK64) | (linear & 0xFFF), len,
-			  MAPMEM_WRITE);
+	p = mapmem_gphys ((pte & current->pte_addr_mask) | (linear & 0xFFF),
+			  len, MAPMEM_WRITE);
 	if (!p)
 		return VMMERR_NOMEM;
 	memcpy (p, tss, len);

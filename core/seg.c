@@ -278,6 +278,23 @@ load_segment (struct segdesc *gdt)
 #endif
 }
 
+void
+segment_wakeup (bool bsp)
+{
+	static struct pcpu *resume_pcpu;
+	struct pcpu *p;
+	struct segdesc *gdt;
+
+	if (bsp)
+		resume_pcpu = &boot_pcpu;
+	p = resume_pcpu;
+	resume_pcpu = p->next;
+	gdt = p->segdesctbl;
+	gdt[5].type = SEGDESC_TYPE_32BIT_TSS_AVAILABLE; /* SEG_SEL_TSS32 */
+	gdt[14].type = SEGDESC_TYPE_64BIT_TSS_AVAILABLE; /* SEG_SEL_TSS64 */
+	load_segment (gdt);
+}
+
 /* for initializing AP. this uses alloc() */
 void
 segment_init_ap (int cpunum)
@@ -301,6 +318,7 @@ segment_init_ap (int cpunum)
 	fill_segdesctbl (newpcpu->segdesctbl, &newpcpu->tss32, &newpcpu->tss64,
 			 newpcpu_gs);
 	load_segment (newpcpu->segdesctbl);
+	pcpu_list_add (newpcpu);
 }
 
 /* for the first initialization. alloc() cannot be used */
@@ -318,6 +336,8 @@ segment_init_global (void)
 	fill_segdesctbl (boot_pcpu.segdesctbl, &boot_pcpu.tss32,
 			 &boot_pcpu.tss64, &boot_pcpu_gs);
 	load_segment (boot_pcpu.segdesctbl);
+	pcpu_init ();
+	pcpu_list_add (&boot_pcpu);
 }
 
 INITFUNC ("global0", segment_init_global);

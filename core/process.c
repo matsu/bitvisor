@@ -182,6 +182,12 @@ process_init_ap (void)
 }
 
 static void
+process_wakeup (void)
+{
+	setup_syscallentry ();
+}
+
+static void
 load_bin (virt_t destvirt, uint destlen, void *src, uint srclen)
 {
 	mm_process_map_alloc (destvirt, destlen);
@@ -962,3 +968,4 @@ process_syscall (struct syscall_regs *regs)
 
 INITFUNC ("global3", process_init_global);
 INITFUNC ("ap0", process_init_ap);
+INITFUNC ("wakeup0", process_wakeup);

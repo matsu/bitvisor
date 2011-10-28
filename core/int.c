@@ -45,7 +45,6 @@ static struct gatedesc64 intrdesctbl[NUM_OF_INT];
 static struct gatedesc32 intrdesctbl[NUM_OF_INT];
 #endif
 extern u32 volatile inthandling asm ("%gs:gs_inthandling");
-static spinlock_t int_lock;
 
 struct int_fatal_stack {
 	ulong r15, r14, r13, r12, r11, r10, r9, r8;
@@ -246,9 +245,7 @@ callfunc_and_getint (asmlinkage void (*func)(void *), void *arg)
 {
 	int num;
 
-	spinlock_lock (&int_lock);
 	num = int_callfunc (arg, func);
-	spinlock_unlock (&int_lock);
 	return num;
 }
 
@@ -327,6 +324,13 @@ idt_init (void *p)
 #undef M
 }
 
+static void
+int_wakeup (void)
+{
+	asm_wridtr ((u32)(ulong)intrdesctbl,
+		    sizeof (intrdesctbl[0]) * NUM_OF_INT);
+}
+
 void
 int_init_ap (void)
 {
@@ -342,7 +346,7 @@ int_init_global (void)
 	inthandling = 0;
 	asm_wridtr ((u32)(ulong)intrdesctbl,
 		    sizeof (intrdesctbl[0]) * NUM_OF_INT);
-	spinlock_init (&int_lock);
 }
 
 INITFUNC ("global1", int_init_global);
+INITFUNC ("wakeup0", int_wakeup);
