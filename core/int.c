@@ -44,7 +44,7 @@ static struct gatedesc64 intrdesctbl[NUM_OF_INT];
 #else
 static struct gatedesc32 intrdesctbl[NUM_OF_INT];
 #endif
-extern u32 volatile inthandling asm ("%gs:gs_inthandling");
+extern u64 volatile inthandling asm ("%gs:gs_inthandling");
 
 struct int_fatal_stack {
 	ulong r15, r14, r13, r12, r11, r10, r9, r8;
@@ -172,6 +172,22 @@ exception_name (int num)
 }
 
 static bool
+exception_error_code_pushed (int num)
+{
+	switch (num) {
+	case EXCEPTION_DF:
+	case EXCEPTION_TS:
+	case EXCEPTION_NP:
+	case EXCEPTION_SS:
+	case EXCEPTION_GP:
+	case EXCEPTION_PF:
+	case EXCEPTION_AC:
+		return true;
+	}
+	return false;
+}
+
+static bool
 dec_nest (void *data)
 {
 	unsigned int *nest;
@@ -187,6 +203,10 @@ int_fatal (struct int_fatal_stack *s)
 	ulong cr0, cr2, cr3, cr4;
 	int n;
 	static unsigned int nest = 0;
+	static char *stack_info_all[] = {
+		"Errcode", "RIP", "CS", "RFLAGS", "RSP", "SS", "",
+	};
+	char **stack_info;
 
 	if (nest)
 		printf ("Error: An exception in int_fatal!\n");
@@ -220,21 +240,28 @@ int_fatal (struct int_fatal_stack *s)
 		printf ("CPU%d  ", currentcpu->cpunum);
 	printf ("RSP on interrupt: 0x%08lX  ", (ulong)&s->s[0]);
 	printf ("Stack information:\n");
+	stack_info = stack_info_all;
+	if (!exception_error_code_pushed ((int)s->num))
+		stack_info++;
 	n = sizeof (s->s[0]);
-	printf ("  +%02d  Error code / RIP    : 0x%08lX", n * 0, s->s[0]);
-	printf ("  +%02d  RSP        / SS     : 0x%08lX\n", n * 4, s->s[4]);
-	printf ("  +%02d  RIP        / CS     : 0x%08lX", n * 1, s->s[1]);
-	printf ("  +%02d  SS         /        : 0x%08lX\n", n * 5, s->s[5]);
-	printf ("  +%02d  CS         / RFLAGS : 0x%08lX", n * 2, s->s[2]);
-	printf ("  +%02d             /        : 0x%08lX\n", n * 6, s->s[6]);
-	printf ("  +%02d  RFLAGS     / RSP    : 0x%08lX", n * 3, s->s[3]);
-	printf ("  +%02d             /        : 0x%08lX\n", n * 7, s->s[7]);
+	printf ("+%02X %-8s%016lX  +%02X %-4s%016lX  +%02X %016lX\n"
+		"+%02X %-8s%016lX  +%02X %-4s%016lX  +%02X %016lX\n"
+		"+%02X %-8s%016lX  +%02X     %016lX  +%02X %016lX\n"
+		"+%02X %-8s%016lX  +%02X     %016lX  +%02X %016lX\n",
+		n * 0, stack_info[0], s->s[0], n * 4, stack_info[4], s->s[4],
+		n * 8, s->s[8],
+		n * 1, stack_info[1], s->s[1], n * 5, stack_info[5], s->s[5],
+		n * 9, s->s[9],
+		n * 2, stack_info[2], s->s[2], n * 6, s->s[6],
+		n * 10, s->s[10],
+		n * 3, stack_info[3], s->s[3], n * 7, s->s[7],
+		n * 11, s->s[11]);
 	if (!currentcpu_available ())
 		goto stop;
 	if (nest == 1)
 		process_kill (dec_nest, &nest);
 stop:
-	panic ("int_fatal");
+	panic ("int_fatal 0x%02lX %s", s->num, exception_name ((int)s->num));
 	printf ("STOP");
 	for (;;)
 		asm_cli_and_hlt ();

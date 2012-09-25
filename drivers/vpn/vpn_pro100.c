@@ -29,7 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef CRYPTO_VPN
+#ifdef VPN
 #ifdef VPN_PRO100
 #include "pci.h"
 #include <core.h>
@@ -56,7 +56,7 @@ u32 vmm_term_inf() ;
 
 //#define	debugprint(fmt, args...) printf(fmt, ## args); pro100_sleep(70);
 
-#define	debugprint(fmt, args...)
+#define	debugprint(fmt, args...) do if (0) printf (fmt, ## args); while (0)
 
 
 static PRO100_CTX *pro100_ctx = NULL;
@@ -249,7 +249,7 @@ void *pro100_alloc_page(phys_t *ptr)
 
 	alloc_page(&vptr, &pptr);
 
-	vptr2 = mapmem_hphys(pptr, PAGESIZE, MAPMEM_WRITE | MAPMEM_PCD | MAPMEM_PWT | MAPMEM_PAT);
+	vptr2 = mapmem_hphys(pptr, PAGESIZE, MAPMEM_WRITE | MAPMEM_PCD | MAPMEM_PWT | 0/*MAPMEM_PAT*/);
 
 	*ptr = pptr;
 
@@ -940,7 +940,7 @@ void pro100_mem_read(void *buf, phys_t addr, UINT size)
 		return;
 	}
 
-	mmio_gphys_access(addr, false, buf, size, MAPMEM_PCD | MAPMEM_PWT | MAPMEM_PAT);
+	mmio_gphys_access(addr, false, buf, size, MAPMEM_PCD | MAPMEM_PWT | 0/*MAPMEM_PAT*/);
 }
 
 // 物理メモリ書き込み
@@ -952,7 +952,7 @@ void pro100_mem_write(phys_t addr, void *buf, UINT size)
 		return;
 	}
 
-	mmio_gphys_access(addr, true, buf, size, MAPMEM_PCD | MAPMEM_PWT | MAPMEM_PAT);
+	mmio_gphys_access(addr, true, buf, size, MAPMEM_PCD | MAPMEM_PWT | 0/*MAPMEM_PAT*/);
 }
 
 // 書き込みフック
@@ -1393,7 +1393,7 @@ void pro100_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 		return;
 	}
 
-	mmio_hphys_access((phys_t)ctx->csr_mm_addr + (phys_t)offset, true, &data, size, MAPMEM_PCD | MAPMEM_PWT | MAPMEM_PAT);
+	mmio_hphys_access((phys_t)ctx->csr_mm_addr + (phys_t)offset, true, &data, size, MAPMEM_PCD | MAPMEM_PWT | 0/*MAPMEM_PAT*/);
 }
 
 // 読み取り
@@ -1407,7 +1407,7 @@ UINT pro100_read(PRO100_CTX *ctx, UINT offset, UINT size)
 	}
 
 	mmio_hphys_access((phys_t)ctx->csr_mm_addr + (phys_t)offset, false,
-		&data, size, MAPMEM_PCD | MAPMEM_PWT | MAPMEM_PAT);
+		&data, size, MAPMEM_PCD | MAPMEM_PWT | 0/*MAPMEM_PAT*/);
 
 	return data;
 }
@@ -1839,4 +1839,4 @@ void pro100_init()
 
 PCI_DRIVER_INIT(pro100_init);
 #endif /* VPN_PRO100 */
-#endif /* CRYPTO_VPN */
+#endif /* VPN */

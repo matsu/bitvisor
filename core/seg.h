@@ -33,22 +33,21 @@
 #include "types.h"
 
 #define SEG_SEL_NULL		0
-#define SEG_SEL_CODE32		( 1 * 8)
-#define SEG_SEL_DATA32		( 2 * 8)
-#define SEG_SEL_CODE32U		( 3 * 8 + 3)
-#define SEG_SEL_DATA32U		( 4 * 8 + 3)
-#define SEG_SEL_TSS32		( 5 * 8)
+#define SEG_SEL_CODE32		( 1 * 8) /* SYSENTER_CS+0 */
+#define SEG_SEL_DATA32		( 2 * 8) /* SYSENTER_CS+8 */
+#define SEG_SEL_CODE32U		( 3 * 8 + 3) /* SYSENTER_CS+16, SYSRET_CS+0 */
+#define SEG_SEL_DATA32U		( 4 * 8 + 3) /* SYSENTER_CS+24, SYSRET_CS+8 */
+#define SEG_SEL_CODE64U		( 5 * 8 + 3) /* SYSRET_CS+16 */
 #define SEG_SEL_CODE16		( 6 * 8)
 #define SEG_SEL_DATA16		( 7 * 8)
 #define SEG_SEL_PCPU32		( 8 * 8)
 #define SEG_SEL_CALLGATE32	( 9 * 8)
 #define SEG_SEL_CODE64		(10 * 8)
 #define SEG_SEL_DATA64		(11 * 8)
-#define SEG_SEL_CODE64U		(12 * 8 + 3)
-#define SEG_SEL_DATA64U		(13 * 8 + 3)
-#define SEG_SEL_TSS64		(14 * 8)
-#define SEG_SEL_TSS64_		(15 * 8) /* Reserved */
-#define SEG_SEL_PCPU64		(16 * 8)
+#define SEG_SEL_TSS32		(12 * 8)
+#define SEG_SEL_TSS64		(13 * 8)
+#define SEG_SEL_TSS64_		(14 * 8) /* Reserved */
+#define SEG_SEL_PCPU64		(15 * 8)
 
 void get_seg_base (ulong gdtbase, u16 ldtr, u16 sel, ulong *segbase);
 u32 get_seg_access_rights (u16 sel);

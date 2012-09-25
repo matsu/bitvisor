@@ -28,6 +28,7 @@
  */
 
 #include "ap.h"
+#include "acpi.h"
 #include "asm.h"
 #include "callrealmode.h"
 #include "config.h"
@@ -70,6 +71,7 @@ handle_init_to_bsp (void)
 static void
 do_reboot (void)
 {
+	acpi_reset ();
 	rebooting = true;
 	/*
 	asm_outb (0x70, 0x0F);

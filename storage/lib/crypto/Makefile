@@ -1,26 +1,8 @@
-PWD := $(shell pwd)
-include $(CONFIG)
+CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
+CONSTANTS-$(CONFIG_STORAGE_PD) += -DSTORAGE_PD
+CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
+CONSTANTS-$(CONFIG_SELECT_AES_GLADMAN) += -DAES_GLADMAN
 
-CFLAGS-$(CONFIG_SELECT_AES_GLADMAN) += -DAES_GLADMAN
+CFLAGS += -Icrypto -Icrypto/openssl-$(OPENSSL_VERSION)/include
 
-TARGET	 = driver.o
-OBJS     = $(patsubst %.c,%.o,$(wildcard *.c))
-HEADERS += $(foreach header,$(wildcard *.h),$(PWD)/$(header))
-CFLAGS  += -I$(PWD) -I../../../crypto/ $(CFLAGS-1)
-
-DRIVERS-1 =
-DRIVERS-$(CONFIG_SELECT_AES_GLADMAN) = aes-gladman/driver.o
-
-
-.PHONY : $(DRIVERS-1)
-
-$(TARGET): $(DRIVERS-1) $(OBJS) $(CONFIG)
-	$(LD) $(LDFLAGS) -o $(TARGET) $(OBJS) $(DRIVERS-1)
-
-$(OBJS): $(HEADERS) $(CONFIG)
-
-$(DRIVERS-1):
-	@drivers="$(DRIVERS-1)";\
-	for driver in $$drivers; do \
-	make -C `dirname $$driver`; \
-	done
+objs-1 += aes_xts.o crypto.o none.o

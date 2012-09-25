@@ -76,6 +76,16 @@ cleanup_buffer_list(struct usb_buffer_list *ub)
 	return;			
 }
 
+/* use this function when reading a qtd of the guest */
+static struct ehci_qtd *
+rqtd (struct ehci_qtd_meta *qtdm)
+{
+	if (qtdm->ovlay)
+		return qtdm->ovlay;
+	else
+		return qtdm->qtd;
+}
+
 /**
  * @brief figure out continuous buffer blocks, make a list of them
  * @param urb usb request block issued by guest
@@ -227,8 +237,12 @@ is_active_urb(struct usb_request_block *urb)
 		return 1;
 	if (is_error(status))
 		return 0;
-	next_qtd_phys = URB_EHCI(urb)->qh->qtd_ovlay.next;
-	if (!(next_qtd_phys & 0x00000001U)) {
+	next_qtd_phys = EHCI_LINK_TE;
+	if (ehci_token_len (status) > 0)
+		next_qtd_phys = URB_EHCI (urb)->qh->qtd_ovlay.altnext;
+	if (next_qtd_phys & EHCI_LINK_TE)
+		next_qtd_phys = URB_EHCI (urb)->qh->qtd_ovlay.next;
+	if (!(next_qtd_phys & EHCI_LINK_TE)) {
 		for (qtdm = URB_EHCI(urb)->qtdm_head; qtdm; qtdm = qtdm->next)
 			if (qtdm->qtd_phys == (phys_t)next_qtd_phys)
 				break;
@@ -243,7 +257,6 @@ is_active_urb(struct usb_request_block *urb)
 			return 1;
 		if (is_error(status))
 			return 0;
-		next_qtd_phys = qtdm->qtd->next;
 	}
 
 	return 0;
@@ -267,11 +280,10 @@ static struct ehci_qtd_meta *
 shadow_qtdm_list(struct ehci_qtd_meta *gqtdm, 
 		 struct ehci_qtd_meta **tail_hqtdm_p)
 {
-	struct ehci_qtd_meta *hqtdm, **hqtdm_p, *hqtdm_head, *gqtdm_head;
+	struct ehci_qtd_meta *hqtdm, **hqtdm_p, *hqtdm_head;
 
 	/* initialize pointers for qtdm list */
 	hqtdm = NULL;
-	gqtdm_head = gqtdm;
 
 	/* copy qTDs */
 	hqtdm_p = &hqtdm_head;
@@ -279,6 +291,7 @@ shadow_qtdm_list(struct ehci_qtd_meta *gqtdm,
 		hqtdm = alloc_ehci_qtd_meta();
 		ASSERT(hqtdm != NULL);
 		hqtdm->altnext = NULL;
+		hqtdm->check_advance_count = 0;
 		hqtdm->shadow = gqtdm;
 		gqtdm->shadow = hqtdm;
 		hqtdm->qtd = (struct ehci_qtd *)
@@ -286,11 +299,12 @@ shadow_qtdm_list(struct ehci_qtd_meta *gqtdm,
 				       &hqtdm->qtd_phys);
 					 
 		ASSERT(hqtdm->qtd != NULL);
-		memcpy(hqtdm->qtd, gqtdm->qtd, sizeof(struct ehci_qtd));
+		memcpy (hqtdm->qtd, rqtd (gqtdm), sizeof (struct ehci_qtd));
 
 		/* update the status cache in qTD meta data */
 		hqtdm->status = (u8)(hqtdm->qtd->token & EHCI_QTD_STAT_MASK);
-		gqtdm->status = (u8)(gqtdm->qtd->token & EHCI_QTD_STAT_MASK);
+		gqtdm->status = (u8)(rqtd (gqtdm)->token &
+				     EHCI_QTD_STAT_MASK);
 		if (hqtdm->status != gqtdm->status) {
 			dprintft(2, "%s: a shadow qtd status undone "
 				 "%02x -> %02x\n", __FUNCTION__, 
@@ -317,12 +331,13 @@ shadow_qtdm_list(struct ehci_qtd_meta *gqtdm,
 				(phys32_t)hqtdm->next->qtd_phys : 
 				EHCI_LINK_TE;
 
-		if (hqtdm->qtd->altnext != EHCI_LINK_TE)
-			hqtdm->qtd->altnext = 
-				(hqtdm->shadow->altnext) ?
-				(phys32_t)hqtdm->shadow->
-				altnext->shadow->qtd_phys :
+		if (hqtdm->qtd->altnext != EHCI_LINK_TE) {
+			hqtdm->altnext = hqtdm->shadow->altnext ?
+				hqtdm->shadow->altnext->shadow : NULL;
+			hqtdm->qtd->altnext = hqtdm->altnext ?
+				(phys32_t)hqtdm->altnext->qtd_phys :
 				EHCI_LINK_TE;
+		}
 	}
 
 	return hqtdm_head;
@@ -340,6 +355,8 @@ register_qtdm(phys_t qtd_phys)
 		mapmem_gphys(qtdm->qtd_phys,
 			     sizeof(struct ehci_qtd), MAPMEM_WRITE);
 	qtdm->altnext = NULL;
+	qtdm->ovlay = NULL;
+	qtdm->check_advance_count = 0;
 	ASSERT(qtdm->qtd != NULL);
 	/* cache initial status */
 	qtdm->status = (u8)(qtdm->qtd->token & EHCI_QTD_STAT_MASK);
@@ -348,15 +365,28 @@ register_qtdm(phys_t qtd_phys)
 }
 
 static struct ehci_qtd_meta *
-register_qtdm_list(phys_t qtd_phys, struct ehci_qtd_meta **qtdm_tail_p)
+register_qtdm_list (struct ehci_qh *qh_copy,
+		    struct ehci_qtd_meta **qtdm_tail_p)
 {
 	struct ehci_qtd_meta *qtdm, **qtdm_p, *qtdm_head, **qq;
+	u8 ovlay_active;
+	phys_t qtd_phys;
 	int n = 0;
 
 	/* initialize pointers for qtdm list */
 	qtdm_head = NULL;
 	if (qtdm_tail_p)
 		*qtdm_tail_p = NULL;
+
+	/* find the first qTD */
+	ovlay_active = is_active (qh_copy->qtd_ovlay.token);
+	qtd_phys = EHCI_LINK_TE;
+	if (ovlay_active)
+		qtd_phys = qh_copy->qtd_cur;
+	else if (ehci_token_len (qh_copy->qtd_ovlay.token) > 0)
+		qtd_phys = qh_copy->qtd_ovlay.altnext;
+	if (qtd_phys & EHCI_LINK_TE)
+		qtd_phys = qh_copy->qtd_ovlay.next;
 
 	/* create a meta qTD on each qTD */
 	qtdm_p = &qtdm_head;
@@ -369,6 +399,13 @@ register_qtdm_list(phys_t qtd_phys, struct ehci_qtd_meta **qtdm_tail_p)
 		qtdm = register_qtdm(qtd_phys);
 		n++;
 		qtd_phys = qtdm->qtd->next;
+		if (ovlay_active) {
+			qtdm->ovlay = &qh_copy->qtd_ovlay;
+			qtdm->status = (u8)(qh_copy->qtd_ovlay.token &
+					    EHCI_QTD_STAT_MASK);
+			qtd_phys = qh_copy->qtd_ovlay.next;
+			ovlay_active = 0;
+		}
 		*qtdm_p = qtdm;
 		qtdm_p = &qtdm->next;
 		
@@ -410,6 +447,7 @@ ehci_copyback_trans(struct usb_host *usbhc,
 {
 	struct usb_request_block *gurb;
 	struct ehci_qtd_meta *gqtdm, *hqtdm;
+	struct ehci_qtd qtd_ovlay;
 	phys_t cur_hqtd_phys;
 	int ret;
 	u32 val32, val32_2;
@@ -427,54 +465,85 @@ ehci_copyback_trans(struct usb_host *usbhc,
 	}
 
 	/* copyback qTDs and the overlay field in QH */
+	memcpy (&qtd_ovlay, &URB_EHCI (gurb)->qh->qtd_ovlay,
+		sizeof (struct ehci_qtd));
 	cur_hqtd_phys = (phys_t)URB_EHCI(hurb)->qh->qtd_cur;
 	hqtdm = URB_EHCI(hurb)->qtdm_head;
 	while (hqtdm) {
 		gqtdm = hqtdm->shadow;
-		if (gqtdm->status & (EHCI_QTD_STAT_AC | EHCI_QTD_STAT_PG)) {
-			/* copyback the current offset in the buffer 0 */
-			val32 = hqtdm->qtd->buffer[0] & 0xFFF;
-			val32_2 = gqtdm->qtd->buffer[0] & ~0xFFF;
-			gqtdm->qtd->buffer[0] = val32 | val32_2;
 
-			/* copyback the token field */
-			gqtdm->qtd->token = hqtdm->qtd->token;
-			gqtdm->status = (u8)
-				(gqtdm->qtd->token & EHCI_QTD_STAT_MASK);
-		}
-
-		if (hqtdm->qtd_phys == (phys_t)cur_hqtd_phys)
+		/* if the qTD was not activated, it is not advanced */
+		if (!(gqtdm->status & EHCI_QTD_STAT_AC)) {
+			/* this should not happen because the shadow
+			 * is activated after is_active_urb() returns
+			 * 1 and this loop breaks if qtd_phys ==
+			 * cur_hqtd_phys */
+			dprintft (0, "%s: %llx: inactive qTD found.\n",
+				  __FUNCTION__, URB_EHCI (gurb)->qh_phys);
 			break;
-
-		hqtdm = hqtdm->next;
-	}
-
-	/*** update the guest QH overlay ***/
-
-	if (hqtdm) {
-		/* fetch the current guest qTD into the overlay once */
-		memcpy(&URB_EHCI(gurb)->qh->qtd_ovlay,
-		       hqtdm->shadow->qtd, sizeof(struct ehci_qtd));
-
-		/* Cur qTD */
-		URB_EHCI(gurb)->qh->qtd_cur = 
-			(phys32_t)hqtdm->shadow->qtd_phys;
+		}
+		/* copyback the current offset in the buffer 0 */
+		val32 = hqtdm->qtd->buffer[0] & 0xFFF;
+		val32_2 = gqtdm->qtd->buffer[0] & ~0xFFF;
+		gqtdm->qtd->buffer[0] = val32 | val32_2;
+		/* copyback the token field */
+		gqtdm->qtd->token = hqtdm->qtd->token;
+		gqtdm->status = (u8)(gqtdm->qtd->token & EHCI_QTD_STAT_MASK);
+		if (hqtdm->qtd_phys == (phys_t)cur_hqtd_phys) {
+			memcpy (&qtd_ovlay, gqtdm->qtd,
+				sizeof (struct ehci_qtd));
+			break;
+		}
+		/* find the next qTD */
+		if (is_error_qtd (hqtdm->qtd)) {
+			/* this should not happen because this loop
+			 * breaks if qtd_phys == cur_hqtd_phys */
+			dprintft (0, "%s: %llx: qTD traverse failed [1].\n",
+				  __FUNCTION__, URB_EHCI (gurb)->qh_phys);
+			break;
+		}
+		if (ehci_qtd_len (hqtdm->qtd) > 0 &&
+		    !(hqtdm->qtd->altnext & EHCI_LINK_TE)) {
+			hqtdm = hqtdm->altnext;
+			if (!hqtdm)
+				/* qtdm.altnext must not be NULL while
+				 * qtd.altnext != EHCI_LINK_TE */
+				dprintft (0, "%s: %llx: qTD altnext NULL.\n",
+				  __FUNCTION__, URB_EHCI (gurb)->qh_phys);
+		} else if (!(hqtdm->qtd->next & EHCI_LINK_TE)) {
+			hqtdm = hqtdm->next;
+			if (!hqtdm)
+				/* qtdm.next must not be NULL while
+				 * qtd.next != EHCI_LINK_TE */
+				dprintft (0, "%s: %llx: qTD next NULL.\n",
+				  __FUNCTION__, URB_EHCI (gurb)->qh_phys);
+		} else {
+			/* qtd.next == EHCI_LINK_TE but qtd_phys !=
+			 * cur_hqtd_phys */
+			dprintft (0, "%s: %llx: qTD traverse failed [2].\n",
+				  __FUNCTION__, URB_EHCI (gurb)->qh_phys);
+			break;
+		}
 	}
 
 	/* Nak Counter */
 	val32 = URB_EHCI(hurb)->qh->qtd_ovlay.altnext & 0x0000001eU;
-	val32_2 = URB_EHCI(gurb)->qh->qtd_ovlay.altnext & ~0x0000001eU;
-	URB_EHCI(gurb)->qh->qtd_ovlay.altnext = val32_2 | val32;
+	val32_2 = qtd_ovlay.altnext & ~0x0000001eU;
+	qtd_ovlay.altnext = val32_2 | val32;
 	
 	/* C-prog-mask */
 	val32 = URB_EHCI(hurb)->qh->qtd_ovlay.buffer[1] & 0x000000ffU;
-	val32_2 = URB_EHCI(gurb)->qh->qtd_ovlay.buffer[1] & ~0x000000ffU;
-	URB_EHCI(gurb)->qh->qtd_ovlay.buffer[1] = val32_2 | val32;
+	val32_2 = qtd_ovlay.buffer[1] & ~0x000000ffU;
+	qtd_ovlay.buffer[1] = val32_2 | val32;
 	
 	/* S-bytes and FrameTag */
 	val32 = URB_EHCI(hurb)->qh->qtd_ovlay.buffer[2] & 0x00000fffU;
-	val32_2 = URB_EHCI(gurb)->qh->qtd_ovlay.buffer[2] & ~0x00000fffU;
-	URB_EHCI(gurb)->qh->qtd_ovlay.buffer[2] = val32_2 | val32;
+	val32_2 = qtd_ovlay.buffer[2] & ~0x00000fffU;
+	qtd_ovlay.buffer[2] = val32_2 | val32;
+
+	/* update QH overlay */
+	memcpy (&URB_EHCI (gurb)->qh->qtd_ovlay, &qtd_ovlay,
+		sizeof (struct ehci_qtd));
 
 	/* update the QH copy */
 	URB_EHCI(gurb)->qh_copy = *URB_EHCI(gurb)->qh;
@@ -497,7 +566,7 @@ static struct usb_request_block *
 ehci_shadow_qh(struct usb_request_block *gurb)
 {
 	struct usb_request_block *hurb;
-	struct ehci_qtd_meta *gqtdm, *hqtdm_tail;
+	struct ehci_qtd_meta *hqtdm_tail;
 	phys_t qh_phys;
 
 	ASSERT(gurb != NULL);
@@ -519,28 +588,14 @@ ehci_shadow_qh(struct usb_request_block *gurb)
 	URB_EHCI(hurb)->qtdm_head = 
 		shadow_qtdm_list(URB_EHCI(gurb)->qtdm_head, &hqtdm_tail);
 	URB_EHCI(hurb)->qtdm_tail = hqtdm_tail;
-	if (URB_EHCI(hurb)->qtdm_head)
-		URB_EHCI(hurb)->qh->qtd_ovlay.next = 
-			(phys32_t)URB_EHCI(hurb)->qtdm_head->qtd_phys;
+	URB_EHCI (hurb)->qh->qtd_ovlay.next =
+		URB_EHCI (hurb)->qtdm_head ?
+		(phys32_t)URB_EHCI (hurb)->qtdm_head->qtd_phys : EHCI_LINK_TE;
+	URB_EHCI (hurb)->qh->qtd_ovlay.altnext = EHCI_LINK_TE;
 
-	/* current qTD in QH should be cared */
-	gqtdm = get_qtdm_by_phys(URB_EHCI(hurb)->qh->qtd_cur, 
-				 URB_EHCI(gurb)->qtdm_head);
-	ASSERT((gqtdm == NULL) || (gqtdm->shadow != NULL));
-	URB_EHCI(hurb)->qh->qtd_cur = 
-		(gqtdm) ? (phys32_t)gqtdm->shadow->qtd_phys : 0U;
-
-	/* altnext in the QH overlay should be cared? */
-	if (is_in_qtd(&URB_EHCI(hurb)->qh->qtd_ovlay) &&
-	    (URB_EHCI(hurb)->qh->qtd_ovlay.altnext != EHCI_LINK_TE)) {
-		gqtdm = get_qtdm_by_phys(URB_EHCI(hurb)->qh->
-					 qtd_ovlay.altnext,
-					 URB_EHCI(gurb)->qtdm_head);
-		ASSERT((gqtdm == NULL) || (gqtdm->shadow != NULL));
-		URB_EHCI(hurb)->qh->qtd_ovlay.altnext =	
-			(gqtdm) ? (phys32_t)gqtdm->shadow->qtd_phys : 
-			EHCI_LINK_TE;
-	}
+	/* current qTD in QH is cared in register_qtdm(). */
+	/* altnext in the QH overlay is also cared in register_qtdm(). */
+	URB_EHCI (hurb)->qh->qtd_ovlay.token &= ~EHCI_QTD_STAT_AC;
 
 	/* set up meta data in urb */
 	hurb->address = gurb->address;
@@ -595,17 +650,16 @@ register_gurb (struct ehci_host *host, phys32_t qh_phys)
 
 	/* next qTDs */
 	URB_EHCI(new_urb)->qtdm_head = 
-		register_qtdm_list(URB_EHCI(new_urb)->qh_copy.qtd_ovlay.next,
-				   &qtdm_tail);
+		register_qtdm_list (&URB_EHCI(new_urb)->qh_copy, &qtdm_tail);
 	URB_EHCI(new_urb)->qtdm_tail = qtdm_tail;
 
 	/* alternative next qTDs */
 	for (qtdm = URB_EHCI(new_urb)->qtdm_head; qtdm; qtdm = qtdm->next) {
 		phys_t altnext_phys;
 
-		if (!is_in_qtd(qtdm->qtd))
+		if (!is_in_qtd (rqtd (qtdm)))
 			continue;
-		altnext_phys = (phys_t)qtdm->qtd->altnext;
+		altnext_phys = (phys_t)rqtd (qtdm)->altnext;
 		if (altnext_phys == EHCI_LINK_TE)
 			continue;
 		qtdm->altnext = 
@@ -698,6 +752,8 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 	if (URB_EHCI(hurb)->qh->qtd_ovlay.token & EHCI_QTD_STAT_PG)
 		dprintft(2, "PING!\n");
 
+	spinlock_lock(&host->lock_hurb);
+
 	/* activate it in the shadow list */
 	URB_EHCI(hurb)->qh->link =
 		URB_EHCI(LIST4_TAIL (host->hurb, list))->qh->link;
@@ -708,6 +764,8 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 
 	/* update the hurb list */
 	LIST4_ADD (host->hurb, list, hurb);
+
+	spinlock_unlock(&host->lock_hurb);
 #endif
 
 #if defined(ENABLE_DELAYED_START)
@@ -731,6 +789,12 @@ ehci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *hurb)
 	if (!hurb)
 		return 0U;
 
+	spinlock_lock(&host->lock_hurb);
+	if (hurb->prevent_del) {
+		hurb->deferred_del = true;
+		spinlock_unlock(&host->lock_hurb);
+		return 0U;
+	}
 	if (hurb->status != URB_STATUS_UNLINKED) {
 		ASSERT(LIST4_PREV (hurb, list) != NULL);
 
@@ -741,6 +805,7 @@ ehci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *hurb)
 		/* move a metadata of the shadow QH into unlink list */
 		LIST4_DEL (host->hurb, list, hurb);
 	}
+	spinlock_unlock(&host->lock_hurb);
 	
 	status = hurb->status;
 	LIST4_PUSH (host->unlink_messages, list, hurb);
@@ -795,8 +860,6 @@ deactivate_and_delete_urb(struct ehci_host *host,
 	return;
 }
 
-	struct ehci_qtd_meta *gqtdm, *qtdm_tail;
-
 static void
 sweep_unmarked_gurbs (struct ehci_host *host)
 {
@@ -835,6 +898,7 @@ update_marked_gurbs (struct ehci_host *host)
 
 	while ((gurb = LIST2_POP (host->update, update))) {
 		if (gurb->mark & URB_MARK_UPDATE_REPLACED) {
+			gurb->mark &= ~URB_MARK_UPDATE_REPLACED;
 			do {
 				qh_phys = URB_EHCI(gurb)->qh_phys;
 				deactivate_and_delete_urb(host, gurb);
@@ -911,25 +975,33 @@ _ehci_check_urb_advance(struct usb_host *usbhc,
 
 	urb->actlen = 0;
 
+	URB_EHCI(urb)->check_advance_count++;
 	qtdm = URB_EHCI(urb)->qtdm_head;
 	while (qtdm) {
 		status = (u8)(qtdm->qtd->token & EHCI_QTD_STAT_MASK);
-		if (is_halt(status))
-			break;
 		if (is_active(status))
 			return URB_STATUS_RUN;
+		if (is_halt(status))
+			break;
 		if (is_error(status)) {
 			dprintft(1, "%s: status = %02x\n", 
 				 __FUNCTION__, status);
 			return URB_STATUS_ERRORS;
 		}
 
+		qtdm->check_advance_count = URB_EHCI(urb)->check_advance_count;
 		if (is_in_qtd(qtdm->qtd)) {
 			actlen = ehci_qtdm_actlen(qtdm);
 			urb->actlen += actlen;
 			/* short packet detect */
 			if ((actlen < qtdm->total_len) && qtdm->altnext) {
 				qtdm = qtdm->altnext;
+				if (qtdm && qtdm->check_advance_count ==
+				    URB_EHCI(urb)->check_advance_count) {
+					dprintft (1, "%s: altnext loop"
+						  " detected\n", __FUNCTION__);
+					break;
+				}
 				continue;
 			}
 		}
@@ -961,12 +1033,14 @@ ehci_check_advance(struct usb_host *usbhc)
 {
 	struct ehci_host *host = (struct ehci_host *)usbhc->private;
 	struct usb_request_block *hurb;
-	int advance = 0, ret;
+	int advance = 0;
 
 	if (!LIST4_HEAD (host->gurb, list) ||
 	    !LIST4_HEAD (host->gurb, list)->shadow)
 		return 0;
 
+	spinlock_lock(&host->lock_hurb);
+recheck:
 	for (hurb = LIST4_HEAD (host->gurb, list)->shadow; hurb;
 	     hurb = LIST4_NEXT (hurb, list)) {
 
@@ -977,6 +1051,9 @@ ehci_check_advance(struct usb_host *usbhc)
 		/* skip inactive urb */
 		if (hurb->status != URB_STATUS_RUN)
 			continue;
+
+		hurb->prevent_del = true;
+		spinlock_unlock(&host->lock_hurb);
 
 		/* update the status */
 		ehci_check_urb_advance(host->usb_host, hurb);
@@ -998,8 +1075,8 @@ ehci_check_advance(struct usb_host *usbhc)
 				 URB_EHCI(hurb->shadow)->qh_phys : 0ULL,
 				 URB_EHCI(hurb)->qh_phys);
 			if (hurb->callback)
-				ret = hurb->callback(host->usb_host, 
-						     hurb, hurb->cb_arg);
+				hurb->callback (host->usb_host, hurb,
+						hurb->cb_arg);
 			hurb->status = URB_STATUS_FINALIZED;
 			advance++;
 			break;
@@ -1016,7 +1093,18 @@ ehci_check_advance(struct usb_host *usbhc)
 				 URB_EHCI(hurb)->qh_phys, hurb->status);
 			break;
 		}
+
+		spinlock_lock(&host->lock_hurb);
+		hurb->prevent_del = false;
+		if (hurb->deferred_del) {
+			hurb->deferred_del = false;
+			spinlock_unlock(&host->lock_hurb);
+			ehci_deactivate_urb(host->usb_host, hurb);
+			spinlock_lock(&host->lock_hurb);
+			goto recheck;
+		}
 	}
+	spinlock_unlock(&host->lock_hurb);
 
 	return advance;
 }
@@ -1056,7 +1144,7 @@ monitor_loop:
 		schedule();
 	}
 
-	spinlock_lock(&host->lock);
+	usb_sc_lock(host->usb_host);
 
 	/* unmark all QHs */
 	unmark_all_gurbs (host);
@@ -1076,7 +1164,7 @@ monitor_loop:
 	/* check advance in shadow urbs */
 	ehci_check_advance(host->usb_host);
 
-	spinlock_unlock(&host->lock);
+	usb_sc_unlock(host->usb_host);
 
 	schedule();
 	if (!host->hcreset)

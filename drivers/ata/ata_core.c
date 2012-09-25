@@ -59,11 +59,7 @@ struct ata_device_state {
 static const int state_regoff[4] = { ATA_SectorCount, ATA_LBA_Low,
 				     ATA_LBA_Mid, ATA_LBA_High };
 
-#ifdef STORAGE_ENC
 static const char ata_virtual_model[40] = "BitVisor Encrypted ATA Drive            ";
-#else
-static const char ata_virtual_model[40] = "BitVisor Virtual ATA Drive              ";
-#endif
 static const char ata_virtual_revision[8] = "0.4     ";
 
 /**********************************************************************************************************************

@@ -174,10 +174,14 @@ virtualization_init_pcpu (void)
 {
 	currentcpu->fullvirtualize = FULLVIRTUALIZE_NONE;
 	if (vt_available ()) {
+		if (currentcpu->cpunum == 0)
+			printf ("Using VMX.\n");
 		vt_init ();
 		currentcpu->fullvirtualize = FULLVIRTUALIZE_VT;
 	}
 	if (svm_available ()) {
+		if (currentcpu->cpunum == 0)
+			printf ("Using SVM.\n");
 		svm_init ();
 		currentcpu->fullvirtualize = FULLVIRTUALIZE_SVM;
 	}
@@ -205,18 +209,6 @@ static void
 initregs (void)
 {
 	current->vmctl.reset ();
-	current->vmctl.write_control_reg (CONTROL_REG_CR0,
-					  CR0_PE_BIT | CR0_ET_BIT);
-	current->vmctl.write_control_reg (CONTROL_REG_CR0, CR0_ET_BIT);
-	current->vmctl.write_control_reg (CONTROL_REG_CR3, 0);
-	current->vmctl.write_control_reg (CONTROL_REG_CR4, 0);
-	current->vmctl.write_control_reg (CONTROL_REG_CR4, 0);
-	current->vmctl.write_realmode_seg (SREG_ES, 0);
-	current->vmctl.write_realmode_seg (SREG_CS, 0);
-	current->vmctl.write_realmode_seg (SREG_SS, 0);
-	current->vmctl.write_realmode_seg (SREG_DS, 0);
-	current->vmctl.write_realmode_seg (SREG_FS, 0);
-	current->vmctl.write_realmode_seg (SREG_GS, 0);
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
 	current->vmctl.write_general_reg (GENERAL_REG_RCX, 0);
 	current->vmctl.write_general_reg (GENERAL_REG_RDX, 0);
@@ -359,6 +351,7 @@ create_pass_vm (void)
 	sync_all_processors ();
 	current->vmctl.vminit ();
 	call_initfunc ("pass");
+	sync_all_processors ();
 	if (bsp) {
 		vmmcall_boot_enable (bsp_init_thread, NULL);
 	} else {
@@ -421,9 +414,31 @@ debug_on_shift_key (void)
 }
 
 static void
+call_parallel (void)
+{
+	static struct {
+		char *name;
+		ulong not_called;
+	} paral[] = {
+		{ "paral0", 1 },
+		{ "paral1", 1 },
+		{ "paral2", 1 },
+		{ "paral3", 1 },
+		{ NULL, 0 }
+	};
+	int i;
+
+	for (i = 0; paral[i].name; i++) {
+		if (asm_lock_ulong_swap (&paral[i].not_called, 0))
+			call_initfunc (paral[i].name);
+	}
+}
+
+static void
 ap_proc (void)
 {
 	call_initfunc ("ap");
+	call_parallel ();
 	call_initfunc ("pcpu");
 }
 
@@ -431,6 +446,7 @@ static void
 bsp_proc (void)
 {
 	call_initfunc ("bsp");
+	call_parallel ();
 	call_initfunc ("pcpu");
 }
 
@@ -443,7 +459,6 @@ vmm_main (struct multiboot_info *mi_arg)
 	start_all_processors (bsp_proc, ap_proc);
 }
 
-INITFUNC ("pcpu1", sync_all_processors);
 INITFUNC ("pcpu2", virtualization_init_pcpu);
 INITFUNC ("pcpu5", create_pass_vm);
 INITFUNC ("bsp0", debug_on_shift_key);

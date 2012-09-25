@@ -34,12 +34,6 @@
 #include "svm_msr.h"
 #include "svm_vmcb.h"
 
-enum svm_event_type {
-	SVM_EVENT_TYPE_PHYSICAL,
-	SVM_EVENT_TYPE_VIRTUAL,
-	SVM_EVENT_TYPE_DELIVERY,
-};
-
 struct svm_intr_data {
 	union {
 		struct vmcb_eventinj s;
@@ -58,12 +52,13 @@ struct svm {
 	struct svm_vmrun_regs vr;
 	struct svm_vmcb_info vi;
 	struct svm_intr_data intr;
-	enum svm_event_type event;
 	struct svm_io io;
 	struct svm_msr msr;
 	struct svm_np *np;
 	bool lme, lma;
 	struct vmcb *saved_vmcb;
+	u64 *cr0, *cr3, *cr4;
+	u64 gcr0, gcr3, gcr4;
 };
 
 struct svm_pcpu_data {
@@ -71,6 +66,7 @@ struct svm_pcpu_data {
 	u64 hsave_phys;
 	struct vmcb *vmcbhost;
 	u64 vmcbhost_phys;
+	bool flush_by_asid;
 };
 
 void vmctl_svm_init (void);

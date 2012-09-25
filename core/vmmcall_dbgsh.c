@@ -144,6 +144,15 @@ dbgsh (void)
 }
 
 static void
+vmmcall_dbgsh_init_global (void)
+{
+#ifdef DBGSH
+	i = false;
+	spinlock_init (&dbgsh_lock);
+#endif
+}
+
+static void
 vmmcall_dbgsh_init_pcpu (void)
 {
 #ifdef FWDBG
@@ -165,9 +174,7 @@ vmmcall_dbgsh_init (void)
 {
 #ifdef DBGSH
 	s = r = -1;
-	i = false;
 	stopped = false;
-	spinlock_init (&dbgsh_lock);
 	spinlock_init (&dbgsh_lock2);
 	vmmcall_register ("dbgsh", dbgsh);
 #else
@@ -177,73 +184,5 @@ vmmcall_dbgsh_init (void)
 }
 
 INITFUNC ("vmmcal0", vmmcall_dbgsh_init);
+INITFUNC ("global3", vmmcall_dbgsh_init_global);
 INITFUNC ("pcpu1", vmmcall_dbgsh_init_pcpu);
-
-/************************************************************
-#include <stdio.h>
-#include <stdlib.h>
-#ifdef __MINGW32__
-#include <conio.h>
-#define NOECHO()
-#define GETCHAR() getch ()
-#define PUTCHAR(c) putch (c)
-#define ECHO()
-#else
-#define NOECHO() system ("stty -echo -icanon")
-#define GETCHAR() getchar ()
-#define PUTCHAR(c) putchar (c), fflush (stdout)
-#define ECHO() system ("stty echo icanon")
-#endif
-
-static int
-vmcall_dbgsh (int c)
-{
-	int r, n;
-
-	asm volatile ("push (%%ebx); push 4(%%ebx); lea 8(%%esp),%%esp; vmcall"
-		      : "=a" (n) : "a" (0), "b" ("dbgsh"));
-	if (!n)
-		return -1;
-	asm volatile ("vmcall" : "=a" (r) : "a" (n), "b" (c));
-	return r;
-}
-
-void
-e (void)
-{
-	ECHO ();
-}
-
-int
-main (int argc, char **argv)
-{
-	int s, r;
-	FILE *fp;
-
-	if (argc >= 2) {
-		fp = fopen (argv[1], "w");
-	} else {
-		fp = NULL;
-	}
-	vmcall_dbgsh (-1);
-	if (vmcall_dbgsh (-1) == -1)
-		exit (1);
-	atexit (e);
-	NOECHO ();
-	s = -1;
-	for (;;) {
-		r = vmcall_dbgsh (s);
-		s = -1;
-		if (r == 0) {
-			s = GETCHAR ();
-		} else if (r > 0) {
-			if (fp) {
-				fprintf (fp, "%c", r);
-				fflush (fp);
-			}
-			PUTCHAR (r);
-			s = 0;
-		}
-	}
-}
- ************************************************************/

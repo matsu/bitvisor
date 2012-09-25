@@ -29,7 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef CRYPTO_VPN
+#ifdef VPN
 #ifdef VPN_VE
 #include "config.h"
 #include "cpu_mmu.h"
@@ -357,10 +357,6 @@ void crypt_ve_handler()
 		}
 	}
 	
-#ifndef	CRYPTO_VPN
-	ok = false;
-#endif	// CRYPTO_VPN
-
 	if (ok == false)
 	{
 		current->vmctl.write_general_reg(GENERAL_REG_RAX, 0);
@@ -740,4 +736,4 @@ vpn_ve_init (void)
 
 INITFUNC ("driver1", vpn_ve_init);
 #endif /* VPN_VE */
-#endif /* CRYPTO_VPN */
+#endif /* VPN */

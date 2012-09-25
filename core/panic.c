@@ -34,6 +34,7 @@
 #include "current.h"
 #include "debug.h"
 #include "initfunc.h"
+#include "int.h"
 #include "keyboard.h"
 #include "mm.h"
 #include "panic.h"
@@ -45,15 +46,25 @@
 #include "spinlock.h"
 #include "stdarg.h"
 #include "string.h"
+#include "time.h"
 #include "tty.h"
 #include "types.h"
 
 #define BIOS_AREA_SIZE 4096
 
+#ifdef __x86_64__
+#	define REGNAME_RSP "%rsp"
+#	define REGNAME_RBP "%rbp"
+#else
+#	define REGNAME_RSP "%esp"
+#	define REGNAME_RBP "%ebp"
+#endif
+
 static spinlock_t panic_lock;
 static int panic_process;
 static bool panic_reboot = false;
 static char panicmsg[1024] = "";
+static char panicmsg_tmp[1024];
 static volatile int paniccpu;
 static bool do_wakeup = false;
 static bool bios_area_saved;
@@ -115,9 +126,9 @@ freeze (void)
 void
 backtrace (void)
 {
-#ifdef __x86_64__
+#ifndef BACKTRACE
 	ulong *p;
-	register ulong start_rsp asm ("%rsp");
+	register ulong start_rsp asm (REGNAME_RSP);
 	int i, j;
 	extern u8 code[], codeend[];
 
@@ -136,20 +147,17 @@ backtrace (void)
 	printf ("\n");
 #else
 	ulong rbp, caller, newrbp, *p;
-	register u32 start_rbp asm ("%ebp");
+	register ulong start_rbp asm (REGNAME_RBP);
 
 	printf ("backtrace");
 	for (rbp = start_rbp; ; rbp = newrbp) {
 		p = (ulong *)rbp;
-		caller = p[1];
 		newrbp = p[0];
+		if (!newrbp)
+			/* It is the bottom of the stack. */
+			break;
+		caller = p[1];
 		printf ("<-0x%lX", caller);
-		if (caller == 0xDEADBEEF) {
-			printf ("(vmlaunch)");
-			break;
-		}
-		if (newrbp == 0)
-			break;
 		if (rbp > newrbp) {
 			printf ("<-bad");
 			break;
@@ -219,49 +227,6 @@ dump_control_regs (ulong r[16])
 }
 
 static void
-dump_vmm_general_regs (void)
-{
-	ulong r[16];
-
-#ifdef __x86_64__
-	asm volatile ("mov %%rax,%0" : "=m" (r[GENERAL_REG_RAX]));
-	asm volatile ("mov %%rcx,%0" : "=m" (r[GENERAL_REG_RCX]));
-	asm volatile ("mov %%rdx,%0" : "=m" (r[GENERAL_REG_RDX]));
-	asm volatile ("mov %%rbx,%0" : "=m" (r[GENERAL_REG_RBX]));
-	asm volatile ("mov %%rsp,%0" : "=m" (r[GENERAL_REG_RSP]));
-	asm volatile ("mov %%rbp,%0" : "=m" (r[GENERAL_REG_RBP]));
-	asm volatile ("mov %%rsi,%0" : "=m" (r[GENERAL_REG_RSI]));
-	asm volatile ("mov %%rdi,%0" : "=m" (r[GENERAL_REG_RDI]));
-	asm volatile ("mov %%r8,%0" : "=m" (r[GENERAL_REG_R8]));
-	asm volatile ("mov %%r9,%0" : "=m" (r[GENERAL_REG_R9]));
-	asm volatile ("mov %%r10,%0" : "=m" (r[GENERAL_REG_R10]));
-	asm volatile ("mov %%r11,%0" : "=m" (r[GENERAL_REG_R11]));
-	asm volatile ("mov %%r12,%0" : "=m" (r[GENERAL_REG_R12]));
-	asm volatile ("mov %%r13,%0" : "=m" (r[GENERAL_REG_R13]));
-	asm volatile ("mov %%r14,%0" : "=m" (r[GENERAL_REG_R14]));
-	asm volatile ("mov %%r15,%0" : "=m" (r[GENERAL_REG_R15]));
-#else
-	asm volatile ("mov %%eax,%0" : "=m" (r[GENERAL_REG_RAX]));
-	asm volatile ("mov %%ecx,%0" : "=m" (r[GENERAL_REG_RCX]));
-	asm volatile ("mov %%edx,%0" : "=m" (r[GENERAL_REG_RDX]));
-	asm volatile ("mov %%ebx,%0" : "=m" (r[GENERAL_REG_RBX]));
-	asm volatile ("mov %%esp,%0" : "=m" (r[GENERAL_REG_RSP]));
-	asm volatile ("mov %%ebp,%0" : "=m" (r[GENERAL_REG_RBP]));
-	asm volatile ("mov %%esi,%0" : "=m" (r[GENERAL_REG_RSI]));
-	asm volatile ("mov %%edi,%0" : "=m" (r[GENERAL_REG_RDI]));
-	r[GENERAL_REG_R8] = 0;
-	r[GENERAL_REG_R9] = 0;
-	r[GENERAL_REG_R10] = 0;
-	r[GENERAL_REG_R11] = 0;
-	r[GENERAL_REG_R12] = 0;
-	r[GENERAL_REG_R13] = 0;
-	r[GENERAL_REG_R14] = 0;
-	r[GENERAL_REG_R15] = 0;
-#endif
-	dump_general_regs (r);
-}
-
-static void
 dump_vmm_control_regs (void)
 {
 	ulong r[16];
@@ -284,7 +249,6 @@ dump_vmm_other_regs (void)
 	printf ("GDTR %08lX+%08lX  ", tmp, tmp2);
 	asm_rdidtr (&tmp, &tmp2);
 	printf ("IDTR %08lX+%08lX\n", tmp, tmp2);
-	backtrace ();
 }
 
 static void
@@ -334,16 +298,17 @@ dump_vm_sregs (void)
 		char *format;
 		enum sreg reg;
 	} *p, data[] = {
-		{ "ES %08lX ", SREG_ES },
-		{ "CS %08lX ", SREG_CS },
-		{ "SS %08lX ", SREG_SS },
-		{ "DS %08lX ", SREG_DS },
-		{ "FS %08lX ", SREG_FS },
-		{ "GS %08lX\n", SREG_GS },
+		{ "ES %s ", SREG_ES },
+		{ "CS %s ", SREG_CS },
+		{ "SS %s ", SREG_SS },
+		{ "DS %s ", SREG_DS },
+		{ "FS %s ", SREG_FS },
+		{ "GS %s\n", SREG_GS },
 		{ NULL, 0 },
 	};
 	ulong tmp;
 	u16 tmp16;
+	char buf[32];
 
 	if (!current->vmctl.read_sreg_sel)
 		return;
@@ -356,23 +321,30 @@ dump_vm_sregs (void)
 	printf ("ACR   ");
 	for (p = data; p->format; p++) {
 		current->vmctl.read_sreg_acr (p->reg, &tmp);
-		printf (p->format, tmp);
+		snprintf (buf, sizeof buf, "%08lX", tmp);
+		printf (p->format, buf);
 	}
 	printf ("LIMIT ");
 	for (p = data; p->format; p++) {
 		current->vmctl.read_sreg_limit (p->reg, &tmp);
-		printf (p->format, tmp);
+		if (tmp == ~0ULL)
+			snprintf (buf, sizeof buf, "%s", "(2^64-1)");
+		else
+			snprintf (buf, sizeof buf, "%08lX", tmp);
+		printf (p->format, buf);
 	}
 	printf ("BASE  ");
 	for (p = data; p->format; p++) {
 		current->vmctl.read_sreg_base (p->reg, &tmp);
-		printf (p->format, tmp);
+		snprintf (buf, sizeof buf, "%08lX", tmp);
+		printf (p->format, buf);
 	}
 	printf ("SEL   ");
 	for (p = data; p->format; p++) {
 		current->vmctl.read_sreg_sel (p->reg, &tmp16);
 		tmp = tmp16;
-		printf (p->format, tmp);
+		snprintf (buf, sizeof buf, "%08lX", tmp);
+		printf (p->format, buf);
 	}
 }
 
@@ -408,61 +380,174 @@ dump_vm_other_regs (void)
 }
 
 static void
-wait_for_other_cpu (void)
+wait_for_other_cpu (int cpunum)
 {
 	spinlock_lock (&panic_lock);
-	while (paniccpu != -1) {
-		spinlock_unlock (&panic_lock);
-		spinlock_lock (&panic_lock);
+	if (paniccpu != cpunum) {
+		while (paniccpu != -1) {
+			spinlock_unlock (&panic_lock);
+			while (paniccpu != -1)
+				asm_pause ();
+			spinlock_lock (&panic_lock);
+		}
+		paniccpu = cpunum;
 	}
-	paniccpu = get_cpu_id ();
 	spinlock_unlock (&panic_lock);
 }
 
 static void __attribute__ ((noreturn))
-panic_nomsg (bool w)
+call_panic_shell (void)
 {
-	static bool trying = false;
 	int d;
+	static bool flag_free = false, flag_shell = false;
 
-	if (w)
-		wait_for_other_cpu ();
-	if (currentcpu_available ()) {
-		printf ("Hypervisor registers of cpu %d -----------------\n",
-			get_cpu_id ());
-		dump_vmm_general_regs ();
-		dump_vmm_control_regs ();
-		dump_vmm_other_regs ();
-		printf ("------------------------------------------------\n");
+	if (!flag_free) {
+		flag_free = true;
+		if (panicmem) {
+			mm_force_unlock ();
+			free (panicmem);
+			panicmem = NULL;
+		}
 	}
-	if (currentcpu_available () && current) {
+	d = panic_process;
+	if (d >= 0 && config.vmm.shell && !flag_shell &&
+	    currentcpu->panic.shell_ready) {
+		flag_shell = true;
+		debug_msgregister ();
+		ttylog_stop ();
+		msgsendint (d, 0);
+	}
+	printf ("%s\n", panicmsg);
+	freeze ();
+}
+
+static asmlinkage void
+catch_exception_sub (void *arg)
+{
+	void (*func) (void);
+
+	func = arg;
+	func ();
+}
+
+static void
+catch_exception (int cpunum, void (*func) (void))
+{
+	int num;
+
+	if (cpunum >= 0) {
+		num = callfunc_and_getint (catch_exception_sub, func);
+		if (num >= 0)
+			printf ("Exception 0x%02X\n", num);
+	} else {
+		func ();
+	}
+}
+
+/* print a message and stop */
+void __attribute__ ((noreturn))
+panic (char *format, ...)
+{
+	u64 time;
+	int count;
+	va_list ap;
+	ulong curstk;
+	bool w = false;
+	char *p, *pend;
+	int cpunum = -1;
+	static int panic_count = 0;
+	static ulong panic_shell = 0;
+	struct panic_pcpu_data_state *state, local_state;
+
+	va_start (ap, format);
+	if (currentcpu_available ())
+		cpunum = get_cpu_id ();
+	if (cpunum >= 0) {
+		spinlock_lock (&panic_lock);
+		count = panic_count++;
+		spinlock_unlock (&panic_lock);
+		wait_for_other_cpu (cpunum);
+		p = panicmsg_tmp;
+		pend = panicmsg_tmp + sizeof panicmsg_tmp;
+		if (panic_reboot)
+			*p = '\0';
+		else
+			snprintf (p, pend - p, "panic(CPU%d): ", cpunum);
+		p += strlen (p);
+		vsnprintf (p, pend - p, format, ap);
+		if (*p != '\0') {
+			printf ("%s\n", panicmsg_tmp);
+			if (panicmsg[0] == '\0')
+				snprintf (panicmsg, sizeof panicmsg, "%s",
+					  panicmsg_tmp);
+		}
+		asm_rdrsp (&curstk);
+		if (count > 5 ||
+		    curstk - (ulong)currentcpu->stackaddr < VMM_MINSTACKSIZE) {
+			spinlock_lock (&panic_lock);
+			paniccpu = -1;
+			spinlock_unlock (&panic_lock);
+			freeze ();
+		}
+		state = &currentcpu->panic.state;
+	} else {
+		spinlock_lock (&panic_lock);
+		count = panic_count++;
+		printf ("panic: ");
+		vprintf (format, ap);
+		printf ("\n");
+		spinlock_unlock (&panic_lock);
+		if (count)
+			freeze ();
+		state = &local_state;
+		state->dump_vmm = false;
+		state->backtrace = false;
+		state->flag_dump_vm = false;
+	}
+	va_end (ap);
+	if (!state->dump_vmm) {
+		state->dump_vmm = true;
+		catch_exception (cpunum, dump_vmm_control_regs);
+		catch_exception (cpunum, dump_vmm_other_regs);
+		state->dump_vmm = false;
+	}
+	if (!state->backtrace) {
+		state->backtrace = true;
+		catch_exception (cpunum, backtrace);
+		state->backtrace = false;
+	}
+	if (cpunum >= 0 && current && !state->flag_dump_vm) {
+		/* Guest state is printed only once.  Because the
+		 * state will not change if panic will have been
+		 * called twice or more. */
+		state->flag_dump_vm = true;
 		printf ("Guest state and registers of cpu %d ------------\n",
-			get_cpu_id ());
-		dump_vm_general_regs ();
-		dump_vm_control_regs ();
-		dump_vm_sregs ();
-		dump_vm_other_regs ();
+			cpunum);
+		catch_exception (cpunum, dump_vm_general_regs);
+		catch_exception (cpunum, dump_vm_control_regs);
+		catch_exception (cpunum, dump_vm_sregs);
+		catch_exception (cpunum, dump_vm_other_regs);
 		printf ("------------------------------------------------\n");
 	}
-	if (!w && do_wakeup) {
+	if (cpunum < 0)
+		freeze ();
+	if (do_wakeup) {
 		do_wakeup = false;
-		sleep_set_timer_counter ();
-		panic_wakeup_all ();
+		w = true;
 	}
 	spinlock_lock (&panic_lock);
 	paniccpu = -1;
 	spinlock_unlock (&panic_lock);
-	call_initfunc ("panic");
-	if (!currentcpu_available ())
-		freeze ();
 	if (w) {
-		for (;;)
-			reboot_test ();
-		clihlt ();
+		sleep_set_timer_counter ();
+		panic_wakeup_all ();
 	}
-	usleep (1000000);
+	call_initfunc ("panic");
+	if (cpunum == 0) {
+		usleep (1000000);	/* wait for dump of other processors */
 #ifndef TTY_SERIAL
-	if (currentcpu_available () && get_cpu_id () == 0) {
+		setkbdled (LED_NUMLOCK_BIT | LED_SCROLLLOCK_BIT |
+			   LED_CAPSLOCK_BIT);
 		disable_apic ();
 		if (bios_area_saved)
 			copy_bios_area (bios_area_panic, bios_area_orig);
@@ -471,68 +556,24 @@ panic_nomsg (bool w)
 			copy_bios_area (NULL, bios_area_panic);
 		if (panic_reboot)
 			printf ("%s\n", panicmsg);
-	}
+		keyboard_reset ();
+		usleep (250000);
+		setkbdled (LED_SCROLLLOCK_BIT | LED_CAPSLOCK_BIT);
 #endif
-	d = panic_process;
-	if (d >= 0 && config.vmm.shell) {
-		if (!trying) {
-			trying = true;
-			if (panicmem) {
-				free (panicmem);
-				panicmem = NULL;
-			}
-			if (!panic_reboot)
-				printf ("panic: %s\n", panicmsg);
-			keyboard_reset ();
-			usleep (250000);
-			setkbdled (LED_SCROLLLOCK_BIT |
-				   LED_CAPSLOCK_BIT);
-			debug_msgregister ();
-			if (panic_reboot)
-				do_panic_reboot ();
-			ttylog_stop ();
-			msgsendint (d, 0);
-		} else {
-			printf ("panic failed.\n");
-		}
 	} else {
-		if (panic_reboot)
-			do_panic_reboot ();
-		printf ("panic: %s\n", panicmsg);
+		/* setvideomode is expected to be done in 3 seconds */
+		time = get_time ();
+		while (get_time () - time < 3000000);
 	}
-	freeze ();
-}
-
-/* print a message and stop */
-void __attribute__ ((noreturn))
-panic (char *format, ...)
-{
-	va_list ap;
-	bool w = false;
-	bool first = false;
-
-	va_start (ap, format);
-	spinlock_lock (&panic_lock);
-	if (panicmsg[0] == '\0') {
-		/* first panic message will be saved to panicmsg[] */
-		vsnprintf (panicmsg, sizeof panicmsg, format, ap);
-		first = true;
-		paniccpu = get_cpu_id ();
-		setkbdled (LED_NUMLOCK_BIT | LED_SCROLLLOCK_BIT |
-			   LED_CAPSLOCK_BIT);
-	} else if (paniccpu != get_cpu_id ()) {
-		w = true;
+	if (asm_lock_ulong_swap (&panic_shell, 1)) {
+		for (;;)
+			reboot_test ();
+		clihlt ();
 	}
-	if (!panic_reboot)
-		printf ("panic: ");
-	if (first)
-		printf ("%s", panicmsg);
-	else
-		vprintf (format, ap);
-	printf ("\n");
-	spinlock_unlock (&panic_lock);
-	va_end (ap);
-	panic_nomsg (w);
+	if (panic_reboot)
+		do_panic_reboot ();
+	printf ("%s\n", panicmsg);
+	call_panic_shell ();
 }
 
 /* stop if there is panic on other processors */
@@ -540,7 +581,7 @@ void
 panic_test (void)
 {
 	if (panicmsg[0] != '\0')
-		panic_nomsg (true);
+		panic ("%s", "");
 }
 
 static void
@@ -550,6 +591,7 @@ panic_init_global (void)
 	panic_process = -1;
 	bios_area_saved = false;
 	panicmem = NULL;
+	paniccpu = -1;
 }
 
 static void
@@ -564,12 +606,17 @@ static void
 panic_init_msg (void)
 {
 	panic_process = newprocess ("panic");
+	currentcpu->panic.shell_ready = true;
 }
 
 static void
 panic_init_pcpu (void)
 {
 	do_wakeup = true;
+	currentcpu->panic.state.dump_vmm = false;
+	currentcpu->panic.state.backtrace = false;
+	currentcpu->panic.state.flag_dump_vm = false;
+	currentcpu->panic.shell_ready = true;
 }
 
 INITFUNC ("global0", panic_init_global);

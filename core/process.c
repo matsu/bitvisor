@@ -141,7 +141,7 @@ setup_syscallentry (void)
 
 	asm_wrmsr (MSR_IA32_SYSENTER_CS, 0);	/* Disable SYSENTER/SYSEXIT */
 	asm_wrmsr32 (MSR_IA32_STAR, (u32) (ulong)syscall_entry_sysret64,
-		     (SEG_SEL_CODE64U << 16) | SEG_SEL_CODE64);
+		     (SEG_SEL_CODE32U << 16) | SEG_SEL_CODE64);
 	asm_wrmsr (MSR_IA32_LSTAR, (ulong)syscall_entry_sysret64);
 	asm_wrmsr (MSR_AMD_CSTAR, (ulong)syscall_entry_sysret64);
 	asm_wrmsr (MSR_IA32_FMASK,
@@ -244,7 +244,7 @@ ret:
 }
 
 static int
-process_new (int frompid, void *bin)
+process_new (int frompid, void *bin, int stacksize)
 {
 	int pid, gen;
 	u64 phys;
@@ -267,6 +267,8 @@ found:
 	process[pid].exitflag = false;
 	process[pid].restrict = false;
 	process[pid].stacksize = PAGESIZE;
+	if (stacksize > PAGESIZE)
+		process[pid].stacksize = stacksize;
 	gen = ++process[pid].gen;
 	process[pid].valid = true;
 	clearmsgdsc (process[pid].msgdsc);
@@ -407,6 +409,7 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 	int (*func) (int, int, struct msgbuf *, int);
 	int i;
 	long tmp;
+	int stacksize;
 
 	asm_rdrsp ((ulong *)&curstk);
 	if ((u8 *)curstk - (u8 *)currentcpu->stackaddr < VMM_MINSTACKSIZE) {
@@ -454,8 +457,8 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 		buf_user[i].rw = buf[i].rw;
 		buf_user[i].premap_handle = 0;
 	}
-	sp2 = mm_process_map_stack (process[pid].stacksize,
-				    process[pid].restrict, true);
+	stacksize = process[pid].stacksize;
+	sp2 = mm_process_map_stack (stacksize, process[pid].restrict, true);
 	if (!sp2) {
 		printf ("cannot allocate stack for process\n");
 		goto mapfail;
@@ -482,7 +485,7 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 	sp -= sizeof (ulong);
 	*(ulong *)sp = 0x3FFFF100;
 	r = call_msgfunc0 (pid, process[pid].msgdsc[desc].func, sp);
-	mm_process_unmap_stack (sp2, process[pid].stacksize);
+	mm_process_unmap_stack (sp2, stacksize);
 mapfail:
 	for (i = 0; i < bufcnt; i++) {
 		if (buf[i].premap_handle)
@@ -728,13 +731,15 @@ sys_msgsenddesc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 }
 
 static void *
-_builtin_find (char *name)
+_builtin_find (char *name, int *stacksize)
 {
-	int i;
+	struct process_builtin_data *p;
 
-	for (i = 0; process_builtin[i].name; i++) {
-		if (strcmp (name, process_builtin[i].name) == 0)
-			return process_builtin[i].bin;
+	for (p = __process_builtin; p != __process_builtin_end; p++) {
+		if (strcmp (name, p->name) == 0) {
+			*stacksize = p->stacksize;
+			return p->bin;
+		}
 	}
 	return NULL;
 }
@@ -743,12 +748,13 @@ static int
 _newprocess (int frompid, char *name)
 {
 	void *bin = NULL;
+	int stacksize = 0;
 
 	if (!bin)
-		bin = _builtin_find (name);
+		bin = _builtin_find (name, &stacksize);
 	if (!bin)
 		return -1;
-	return process_new (frompid, bin);
+	return process_new (frompid, bin, stacksize);
 }
 
 int

@@ -30,33 +30,52 @@
 #include "asm.h"
 #include "constants.h"
 #include "cpu.h"
+#include "cpu_emul.h"
 #include "cpu_mmu.h"
-#include "cpu_mmu_spt.h"
 #include "current.h"
 #include "exint_pass.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
 #include "svm_exitcode.h"
+#include "svm_init.h"
 #include "svm_io.h"
 #include "svm_main.h"
-#include "svm_np.h"
+#include "svm_paging.h"
 #include "svm_regs.h"
 #include "thread.h"
 #include "vmmerr.h"
 #include "vmmcall.h"
 
 static void
-svm_event_injection_setup (void)
+svm_nmi (void)
 {
-	struct svm_intr_data *sid = &current->u.svm.intr;
+	struct svm *svm;
 
-	if (sid->vmcb_intr_info.s.v)
-		current->u.svm.vi.vmcb->eventinj = sid->vmcb_intr_info.v;
+	svm = &current->u.svm;
+	if (svm->intr.vmcb_intr_info.s.v)
+		return;
+	if (!current->nmi.get_nmi_count ())
+		return;
+	printf ("SVM NMI!\n");	/* DEBUG */
+	svm->intr.vmcb_intr_info.v = 0;
+	svm->intr.vmcb_intr_info.s.vector = EXCEPTION_NMI;
+	svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_NMI;
+	svm->intr.vmcb_intr_info.s.ev = 0;
+	svm->intr.vmcb_intr_info.s.v = 1;
 }
 
 static void
-svm_vm_run ()
+svm_event_injection_setup (void)
+{
+	struct svm *svm;
+
+	svm = &current->u.svm;
+	svm->vi.vmcb->eventinj = svm->intr.vmcb_intr_info.v;
+}
+
+static void
+svm_vm_run (void)
 {
 	if (current->u.svm.saved_vmcb)
 		spinlock_unlock (&currentcpu->suspend_lock);
@@ -73,18 +92,15 @@ svm_event_injection_check (void)
 		struct vmcb_eventinj s;
 		u64 v;
 	} eii;
-	struct svm_intr_data *sid = &current->u.svm.intr;
+	struct svm *svm;
 
-	if (sid->vmcb_intr_info.s.v) {
-		eii.v = current->u.svm.vi.vmcb->exitintinfo;
-		if (!eii.s.v)
-			sid->vmcb_intr_info.s.v = 0;
-		else if (eii.v == sid->vmcb_intr_info.v)
-			;
-		else
-			panic ("EXITINTINFO=0x%llX EVENTINJ=0x%llX",
-			       eii.v, sid->vmcb_intr_info.v);
+	svm = &current->u.svm;
+	eii.v = svm->vi.vmcb->exitintinfo;
+	if (eii.s.v) {
+		if (eii.s.type == VMCB_EVENTINJ_TYPE_SOFT_INTR)
+			eii.s.v = 0;
 	}
+	svm->intr.vmcb_intr_info.v = eii.v;
 }
 
 static void
@@ -282,6 +298,10 @@ svm_task_switch (void)
 	svm_read_control_reg (CONTROL_REG_CR0, &tmp);
 	tmp |= CR0_TS_BIT;
 	svm_write_control_reg (CONTROL_REG_CR0, tmp);
+	/* When source of the task switch is an interrupt, intr info
+	 * which contains information of the interrupt needs to be
+	 * cleared. */
+	current->u.svm.intr.vmcb_intr_info.v = 0;
 	return;
 err:
 	panic ("svm_task_switch: error %d", r);
@@ -292,10 +312,8 @@ do_pagefault (void)
 {
 	struct vmcb *vmcb;
 
-	if (current->u.svm.np)
-		panic ("page fault while np enabled");
 	vmcb = current->u.svm.vi.vmcb;
-	cpu_mmu_spt_pagefault ((ulong)vmcb->exitinfo1, (ulong)vmcb->exitinfo2);
+	svm_paging_pagefault ((ulong)vmcb->exitinfo1, (ulong)vmcb->exitinfo2);
 }
 
 static void
@@ -332,7 +350,6 @@ do_readwrite_msr (void)
 		sid->vmcb_intr_info.s.ev = 1;
 		sid->vmcb_intr_info.s.v = 1;
 		sid->vmcb_intr_info.s.errorcode = 0;
-		current->u.svm.event = SVM_EVENT_TYPE_DELIVERY;
 	} else if (err != VMMERR_SUCCESS)
 		panic ("ERR %d", err);
 }
@@ -341,9 +358,11 @@ static void
 do_npf (void)
 {
 	struct vmcb *vmcb;
+	bool write;
 
 	vmcb = current->u.svm.vi.vmcb;
-	svm_np_pagefault ((ulong)vmcb->exitinfo1, (ulong)vmcb->exitinfo2);
+	write = !!(vmcb->exitinfo1 & PAGEFAULT_ERR_WR_BIT);
+	svm_paging_npf (write, vmcb->exitinfo2);
 }
 
 static void
@@ -354,9 +373,21 @@ do_vmmcall (void)
 }
 
 static void
-svm_exit_code ()
+do_init (void)
 {
-	current->u.svm.event = SVM_EVENT_TYPE_PHYSICAL;
+	/* An INIT signal is converted into an #SX exception. */
+}
+
+static void
+do_cpuid (void)
+{
+	cpu_emul_cpuid ();
+	current->u.svm.vi.vmcb->rip += 2;
+}
+
+static void
+svm_exit_code (void)
+{
 	switch (current->u.svm.vi.vmcb->exitcode) {
 	case VMEXIT_EXCP14:	/* Page fault */
 		do_pagefault ();
@@ -367,8 +398,6 @@ svm_exit_code ()
 	case VMEXIT_CR3_WRITE:
 	case VMEXIT_CR4_READ:
 	case VMEXIT_CR4_WRITE:
-	case VMEXIT_CR8_READ:
-	case VMEXIT_CR8_WRITE:
 		do_readwrite_cr ();
 		break;
 	case VMEXIT_IOIO:
@@ -392,38 +421,46 @@ svm_exit_code ()
 	case VMEXIT_VMMCALL:
 		do_vmmcall ();
 		break;
+	case VMEXIT_INIT:
+		do_init ();
+		break;
+	case VMEXIT_NMI:
+		break;
+	case VMEXIT_CPUID:
+		do_cpuid ();
+		break;
 	default:
 		panic ("unsupported exitcode");
 	}
 }
 
 static void
-svm_event_injection_update (void)
+svm_tlbflush (void)
 {
-	struct svm_intr_data *sid = &current->u.svm.intr;
-
-	if (sid->vmcb_intr_info.s.v &&
-	    current->u.svm.event == SVM_EVENT_TYPE_PHYSICAL)
-		sid->vmcb_intr_info.s.v = 0;
+	current->u.svm.vi.vmcb->tlb_control = VMCB_TLB_CONTROL_DO_NOTHING;
+	svm_paging_tlbflush ();
 }
 
 static void
-svm_tlbflush (void)
+svm_wait_for_sipi (void)
 {
-	struct vmcb *vmcb;
+	u32 sipi_vector;
 
-	vmcb = current->u.svm.vi.vmcb;
-	if (current->u.svm.np) {
-		if (svm_np_tlbflush ())
-			vmcb->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
-		else
-			vmcb->tlb_control = VMCB_TLB_CONTROL_DO_NOTHING;
-	} else {
-		if (cpu_mmu_spt_tlbflush ())
-			vmcb->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
-		else
-			vmcb->tlb_control = VMCB_TLB_CONTROL_DO_NOTHING;
-	}
+	sipi_vector = localapic_wait_for_sipi ();
+	current->sx_init.get_init_count (); /* Clear init_counter here */
+	svm_reset ();
+	svm_write_realmode_seg (SREG_CS, sipi_vector << 8);
+	svm_write_general_reg (GENERAL_REG_RAX, 0);
+	svm_write_general_reg (GENERAL_REG_RCX, 0);
+	svm_write_general_reg (GENERAL_REG_RDX, 0);
+	svm_write_general_reg (GENERAL_REG_RBX, 0);
+	svm_write_general_reg (GENERAL_REG_RSP, 0);
+	svm_write_general_reg (GENERAL_REG_RBP, 0);
+	svm_write_general_reg (GENERAL_REG_RSI, 0);
+	svm_write_general_reg (GENERAL_REG_RDI, 0);
+	svm_write_ip (0);
+	svm_write_flags (RFLAGS_ALWAYS1_BIT);
+	svm_write_idtr (0, 0x3FF);
 }
 
 static void
@@ -431,35 +468,29 @@ svm_mainloop (void)
 {
 	for (;;) {
 		schedule ();
+		panic_test ();
+		if (current->sx_init.get_init_count ())
+			svm_wait_for_sipi ();
+		svm_nmi ();
 		svm_event_injection_setup ();
 		svm_vm_run ();
 		svm_tlbflush ();
 		svm_event_injection_check ();
 		svm_exit_code ();
-		svm_event_injection_update ();
 	}
-}
-
-void
-svm_invlpg (ulong addr)
-{
-	if (!current->u.svm.np)
-		cpu_mmu_spt_invalidate (addr);
-	else
-		panic ("invlpg while np enabled");
 }
 
 void
 svm_init_signal (void)
 {
-	printf ("FIXME: svm_init_signal!!!\n");
+	if (get_cpu_id () == 1)
+		localapic_mmio_register ();
+	current->sx_init.inc_init_count ();
 }
 
 void
 svm_start_vm (void)
 {
-	if (get_cpu_id ())
-		for (;;)
-			asm volatile ("clgi; hlt");
+	svm_paging_start ();
 	svm_mainloop ();
 }

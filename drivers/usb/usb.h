@@ -151,12 +151,13 @@ struct usb_host {
 	u64 last_changed_port;
 	void *private;
 	struct usb_device *device;
-	LIST1_DEFINE_HEAD(struct usb_device_handle, handle);
 	struct usb_operations *op;
 #define USB_HOOK_NUM_PHASE     2
 	spinlock_t lock_hk;
 	struct usb_hook *hook[USB_HOOK_NUM_PHASE];
 	unsigned int host_id;
+	spinlock_t lock_sclock;
+	bool locked;
 };
 
 /***
@@ -247,6 +248,12 @@ struct usb_request_block {
 	LIST2_DEFINE (struct usb_request_block, need_shadow);
 	LIST2_DEFINE (struct usb_request_block, update);
 
+	/* lock */
+	bool prevent_del;
+
+	/* delete a urb after checking advance if this value is true. */
+	bool deferred_del;
+
 };
 
 /***
@@ -312,6 +319,8 @@ extern "C" {
 }
 #endif
 
+void usb_sc_lock (struct usb_host *usb);
+void usb_sc_unlock (struct usb_host *usb);
 struct usb_host *usb_register_host (void *host, struct usb_operations *op,
 				    u8 type);
 int usb_unregister_devices (struct usb_host *uhc);

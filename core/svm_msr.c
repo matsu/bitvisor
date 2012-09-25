@@ -28,21 +28,21 @@
  */
 
 #include "asm.h"
+#include "cache.h"
 #include "constants.h"
-#include "cpu_mmu_spt.h"
 #include "current.h"
 #include "mm.h"
 #include "panic.h"
 #include "printf.h"
 #include "svm_msr.h"
-#include "svm_np.h"
+#include "svm_paging.h"
 
 void
 svm_msr_update_lma (void)
 {
 	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
 
-	if (current->u.svm.lme && (current->u.svm.vr.cr0 & CR0_PG_BIT)) {
+	if (current->u.svm.lme && (*current->u.svm.cr0 & CR0_PG_BIT)) {
 		if (current->u.svm.lma)
 			return;
 #ifdef __x86_64__
@@ -65,7 +65,8 @@ svm_read_msr (u32 msrindex, u64 *msrdata)
 	bool r = false;
 	struct vmcb *vmcb;
 	u64 data;
-	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
+	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT |
+		MSR_IA32_EFER_SVME_BIT;
 
 	vmcb = current->u.svm.vi.vmcb;
 	switch (msrindex) {
@@ -108,20 +109,54 @@ svm_read_msr (u32 msrindex, u64 *msrdata)
 	case MSR_IA32_KERNEL_GS_BASE:
 		*msrdata = vmcb->kernel_gs_base;
 		break;
+	case MSR_IA32_MTRR_FIX4K_C0000:
+	case MSR_IA32_MTRR_FIX4K_C8000:
+	case MSR_IA32_MTRR_FIX4K_D0000:
+	case MSR_IA32_MTRR_FIX4K_D8000:
+	case MSR_IA32_MTRR_FIX4K_E0000:
+	case MSR_IA32_MTRR_FIX4K_E8000:
+	case MSR_IA32_MTRR_FIX4K_F0000:
+	case MSR_IA32_MTRR_FIX4K_F8000:
+	case MSR_IA32_MTRR_FIX16K_80000:
+	case MSR_IA32_MTRR_FIX16K_A0000:
+	case MSR_IA32_MTRR_FIX64K_00000:
+	case MSR_IA32_MTRR_DEF_TYPE:
+	case MSR_IA32_MTRR_PHYSBASE0:
+	case MSR_IA32_MTRR_PHYSMASK0:
+	case MSR_IA32_MTRR_PHYSBASE1:
+	case MSR_IA32_MTRR_PHYSMASK1:
+	case MSR_IA32_MTRR_PHYSBASE2:
+	case MSR_IA32_MTRR_PHYSMASK2:
+	case MSR_IA32_MTRR_PHYSBASE3:
+	case MSR_IA32_MTRR_PHYSMASK3:
+	case MSR_IA32_MTRR_PHYSBASE4:
+	case MSR_IA32_MTRR_PHYSMASK4:
+	case MSR_IA32_MTRR_PHYSBASE5:
+	case MSR_IA32_MTRR_PHYSMASK5:
+	case MSR_IA32_MTRR_PHYSBASE6:
+	case MSR_IA32_MTRR_PHYSMASK6:
+	case MSR_IA32_MTRR_PHYSBASE7:
+	case MSR_IA32_MTRR_PHYSMASK7:
+	case MSR_IA32_MTRR_PHYSBASE8:
+	case MSR_IA32_MTRR_PHYSMASK8:
+	case MSR_IA32_MTRR_PHYSBASE9:
+	case MSR_IA32_MTRR_PHYSMASK9:
+		r = cache_get_gmtrr (msrindex, msrdata);
+		break;
+	case MSR_IA32_MTRRCAP:
+		*msrdata = cache_get_gmtrrcap ();
+		break;
+	case MSR_IA32_PAT:
+		r = svm_paging_get_gpat (msrdata);
+		break;
+	case MSR_AMD_SYSCFG:
+	case MSR_AMD_TOP_MEM2:
+		r = cache_get_gmsr_amd (msrindex, msrdata);
+		break;
 	default:
 		r = current->msr.read_msr (msrindex, msrdata);
 	}
 	return r;
-}
-
-static void
-svm_msr_spt_disable (struct vmcb *vmcb)
-{
-#ifdef CPU_MMU_SPT_DISABLE
-	vmcb->cr0 = current->u.svm.vr.cr0;
-	vmcb->cr3 = current->u.svm.vr.cr3;
-	vmcb->cr4 = current->u.svm.vr.cr4;
-#endif
 }
 
 bool
@@ -129,7 +164,8 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 {
 	bool r = false;
 	struct vmcb *vmcb;
-	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
+	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT |
+		MSR_IA32_EFER_SVME_BIT;
 
 	vmcb = current->u.svm.vi.vmcb;
 	switch (msrindex) {
@@ -147,11 +183,7 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 		vmcb->efer = (vmcb->efer & mask) | (msrdata & ~mask);
 		/* FIXME: Reserved bits should be checked here. */
 		svm_msr_update_lma ();
-		if (!current->u.svm.np)
-			cpu_mmu_spt_updatecr3 ();
-		else
-			svm_np_updatecr3 ();
-		svm_msr_spt_disable (vmcb);
+		svm_paging_updatecr3 ();
 		break;
 	case MSR_IA32_STAR:
 		vmcb->star = msrdata;
@@ -174,8 +206,52 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 	case MSR_IA32_KERNEL_GS_BASE:
 		vmcb->kernel_gs_base = msrdata;
 		break;
+	case MSR_AMD_VM_CR:
+	case MSR_AMD_VM_HSAVE_PA:
+		break;
+	case MSR_IA32_MTRR_FIX4K_C0000:
+	case MSR_IA32_MTRR_FIX4K_C8000:
+	case MSR_IA32_MTRR_FIX4K_D0000:
+	case MSR_IA32_MTRR_FIX4K_D8000:
+	case MSR_IA32_MTRR_FIX4K_E0000:
+	case MSR_IA32_MTRR_FIX4K_E8000:
+	case MSR_IA32_MTRR_FIX4K_F0000:
+	case MSR_IA32_MTRR_FIX4K_F8000:
+	case MSR_IA32_MTRR_FIX16K_80000:
+	case MSR_IA32_MTRR_FIX16K_A0000:
+	case MSR_IA32_MTRR_FIX64K_00000:
 	case MSR_IA32_MTRR_DEF_TYPE:
-		/* FIXME: This is just a workaround for Linux guest. */
+	case MSR_IA32_MTRR_PHYSBASE0:
+	case MSR_IA32_MTRR_PHYSMASK0:
+	case MSR_IA32_MTRR_PHYSBASE1:
+	case MSR_IA32_MTRR_PHYSMASK1:
+	case MSR_IA32_MTRR_PHYSBASE2:
+	case MSR_IA32_MTRR_PHYSMASK2:
+	case MSR_IA32_MTRR_PHYSBASE3:
+	case MSR_IA32_MTRR_PHYSMASK3:
+	case MSR_IA32_MTRR_PHYSBASE4:
+	case MSR_IA32_MTRR_PHYSMASK4:
+	case MSR_IA32_MTRR_PHYSBASE5:
+	case MSR_IA32_MTRR_PHYSMASK5:
+	case MSR_IA32_MTRR_PHYSBASE6:
+	case MSR_IA32_MTRR_PHYSMASK6:
+	case MSR_IA32_MTRR_PHYSBASE7:
+	case MSR_IA32_MTRR_PHYSMASK7:
+	case MSR_IA32_MTRR_PHYSBASE8:
+	case MSR_IA32_MTRR_PHYSMASK8:
+	case MSR_IA32_MTRR_PHYSBASE9:
+	case MSR_IA32_MTRR_PHYSMASK9:
+		r = cache_set_gmtrr (msrindex, msrdata);
+		svm_paging_clear_all ();
+		svm_paging_flush_guest_tlb ();
+		break;
+	case MSR_IA32_PAT:
+		r = svm_paging_set_gpat (msrdata);
+		svm_paging_flush_guest_tlb ();
+		break;
+	case MSR_AMD_SYSCFG:
+	case MSR_AMD_TOP_MEM2:
+		r = cache_set_gmsr_amd (msrindex, msrdata);
 		break;
 	default:
 		r = current->msr.write_msr (msrindex, msrdata);

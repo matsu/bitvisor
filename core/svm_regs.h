@@ -42,7 +42,6 @@ void svm_read_sreg_sel (enum sreg s, u16 *val);
 void svm_read_sreg_acr (enum sreg s, ulong *val);
 void svm_read_sreg_base (enum sreg s, ulong *val);
 void svm_read_sreg_limit (enum sreg s, ulong *val);
-void svm_spt_setcr3 (ulong cr3);
 void svm_read_ip (ulong *val);
 void svm_write_ip (ulong val);
 void svm_read_flags (ulong *val);

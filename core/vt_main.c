@@ -29,6 +29,7 @@
 
 #include "asm.h"
 #include "constants.h"
+#include "convert.h"
 #include "cpu_emul.h"
 #include "cpu_mmu.h"
 #include "current.h"
@@ -50,8 +51,11 @@
 #include "vt_init.h"
 #include "vt_io.h"
 #include "vt_main.h"
+#include "vt_paging.h"
 #include "vt_regs.h"
 #include "vt_vmcs.h"
+
+#define EPT_VIOLATION_EXIT_QUAL_WRITE_BIT 0x2
 
 enum vt__status {
 	VT__VMENTRY_SUCCESS,
@@ -122,7 +126,6 @@ make_gp_fault (u32 errcode)
 	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
 	vid->vmcs_exception_errcode = errcode;
 	vid->vmcs_instruction_len = 0;
-	current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
 }
 
 static void
@@ -141,6 +144,19 @@ do_wrmsr (void)
 		make_gp_fault (0);
 	else
 		add_ip ();
+}
+
+void
+vt_update_exception_bmp (void)
+{
+	u32 newbmp = 0xFFFFFFFF;
+
+	if (!current->u.vt.vr.re && !current->u.vt.vr.sw.enable) {
+		newbmp = 1 << EXCEPTION_NMI;
+		if (current->u.vt.handle_pagefault)
+			newbmp |= 1 << EXCEPTION_PF;
+	}
+	asm_vmwrite (VMCS_EXCEPTION_BMP, newbmp);
 }
 
 static void
@@ -167,9 +183,9 @@ do_exception (void)
 
 				asm_vmread (VMCS_VMEXIT_INTR_ERRCODE, &err);
 				asm_vmread (VMCS_EXIT_QUALIFICATION, &cr2);
-				cpu_mmu_spt_pagefault (err, cr2);
+				vt_paging_pagefault (err, cr2);
 				STATUS_UPDATE (asm_lock_incl (&stat_pfcnt));
-			} else if (!current->u.vt.vr.pe) {
+			} else if (current->u.vt.vr.re) {
 				switch (vii.s.vector) {
 				case EXCEPTION_GP:
 					err = cpu_interpreter ();
@@ -212,7 +228,6 @@ do_exception (void)
 						       " fault).");
 				}
 				current->u.vt.intr.vmcs_instruction_len = 0;
-				current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
 #if 0				/* Exception monitoring test */
 				if (vii.s.vector == EXCEPTION_DE) {
 					u32 cs, eip;
@@ -232,14 +247,12 @@ do_exception (void)
 			current->u.vt.intr.vmcs_intr_info.v = vii.v;
 			asm_vmread (VMCS_VMEXIT_INSTRUCTION_LEN, &len);
 			current->u.vt.intr.vmcs_instruction_len = len;
-			current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
 			break;
 		case INTR_INFO_TYPE_NMI:
 			vii.s.nmi = 0; /* FIXME */
 			current->u.vt.intr.vmcs_intr_info.v = vii.v;
 			asm_vmread (VMCS_VMEXIT_INSTRUCTION_LEN, &len);
 			current->u.vt.intr.vmcs_instruction_len = len;
-			current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
 			break;
 		case INTR_INFO_TYPE_EXTERNAL:
 		default:
@@ -256,14 +269,8 @@ do_invlpg (void)
 	ulong linear;
 
 	asm_vmread (VMCS_EXIT_QUALIFICATION, &linear);
-	cpu_mmu_spt_invalidate (linear);
+	vt_paging_invalidate (linear);
 	add_ip ();
-}
-
-void
-vt_invlpg (ulong addr)
-{
-	cpu_mmu_spt_invalidate (addr);
 }
 
 /* VMCALL: guest calls VMM */
@@ -283,7 +290,7 @@ vt__nmi (void)
 		return;
 	if (!current->nmi.get_nmi_count ())
 		return;
-	if (!current->u.vt.vr.pe)
+	if (current->u.vt.vr.re)
 		panic ("NMI in real mode");
 	printf ("VT NMI!\n");	/* DEBUG */
 	vid->vmcs_intr_info.v = 0;
@@ -395,7 +402,8 @@ vt__event_delivery_check (void)
 	   behave differently from other processors about this field. */
 	asm_vmread (VMCS_IDT_VECTORING_INFO_FIELD, &ivif.v);
 	if (ivif.s.valid == INTR_INFO_VALID_VALID) {
-		if (ivif.s.type == INTR_INFO_TYPE_SOFT_INTR) {
+		if (ivif.s.type == INTR_INFO_TYPE_SOFT_INTR ||
+		    ivif.s.type == INTR_INFO_TYPE_SOFT_EXCEPTION) {
 			/* Ignore software interrupt to
 			   make this function simple.
 			   The INT instruction will be executed again. */
@@ -418,6 +426,7 @@ do_init_signal (void)
 		     VMCS_GUEST_ACTIVITY_STATE_WAIT_FOR_SIPI);
 	current->halt = false;
 	current->u.vt.vr.sw.enable = 0;
+	vt_update_exception_bmp ();
 }
 
 static void
@@ -427,42 +436,22 @@ do_startup_ipi (void)
 
 	asm_vmread (VMCS_EXIT_QUALIFICATION, &vector);
 	vector &= 0xFF;
-	asm_vmwrite (VMCS_GUEST_ES_SEL, 0);
-	asm_vmwrite (VMCS_GUEST_CS_SEL, vector << 8);
-	asm_vmwrite (VMCS_GUEST_SS_SEL, 0);
-	asm_vmwrite (VMCS_GUEST_DS_SEL, 0);
-	asm_vmwrite (VMCS_GUEST_FS_SEL, 0);
-	asm_vmwrite (VMCS_GUEST_GS_SEL, 0);
-	asm_vmwrite (VMCS_GUEST_ES_LIMIT, 0xFFFF);
-	asm_vmwrite (VMCS_GUEST_CS_LIMIT, 0xFFFF);
-	asm_vmwrite (VMCS_GUEST_SS_LIMIT, 0xFFFF);
-	asm_vmwrite (VMCS_GUEST_DS_LIMIT, 0xFFFF);
-	asm_vmwrite (VMCS_GUEST_FS_LIMIT, 0xFFFF);
-	asm_vmwrite (VMCS_GUEST_GS_LIMIT, 0xFFFF);
-	asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS, 0xF3);
-	asm_vmwrite (VMCS_GUEST_CS_ACCESS_RIGHTS, 0xF3);
-	asm_vmwrite (VMCS_GUEST_SS_ACCESS_RIGHTS, 0xF3);
-	asm_vmwrite (VMCS_GUEST_DS_ACCESS_RIGHTS, 0xF3);
-	asm_vmwrite (VMCS_GUEST_FS_ACCESS_RIGHTS, 0xF3);
-	asm_vmwrite (VMCS_GUEST_GS_ACCESS_RIGHTS, 0xF3);
-	asm_vmwrite (VMCS_GUEST_ES_BASE, 0);
-	asm_vmwrite (VMCS_GUEST_CS_BASE, vector << 12);
-	asm_vmwrite (VMCS_GUEST_SS_BASE, 0);
-	asm_vmwrite (VMCS_GUEST_DS_BASE, 0);
-	asm_vmwrite (VMCS_GUEST_FS_BASE, 0);
-	asm_vmwrite (VMCS_GUEST_GS_BASE, 0);
-	asm_vmwrite (VMCS_GUEST_RIP, 0);
-	asm_vmwrite (VMCS_GUEST_RFLAGS,
-		     0x2 | RFLAGS_VM_BIT | RFLAGS_IOPL_0);
-	asm_vmwrite (VMCS_GUEST_IDTR_BASE, 0);
-	asm_vmwrite (VMCS_GUEST_IDTR_LIMIT, 0x3FF);
-	asm_vmwrite (VMCS_CR0_READ_SHADOW, 0);
-	asm_vmwrite (VMCS_CR4_READ_SHADOW, 0);
-	current->u.vt.vr.pe = 0;
-	current->u.vt.vr.pg = 0;
-	current->u.vt.vr.sw.enable = 0;
+	vt_reset ();
+	vt_write_realmode_seg (SREG_CS, vector << 8);
+	vt_write_general_reg (GENERAL_REG_RAX, 0);
+	vt_write_general_reg (GENERAL_REG_RCX, 0);
+	vt_write_general_reg (GENERAL_REG_RDX, 0);
+	vt_write_general_reg (GENERAL_REG_RBX, 0);
+	vt_write_general_reg (GENERAL_REG_RSP, 0);
+	vt_write_general_reg (GENERAL_REG_RBP, 0);
+	vt_write_general_reg (GENERAL_REG_RSI, 0);
+	vt_write_general_reg (GENERAL_REG_RDI, 0);
+	vt_write_ip (0);
+	vt_write_flags (RFLAGS_ALWAYS1_BIT);
+	vt_write_idtr (0, 0x3FF);
 	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
 		     VMCS_GUEST_ACTIVITY_STATE_ACTIVE);
+	vt_update_exception_bmp ();
 }
 
 static void
@@ -697,6 +686,10 @@ virtual8086mode:
 	vt_read_control_reg (CONTROL_REG_CR0, &tmp);
 	tmp |= CR0_TS_BIT;
 	vt_write_control_reg (CONTROL_REG_CR0, tmp);
+	/* When source of the task switch is an interrupt, intr info
+	 * which may contain information of the interrupt needs to be
+	 * cleared. */
+	current->u.vt.intr.vmcs_intr_info.v = 0;
 	return;
 err:
 	panic ("do_task_switch: error %d", r);
@@ -712,11 +705,24 @@ do_xsetbv (void)
 }
 
 static void
+do_ept_violation (void)
+{
+	ulong eqe;
+	ulong gpl, gph;
+	u64 gp;
+
+	asm_vmread (VMCS_EXIT_QUALIFICATION, &eqe);
+	asm_vmread (VMCS_GUEST_PHYSICAL_ADDRESS, &gpl);
+	asm_vmread (VMCS_GUEST_PHYSICAL_ADDRESS_HIGH, &gph);
+	conv32to64 (gpl, gph, &gp);
+	vt_paging_npf (!!(eqe & EPT_VIOLATION_EXIT_QUAL_WRITE_BIT), gp);
+}
+
+static void
 vt__exit_reason (void)
 {
 	ulong exit_reason;
 
-	current->u.vt.event = VT_EVENT_TYPE_PHYSICAL;
 	asm_vmread (VMCS_EXIT_REASON, &exit_reason);
 	if (exit_reason & EXIT_REASON_VMENTRY_FAILURE_BIT)
 		panic ("Fatal error: VM Entry failure.");
@@ -769,21 +775,14 @@ vt__exit_reason (void)
 	case EXIT_REASON_XSETBV:
 		do_xsetbv ();
 		break;
+	case EXIT_REASON_EPT_VIOLATION:
+		do_ept_violation ();
+		break;
 	default:
 		printf ("Fatal error: handler not implemented.\n");
 		printexitreason (exit_reason);
 		panic ("Fatal error: handler not implemented.");
 	}
-}
-
-static void
-vt__event_delivery_update (void)
-{
-	struct vt_intr_data *vid = &current->u.vt.intr;
-
-	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID &&
-	    current->u.vt.event == VT_EVENT_TYPE_PHYSICAL)
-		vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
 }
 
 static void
@@ -870,7 +869,6 @@ vt__halt (void)
 	asm_vmwrite (VMCS_GUEST_RFLAGS, rflags);
 	vt__event_delivery_check ();
 	vt__exit_reason ();
-	vt__event_delivery_update ();
 }
 
 static void
@@ -911,6 +909,7 @@ vt_mainloop (void)
 				/* consider emulation is not needed after
 				   32 instructions are executed */
 				current->u.vt.vr.sw.enable = 0;
+				vt_update_exception_bmp ();
 				continue;
 			}
 			vt_read_control_reg (CONTROL_REG_CR0, &cr0);
@@ -921,6 +920,7 @@ vt_mainloop (void)
 					if (acr & ACCESS_RIGHTS_L_BIT) {
 						/* long mode */
 						current->u.vt.vr.sw.enable = 0;
+						vt_update_exception_bmp ();
 						continue;
 					}
 				}
@@ -943,18 +943,16 @@ vt_mainloop (void)
 			vt__nmi ();
 			vt__event_delivery_setup ();
 			vt__vm_run_with_tf ();
-			cpu_mmu_spt_tlbflush ();
+			vt_paging_tlbflush ();
 			vt__event_delivery_check ();
 			vt__exit_reason ();
-			vt__event_delivery_update ();
 		} else {	/* not switching */
 			vt__nmi ();
 			vt__event_delivery_setup ();
 			vt__vm_run ();
-			cpu_mmu_spt_tlbflush ();
+			vt_paging_tlbflush ();
 			vt__event_delivery_check ();
 			vt__exit_reason ();
-			vt__event_delivery_update ();
 		}
 	}
 }
@@ -998,7 +996,8 @@ vt_start_vm (void)
 	asm_vmread (VMCS_PIN_BASED_VMEXEC_CTL, &pin);
 	pin |= VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT;
 	asm_vmwrite (VMCS_PIN_BASED_VMEXEC_CTL, pin);
+	vt_paging_start ();
 	vt_mainloop ();
 }
 
-INITFUNC ("global4", vt_register_status_callback);
+INITFUNC ("paral01", vt_register_status_callback);

@@ -37,7 +37,10 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 {
 	u32 tmpa, tmpb, tmpc, tmpd;
 
-	asm_cpuid (0, 0, &tmpa, &tmpb, &tmpc, &tmpd);
+	if (ia < CPUID_EXT_0)
+		asm_cpuid (0, 0, &tmpa, &tmpb, &tmpc, &tmpd);
+	else
+		asm_cpuid (CPUID_EXT_0, 0, &tmpa, &tmpb, &tmpc, &tmpd);
 	asm_cpuid (ia, ic, oa, ob, oc, od);
 	if (tmpa >= 1 && ia == 1) {
 		/* *ob &= ~CPUID_1_EBX_NUMOFLP_MASK; */
@@ -53,6 +56,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		/* see xsetbv_pass.c */
 		*oa &= XCR0_X87_STATE_BIT | XCR0_SSE_STATE_BIT;
 		*od = 0;
+	} else if (tmpa >= CPUID_EXT_1 && ia == CPUID_EXT_1) {
+		*oc &= ~CPUID_EXT_1_ECX_SVM_BIT;
 	}
 }
 

@@ -146,12 +146,12 @@ time_init_pcpu (void)
 	sync_all_processors ();
 	asm_rdtsc (&tsc1_l, &tsc1_h);
 	if (currentcpu->cpunum == 0)
-		usleep (1000000);
+		usleep (1000000 >> 4);
 	sync_all_processors ();
 	asm_rdtsc (&tsc2_l, &tsc2_h);
 	conv32to64 (tsc1_l, tsc1_h, &tsc1);
 	conv32to64 (tsc2_l, tsc2_h, &tsc2);
-	count = tsc2 - tsc1;
+	count = (tsc2 - tsc1) << 4;
 	printf ("Processor %d %llu Hz\n", currentcpu->cpunum, count);
 	currentcpu->tsc = tsc1;
 	currentcpu->hz = count;
@@ -208,6 +208,6 @@ time_init_global (void)
 }
 
 INITFUNC ("global3", time_init_global);
-INITFUNC ("global4", time_init_global_status);
-INITFUNC ("pcpu3", time_init_pcpu);
+INITFUNC ("paral01", time_init_global_status);
+INITFUNC ("pcpu4", time_init_pcpu);
 INITFUNC ("msg0", time_init_msg);

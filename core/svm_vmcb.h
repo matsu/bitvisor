@@ -35,6 +35,8 @@
 enum vmcb_tlb_control {
 	VMCB_TLB_CONTROL_DO_NOTHING = 0,
 	VMCB_TLB_CONTROL_FLUSH_TLB = 1,
+	VMCB_TLB_CONTROL_FLUSH_GUEST_TLB = 3,
+	VMCB_TLB_CONTROL_FLUSH_GUEST_NON_GLOBAL_TLB = 7,
 };
 
 enum vmcb_eventinj_type {

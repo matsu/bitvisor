@@ -167,16 +167,15 @@ void
 load_bootsector (u8 bios_boot_drive, u32 tmpbufaddr, u32 tmpbufsize)
 {
 	void *p;
-	u64 loadbuf_phys;
 
 	if (try_cdboot (bios_boot_drive, tmpbufaddr, tmpbufsize) ||
 	    try_hddboot (bios_boot_drive, tmpbufaddr, tmpbufsize)) {
-		loadbuf = alloc2 (loadsize, &loadbuf_phys);
+		loadbuf = alloc (loadsize);
 		p = mapmem_hphys (tmpbufaddr, loadsize, 0);
 		memcpy (loadbuf, p, loadsize);
 		unmapmem (p, loadsize);
 #ifdef TCG_BIOS
-		tcg_measure (loadbuf_phys, loadsize);
+		tcg_measure (loadbuf, loadsize);
 #endif
 		loaddrive = bios_boot_drive;
 		return;

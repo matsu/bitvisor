@@ -31,6 +31,16 @@
 #define _CORE_PANIC_H
 
 #include <core/panic.h>
+#include "types.h"
+
+struct panic_pcpu_data_state {
+	bool dump_vmm, backtrace, flag_dump_vm;
+};
+
+struct panic_pcpu_data {
+	struct panic_pcpu_data_state state;
+	bool shell_ready;
+};
 
 void auto_reboot (void);
 void do_panic_reboot (void);

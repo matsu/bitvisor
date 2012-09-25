@@ -32,6 +32,7 @@
 #include "cpuid.h"
 #include "current.h"
 #include "panic.h"
+#include "pcpu.h"
 #include "printf.h"
 #include "string.h"
 #include "svm.h"
@@ -39,6 +40,7 @@
 #include "svm_io.h"
 #include "svm_main.h"
 #include "svm_msr.h"
+#include "svm_paging.h"
 #include "svm_panic.h"
 #include "svm_regs.h"
 #include "vmctl.h"
@@ -52,9 +54,11 @@ static void svm_generate_pagefault (ulong err, ulong cr2);
 static void svm_exint_pass (bool enable);
 static void svm_exint_pending (bool pending);
 static void svm_generate_external_int (uint num);
-static void svm_event_virtual (void);
 static void svm_tsc_offset_changed (void);
 static bool svm_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e);
+static void svm_spt_tlbflush (void);
+static void svm_spt_setcr3 (ulong cr3);
+static void svm_invlpg (ulong addr);
 
 static void svm_iopass (u32 port, bool pass) { UNIMPLEMENTED (); }
 
@@ -64,7 +68,6 @@ static struct vmctl_func func = {
 	svm_start_vm,
 	svm_generate_pagefault,
 	svm_generate_external_int,
-	svm_event_virtual,
 	svm_read_general_reg,
 	svm_write_general_reg,
 	svm_read_control_reg,
@@ -74,6 +77,7 @@ static struct vmctl_func func = {
 	svm_read_sreg_base,
 	svm_read_sreg_limit,
 	svm_spt_setcr3,
+	svm_spt_tlbflush,
 	svm_read_ip,
 	svm_write_ip,
 	svm_read_flags,
@@ -100,6 +104,7 @@ static struct vmctl_func func = {
 	call_xsetbv,
 	svm_enable_resume,
 	svm_resume,
+	svm_paging_map_1mb,
 };
 
 static void
@@ -113,14 +118,7 @@ svm_generate_pagefault (ulong err, ulong cr2)
 	sid->vmcb_intr_info.s.ev = 1;
 	sid->vmcb_intr_info.s.v = 1;
 	sid->vmcb_intr_info.s.errorcode = (u32)err;
-	current->u.svm.event = SVM_EVENT_TYPE_DELIVERY;
 	current->u.svm.vi.vmcb->cr2 = cr2;
-}
-
-static void
-svm_event_virtual (void)
-{
-	current->u.svm.event = SVM_EVENT_TYPE_VIRTUAL;
 }
 
 static void
@@ -151,7 +149,6 @@ svm_generate_external_int (uint num)
 	sid->vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_INTR;
 	sid->vmcb_intr_info.s.ev = 0;
 	sid->vmcb_intr_info.s.v = 1;
-	current->u.svm.event = SVM_EVENT_TYPE_DELIVERY;
 }
 
 static void
@@ -163,10 +160,25 @@ svm_tsc_offset_changed (void)
 static bool
 svm_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e)
 {
-	if (current->u.svm.np)
-		panic ("svm_extern_flush_tlb_entry: NP");
-	else
-		return cpu_mmu_spt_extern_mapsearch (p, s, e);
+	return svm_paging_extern_flush_tlb_entry (p, s, e);
+}
+
+static void
+svm_spt_tlbflush (void)
+{
+	svm_paging_flush_guest_tlb ();
+}
+
+static void
+svm_spt_setcr3 (ulong cr3)
+{
+	svm_paging_spt_setcr3 (cr3);
+}
+
+static void
+svm_invlpg (ulong addr)
+{
+	svm_paging_invalidate (addr);
 }
 
 void

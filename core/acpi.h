@@ -41,5 +41,6 @@ void acpi_iohook (void);
 void acpi_poweroff (void);
 bool get_acpi_time_raw (u32 *r);
 void acpi_smi_hook (void);
+void acpi_reset (void);
 
 #endif

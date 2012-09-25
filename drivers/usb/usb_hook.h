@@ -11,9 +11,7 @@
 #define USB_HOOK_MATCH_ADDR   0x10U
 #define USB_HOOK_MATCH_ENDP   0x20U
 #define USB_HOOK_MATCH_DATA   0x40U
-#define USB_HOOK_MATCH_ALL    (USB_HOOK_MATCH_ADDR | \
-			       USB_HOOK_MATCH_ENDP | \
-			       USB_HOOK_MATCH_DATA)
+#define USB_HOOK_MATCH_DEV    0x80U
 
 struct usb_hook_pattern {
 	u8          pid;

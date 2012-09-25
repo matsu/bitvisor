@@ -30,8 +30,8 @@
 #ifndef _CORE_VT_MAIN_H
 #define _CORE_VT_MAIN_H
 
-void vt_invlpg (ulong addr);
 void vt_init_signal (void);
 void vt_start_vm (void);
+void vt_update_exception_bmp (void);
 
 #endif

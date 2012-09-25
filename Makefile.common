@@ -1,0 +1,34 @@
+# -*- makefile-gmake -*-
+
+# commands
+AR = ar
+CC = cc
+RM = rm -f
+OBJCOPY = objcopy
+SED = sed
+SIZE = size
+
+# files
+CONFIG = .config
+dir := $(DIR:/=)/
+dir := $(dir:./%=%)
+outo = output.o
+outa = output.a
+outp = processes.o
+target = $(outo)
+defouto = $(dir)$(outo)
+defouta = $(dir)$(outa)
+defoutp = $(dir)$(outp)
+flags = .flags
+depends = .depends
+objects = .objects
+boptions = .boptions
+
+# OpenSSL
+OPENSSL_VERSION = 1.0.0g
+
+# V
+V-makeopt-0 := -s
+V-info-1 := @:
+V-makeopt := $(V-makeopt-$(V))
+V-info := $(V-info-$(V)) echo ' '

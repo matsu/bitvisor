@@ -168,7 +168,7 @@ static phys_t buildup_iopt(struct domain *dom, u64 addr)
 		
 		vaddr = (u64 *)virt;
 		memset(vaddr, 0, PAGESIZE);
-		dom->pgd = (void *)phys;
+		dom->pgd = (void *)(long)phys;
 	}
 	
 	parent = mapmem_hphys((unsigned long)dom->pgd, PAGESIZE, MAPMEM_PCD);
@@ -461,7 +461,7 @@ static int reg_context_entry(struct domain *dom, struct iommu *iommu, u8 bus, u8
 			return -ENOMEM;
 		}
 		memset(virt, 0, PAGESIZE);
-		dom->pgd = (void *)phys; 
+		dom->pgd = (void *)(long)phys;
 	}
 	
 	set_asr(*context, (unsigned long)dom->pgd);
@@ -752,6 +752,10 @@ struct domain *create_dom(unsigned short int domid)
 	
 	return dom;
 #endif // of VTD_TRANS
+	if (0)			/* make gcc happy */
+		printf ("%p%p%p%p%p%p%p", flush_all, dmar_map_page,
+			setup_bitvisor_devs, mod_remap_conf, init_iommu,
+			enable_dma_remapping, remap_preconf);
 	return 0;
 }
 

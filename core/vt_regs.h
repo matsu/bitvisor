@@ -64,7 +64,6 @@ void vt_read_sreg_sel (enum sreg s, u16 *val);
 void vt_read_sreg_acr (enum sreg s, ulong *val);
 void vt_read_sreg_base (enum sreg s, ulong *val);
 void vt_read_sreg_limit (enum sreg s, ulong *val);
-void vt_spt_setcr3 (ulong cr3);
 void vt_read_ip (ulong *val);
 void vt_write_ip (ulong val);
 void vt_read_flags (ulong *val);
@@ -75,5 +74,6 @@ void vt_read_idtr (ulong *base, ulong *limit);
 void vt_write_idtr (ulong base, ulong limit);
 void vt_write_realmode_seg (enum sreg s, u16 val);
 enum vmmerr vt_writing_sreg (enum sreg s);
+void vt_reset (void);
 
 #endif

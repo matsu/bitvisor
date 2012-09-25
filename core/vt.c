@@ -42,6 +42,7 @@
 #include "vt_io.h"
 #include "vt_main.h"
 #include "vt_msr.h"
+#include "vt_paging.h"
 #include "vt_panic.h"
 #include "vt_regs.h"
 
@@ -49,6 +50,9 @@ static void vt_exint_pass (bool enable);
 static void vt_exint_pending (bool pending);
 static void vt_tsc_offset_changed (void);
 static bool vt_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e);
+static void vt_spt_tlbflush (void);
+static void vt_spt_setcr3 (ulong cr3);
+static void vt_invlpg (ulong addr);
 
 static struct vmctl_func func = {
 	vt_vminit,
@@ -56,7 +60,6 @@ static struct vmctl_func func = {
 	vt_start_vm,
 	vt_generate_pagefault,
 	vt_generate_external_int,
-	vt_event_virtual,
 	vt_read_general_reg,
 	vt_write_general_reg,
 	vt_read_control_reg,
@@ -66,6 +69,7 @@ static struct vmctl_func func = {
 	vt_read_sreg_base,
 	vt_read_sreg_limit,
 	vt_spt_setcr3,
+	vt_spt_tlbflush,
 	vt_read_ip,
 	vt_write_ip,
 	vt_read_flags,
@@ -92,6 +96,7 @@ static struct vmctl_func func = {
 	call_xsetbv,
 	vt_enable_resume,
 	vt_resume,
+	vt_paging_map_1mb,
 };
 
 void
@@ -125,7 +130,6 @@ vt_generate_pagefault (ulong err, ulong cr2)
 	vid->vmcs_exception_errcode = err;
 	vid->vmcs_instruction_len = 0;
 	current->u.vt.vr.cr2 = cr2;
-	current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
 }
 
 void
@@ -133,7 +137,7 @@ vt_generate_external_int (u32 num)
 {
 	struct vt_intr_data *vid = &current->u.vt.intr;
 
-	if (current->u.vt.vr.pe) {
+	if (!current->u.vt.vr.re) {
 		vid->vmcs_intr_info.s.vector = num;
 		vid->vmcs_intr_info.s.type = INTR_INFO_TYPE_EXTERNAL;
 		vid->vmcs_intr_info.s.err = INTR_INFO_ERR_INVALID;
@@ -141,16 +145,9 @@ vt_generate_external_int (u32 num)
 		vid->vmcs_intr_info.s.reserved = 0;
 		vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
 		vid->vmcs_instruction_len = 0;
-		current->u.vt.event = VT_EVENT_TYPE_DELIVERY;
 	} else {
 		cpu_emul_realmode_int (num);
 	}
-}
-
-void
-vt_event_virtual (void)
-{
-	current->u.vt.event = VT_EVENT_TYPE_VIRTUAL;
 }
 
 static void
@@ -182,7 +179,25 @@ vt_exint_pending (bool pending)
 static bool
 vt_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e)
 {
-	return cpu_mmu_spt_extern_mapsearch (p, s, e);
+	return vt_paging_extern_flush_tlb_entry (p, s, e);
+}
+
+static void
+vt_spt_tlbflush (void)
+{
+	vt_paging_flush_guest_tlb ();
+}
+
+static void
+vt_spt_setcr3 (ulong cr3)
+{
+	vt_paging_spt_setcr3 (cr3);
+}
+
+static void
+vt_invlpg (ulong addr)
+{
+	vt_paging_invalidate (addr);
 }
 
 static void

@@ -121,6 +121,8 @@
 #define OPCODE_0xFF_PUSH		0x06
 #define OPCODE_0x8F			0x8F
 #define OPCODE_0x8F_POP			0x00
+#define OPCODE_0x0F_0xBA		0xBA
+#define OPCODE_0x0F_0xBA_BT		0x4
 
 enum addrtype {
 	ADDRTYPE_16BIT,
@@ -144,25 +146,37 @@ enum reg {
 	REG_BP = 5,		/* BP/EBP/RBP */
 	REG_SI = 6,		/* SI/ESI/RSI */
 	REG_DI = 7,		/* DI/EDI/RDI */
-	REG_08 = 8,		/* R8 */
-	REG_09 = 9,		/* R9 */
-	REG_10 = 10,		/* R10 */
-	REG_11 = 11,		/* R11 */
-	REG_12 = 12,		/* R12 */
-	REG_13 = 13,		/* R13 */
-	REG_14 = 14,		/* R14 */
-	REG_15 = 15,		/* R15 */
+	REG_08 = 8,		/* R8W/R8D/R8 */
+	REG_09 = 9,		/* R9W/R9D/R9 */
+	REG_10 = 10,		/* R10W/R10D/R10 */
+	REG_11 = 11,		/* R11W/R11D/R11 */
+	REG_12 = 12,		/* R12W/R12D/R12 */
+	REG_13 = 13,		/* R13W/R13D/R13 */
+	REG_14 = 14,		/* R14W/R14D/R14 */
+	REG_15 = 15,		/* R15W/R15D/R15 */
 };
 
 enum reg8 {
-	REG_AL = 0,
-	REG_CL = 1,
-	REG_DL = 2,
-	REG_BL = 3,
-	REG_AH = 4,
-	REG_CH = 5,
-	REG_DH = 6,
-	REG_BH = 7,
+	REG_AL = 0,		/* AL */
+	REG_CL = 1,		/* CL */
+	REG_DL = 2,		/* DL */
+	REG_BL = 3,		/* BL */
+	REG_AH = 4,		/* AH (No REX prefixes) */
+	REG_CH = 5,		/* CH (No REX prefixes) */
+	REG_DH = 6,		/* DH (No REX prefixes) */
+	REG_BH = 7,		/* BH (No REX prefixes) */
+	REG_SPL = 4,		/* SPL (With a REX prefix) */
+	REG_BPL = 5,		/* BPL (With a REX prefix) */
+	REG_SIL = 6,		/* SIL (With a REX prefix) */
+	REG_DIL = 7,		/* DIL (With a REX prefix) */
+	REG_R8B = 8,		/* R8B */
+	REG_R9B = 9,		/* R9B */
+	REG_R10B = 10,		/* R10B */
+	REG_R11B = 11,		/* R11B */
+	REG_R12B = 12,		/* R12B */
+	REG_R13B = 13,		/* R13B */
+	REG_R14B = 14,		/* R14B */
+	REG_R15B = 15,		/* R15B */
 };
 
 enum idata_type {
@@ -230,7 +244,7 @@ struct prefix {
 			unsigned int w : 1;
 		} b;
 		struct {
-			unsigned int val : 4;
+			unsigned int val : 8;
 		} v;
 	} rex;
 };
@@ -253,9 +267,9 @@ struct op {
 	struct sib sib;
 	i32 disp;		/* maximum size of a displacement is 32bit */
 	u64 imm;
-	enum reg modrm_reg;
+	enum reg modrm_brm, modrm_rreg;
 	enum sreg modrm_seg;
-	u64 modrm_off;
+	u64 modrm_addr;
 	enum cpumode mode;
 	enum addrtype addrtype;
 	enum optype optype;
@@ -264,6 +278,7 @@ struct op {
 	uint ip_off;
 	struct realmode_sysregs *rsr;
 	bool longmode;
+	bool modrm_ripflag;
 };
 
 struct modrm_info {
@@ -788,6 +803,8 @@ static struct idata grp3[8] = {
 		return err; \
 } while (0)
 
+#define READ_MODRM_B(op) RIE (read_modrm_b (op))
+
 #define UPDATE_IP(op) current->vmctl.write_ip (op->ip + op->ip_off)
 
 #define LGUESTSEG_READ_B(op,p,offset,data) do { \
@@ -870,6 +887,13 @@ static struct idata grp3[8] = {
 	} \
 } while (0)
 
+static enum vmmerr idata_rd (struct op *op, enum idata_operand operand,
+			     int length, void *pointer);
+static enum vmmerr idata_wr (struct op *op, enum idata_operand operand,
+			     int length, void *pointer);
+static enum vmmerr read_modrm16 (struct op *op, u8 o, u16 *d16);
+static enum vmmerr read_modrm32 (struct op *op, u8 o, u32 *d);
+
 static enum vmmerr
 read_next_b (struct op *op, u8 *data)
 {
@@ -940,21 +964,6 @@ get_reg (struct op *op, enum reg reg)
 	return tmp;
 }
 
-static ulong
-get_regl (struct op *op, enum reg reg, int b)
-{
-	ulong tmp = 0;
-
-	if (reg >= 0 && reg <= 7) {
-		if (b)
-			current->vmctl.read_general_reg (reg + 8, &tmp);
-		else
-			current->vmctl.read_general_reg (reg, &tmp);
-	}
-	return tmp;
-			
-}
-
 static void
 set_reg (struct op *op, enum reg reg, ulong data)
 {
@@ -1012,15 +1021,13 @@ set_reg (struct op *op, enum reg reg, ulong data)
 	}
 }
 
-static void
-set_regl (struct op *op, enum reg reg, int b, ulong data)
+static enum vmmerr
+read_modrm_b (struct op *op)
 {
-	if (reg >= 0 && reg <= 7) {
-		if (b)
-			current->vmctl.write_general_reg (reg + 8, data);
-		else
-			current->vmctl.write_general_reg (reg, data);
-	}
+	READ_NEXT_B (op, &op->modrm);
+	op->modrm_rreg = op->modrm.reg + (op->prefix.rex.b.r ? 8 : 0);
+	op->modrm_brm = op->modrm.rm + (op->prefix.rex.b.b ? 8 : 0);
+	return VMMERR_SUCCESS;
 }
 
 static enum vmmerr
@@ -1035,11 +1042,9 @@ get_modrm (struct op *op)
 	i8 tmp1;
 	i16 tmp2;
 
-	if (op->modrm.mod == 3) {
-		op->modrm_reg = op->modrm.rm;
+	if (op->modrm.mod == 3)
 		return VMMERR_SUCCESS;
-	}
-	op->modrm_reg = REG_NO;
+	op->modrm_brm = REG_NO;
 	if (op->addrtype == ADDRTYPE_16BIT)
 		m = &modrmmatrix16[op->modrm.mod][op->modrm.rm];
 	else
@@ -1075,14 +1080,8 @@ get_modrm (struct op *op)
 		op->disp = 0;
 	}
 	addr += op->disp;
-	if (op->longmode && m->ripflag)
-		addr += op->ip + op->ip_off; /* DONT USE READ_NEXT AFTER
-						THIS */
-	if (op->addrtype == ADDRTYPE_16BIT)
-		addr &= 0xFFFF;
-	else if (op->addrtype == ADDRTYPE_32BIT)
-		addr &= 0xFFFFFFFF;
-	op->modrm_off = addr;
+	op->modrm_addr = addr;
+	op->modrm_ripflag = (op->longmode && m->ripflag);
 	if (op->prefix.seg != SREG_DEFAULT)
 		op->modrm_seg = op->prefix.seg;
 	else
@@ -1095,17 +1094,33 @@ read_moffs (struct op *op)
 {
 	u32 moffs = 0;
 
-	op->modrm_reg = REG_NO;
+	op->modrm_brm = REG_NO;
 	if (op->addrtype == ADDRTYPE_16BIT)
 		READ_NEXT_W (op, &moffs);
 	else
 		READ_NEXT_L (op, &moffs);
-	op->modrm_off = moffs;
+	op->modrm_addr = moffs;
+	op->modrm_ripflag = false;
 	if (op->prefix.seg != SREG_DEFAULT)
 		op->modrm_seg = op->prefix.seg;
 	else
 		op->modrm_seg = SREG_DS;
 	return VMMERR_SUCCESS;
+}
+
+static u64
+modrm_off (struct op *op, u8 o)
+{
+	u64 addr;
+
+	addr = op->modrm_addr + o;
+	if (op->modrm_ripflag)
+		addr += op->ip + op->ip_off;
+	if (op->addrtype == ADDRTYPE_16BIT)
+		addr &= 0xFFFF;
+	else if (op->addrtype == ADDRTYPE_32BIT)
+		addr &= 0xFFFFFFFF;
+	return addr;
 }
 
 static void
@@ -1683,14 +1698,11 @@ opcode_mov_to_cr (struct op *op)
 	ulong cr;
 	enum control_reg n;
 
-	if (op->modrm.mod != 3)
-		return VMMERR_EXCEPTION_UD;
-	cr = get_regl (op, op->modrm.rm, op->prefix.rex.b.b);
-	if (op->addrtype != ADDRTYPE_64BIT)
+	/* Ignore op->modrm.mod */
+	cr = get_reg (op, op->modrm_brm);
+	if (!op->longmode)
 		cr &= 0xFFFFFFFF;
-	n = op->modrm.reg;
-	if (op->prefix.rex.b.r)
-		n += 8;
+	n = op->modrm_rreg;
 	current->vmctl.write_control_reg (n, cr);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
@@ -1702,13 +1714,12 @@ opcode_mov_from_cr (struct op *op)
 	ulong cr;
 	enum control_reg n;
 
-	if (op->modrm.mod != 3)
-		return VMMERR_EXCEPTION_UD;
-	n = op->modrm.reg;
-	if (op->prefix.rex.b.r)
-		n += 8;
+	/* Ignore op->modrm.mod */
+	n = op->modrm_rreg;
 	current->vmctl.read_control_reg (n, &cr);
-	set_regl (op, op->modrm.rm, op->prefix.rex.b.b, cr);
+	if (!op->longmode)
+		cr &= 0xFFFFFFFF;
+	set_reg (op, op->modrm_brm, cr);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1778,18 +1789,14 @@ opcode_lgdt (struct op *op)
 	u16 limit;
 	u32 base;
 
-	if (op->modrm_reg != REG_NO)
+	if (op->modrm_brm != REG_NO)
 		return VMMERR_EXCEPTION_UD;
-	if (op->optype == OPTYPE_64BIT)
+	if (op->longmode)
 		panic ("64bit LGDT not supported");
-	if (op->optype == OPTYPE_16BIT) {
-		RIE (cpu_seg_read_w (op->modrm_seg, op->modrm_off, &limit));
-		RIE (cpu_seg_read_l (op->modrm_seg, op->modrm_off + 2, &base));
+	RIE (read_modrm16 (op, 0, &limit));
+	RIE (read_modrm32 (op, 2, &base));
+	if (op->optype == OPTYPE_16BIT)
 		base &= 0x00FFFFFF;
-	} else {
-		RIE (cpu_seg_read_w (op->modrm_seg, op->modrm_off, &limit));
-		RIE (cpu_seg_read_l (op->modrm_seg, op->modrm_off + 2, &base));
-	}
 	current->vmctl.write_gdtr (base, limit);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
@@ -1801,18 +1808,14 @@ opcode_lidt (struct op *op)
 	u16 limit;
 	u32 base;
 
-	if (op->modrm_reg != REG_NO)
+	if (op->modrm_brm != REG_NO)
 		return VMMERR_EXCEPTION_UD;
-	if (op->optype == OPTYPE_64BIT)
+	if (op->longmode)
 		panic ("64bit LIDT not supported");
-	if (op->optype == OPTYPE_16BIT) {
-		RIE (cpu_seg_read_w (op->modrm_seg, op->modrm_off, &limit));
-		RIE (cpu_seg_read_l (op->modrm_seg, op->modrm_off + 2, &base));
+	RIE (read_modrm16 (op, 0, &limit));
+	RIE (read_modrm32 (op, 2, &base));
+	if (op->optype == OPTYPE_16BIT)
 		base &= 0x00FFFFFF;
-	} else {
-		RIE (cpu_seg_read_w (op->modrm_seg, op->modrm_off, &limit));
-		RIE (cpu_seg_read_l (op->modrm_seg, op->modrm_off + 2, &base));
-	}
 	current->vmctl.write_idtr (base, limit);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
@@ -1824,10 +1827,7 @@ opcode_smsw (struct op *op)
 	ulong cr;
 
 	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr);
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_WRITE_W (op, op->modrm_seg, op->modrm_off, cr);
-	else
-		set_reg (op, op->modrm_reg, cr);
+	RIE (idata_wr (op, O_M, 2, &cr));
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1835,16 +1835,14 @@ opcode_smsw (struct op *op)
 static enum vmmerr
 opcode_lmsw (struct op *op)
 {
-	u16 data;
+	ulong data;
 	ulong cr;
 
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_READ_W (op, op->modrm_seg, op->modrm_off, &data);
-	else
-		data = get_reg (op, op->modrm_reg);
+	op->optype = OPTYPE_16BIT;
+	RIE (idata_rd (op, O_M, 2, &data));
 	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr);
-	cr &= ~0xFFFF;
-	cr |= data & 0xFFFF;
+	cr &= ~0xFUL;
+	cr |= data & 0xFUL;
 	current->vmctl.write_control_reg (CONTROL_REG_CR0, cr);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
@@ -1856,7 +1854,7 @@ opcode_invlpg (struct op *op)
 	ulong base;
 
 	current->vmctl.read_sreg_base (op->modrm_seg, &base);
-	current->vmctl.invlpg (base + op->modrm_off);
+	current->vmctl.invlpg (base + modrm_off (op, 0));
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1877,12 +1875,9 @@ opcode_mov_from_sr (struct op *op)
 	u16 sel;
 
 	current->vmctl.read_sreg_sel ((enum sreg)op->modrm.reg, &sel);
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_WRITE_W (op, op->modrm_seg, op->modrm_off, sel);
-	else if (op->optype == OPTYPE_16BIT)
-		set_reg16 (op, op->modrm_reg, sel);
-	else
-		set_regl (op, op->modrm_reg, op->prefix.rex.b.b, sel);
+	if (op->modrm_brm == REG_NO)
+		op->optype = OPTYPE_16BIT;
+	RIE (idata_wr (op, O_M, 2, &sel));
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -2036,6 +2031,8 @@ reg8_general_reg (enum reg8 r8)
 	case REG_BL:
 	case REG_BH:
 		return GENERAL_REG_RBX;
+	default:
+		break;
 	}
 	return 0;
 }
@@ -2054,94 +2051,150 @@ reg8_dp (enum reg8 r8, ulong *data)
 	case REG_DH:
 	case REG_BH:
 		return &((u8 *)data)[1];
+	default:
+		break;
 	}
 	return NULL;
 }
 
 static u8
-get_reg8 (struct op *op, enum reg8 r8)
+get_reg8 (struct op *op, bool rex, enum reg8 r8)
 {
 	ulong dlong;
 	enum general_reg reg;
 	u8 *dp;
 
-	reg = reg8_general_reg (r8);
-	dp = reg8_dp (r8, &dlong);
+	if (rex) {
+		reg = (enum general_reg)r8;
+		dp = (u8 *)&dlong;
+	} else {
+		reg = reg8_general_reg (r8);
+		dp = reg8_dp (r8, &dlong);
+	}
 	current->vmctl.read_general_reg (reg, &dlong);
 	return *dp;
 }
 
 static void
-set_reg8 (struct op *op, enum reg8 r8, u8 d8)
+set_reg8 (struct op *op, bool rex, enum reg8 r8, u8 d8)
 {
 	ulong dlong;
 	enum general_reg reg;
 	u8 *dp;
 
-	reg = reg8_general_reg (r8);
-	dp = reg8_dp (r8, &dlong);
+	if (rex) {
+		reg = (enum general_reg)r8;
+		dp = (u8 *)&dlong;
+	} else {
+		reg = reg8_general_reg (r8);
+		dp = reg8_dp (r8, &dlong);
+	}
 	current->vmctl.read_general_reg (reg, &dlong);
 	*dp = d8;
 	current->vmctl.write_general_reg (reg, dlong);
 }
 
 static enum vmmerr
-read_modrm8 (struct op *op, u8 *d8)
+read_modrm8 (struct op *op, u8 o, u8 *d8)
 {
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_READ_B (op, op->modrm_seg, op->modrm_off, d8);
-	else
-		*d8 = get_reg8 (op, op->modrm_reg);
+	if (op->modrm_brm == REG_NO) {
+		LGUESTSEG_READ_B (op, op->modrm_seg, modrm_off (op, o), d8);
+	} else {
+		if (o)
+			panic ("Offset must be zero for register access");
+		*d8 = get_reg8 (op, !!op->prefix.rex.v.val, op->modrm_brm);
+	}
 	return VMMERR_SUCCESS;
 }
 
 static enum vmmerr
-write_modrm8 (struct op *op, u8 d8)
+write_modrm8 (struct op *op, u8 o, u8 d8)
 {
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_WRITE_B (op, op->modrm_seg, op->modrm_off, d8);
-	else
-		set_reg8 (op, op->modrm_reg, d8);
+	if (op->modrm_brm == REG_NO) {
+		LGUESTSEG_WRITE_B (op, op->modrm_seg, modrm_off (op, o), d8);
+	} else {
+		if (o)
+			panic ("Offset must be zero for register access");
+		set_reg8 (op, !!op->prefix.rex.v.val, op->modrm_brm, d8);
+	}
 	return VMMERR_SUCCESS;
 }
 
 static enum vmmerr
-read_modrm16 (struct op *op, u16 *d16)
+read_modrm16 (struct op *op, u8 o, u16 *d16)
 {
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_READ_W (op, op->modrm_seg, op->modrm_off, d16);
-	else
-		*d16 = get_reg (op, op->modrm_reg);
+	if (op->modrm_brm == REG_NO) {
+		LGUESTSEG_READ_W (op, op->modrm_seg, modrm_off (op, o), d16);
+	} else {
+		if (o)
+			panic ("Offset must be zero for register access");
+		*d16 = get_reg (op, op->modrm_brm);
+	}
 	return VMMERR_SUCCESS;
 }
 
 static enum vmmerr
-read_modrm (struct op *op, u32 *d)
+read_modrm32 (struct op *op, u8 o, u32 *d)
 {
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_READ_L (op, op->modrm_seg, op->modrm_off, d);
-	else
-		*d = get_reg (op, op->modrm_reg);
+	if (op->modrm_brm == REG_NO) {
+		LGUESTSEG_READ_L (op, op->modrm_seg, modrm_off (op, o), d);
+	} else {
+		if (o)
+			panic ("Offset must be zero for register access");
+		*d = get_reg (op, op->modrm_brm);
+	}
 	return VMMERR_SUCCESS;
 }
 
 static enum vmmerr
-write_modrm16 (struct op *op, u16 d16)
+read_modrm64 (struct op *op, u8 o, u64 *d)
 {
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_WRITE_W (op, op->modrm_seg, op->modrm_off, d16);
-	else
-		set_reg16 (op, op->modrm_reg, d16);
+	if (op->modrm_brm == REG_NO) {
+		LGUESTSEG_READ_Q (op, op->modrm_seg, modrm_off (op, o), d);
+	} else {
+		if (o)
+			panic ("Offset must be zero for register access");
+		*d = get_reg (op, op->modrm_brm);
+	}
 	return VMMERR_SUCCESS;
 }
 
 static enum vmmerr
-write_modrm (struct op *op, u32 d)
+write_modrm16 (struct op *op, u8 o, u16 d16)
 {
-	if (op->modrm_reg == REG_NO)
-		LGUESTSEG_WRITE_L (op, op->modrm_seg, op->modrm_off, d);
-	else
-		set_reg (op, op->modrm_reg, d);
+	if (op->modrm_brm == REG_NO) {
+		LGUESTSEG_WRITE_W (op, op->modrm_seg, modrm_off (op, o), d16);
+	} else {
+		if (o)
+			panic ("Offset must be zero for register access");
+		set_reg16 (op, op->modrm_brm, d16);
+	}
+	return VMMERR_SUCCESS;
+}
+
+static enum vmmerr
+write_modrm32 (struct op *op, u8 o, u32 d)
+{
+	if (op->modrm_brm == REG_NO) {
+		LGUESTSEG_WRITE_L (op, op->modrm_seg, modrm_off (op, o), d);
+	} else {
+		if (o)
+			panic ("Offset must be zero for register access");
+		set_reg (op, op->modrm_brm, d);
+	}
+	return VMMERR_SUCCESS;
+}
+
+static enum vmmerr
+write_modrm64 (struct op *op, u8 o, u64 d)
+{
+	if (op->modrm_brm == REG_NO) {
+		LGUESTSEG_WRITE_Q (op, op->modrm_seg, modrm_off (op, o), d);
+	} else {
+		if (o)
+			panic ("Offset must be zero for register access");
+		set_reg (op, op->modrm_brm, d);
+	}
 	return VMMERR_SUCCESS;
 }
 
@@ -2149,11 +2202,11 @@ static enum vmmerr
 opcode_movzx_rm8_to_r (struct op *op)
 {
 	u8 d8;
-	u32 d;
+	ulong d;
 
-	RIE (read_modrm8 (op, &d8));
+	RIE (read_modrm8 (op, 0, &d8));
 	d = d8;
-	set_reg (op, op->modrm.reg, d);
+	RIE (idata_wr (op, O_R, 2, &d));
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -2162,11 +2215,11 @@ static enum vmmerr
 opcode_movzx_rm16_to_r (struct op *op)
 {
 	u16 d16;
-	u32 d;
+	ulong d;
 
-	RIE (read_modrm16 (op, &d16));
+	RIE (read_modrm16 (op, 0, &d16));
 	d = d16;
-	set_reg (op, op->modrm.reg, d);
+	RIE (idata_wr (op, O_R, 2, &d));
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -2181,10 +2234,10 @@ opcode_ff_push (struct op *op)
 	if (op->longmode)
 		panic ("64bit PUSH not supported");
 	if (op->optype == OPTYPE_16BIT) {
-		RIE (read_modrm16 (op, &data16));
+		RIE (read_modrm16 (op, 0, &data16));
 		data = data16;
 	} else {
-		RIE (read_modrm (op, &data));
+		RIE (read_modrm32 (op, 0, &data));
 	}
 	RIE (cpu_stack_get (&st));
 	RIE (cpu_stack_push (&st, &data, op->optype));
@@ -2206,9 +2259,9 @@ opcode_8f_pop (struct op *op)
 	RIE (cpu_stack_pop (&st, &data, op->optype));
 	if (op->optype == OPTYPE_16BIT) {
 		data16 = data;
-		RIE (write_modrm16 (op, data16));
+		RIE (write_modrm16 (op, 0, data16));
 	} else {
-		RIE (write_modrm (op, data));
+		RIE (write_modrm32 (op, 0, data));
 	}
 	UPDATE_IP (op);
 	RIE (cpu_stack_set (&st));
@@ -2224,23 +2277,43 @@ opcode_0f_lss (struct op *op)
 
 	if (op->longmode)
 		panic ("64bit LSS(0F) not supported");
-	if (op->modrm_reg != REG_NO)
+	if (op->modrm_brm != REG_NO)
 		panic ("LSS(0F) reg");
 	if (op->mode != CPUMODE_REAL)
 		panic ("LSS(0F) protected mode");
 	if (op->optype == OPTYPE_16BIT) {
-		RIE (read_modrm16 (op, &data16));
-		op->modrm_off += 2;
-		RIE (read_modrm16 (op, &seg));
+		RIE (read_modrm16 (op, 0, &data16));
+		RIE (read_modrm16 (op, 2, &seg));
 		current->vmctl.write_realmode_seg (SREG_SS, seg);
-		set_reg16 (op, op->modrm.reg, data16);
+		set_reg16 (op, op->modrm_rreg, data16);
 	} else {
-		RIE (read_modrm (op, &data));
-		op->modrm_off += 4;
-		RIE (read_modrm16 (op, &seg));
+		RIE (read_modrm32 (op, 0, &data));
+		RIE (read_modrm16 (op, 4, &seg));
 		current->vmctl.write_realmode_seg (SREG_SS, seg);
-		set_reg (op, op->modrm.reg, data);
+		set_reg (op, op->modrm_rreg, data);
 	}
+	UPDATE_IP (op);
+	return VMMERR_SUCCESS;
+}
+
+static enum vmmerr
+opcode_bt_imm (struct op *op)
+{
+	ulong data, mask, rflags;
+
+	RIE (idata_rd (op, O_M, 2, &data));
+	if (op->optype == OPTYPE_16BIT)
+		mask = 1 << (op->imm & 0xF);
+	else if (op->optype == OPTYPE_32BIT)
+		mask = 1 << (op->imm & 0x1F);
+	else
+		mask = 1 << (op->imm & 0x3F);
+	current->vmctl.read_flags (&rflags);
+	if (data & mask)
+		rflags |= RFLAGS_CF_BIT;
+	else
+		rflags &= ~RFLAGS_CF_BIT;
+	current->vmctl.write_flags (rflags);
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -2254,48 +2327,58 @@ idata_rd (struct op *op, enum idata_operand operand, int length, void *pointer)
 		panic ("idata_rd operand %d error!", operand);
 	case O_M:
 		if (length == 1)
-			RIE (read_modrm8 (op, (u8 *)pointer));
+			RIE (read_modrm8 (op, 0, (u8 *)pointer));
 		else if (op->optype == OPTYPE_16BIT)
-			RIE (read_modrm16 (op, (u16 *)pointer));
+			RIE (read_modrm16 (op, 0, (u16 *)pointer));
+		else if (op->optype == OPTYPE_32BIT)
+			RIE (read_modrm32 (op, 0, (u32 *)pointer));
 		else
-			RIE (read_modrm (op, (u32 *)pointer));
+			RIE (read_modrm64 (op, 0, (u64 *)pointer));
 		break;
 	case O_R:
 		if (length == 1)
-			*(u8 *)pointer = get_reg8 (op, (enum reg8)
-						   op->modrm.reg);
+			*(u8 *)pointer = get_reg8 (op, !!op->prefix.rex.v.val,
+						   (enum reg8)op->modrm_rreg);
 		else if (op->optype == OPTYPE_16BIT)
-			*(u16 *)pointer = get_reg (op, op->modrm.reg);
+			*(u16 *)pointer = get_reg (op, op->modrm_rreg);
+		else if (op->optype == OPTYPE_32BIT)
+			*(u32 *)pointer = get_reg (op, op->modrm_rreg);
 		else
-			*(u32 *)pointer = get_reg (op, op->modrm.reg);
+			*(u64 *)pointer = get_reg (op, op->modrm_rreg);
 		break;
 	case O_A:
 		if (length == 1)
-			*(u8 *)pointer = get_reg8 (op, REG_AL);
+			*(u8 *)pointer = get_reg8 (op, false, REG_AL);
 		else if (op->optype == OPTYPE_16BIT)
 			*(u16 *)pointer = get_reg (op, REG_AX);
-		else
+		else if (op->optype == OPTYPE_32BIT)
 			*(u32 *)pointer = get_reg (op, REG_AX);
+		else
+			*(u64 *)pointer = get_reg (op, REG_AX);
 		break;
 	case O_I:
 		if (length == 1)
 			*(u8 *)pointer = op->imm;
 		else if (op->optype == OPTYPE_16BIT)
 			*(u16 *)pointer = op->imm;
-		else
+		else if (op->optype == OPTYPE_32BIT)
 			*(u32 *)pointer = op->imm;
+		else
+			*(u64 *)pointer = op->imm;
 		break;
 	case O_1:
 		if (length == 1)
 			*(u8 *)pointer = 1;
 		else if (op->optype == OPTYPE_16BIT)
 			*(u16 *)pointer = 1;
-		else
+		else if (op->optype == OPTYPE_32BIT)
 			*(u32 *)pointer = 1;
+		else
+			*(u64 *)pointer = 1;
 		break;
 	case O_C:
 		if (length == 1)
-			*(u8 *)pointer = get_reg8 (op, REG_CL);
+			*(u8 *)pointer = get_reg8 (op, false, REG_CL);
 		else
 			panic ("read CX/RCX?");
 		break;
@@ -2315,28 +2398,34 @@ idata_wr (struct op *op, enum idata_operand operand, int length, void *pointer)
 		panic ("idata_wr operand %d error!", operand);
 	case O_M:
 		if (length == 1)
-			RIE (write_modrm8 (op, *(u8 *)pointer));
+			RIE (write_modrm8 (op, 0, *(u8 *)pointer));
 		else if (op->optype == OPTYPE_16BIT)
-			RIE (write_modrm16 (op, *(u16 *)pointer));
+			RIE (write_modrm16 (op, 0, *(u16 *)pointer));
+		else if (op->optype == OPTYPE_32BIT)
+			RIE (write_modrm32 (op, 0, *(u32 *)pointer));
 		else
-			RIE (write_modrm (op, *(u32 *)pointer));
+			RIE (write_modrm64 (op, 0, *(u64 *)pointer));
 		break;
 	case O_R:
 		if (length == 1)
-			set_reg8 (op, (enum reg8)op->modrm.reg,
-				  *(u8 *)pointer);
+			set_reg8 (op, !!op->prefix.rex.v.val,
+				  (enum reg8)op->modrm_rreg, *(u8 *)pointer);
 		else if (op->optype == OPTYPE_16BIT)
-			set_reg16 (op, op->modrm.reg, *(u16 *)pointer);
+			set_reg16 (op, op->modrm_rreg, *(u16 *)pointer);
+		else if (op->optype == OPTYPE_32BIT)
+			set_reg (op, op->modrm_rreg, *(u32 *)pointer);
 		else
-			set_reg (op, op->modrm.reg, *(u32 *)pointer);
+			set_reg (op, op->modrm_rreg, *(u64 *)pointer);
 		break;
 	case O_A:
 		if (length == 1)
-			set_reg8 (op, REG_AL, *(u8 *)pointer);
+			set_reg8 (op, false, REG_AL, *(u8 *)pointer);
 		else if (op->optype == OPTYPE_16BIT)
 			set_reg16 (op, REG_AX, *(u16 *)pointer);
-		else
+		else if (op->optype == OPTYPE_32BIT)
 			set_reg (op, REG_AX, *(u32 *)pointer);
+		else
+			set_reg (op, REG_AX, *(u64 *)pointer);
 		break;
 	}
 	return VMMERR_SUCCESS;
@@ -2365,7 +2454,7 @@ opcode_idata (struct op *op, struct idata id)
 		F_SHL,
 		F_SAR,
 	};
-	u32 src, dst;
+	ulong src, dst;
 	static const ulong flagmask = RFLAGS_CF_BIT | RFLAGS_PF_BIT |
 		RFLAGS_AF_BIT | RFLAGS_ZF_BIT | RFLAGS_SF_BIT |
 		RFLAGS_DF_BIT | RFLAGS_OF_BIT;
@@ -2431,8 +2520,10 @@ opcode_idata (struct op *op, struct idata id)
 		ID_2OP_2 (INSTRUCTION "b", *(u8 *)&src, *(u8 *)&dst); \
 	else if (op->optype == OPTYPE_16BIT) \
 		ID_2OP_2 (INSTRUCTION "w", *(u16 *)&src, *(u16 *)&dst); \
+	else if (op->optype == OPTYPE_32BIT) \
+		ID_2OP_2 (INSTRUCTION "l", *(u32 *)&src, *(u32 *)&dst); \
 	else \
-		ID_2OP_2 (INSTRUCTION "l", src, dst); \
+		ID_2OP_2 (INSTRUCTION, src, dst); \
 } while (0)
 #define ID_XCHG() do { \
 	tmp = dst; \
@@ -2626,11 +2717,11 @@ parse_opcode:
 	case OPCODE_OUTS:
 		return opcode_outs (op);
 	case OPCODE_MOV_FROM_SR:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		return opcode_mov_from_sr (op);
 	case OPCODE_MOV_TO_SR:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		return opcode_mov_to_sr (op);
 	case OPCODE_PUSH_ES:
@@ -2650,11 +2741,11 @@ parse_opcode:
 	case OPCODE_JMP_FAR_DIRECT:
 		return opcode_jmp_far_direct (op);
 	case OPCODE_0xFF:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		goto parse_opcode_0xff;
 	case OPCODE_0x8F:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		goto parse_opcode_0x8f;
 	case OPCODE_RETF:
@@ -2670,15 +2761,13 @@ parse_opcode:
 	}
 	idat = idata[code];
 grp_special:
-	if (op->longmode)
-		panic ("64bit grp instructions not supported");
 	switch (idat.type) {
 	case I_MODRM:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		return opcode_idata (op, idat);
 	case I_MIMM1:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		/* fall through */
 	case I_IMME1:
@@ -2686,24 +2775,27 @@ grp_special:
 		op->imm = 0;
 		READ_NEXT_B (op, &op->imm);
 		if (idat.len == 2 && (op->imm & 0x80))
-			op->imm |= 0xFFFFFF00;
+			op->imm |= 0xFFFFFFFFFFFFFF00ULL;
 		return opcode_idata (op, idat);
 	case I_MIMM2:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		/* fall through */
 	case I_IMME2:
 	grp_imme2:
+		op->imm = 0;
 		if (op->optype == OPTYPE_16BIT)
 			READ_NEXT_W (op, &op->imm);
 		else
 			READ_NEXT_L (op, &op->imm);
+		if (op->optype == OPTYPE_64BIT && (op->imm & 0x80000000))
+			op->imm |= 0xFFFFFFFF00000000ULL;
 		return opcode_idata (op, idat);
 	case I_MOFFS:
 		RIE (read_moffs (op));
 		return opcode_idata (op, idat);
 	case I_MGRP3:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		idat.type = grp3[op->modrm.reg].type;
 		idat.dst = grp3[op->modrm.reg].dst;
@@ -2727,19 +2819,22 @@ grp_special:
 parse_opcode_0x0f:
 	switch (code) {
 	case OPCODE_0x0F_0x01:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		goto parse_opcode_0x0f_0x01;
+	case OPCODE_0x0F_0xBA:
+		READ_MODRM_B (op);
+		goto parse_opcode_0x0f_0xba;
 	case OPCODE_0x0F_MOV_TO_CR:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		return opcode_mov_to_cr (op);
 	case OPCODE_0x0F_MOV_FROM_CR:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		return opcode_mov_from_cr (op);
 	case OPCODE_0x0F_MOV_TO_DR:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		return opcode_mov_to_dr (op);
 	case OPCODE_0x0F_MOV_FROM_DR:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		return opcode_mov_from_dr (op);
 	case OPCODE_0x0F_CLTS:
 		return opcode_clts (op);
@@ -2751,6 +2846,14 @@ parse_opcode_0x0f:
 		return opcode_rdmsr (op);
 	case OPCODE_0x0F_WRMSR:
 		return opcode_wrmsr (op);
+	case OPCODE_0x0F_MOVZX_RM8_TO_R:
+		READ_MODRM_B (op);
+		GET_MODRM (op);
+		return opcode_movzx_rm8_to_r (op);
+	case OPCODE_0x0F_MOVZX_RM16_TO_R:
+		READ_MODRM_B (op);
+		GET_MODRM (op);
+		return opcode_movzx_rm16_to_r (op);
 	}
 	if (op->longmode)
 		panic ("64bit instructions begin with 0x0F not supported");
@@ -2763,16 +2866,8 @@ parse_opcode_0x0f:
 		return opcode_pop_sr (op, SREG_FS);
 	case OPCODE_0x0F_POP_GS:
 		return opcode_pop_sr (op, SREG_GS);
-	case OPCODE_0x0F_MOVZX_RM8_TO_R:
-		READ_NEXT_B (op, &op->modrm);
-		GET_MODRM (op);
-		return opcode_movzx_rm8_to_r (op);
-	case OPCODE_0x0F_MOVZX_RM16_TO_R:
-		READ_NEXT_B (op, &op->modrm);
-		GET_MODRM (op);
-		return opcode_movzx_rm16_to_r (op);
 	case OPCODE_0x0F_LSS:
-		READ_NEXT_B (op, &op->modrm);
+		READ_MODRM_B (op);
 		GET_MODRM (op);
 		return opcode_0f_lss (op);
 	}
@@ -2797,6 +2892,14 @@ parse_opcode_0x0f_0x01:
 		return opcode_invlpg (op);
 	}
 	op->ip_off += 16;
+	return VMMERR_UNSUPPORTED_OPCODE;
+parse_opcode_0x0f_0xba:
+	switch (op->modrm.reg) {
+	case OPCODE_0x0F_0xBA_BT:
+		GET_MODRM (op);
+		READ_NEXT_B (op, &op->imm);
+		return opcode_bt_imm (op);
+	}
 	return VMMERR_UNSUPPORTED_OPCODE;
 parse_opcode_0xff:
 	switch (op->modrm.reg) {

@@ -188,11 +188,11 @@ fill_segdesctbl (struct segdesc *gdt, struct tss32 *tss32, struct tss64 *tss64,
 		     SEGDESC_TYPE_RDWR_DATA,
 		     SEGDESC_S_CODE_OR_DATA_SEGMENT, 3, 1,
 		     0, SEGDESC_L_16_OR_32, SEGDESC_D_B_32);
-	/* SEG_SEL_TSS32 */
-	set_segdesc (&gdt[5], sizeof *tss32 - 1, (ulong)tss32,
-		     SEGDESC_TYPE_32BIT_TSS_AVAILABLE,
-		     SEGDESC_S_SYSTEM_SEGMENT, 0, 1,
-		     0, 0, SEGDESC_D_B_16);
+	/* SEG_SEL_CODE64U */
+	set_segdesc (&gdt[5], 0xFFFFFFFF, 0x00000000,
+		     SEGDESC_TYPE_EXECREAD_CODE,
+		     SEGDESC_S_CODE_OR_DATA_SEGMENT, 3, 1,
+		     0, SEGDESC_L_64, SEGDESC_D_B_64);
 	/* SEG_SEL_CODE16 */
 	set_segdesc (&gdt[6], 0x0000FFFF, 0x00000000,
 		     SEGDESC_TYPE_EXECREAD_CODE,
@@ -222,28 +222,23 @@ fill_segdesctbl (struct segdesc *gdt, struct tss32 *tss32, struct tss64 *tss64,
 		     SEGDESC_TYPE_RDWR_DATA,
 		     SEGDESC_S_CODE_OR_DATA_SEGMENT, 0, 1,
 		     0, SEGDESC_L_64, SEGDESC_D_B_64);
-	/* SEG_SEL_CODE64U */
-	set_segdesc (&gdt[12], 0xFFFFFFFF, 0x00000000,
-		     SEGDESC_TYPE_EXECREAD_CODE,
-		     SEGDESC_S_CODE_OR_DATA_SEGMENT, 3, 1,
-		     0, SEGDESC_L_64, SEGDESC_D_B_64);
-	/* SEG_SEL_DATA64U */
-	set_segdesc (&gdt[13], 0xFFFFFFFF, 0x00000000,
-		     SEGDESC_TYPE_RDWR_DATA,
-		     SEGDESC_S_CODE_OR_DATA_SEGMENT, 3, 1,
-		     0, SEGDESC_L_64, SEGDESC_D_B_64);
+	/* SEG_SEL_TSS32 */
+	set_segdesc (&gdt[12], sizeof *tss32 - 1, (ulong)tss32,
+		     SEGDESC_TYPE_32BIT_TSS_AVAILABLE,
+		     SEGDESC_S_SYSTEM_SEGMENT, 0, 1,
+		     0, 0, SEGDESC_D_B_16);
 	/* SEG_SEL_TSS64 */
-	set_segdesc_sys64 (&gdt[14], sizeof *tss64 - 1, (ulong)tss64,
+	set_segdesc_sys64 (&gdt[13], sizeof *tss64 - 1, (ulong)tss64,
 			   SEGDESC_TYPE_64BIT_TSS_AVAILABLE,
 			   0, 1,
 			   0);
 	/* SEG_SEL_PCPU64 */
-	set_segdesc (&gdt[16], sizeof *gs - 1, (ulong)gs,
+	set_segdesc (&gdt[15], sizeof *gs - 1, (ulong)gs,
 		     SEGDESC_TYPE_RDWR_DATA,
 		     SEGDESC_S_CODE_OR_DATA_SEGMENT, 0, 1,
 		     0, SEGDESC_L_64, SEGDESC_D_B_64);
 	/* Unused */
-	i = 17;
+	i = 16;
 	ASSERT (i <= NUM_OF_SEGDESCTBL);
 	for (; i < NUM_OF_SEGDESCTBL; i++)
 		set_segdesc (&gdt[i], 0x00000000, 0x00000000,
@@ -290,8 +285,8 @@ segment_wakeup (bool bsp)
 	p = resume_pcpu;
 	resume_pcpu = p->next;
 	gdt = p->segdesctbl;
-	gdt[5].type = SEGDESC_TYPE_32BIT_TSS_AVAILABLE; /* SEG_SEL_TSS32 */
-	gdt[14].type = SEGDESC_TYPE_64BIT_TSS_AVAILABLE; /* SEG_SEL_TSS64 */
+	gdt[12].type = SEGDESC_TYPE_32BIT_TSS_AVAILABLE; /* SEG_SEL_TSS32 */
+	gdt[13].type = SEGDESC_TYPE_64BIT_TSS_AVAILABLE; /* SEG_SEL_TSS64 */
 	load_segment (gdt);
 }
 

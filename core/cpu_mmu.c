@@ -49,7 +49,7 @@ struct get_pte_data {
 	unsigned int exec : 1;	/* Execution */
 };
 
-static u64 reserved_bit_table[2][3][5] = {
+static u64 reserved_bit_table[2][3][6] = {
 	/* NXE = 0 */
 	{
 		/* levels = 2 (32-bit, PAE = 0, PSE = 1) */
@@ -57,24 +57,27 @@ static u64 reserved_bit_table[2][3][5] = {
 			0x0000000000200000ULL, /* PDE, 4-MByte page */
 			0x0000000000000000ULL, /* PTE */
 			0x0000000000000000ULL, /* PDE, 4-KByte page */
-			0xFFFFFFFFFFFFFFFFULL, /* PDPTE */
+			0xFFFFFFFFFFFFFFFFULL, /* PDPE */
 			0xFFFFFFFFFFFFFFFFULL, /* PML4E */
+			0xFFFFFFFFFFFFFFFFULL, /* PDPE+PS */
 		},
 		/* levels = 3 (32-bit, PAE = 1) */
 		{
 			0xFFFFFFF0001FE000ULL, /* PDE, 2-MByte page */
 			0xFFFFFFF000000000ULL, /* PTE */
 			0xFFFFFFF000000000ULL, /* PDE, 4-KByte page */
-			0xFFFFFFF0000001E6ULL, /* PDPTE */
+			0xFFFFFFF0000001E6ULL, /* PDPE */
 			0xFFFFFFFFFFFFFFFFULL, /* PML4E */
+			0xFFFFFFFFFFFFFFFFULL, /* PDPE+PS */
 		},
 		/* levels = 4 (64-bit) */
 		{
 			0x800FFFF0001FE000ULL, /* PDE, 2-MByte page */
 			0x800FFFF000000000ULL, /* PTE */
 			0x800FFFF000000000ULL, /* PDE, 4-KByte page */
-			0x800FFFF000000000ULL, /* PDPTE */
-			0x800FFFF000000000ULL, /* PML4E */
+			0x800FFFF000000100ULL, /* PDPE */
+			0x800FFFF000000180ULL, /* PML4E */
+			0x800FFFF03FFFE000ULL, /* PDPE+PS */
 		},
 	},
 	/* NXE = 1 */
@@ -84,24 +87,27 @@ static u64 reserved_bit_table[2][3][5] = {
 			0x0000000000200000ULL, /* PDE, 4-MByte page */
 			0x0000000000000000ULL, /* PTE */
 			0x0000000000000000ULL, /* PDE, 4-KByte page */
-			0xFFFFFFFFFFFFFFFFULL, /* PDPTE */
+			0xFFFFFFFFFFFFFFFFULL, /* PDPE */
 			0xFFFFFFFFFFFFFFFFULL, /* PML4E */
+			0xFFFFFFFFFFFFFFFFULL, /* PDPE+PS */
 		},
 		/* levels = 3 (32-bit, PAE = 1) */
 		{
 			0x7FFFFFF0001FE000ULL, /* PDE, 2-MByte page */
 			0x7FFFFFF000000000ULL, /* PTE */
 			0x7FFFFFF000000000ULL, /* PDE, 4-KByte page */
-			0xFFFFFFF0000001E6ULL, /* PDPTE */
+			0xFFFFFFF0000001E6ULL, /* PDPE */
 			0xFFFFFFFFFFFFFFFFULL, /* PML4E */
+			0xFFFFFFFFFFFFFFFFULL, /* PDPE+PS */
 		},
 		/* levels = 4 (64-bit) */
 		{
 			0x000FFFF0001FE000ULL, /* PDE, 2-MByte page */
 			0x000FFFF000000000ULL, /* PTE */
 			0x000FFFF000000000ULL, /* PDE, 4-KByte page */
-			0x000FFFF000000000ULL, /* PDPTE */
-			0x000FFFF000000000ULL, /* PML4E */
+			0x000FFFF000000100ULL, /* PDPE */
+			0x000FFFF000000180ULL, /* PML4E */
+			0x000FFFF03FFFE000ULL, /* PDPE+PS */
 		},
 	},
 };		
@@ -116,6 +122,8 @@ test_pmap_entry_reserved_bit (u64 entry, int level, int levels,
 		return false;	/* No reserved bits checked */
 	if (level == 2 && (entry & PDE_PS_BIT))
 		level = 0;
+	if (level == 3 && levels == 4 && (entry & PDE_PS_BIT))
+		level = 5;
 	mask = reserved_bit_table[d.nxe][levels - 2][level];
 	mask ^= current->pte_addr_mask ^ PTE_ADDR_MASK64;
 	ASSERT (mask != 0xFFFFFFFFFFFFFFFFULL);
@@ -143,7 +151,7 @@ set_ad_bit (pmap_t *m, u64 *entry, bool seta, bool setd)
 }
 
 /* simplify1: entries[0] & entries[1] are generated when paging is disabled */
-/* simplify2: entries[2] (PDPTE) |= RW|US|A when 32-bit PAE */
+/* simplify2: entries[2] (PDPE) |= RW|US|A when 32-bit PAE */
 /* simplify3: entries[1] (PDE) &= ~PS when PSE is disabled */
 /* simplify : entries[] are 64-bit when PAE is disabled */
 /* simplify : entries[0] (PTE) will be generated when it is in a large page */
@@ -204,7 +212,8 @@ get_pte_sub (ulong virt, ulong cr3, struct get_pte_data d, u64 entries[5],
 		if (i == 2 && !d.pse) /* simplify3 */
 			entry &= ~(u64)PDE_PS_BIT;
 		setd = false;
-		if ((i == 2 && (entry & PDE_PS_BIT)) || i == 1)
+		if ((i == 2 && (entry & PDE_PS_BIT)) || i == 1 ||
+		    (i == 3 && (entry & PDE_PS_BIT)))
 			setd = d.write;
 		if (set_ad_bit (&m, &entry, true, setd))
 			goto retry;

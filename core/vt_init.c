@@ -30,7 +30,6 @@
 #include "asm.h"
 #include "assert.h"
 #include "constants.h"
-#include "cpu_mmu_spt.h"
 #include "current.h"
 #include "initfunc.h"
 #include "panic.h"
@@ -40,6 +39,7 @@
 #include "string.h"
 #include "vt_exitreason.h"
 #include "vt_init.h"
+#include "vt_paging.h"
 #include "vt_panic.h"
 #include "vt_regs.h"
 
@@ -58,7 +58,7 @@ check_vmx (void)
 	if (c & CPUID_1_ECX_VMX_BIT) {
 		/* VMX operation is supported. */
 	} else {
-		printf ("VMX operation is not supported.\n");
+		/* printf ("VMX operation is not supported.\n"); */
 		return -1;
 	}
 
@@ -145,9 +145,36 @@ vt__vmxon (void)
 	asm_vmxon (&currentcpu->vt.vmxon_region_phys);
 }
 
-void
-vt_reset (void)
+static void
+vpid_init (void)
 {
+	u64 ept_vpid_cap;
+
+	asm_rdmsr64 (MSR_IA32_VMX_EPT_VPID_CAP, &ept_vpid_cap);
+	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_INVVPID_BIT))
+		return;
+	if (!(ept_vpid_cap &
+	      MSR_IA32_VMX_EPT_VPID_CAP_INVVPID_SINGLE_CONTEXT_BIT))
+		return;
+	current->u.vt.vpid = 1; /* FIXME: VPID 1 only */
+}
+
+static void
+ept_init (void)
+{
+	u64 ept_vpid_cap;
+
+	asm_rdmsr64 (MSR_IA32_VMX_EPT_VPID_CAP, &ept_vpid_cap);
+	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_PAGEWALK_LENGTH_4_BIT))
+		return;
+	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_EPTSTRUCT_WB_BIT))
+		return;
+	current->u.vt.ept_available = true;
+	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_INVEPT_BIT))
+		return;
+	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_INVEPT_ALL_CONTEXT_BIT))
+		return;
+	current->u.vt.invept_available = true;
 }
 
 /* Initialize VMCS region
@@ -165,10 +192,18 @@ vt__vmcs_init (void)
 	u32 entry_ctls_or, entry_ctls_and;
 	ulong sysenter_cs, sysenter_esp, sysenter_eip;
 	ulong exitctl64;
+	u32 procbased_ctls2_or, procbased_ctls2_and = 0;
+	ulong procbased_ctls2 = 0;
 
 	current->u.vt.first = true;
 	current->u.vt.io.iobmpflag = false;
 	current->u.vt.saved_vmcs = NULL;
+	current->u.vt.vpid = 0;
+	current->u.vt.ept = NULL;
+	current->u.vt.ept_available = false;
+	current->u.vt.invept_available = false;
+	current->u.vt.unrestricted_guest_available = false;
+	current->u.vt.unrestricted_guest = false;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
@@ -191,6 +226,28 @@ vt__vmcs_init (void)
 	asm_rdmsr (MSR_IA32_SYSENTER_CS, &sysenter_cs);
 	asm_rdmsr (MSR_IA32_SYSENTER_ESP, &sysenter_esp);
 	asm_rdmsr (MSR_IA32_SYSENTER_EIP, &sysenter_eip);
+	if (procbased_ctls_and &
+	    VMCS_PROC_BASED_VMEXEC_CTL_ACTIVATECTLS2_BIT) {
+		asm_rdmsr32 (MSR_IA32_VMX_PROCBASED_CTLS2,
+			     &procbased_ctls2_or, &procbased_ctls2_and);
+		/* procbased_ctls2_or is always zero */
+		procbased_ctls2 = 0;
+		if (procbased_ctls2_and &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT)
+			vpid_init ();
+		if (current->u.vt.vpid)
+			procbased_ctls2 |=
+				VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT;
+		if ((procbased_ctls2_and &
+		     VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_EPT_BIT) &&
+		    (exit_ctls_and & VMCS_VMEXIT_CTL_SAVE_IA32_PAT_BIT) &&
+		    (exit_ctls_and & VMCS_VMEXIT_CTL_LOAD_IA32_PAT_BIT) &&
+		    (entry_ctls_and & VMCS_VMENTRY_CTL_LOAD_IA32_PAT_BIT))
+			ept_init ();
+		if (procbased_ctls2_and &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_UNRESTRICTED_GUEST_BIT)
+			current->u.vt.unrestricted_guest_available = true;
+	}
 
 	/* get current information */
 	vt_get_current_regs_in_vmcs (&host_riv);
@@ -199,6 +256,9 @@ vt__vmcs_init (void)
 		VMCS_VMEXIT_CTL_HOST_ADDRESS_SPACE_SIZE_BIT;
 
 	/* initialize VMCS fields */
+	/* 16-Bit Control Field */
+	if (current->u.vt.vpid)
+		asm_vmwrite (VMCS_VPID, current->u.vt.vpid);
 	/* 16-Bit Guest-State Fields */
 	asm_vmwrite (VMCS_GUEST_ES_SEL, guest_riv.es.sel);
 	asm_vmwrite (VMCS_GUEST_CS_SEL, guest_riv.cs.sel);
@@ -248,6 +308,8 @@ vt__vmcs_init (void)
 		      VMCS_PROC_BASED_VMEXEC_CTL_INVLPGEXIT_BIT |
 		      VMCS_PROC_BASED_VMEXEC_CTL_UNCONDIOEXIT_BIT |
 		      VMCS_PROC_BASED_VMEXEC_CTL_USETSCOFF_BIT |
+		      (procbased_ctls2_and ?
+		       VMCS_PROC_BASED_VMEXEC_CTL_ACTIVATECTLS2_BIT : 0) |
 		      procbased_ctls_or) & procbased_ctls_and);
 	asm_vmwrite (VMCS_EXCEPTION_BMP, 0xFFFFFFFF);
 	asm_vmwrite (VMCS_PAGEFAULT_ERRCODE_MASK, 0);
@@ -263,6 +325,8 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_VMENTRY_EXCEPTION_ERRCODE, 0);
 	asm_vmwrite (VMCS_VMENTRY_INSTRUCTION_LEN, 0);
 	asm_vmwrite (VMCS_TPR_THRESHOLD, 0);
+	if (procbased_ctls2_and)
+		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, procbased_ctls2);
 	/* 32-Bit Guest-State Fields */
 	asm_vmwrite (VMCS_GUEST_ES_LIMIT, guest_riv.es.limit);
 	asm_vmwrite (VMCS_GUEST_CS_LIMIT, guest_riv.cs.limit);
@@ -357,7 +421,7 @@ vt_vminit (void)
 	vt__vmcs_init ();
 	vt__realmode_data_init ();
 	vt_msr_init ();
-	cpu_mmu_spt_init ();
+	vt_paging_init ();
 	call_initfunc ("vcpu");
 }
 

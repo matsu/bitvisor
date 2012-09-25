@@ -28,11 +28,14 @@
  */
 
 #include <core.h>
+#include <core/arith.h>
+#include <core/cpu.h>
 #include <core/iccard.h>
 #include <core/process.h>
 #include <core/time.h>
 #include <core/timer.h>
 #include <core/vpnsys.h>
+#include <IDMan.h>
 #include "vpn_msg.h"
 
 #define NUM_OF_HANDLE 32
@@ -42,9 +45,8 @@ struct nicdata {
 	struct nicfunc func;
 };
 
-static struct mempool *mp;
-
 #ifdef VPN_PD
+static struct mempool *mp;
 static int vpnkernel_desc, desc;
 static void *handle[NUM_OF_HANDLE];
 static spinlock_t handle_lock;	/* new only */
@@ -583,6 +585,8 @@ vpn_new_nic (SE_HANDLE ph, SE_HANDLE vh, struct nicfunc *func)
 static void
 vpn_kernel_init (void)
 {
+	void vpn_user_init (struct config_data_vpn *vpn, char *seed, int len);
+
 #ifdef VPN_PD
 	int i;
 

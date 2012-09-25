@@ -91,5 +91,6 @@ bool callrealmode_bootcd_getstatus (u8 drive,
 void callrealmode_setcursorpos (u8 page_num, u8 row, u8 column);
 void callrealmode_startkernel32 (u32 paramsaddr, u32 startaddr);
 void callrealmode_tcgbios (u32 al, struct tcgbios_args *args);
+void callrealmode_getfontinfo (u8 bh, u16 *es, u16 *bp, u16 *cx, u8 *dl);
 
 #endif

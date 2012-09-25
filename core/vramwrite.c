@@ -28,10 +28,13 @@
  */
 
 #include "asm.h"
+#include "callrealmode.h"
 #include "initfunc.h"
+#include "mm.h"
 #include "process.h"
 #include "string.h"
 #include "types.h"
+#include "vga.h"
 #include "vramwrite.h"
 
 #define CRTC_SCROLL 0xC
@@ -39,6 +42,8 @@
 
 static u8 *vram_virtaddr;
 static u16 saved_cursor_pos;
+static u8 *biosfont = NULL;
+static u32 *scrollbuf;
 
 static u16
 read_crtc_word (u8 i)
@@ -142,6 +147,67 @@ vramwrite_clearscreen (void)
 	move_cursor_pos (0);
 }
 
+static int
+vramwrite_vga_putchar (unsigned char c)
+{
+	static int x, y;
+	static u32 buf[16][8];
+	int i, j;
+	u8 *p, b;
+
+	if (!biosfont)
+		return 0;
+	if (!vga_is_ready ())
+		return 0;
+	switch (c) {
+	case '\b':
+		if (x)
+			x--;
+		else if (y)
+			x = 79, y--;
+		break;
+	case '\r':
+		x = 0;
+		break;
+	default:
+		p = &biosfont[c * 16];
+		for (i = 0; i < 16; i++) {
+			b = p[i];
+			for (j = 0; j < 8; j++)
+				buf[i][j] = ((b << j) & 0x80) ? 0xFF00FF00 : 0;
+		}
+		vga_transfer_image (VGA_FUNC_TRANSFER_DIR_PUT, buf,
+				    VGA_FUNC_IMAGE_TYPE_BGRX_8888,
+				    sizeof buf[0], 8, 16, x * 8, y * 16);
+		x++;
+		if (x <= 79)
+			break;
+		/* fall through */
+	case '\n':
+		x = 0;
+		y++;
+		if (y <= 24)
+			break;
+		for (i = 0; i < 24; i++) {
+			vga_transfer_image (VGA_FUNC_TRANSFER_DIR_GET,
+					    scrollbuf,
+					    VGA_FUNC_IMAGE_TYPE_BGRX_8888,
+					    sizeof scrollbuf[0] * 8 * 80,
+					    8 * 80, 16, 0, (i + 1) * 16);
+			vga_transfer_image (VGA_FUNC_TRANSFER_DIR_PUT,
+					    scrollbuf,
+					    VGA_FUNC_IMAGE_TYPE_BGRX_8888,
+					    sizeof scrollbuf[0] * 8 * 80,
+					    8 * 80, 16, 0, i * 16);
+		}
+		scrollbuf[0] = 0;
+		vga_fill_rect (scrollbuf, VGA_FUNC_IMAGE_TYPE_BGRX_8888,
+			       0, 24 * 16, 8 * 80, 16);
+		y = 24;
+	}
+	return 0;
+}
+
 void
 vramwrite_putchar (unsigned char c)
 {
@@ -150,6 +216,8 @@ vramwrite_putchar (unsigned char c)
 	u8 *p;
 	unsigned int lines;
 
+	if (vramwrite_vga_putchar (c))
+		return;
 	if (vram_virtaddr == NULL)
 		return;
 	scroll = read_scroll ();
@@ -271,4 +339,32 @@ vramwrite_init_msg (void)
 	msgregister ("vramwrite", vramwrite_msghandler);
 }
 
+static void
+vramwrite_get_biosfont (void)
+{
+	u16 es, bp;
+	u32 tmp;
+
+	callrealmode_getfontinfo (0x06 /* 8x16 */, &es, &bp, NULL, NULL);
+	tmp = es;
+	tmp <<= 4;
+	tmp += bp;
+	biosfont = mapmem_hphys (tmp, 16 * 256, 0);
+}
+
+static void
+vramwrite_init_bsp (void)
+{
+	bool tty_vga = false;
+
+#ifdef TTY_VGA
+	tty_vga = true;
+#endif
+	if (tty_vga) {
+		vramwrite_get_biosfont ();
+		scrollbuf = alloc (80 * 8 * 16 * sizeof scrollbuf[0]);
+	}
+}
+
 INITFUNC ("msg0", vramwrite_init_msg);
+INITFUNC ("bsp0", vramwrite_init_bsp);

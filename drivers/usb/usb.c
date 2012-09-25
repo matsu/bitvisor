@@ -306,7 +306,7 @@ _usb_async_receive(usb_dev_handle *dev, struct usb_request_block *urb,
 		}
 
 		/* wait a while */
-		/* schedule(); */
+		schedule();
 	} 
 
 	dprintft(3, "%s: checking the status ...\n", __FUNCTION__);
@@ -679,8 +679,8 @@ usb_register_host (void *host, struct usb_operations *op, u8 type)
 	hc->private = host;
 	hc->op = op;
 	hc->host_id = usb_host_id++;
-	LIST1_HEAD_INIT(hc->handle);
 	spinlock_init(&hc->lock_hk);
+	spinlock_init(&hc->lock_sclock);
 	LIST_APPEND(usb_hc_list, hc);
 
 	return hc;
@@ -697,4 +697,25 @@ usb_unregister_devices (struct usb_host *uhc)
 		free_device(uhc, udev);
 	}
 	return 0;
+}
+
+void
+usb_sc_lock (struct usb_host *usb)
+{
+	spinlock_lock (&usb->lock_sclock);
+	while (usb->locked) {
+		spinlock_unlock (&usb->lock_sclock);
+		schedule ();
+		spinlock_lock (&usb->lock_sclock);
+	}
+	usb->locked = true;
+	spinlock_unlock (&usb->lock_sclock);
+}
+
+void
+usb_sc_unlock (struct usb_host *usb)
+{
+	spinlock_lock (&usb->lock_sclock);
+	usb->locked = false;
+	spinlock_unlock (&usb->lock_sclock);
 }

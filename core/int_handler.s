@@ -28,7 +28,7 @@
  */
 
 	SEG_SEL_PCPU32	= (8 * 8)
-	SEG_SEL_PCPU64	= (16 * 8)
+	SEG_SEL_PCPU64	= (15 * 8)
 	gs_inthandling	= 0
 
 	.include "longmode.h"

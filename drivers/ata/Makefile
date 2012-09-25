@@ -1,15 +1,10 @@
-PWD := $(shell pwd)
-include $(CONFIG)
+CONSTANTS-$(CONFIG_IEEE1394_CONCEALER) += -DIEEE1394_CONCEALER
+CONSTANTS-$(CONFIG_FWDBG) += -DFWDBG
+CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
+CONSTANTS-$(CONFIG_VTD_TRANS) += -DVTD_TRANS
 
-TARGET	 = driver.o
-OBJS     = $(patsubst %.c,%.o,$(wildcard *.c))
-HEADERS += $(wildcard *.h)
-CFLAGS  += -I$(PWD)
+CFLAGS += -Idrivers
 
-OBJS-$(CONFIG_DEBUG_ATA) += ata_debug.o
-OBJS-1	 = $(filter-out $(OBJS-0), $(OBJS))
-
-$(TARGET): $(OBJS-1) $(CONFIG)
-	$(LD) $(LDFLAGS) -o $(TARGET) $(OBJS-1)
-
-$(OBJS-1): $(HEADERS) $(CONFIG)
+objs-$(CONFIG_DEBUG_ATA) += ata_debug.o
+objs-1 += ahci.o ata_bm.o ata_cmd.o ata_core.o ata_init.o ata_pci.o
+objs-1 += ata_vendor.o atapi.o packet.o

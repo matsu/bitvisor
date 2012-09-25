@@ -258,5 +258,7 @@ int  parse_dmar_bios_report(struct acpi_ent_dmar *dmar)
 	
 	return ret;
 #endif // of VTD_TRANS
+	if (0)			/* make gcc happy */
+		printf ("%p", parse_dev_scope);
 	return 0;
 }

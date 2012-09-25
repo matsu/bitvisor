@@ -99,10 +99,8 @@ idman_reinit_session (void)
 void
 idman_reinit2 (void)
 {
-	int r;
-
-	r = IDMan_IPFinalize (idman_session);
-	r = IDMan_IPInitialize (config.idman.pin,  &idman_session);
+	IDMan_IPFinalize (idman_session);
+	IDMan_IPInitialize (config.idman.pin,  &idman_session);
 }
 
 bool
@@ -146,6 +144,6 @@ idman_init_global (void)
 	idman_ready = false;
 }
 
-INITFUNC ("global4", idman_init_global);
+INITFUNC ("paral01", idman_init_global);
 INITFUNC ("driver4", idman_init);
 #endif

@@ -130,6 +130,8 @@ int atapi_handle_config_data(struct ata_channel *channel, int rw)
 	config_data.data1 = channel->pio_buf[5];
 	config_data.data2 = channel->pio_buf[6];
 	config_data.data3 = channel->pio_buf[7];
+	if (0)
+		printf ("%p", &config_data); /* make gcc happy */
 
 	return CORE_IO_RET_DEFAULT;
 }

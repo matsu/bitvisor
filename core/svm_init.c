@@ -33,14 +33,17 @@
 #include "cpu.h"
 #include "current.h"
 #include "initfunc.h"
+#include "int.h"
+#include "localapic.h"
 #include "mm.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
 #include "string.h"
 #include "svm_init.h"
-#include "svm_np.h"
+#include "svm_paging.h"
 #include "svm_vmcb.h"
+#include "sx_handler.h"
 #include "types.h"
 
 bool
@@ -51,12 +54,12 @@ svm_available (void)
 
 	asm_cpuid (CPUID_EXT_0, 0, &a, &b, &c, &d);
 	if (a < CPUID_EXT_1) {
-		printf ("SVM is not available.\n");
+		/* printf ("SVM is not available.\n"); */
 		return false;
 	}
 	asm_cpuid (CPUID_EXT_1, 0, &a, &b, &c, &d);
 	if (!(c & CPUID_EXT_1_ECX_SVM_BIT)) {
-		printf ("SVM is not available.\n");
+		/* printf ("SVM is not available.\n"); */
 		return false;
 	}
 	asm_rdmsr64 (MSR_AMD_VM_CR, &tmp);
@@ -75,12 +78,6 @@ svm_available (void)
 		printf ("SVM is disabled with a key.\n");
 		return false;
 	}
-}
-
-static bool
-svm_nested_paging_available (void)
-{
-	return true;
 }
 
 static void
@@ -132,6 +129,22 @@ void
 svm_reset (void)
 {
 	svm_seg_reset (current->u.svm.vi.vmcb);
+	if (*current->u.svm.cr0 & CR0_PG_BIT) {
+		*current->u.svm.cr0 = CR0_ET_BIT;
+		svm_paging_pg_change ();
+	} else {
+		*current->u.svm.cr0 = CR0_ET_BIT;
+	}
+	current->u.svm.vi.vmcb->cr0 = svm_paging_apply_fixed_cr0 (CR0_ET_BIT);
+	current->u.svm.vi.vmcb->cr2 = 0;
+	*current->u.svm.cr3 = 0;
+	*current->u.svm.cr4 = 0;
+	current->u.svm.vi.vmcb->cr4 = svm_paging_apply_fixed_cr4 (0);
+	current->u.svm.vi.vmcb->efer = MSR_IA32_EFER_SVME_BIT;
+	current->u.svm.lme = 0;
+	svm_msr_update_lma ();
+	svm_paging_updatecr3 ();
+	svm_paging_flush_guest_tlb ();
 }
 
 static void
@@ -148,10 +161,12 @@ svm_vmcb_init (void)
 		     &current->u.svm.msr.msrbmp_phys, 2);
 	memset (current->u.svm.io.iobmp, 0xFF, PAGESIZE * 3);
 	memset (current->u.svm.msr.msrbmp, 0xFF, PAGESIZE * 2);
+	/* passthrough writing to PATCH_LOADER MSR (0xC0010020) */
+	((u8 *)current->u.svm.msr.msrbmp)[0x1008] &= ~2;
 	p = current->u.svm.vi.vmcb;
 	memset (p, 0, PAGESIZE);
-	p->intercept_read_cr = ~4;
-	p->intercept_write_cr = ~4;
+	p->intercept_read_cr = ~0x104;
+	p->intercept_write_cr = ~0x104;
 	p->intercept_exception = 0x4000;
 	p->intercept_intr = 1;
 	p->intercept_nmi = 1;
@@ -164,6 +179,7 @@ svm_vmcb_init (void)
 	p->intercept_shutdown = 1;
 	p->intercept_vmrun = 1;
 	p->intercept_vmmcall = 1;
+	p->intercept_cpuid = 1;
 	p->iopm_base_pa = current->u.svm.io.iobmp_phys;
 	p->msrpm_base_pa = current->u.svm.msr.msrbmp_phys;
 	p->guest_asid = 1;	/* FIXME */
@@ -173,15 +189,6 @@ svm_vmcb_init (void)
 	p->efer = MSR_IA32_EFER_SVME_BIT;
 	p->cr0 = CR0_PG_BIT;
 	p->rflags = RFLAGS_ALWAYS1_BIT;
-	if (false && svm_nested_paging_available ()) {
-		/* FIXME: Nested paging */
-		p->np_enable = 1;
-		p->intercept_invlpg = 0;
-		p->intercept_exception &= ~0x4000;
-		p->intercept_read_cr &= ~8;
-		p->intercept_write_cr &= ~8;
-		asm_rdmsr64 (0x277, &p->g_pat);
-	}
 }
 
 void
@@ -190,10 +197,7 @@ svm_vminit (void)
 	current->u.svm.np = NULL;
 	svm_vmcb_init ();
 	/* svm_msr_init (); */
-	if (current->u.svm.vi.vmcb->np_enable)
-		svm_np_init ();
-	else
-		cpu_mmu_spt_init ();
+	svm_paging_init ();
 	call_initfunc ("vcpu");
 }
 
@@ -209,13 +213,15 @@ svm_init (void)
 	u64 tmp;
 	void *v;
 	ulong efer;
+	u32 a, b, c, d;
 
 	asm_rdmsr (MSR_IA32_EFER, &efer);
 	efer |= MSR_IA32_EFER_SVME_BIT;
 	asm_wrmsr (MSR_IA32_EFER, efer);
 	asm_rdmsr64 (MSR_AMD_VM_CR, &tmp);
-	tmp |= MSR_AMD_VM_CR_DIS_A20M_BIT;
+	tmp |= MSR_AMD_VM_CR_DIS_A20M_BIT | MSR_AMD_VM_CR_R_INIT_BIT;
 	asm_wrmsr64 (MSR_AMD_VM_CR, tmp);
+	set_int_handler (EXCEPTION_SX, sx_handler);
 	/* FIXME: size of a host state area is undocumented */
 	alloc_page (&v, &p);
 	currentcpu->svm.hsave = v;
@@ -225,6 +231,12 @@ svm_init (void)
 	memset (v, 0, PAGESIZE);
 	currentcpu->svm.vmcbhost = v;
 	currentcpu->svm.vmcbhost_phys = p;
+	/* CPUID_EXT_A is available if svm_available() returns true */
+	asm_cpuid (CPUID_EXT_A, 0, &a, &b, &c, &d);
+	if (d & CPUID_EXT_A_EDX_FLUSH_BY_ASID_BIT)
+		currentcpu->svm.flush_by_asid = true;
+	else
+		currentcpu->svm.flush_by_asid = false;
 }
 
 void
@@ -250,7 +262,7 @@ svm_resume (void)
 	efer |= MSR_IA32_EFER_SVME_BIT;
 	asm_wrmsr (MSR_IA32_EFER, efer);
 	asm_rdmsr64 (MSR_AMD_VM_CR, &tmp);
-	tmp |= MSR_AMD_VM_CR_DIS_A20M_BIT;
+	tmp |= MSR_AMD_VM_CR_DIS_A20M_BIT | MSR_AMD_VM_CR_R_INIT_BIT;
 	asm_wrmsr64 (MSR_AMD_VM_CR, tmp);
 	asm_wrmsr64 (MSR_AMD_VM_HSAVE_PA, currentcpu->svm.hsave_phys);
 	memcpy (current->u.svm.vi.vmcb, current->u.svm.saved_vmcb, PAGESIZE);

@@ -140,4 +140,4 @@ case "$module2" in ?*)
 esac
 total=$(($size0 + $size1 + $size2))
 generatembr $total $off1 $off2 | dd of="$device" seek="$lba1" conv=notrunc
-cat "$@" | dd of="$device" seek="$lba2"
+cat "$@" | dd of="$device" seek="$lba2" conv=notrunc

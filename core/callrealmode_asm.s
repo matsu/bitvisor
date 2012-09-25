@@ -39,6 +39,7 @@
 	CALLREALMODE_FUNC_SETCURSORPOS = 0x8
 	CALLREALMODE_FUNC_STARTKERNEL32 = 0x9
 	CALLREALMODE_FUNC_TCGBIOS = 0xA
+	CALLREALMODE_FUNC_GETFONTINFO = 0xB
 
 	SEG_SEL_CODE_REAL = 0x0000
 	SEG_SEL_DATA_REAL = 0x0000
@@ -172,6 +173,11 @@ callrealmode_switch:
 	OFF_TCGBIOS_IN_ES = 0x60
 	OFF_TCGBIOS_IN_DS = 0x64
 	OFF_TCGBIOS_AL = 0x68
+	OFF_GETFONTINFO_BP_RET = 0x30
+	OFF_GETFONTINFO_ES_RET = 0x32
+	OFF_GETFONTINFO_CX_RET = 0x34
+	OFF_GETFONTINFO_DL_RET = 0x36
+	OFF_GETFONTINFO_BH = 0x37
 
 	# Which function?
 	mov	OFF_FUNC(%bp),%ax
@@ -197,6 +203,8 @@ callrealmode_switch:
 	je	startkernel32
 	cmp	$CALLREALMODE_FUNC_TCGBIOS,%ax
 	je	tcgbios
+	cmp	$CALLREALMODE_FUNC_GETFONTINFO,%ax
+	je	getfontinfo
 	# Error!
 	cld
 	mov	$(errormsg_data-1-callrealmode_start+CALLREALMODE_OFFSET),%di
@@ -422,6 +430,21 @@ tcgbios:
 	mov	%esi,OFF_TCGBIOS_OUT_ESI(%bp)
 	mov	%edi,OFF_TCGBIOS_OUT_EDI(%bp)
 	mov	%ds,OFF_TCGBIOS_OUT_DS(%bp)
+	ret
+
+# getfontinfo
+#
+getfontinfo:
+	mov	OFF_GETFONTINFO_BH(%bp),%bh
+	mov	$0x1130,%ax
+	push	%bp
+	int	$0x10
+	mov	%bp,%bx
+	pop	%bp
+	mov	%bx,OFF_GETFONTINFO_BP_RET(%bp)
+	mov	%es,OFF_GETFONTINFO_ES_RET(%bp)
+	mov	%cx,OFF_GETFONTINFO_CX_RET(%bp)
+	mov	%dl,OFF_GETFONTINFO_DL_RET(%bp)
 	ret
 
 # Subroutines

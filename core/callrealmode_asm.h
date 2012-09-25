@@ -48,6 +48,7 @@ enum callrealmode_func {
 	CALLREALMODE_FUNC_SETCURSORPOS = 0x8,
 	CALLREALMODE_FUNC_STARTKERNEL32 = 0x9,
 	CALLREALMODE_FUNC_TCGBIOS = 0xA,
+	CALLREALMODE_FUNC_GETFONTINFO = 0xB,
 };
 
 struct callrealmode_printmsg {
@@ -106,6 +107,11 @@ struct callrealmode_tcgbios {
 	u32 al;
 } __attribute__ ((packed));
 
+struct callrealmode_getfontinfo {
+	u16 bp_ret, es_ret, cx_ret;
+	u8 dl_ret, bh;
+} __attribute__ ((packed));
+
 struct callrealmode_data {
 	enum callrealmode_func func : 32;
 	union {
@@ -119,6 +125,7 @@ struct callrealmode_data {
 		struct callrealmode_setcursorpos setcursorpos;
 		struct callrealmode_startkernel32 startkernel32;
 		struct callrealmode_tcgbios tcgbios;
+		struct callrealmode_getfontinfo getfontinfo;
 	} u;
 } __attribute__ ((packed));
 

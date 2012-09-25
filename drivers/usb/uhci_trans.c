@@ -54,7 +54,7 @@ uhci_td_maxerr(unsigned int n)
  * @param host struct uhci_host 
  */
 struct usb_request_block *
-create_urb(struct uhci_host *host)
+uhci_create_urb(struct uhci_host *host)
 {
 	struct usb_request_block *urb;
 
@@ -97,7 +97,7 @@ init_urb(struct usb_request_block *urb, u8 deviceaddress,
  * @param urb struct usb_request_block
  */
 void
-destroy_urb(struct uhci_host *host, struct usb_request_block *urb)
+uhci_destroy_urb(struct uhci_host *host, struct usb_request_block *urb)
 {
 	struct uhci_td_meta *tdm, *nexttdm;
 	struct usb_buffer_list *b;
@@ -140,6 +140,23 @@ destroy_urb(struct uhci_host *host, struct usb_request_block *urb)
 	free(urb);
 
 	return;
+}
+
+void
+uhci_destroy_unlinked_urbs (struct uhci_host *host)
+{
+	struct usb_request_block *urb;
+	int index;
+
+	spinlock_lock(&host->lock_hfl);
+	/* urbs in the current unlinked_urbs list
+	 * (host->unlinked_urbs[host->unlinked_urbs_index]) will be
+	 * kept until the next cycle because they may be accessed by
+	 * the host controller at this time. */
+	index = host->unlinked_urbs_index ^= 1;
+	while ((urb = LIST4_POP (host->unlinked_urbs[index], list)))
+		uhci_destroy_urb (host, urb);
+	spinlock_unlock(&host->lock_hfl);
 }
 
 static inline u32
@@ -245,6 +262,12 @@ uhci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *urb)
 
 	spinlock_lock(&host->lock_hfl);
 
+	if (urb->prevent_del) {
+		urb->deferred_del = true;
+		spinlock_unlock(&host->lock_hfl);
+		return 0U;
+	}
+
 	/* urb link */
 	if ((urb == host->fsbr_loop_head) && 
 	    (urb == host->fsbr_loop_tail)) {
@@ -309,6 +332,8 @@ uhci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *urb)
 	}
 
 	status = urb->status;
+	LIST4_DEL (host->inproc_urbs, list, urb);
+	LIST4_ADD (host->unlinked_urbs[host->unlinked_urbs_index], list, urb);
 	spinlock_unlock(&host->lock_hfl);
 
 	return status;
@@ -417,6 +442,7 @@ uhci_activate_urb(struct uhci_host *host, struct usb_request_block *urb)
 		__FUNCTION__, urb->link_prev, urb, urb->link_next);
 
 	status = urb->status;
+	LIST4_PUSH (host->inproc_urbs, list, urb);
 	spinlock_unlock(&host->lock_hfl);
 
 	return status;
@@ -518,7 +544,7 @@ uhci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 	dprintft(5, "%s: epdesc->wMaxPacketSize = %d\n", 
 		__FUNCTION__, epdesc->wMaxPacketSize);
 
-	urb = create_urb(host);
+	urb = uhci_create_urb(host);
 	if (!urb)
 		return (struct usb_request_block *)NULL;
 	if (device) {
@@ -631,11 +657,11 @@ uhci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 	if (uhci_activate_urb(host, urb) != URB_STATUS_RUN)
 		goto fail_submit_control;
 
-	LIST4_PUSH (host->inproc_urbs, list, urb);
+	URB_UHCI(urb)->tdm_acttail = NULL;
 
 	return urb;
 fail_submit_control:
-	destroy_urb(host, urb);
+	uhci_destroy_urb(host, urb);
 	return (struct usb_request_block *)NULL;
 }
 
@@ -662,7 +688,7 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 	size_t pktsize;
 	u32 lospeed = 0;
 
-	urb = create_urb(host);
+	urb = uhci_create_urb(host);
 	if (!urb)
 		return (struct usb_request_block *)NULL;
 	if (device) {
@@ -746,11 +772,11 @@ uhci_submit_async(struct uhci_host *host, struct usb_device *device,
 	if (uhci_activate_urb(host, urb) != URB_STATUS_RUN)
 		goto fail_submit_async;
 
-	LIST4_PUSH (host->inproc_urbs, list, urb);
+	URB_UHCI(urb)->tdm_acttail = NULL;
 
 	return urb;
 fail_submit_async:
-	destroy_urb(host, urb);
+	uhci_destroy_urb(host, urb);
 	return (struct usb_request_block *)NULL;
 }
 
@@ -830,8 +856,10 @@ uhci_check_urb_advance_sub (struct uhci_host *host, u16 ucfn,
 			    struct usb_request_block *urb)
 {
 	struct uhci_td_meta *tdm;
-	phys32_t qh_element;
-	int elapse, len;
+	phys32_t qh_element, td_stat;
+	int elapse;
+	u8 new_status;
+	size_t len, actlen;
 
 	elapse = (ucfn + UHCI_NUM_FRAMES - URB_UHCI(urb)->frnum_issued) &
 		(UHCI_NUM_FRAMES - 1);
@@ -839,45 +867,38 @@ uhci_check_urb_advance_sub (struct uhci_host *host, u16 ucfn,
 	if (!elapse)
 		return urb->status;
 
-	spinlock_lock(&host->lock_hfl);
-
-recheck:
-	urb->actlen = 0;
+	actlen = 0;
 	qh_element = URB_UHCI(urb)->qh->element; /* atomic */
 
-	/* count up actual length of input/output data */
+	/* check status and count up actual length of input/output
+	 * data */
+	new_status = URB_STATUS_ADVANCED;
 	for (tdm = URB_UHCI(urb)->tdm_head; tdm; tdm = tdm->next) {
-		if (!is_active_td(tdm->td)) {
-			len = UHCI_TD_STAT_ACTLEN(tdm->td);
-			if (!is_setup_td(tdm->td))
-				urb->actlen += len;
-		}
-		if ((phys32_t)tdm->td_phys == qh_element) {
-			urb->status = UHCI_TD_STAT_STATUS(tdm->td);
+		td_stat = tdm->td->status;
+		new_status = UHCI_TD_STATUS(td_stat);
+
+		if (is_active(td_stat))
 			break;
-		}
+
+		len = uhci_td_actlen(tdm->td);
+		if (!is_setup_td(tdm->td))
+			actlen += len;
+
+		if (is_error(td_stat))
+			break;
+
+		if (tdm == URB_UHCI(urb)->tdm_acttail)
+			break;
+
+		if (len < uhci_td_maxlen(tdm->td)) /* short packet */
+			break;
 	}
 
-	if (is_terminate(qh_element)) {
-		urb->status = URB_STATUS_ADVANCED;
-	} else {
-
-		/* double check */
-		if (qh_element != URB_UHCI(urb)->qh->element)
-			goto recheck;
-
-		if (!(urb->status & URB_STATUS_RUN) &&
-		    !(urb->status & URB_STATUS_ERRORS) &&
-		    (uhci_td_actlen(tdm->td) == uhci_td_maxlen(tdm->td)) &&
-		    tdm->next && is_active(tdm->next->status_copy))
-			urb->status = URB_STATUS_RUN;
-	}
-
+	urb->actlen = actlen;
+	urb->status = new_status;
 	URB_UHCI(urb)->qh_element_copy = qh_element;
 
-	spinlock_unlock(&host->lock_hfl);
-
-	return urb->status;
+	return new_status;
 }
 
 u8
@@ -919,7 +940,7 @@ uhci_check_advance(struct usb_host *usbhc)
 {
 	struct uhci_host *host = (struct uhci_host *)usbhc->private;
 	struct usb_request_block *urb, *nexturb;
-	int advance = 0, ret = 0;
+	int advance = 0;
 	int ucfn = -1;
 
 	if (cmpxchgl(&host->incheck, 0U, 1U))
@@ -931,7 +952,13 @@ uhci_check_advance(struct usb_host *usbhc)
 		dprintft(2, "%04x: %s: usbsts = %04x\n", 
 			host->iobase, __FUNCTION__, usbsts);
 #endif /* 0 */
-	LIST4_FOREACH_DELETABLE (host->inproc_urbs, list, urb, nexturb) {
+	spinlock_lock(&host->lock_hfl);
+recheck:
+	for (urb = LIST4_HEAD (host->inproc_urbs, list); urb;
+	     urb = nexturb) {
+		urb->prevent_del = true;
+		spinlock_unlock(&host->lock_hfl);
+
 		/* update urb->status */
 		if (urb->status == URB_STATUS_RUN) {
 			if (ucfn < 0)
@@ -940,16 +967,6 @@ uhci_check_advance(struct usb_host *usbhc)
 		}
 
 		switch (urb->status) {
-		case URB_STATUS_UNLINKED:
-			spinlock_lock(&host->lock_hfl);
-			LIST4_DEL (host->inproc_urbs, list, urb);
-			if (urb->shadow)
-				urb->shadow->shadow = NULL;
-			destroy_urb(host, urb);
-			dprintft(3, "%04x: %s: urb(%p) destroyed.\n",
-				 host->iobase, __FUNCTION__, urb);
-			spinlock_unlock(&host->lock_hfl);
-			break;
 		default: /* errors */
 			dprintft(2, "%04x: %s: got some errors(%s) "
 				 "for urb(%p).\n", host->iobase, 
@@ -958,8 +975,7 @@ uhci_check_advance(struct usb_host *usbhc)
 			/* through */
 		case URB_STATUS_ADVANCED:
 			if (urb->callback)
-				ret = (urb->callback)(host->hc, urb, 
-						     urb->cb_arg);
+				(urb->callback) (host->hc, urb, urb->cb_arg);
 			advance++;
 			break;
 		case URB_STATUS_NAK:
@@ -968,9 +984,21 @@ uhci_check_advance(struct usb_host *usbhc)
 			urb->status = URB_STATUS_RUN;
 		case URB_STATUS_RUN:
 		case URB_STATUS_FINALIZED:
+		case URB_STATUS_UNLINKED:
 			break;
 		} 
+		spinlock_lock(&host->lock_hfl);
+		nexturb = LIST4_NEXT (urb, list);
+		urb->prevent_del = false;
+		if (urb->deferred_del) {
+			urb->deferred_del = false;
+			spinlock_unlock(&host->lock_hfl);
+			uhci_deactivate_urb(host->hc, urb);
+			spinlock_lock(&host->lock_hfl);
+			goto recheck;
+		}
 	}
+	spinlock_unlock(&host->lock_hfl);
 
 #if 0
 	if (advance) {
@@ -1021,7 +1049,7 @@ init_hframelist(struct uhci_host *host)
 
 	/* create skelton QHs */
 	for (n_skels = 0; n_skels<UHCI_NUM_SKELTYPES; n_skels++) {
-		urb = create_urb(host);
+		urb = uhci_create_urb(host);
 		if (!urb)
 			break;
 		urb->address = URB_ADDRESS_SKELTON;

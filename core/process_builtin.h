@@ -36,8 +36,10 @@ struct process_builtin_data {
 	char *name __attribute__ ((aligned (8)));
 	void *bin __attribute__ ((aligned (8)));
 	ulong len __attribute__ ((aligned (8)));
+	ulong stacksize __attribute__ ((aligned (8)));
 };
 
-extern struct process_builtin_data process_builtin[];
+extern struct process_builtin_data __process_builtin[];
+extern struct process_builtin_data __process_builtin_end[];
 
 #endif

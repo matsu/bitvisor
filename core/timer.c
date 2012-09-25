@@ -165,4 +165,4 @@ timer_init_global (void)
 	thread_new (timer_thread, NULL, VMM_STACKSIZE);
 }
 
-INITFUNC ("global4", timer_init_global);
+INITFUNC ("paral20", timer_init_global);

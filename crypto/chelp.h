@@ -152,10 +152,10 @@ struct tm
 #define MB_LEN_MAX		5
 #define SHRT_MIN		(-32768)
 #define SHRT_MAX		32767
-#define USHRT_MAX		0xffff
+/*#define USHRT_MAX		0xffff*/
 #define INT_MIN			(-2147483647 - 1)
 #define INT_MAX			2147483647
-#define UINT_MAX		0xffffffff
+/*#define UINT_MAX		0xffffffff*/
 #define LONG_MIN		(-2147483647L - 1)
 #define LONG_MAX		2147483647L
 #define ULONG_MAX		0xffffffffUL
@@ -233,6 +233,7 @@ struct tm
 #define	strcasecmp			chelp_stricmp
 #define	stricmp				chelp_stricmp
 #define	strcmpi				chelp_stricmp
+#define	strncasecmp			chelp_strncasecmp
 
 #define	toupper				chelp_toupper
 #define	tolower				chelp_tolower
@@ -246,6 +247,70 @@ struct tm
 
 
 
+#define OPENSSL_NO_STDIO
+#define OPENSSL_DISABLE_OLD_DES_SUPPORT
+#define TERMIO
+#define DECLARE_PEM_write_fp_const DECLARE_PEM_write_fp
+#define BUFSIZ 512
+#define malloc chelp_malloc
+#define realloc chelp_realloc
+#define free chelp_free
+#define stderr NULL
+#define vfprintf BIO_printf
+#define abort chelp_abort
+#define double long
+#define printf chelp_printf
+
+void chelp_abort (void);
+
+static inline char *
+getenv (const char *name)
+{
+	return NULL;
+}
+
+static inline void *
+BIO_new_file (const char *filename, const char *mode)
+{
+	return NULL;
+}
+
+static inline int
+atoi (const char *nptr)
+{
+	int s, i = 0;
+	unsigned int r = 0, m;
+	
+	switch (nptr[0]) {
+	case '+':
+		i++;
+	default:
+		s = 0;
+		m = INT_MAX;
+		break;
+	case '-':
+		i++;
+		s = 1;
+		m = (unsigned int)INT_MAX + 1U;
+		break;
+	}
+	while (nptr[i] >= '0' && nptr[i] <= '9') {
+		if (r > m / 10) {
+			r = m;
+			break;
+		}
+		r = r * 10 + (nptr[i] - '0');
+		if (r > m) {
+			r = m;
+			break;
+		}
+		i++;
+	}
+	if (s)
+		return -r;
+	else
+		return r;
+}
 #endif	// CHELP_OPENSSL_SOURCE
 
 // chelp.c
@@ -294,6 +359,7 @@ int chelp_isdigit(int ch);
 int chelp_isxdigit(int ch);
 int chelp_isalpha(int ch);
 int chelp_isalnum(int ch);
+int chelp_strncasecmp(const char *dst, const char *src, unsigned int n);
 
 
 

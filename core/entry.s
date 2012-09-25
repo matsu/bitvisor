@@ -406,32 +406,17 @@ entry_pdp:
 	.space	4096-8*4		# 0x0000000100000000-
 	.globl	entry_pd0
 entry_pd0:
-	.quad	0x000083		#        +0x00000000
-	.quad	0x200083		#        +0x00200000
-	.quad	0x400083		#        +0x00400000
-	.quad	0x600083		#        +0x00600000
-	.quad	0x800083		#        +0x00800000
-	.quad	0xA00083		#        +0x00A00000
-	.quad	0xC00083		#        +0x00C00000
-	.quad	0xE00083		#        +0x00E00000
-	.space	4096-8*8		#        +0x01000000-
+	.rept	512			#        +0x00000000-
+	.quad	0x83 + (. - entry_pd0) / 8 * 0x200000
+	.endr
 	.globl	entry_pd
 entry_pd: # Page directory for PAE OFF	#   7654321|76543210
-	.long	0x000083		#        +0x00000000
-	.long	0x400083		#        +0x00400000
-	.long	0x800083		#        +0x00800000
-	.long	0xC00083		#        +0x00C00000
-	.space	1024-4*4		#        +0x01000000-
-	.long	0x000083		#        +0x40000000
-	.long	0x400083		#        +0x40400000
-	.long	0x800083		#        +0x40800000
-	.long	0xC00083		#        +0x40C00000
-	.space	1024-4*4		#        +0x41000000-
-	.long	0x000083		#        +0x80000000
-	.long	0x400083		#        +0x80400000
-	.long	0x800083		#        +0x80800000
-	.long	0xC00083		#        +0x80C00000
-	.space	1024-4*4		#        +0x81000000-
+	.rept	3			#        +0x00000000-
+1:
+	.rept	256
+	.long	0x83 + (. - 1b) / 4 * 0x400000
+	.endr
+	.endr
 	.space	1024			#        +0xC0000000-
 
 	# Stack for initialization

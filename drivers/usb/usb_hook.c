@@ -133,6 +133,10 @@ usb_hook_process(struct usb_host *host,
 	u8 endpt;
 
 	for (hook = host->hook[phase - 1]; hook; hook = hook->next) {
+		/* dev */
+		if ((hook->match & USB_HOOK_MATCH_DEV) &&
+		    (hook->dev != urb->dev))
+			continue;
 		/* device address */
 		if ((hook->match & USB_HOOK_MATCH_ADDR) &&
 		    (hook->devadr != urb->address))

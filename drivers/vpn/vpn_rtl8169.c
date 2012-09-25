@@ -30,7 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef CRYPTO_VPN
+#ifdef VPN
 #ifdef VPN_RTL8169
 
 #include "pci.h"
@@ -1849,5 +1849,4 @@ rtl8169_init()
 PCI_DRIVER_INIT(rtl8169_init);
 
 #endif /* VPN_RTL8169 */
-#endif /* CRYPTO_VPN */
-
+#endif /* VPN */

@@ -31,7 +31,9 @@
 #define _ATA_AHCI_H
 
 void *ahci_new (struct pci_device *pci_device);
-void ahci_config_write (void *ahci_data, struct pci_device *pci_device, 
+bool ahci_config_read (void *ahci_data, struct pci_device *pci_device,
+		       core_io_t io, u8 offset, union mem *data);
+bool ahci_config_write (void *ahci_data, struct pci_device *pci_device,
 			core_io_t io, u8 offset, union mem *data);
 
 #endif

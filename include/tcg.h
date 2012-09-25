@@ -35,9 +35,9 @@
 /* Return Codes */
 #define TCG_PC_OK		0x0000
 #define TCG_PC_TPMERROR(TPM_driver_error) \
-	((TCG_PC_OK + 01h) | ((TPM_driver_error) << 16))
-#define TCG_PC_LOGOVERFLOW	(TCG_PC_OK + 02h)
-#define TCG_PC_UNSUPPORTED	(TCG_PC_OK + 03h)
+	((TCG_PC_OK + 0x01) | ((TPM_driver_error) << 16))
+#define TCG_PC_LOGOVERFLOW	(TCG_PC_OK + 0x02)
+#define TCG_PC_UNSUPPORTED	(TCG_PC_OK + 0x03)
 
 /* TCG_HashLogExtendEvent Input Parameter Block Format 1 */
 struct TCG_HashLogExtendEvent_input_param_blk_1 {
@@ -161,6 +161,6 @@ bool int1a_TCG_TSS (struct TCG_TSS_input_param_blk *input,
 bool int1a_TCG_CompactHashLogExtendEvent (u32 data_addr, u32 data_len,
 					  u32 esi, u32 pcr, u32 *return_code,
 					  u32 *event_number);
-void tcg_measure (u32 phys, u32 len);
+void tcg_measure (void *virt, u32 len);
 
 #endif

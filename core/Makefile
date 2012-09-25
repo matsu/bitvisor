@@ -1,6 +1,3 @@
-CONFIG        = ../.config
-include $(CONFIG)
-
 # config macros
 CONSTANTS-$(CONFIG_64) +=
 CONSTANTS-$(CONFIG_DEBUG_GDB) += -DDEBUG_GDB
@@ -17,7 +14,8 @@ CONSTANTS-$(CONFIG_AUTO_REBOOT) += -DAUTO_REBOOT
 CONSTANTS-$(CONFIG_DBGSH) += -DDBGSH
 CONSTANTS-$(CONFIG_STATUS) += -DSTATUS
 CONSTANTS-$(CONFIG_LOG_TO_GUEST) += -DLOG_TO_GUEST
-CONSTANTS-$(CONFIG_CRYPTO_VPN) += -DCRYPTO_VPN
+CONSTANTS-$(CONFIG_CRYPTO) += -DCRYPTO
+CONSTANTS-$(CONFIG_VPN) += -DVPN
 CONSTANTS-$(CONFIG_PS2KBD_F10USB) += -DF10USBTEST
 CONSTANTS-$(CONFIG_PS2KBD_F12USB) += -DF12DUMPEHCI
 CONSTANTS-$(CONFIG_FWDBG) += -DFWDBG
@@ -30,39 +28,16 @@ CONSTANTS-$(CONFIG_VPN_VE) += -DVPN_VE
 CONSTANTS-$(CONFIG_DISABLE_TCG_BIOS) += -DDISABLE_TCG_BIOS
 CONSTANTS-$(CONFIG_ACPI_TIME_SOURCE) += -DACPI_TIME_SOURCE
 CONSTANTS-$(CONFIG_TCG_BIOS) += -DTCG_BIOS
+CONSTANTS-$(CONFIG_BACKTRACE) += -DBACKTRACE
+CONSTANTS-$(CONFIG_TTY_VGA) += -DTTY_VGA
 
 CONSTANTS-1 += -DUSE_PAE
 
-BITS-0        = 32
-BITS-1        = 64
-OBJS          = $(patsubst %.c,%.o,$(wildcard *.c)) \
-		$(patsubst %.s,%.o,$(wildcard *.s))
-HEADERS       = $(wildcard *.h) $(wildcard ../include/core/*.h) $(wildcard ../crypto/*.h) $(wildcard ../vpn/Se/*.h) 
-OBJ_BUILTIN   = ./builtin/process_builtin.o
-CFLAGS        = -m$(BITS-$(CONFIG_64)) -mno-red-zone -g -O -nostdinc \
-		-fno-builtin -Wall $(CONSTANTS-1) -I../include/ -I../vpn/ \
-		-fno-stack-protector -mno-sse
-ASFLAGS       = --$(BITS-$(CONFIG_64))
-LDFLAGS-0     = -Wl,-melf_i386
-LDFLAGS-1     = -Wl,-melf_x86_64
-LDFLAGS       = $(LDFLAGS-$(CONFIG_64)) -g -nostdlib -Wl,-r
-OUT_OBJ       = core.o
+CFLAGS += -Ivpn/lib
 
-.PHONY : all clean $(OBJ_BUILTIN)
+c!=echo $(dir)*.c
+c += $(wildcard $(dir)*.c)
+s!=echo $(dir)*.s
+s += $(wildcard $(dir)*.s)
 
-all : $(OUT_OBJ)
-
-clean : 
-	$(MAKE) -C ./builtin clean
-	rm -f $(OUT_OBJ) *.o *~
-
-$(OBJ_BUILTIN) :
-	$(MAKE) -C ./builtin
-
-$(OUT_OBJ) : $(OBJS) $(OBJ_BUILTIN) $(CONFIG)
-	$(CC) $(LDFLAGS) -o $(OUT_OBJ) $(OBJS) $(OBJ_BUILTIN)
-
-$(OBJS) : $(HEADERS) $(CONFIG)
-
-config.o : config.c ../defconfig
-	$(CC) $(CFLAGS) -c config.c
+objs-1 += $(c:$(dir)%.c=%.o) $(s:$(dir)%.s=%.o)

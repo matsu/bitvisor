@@ -77,7 +77,8 @@ struct uhci_td {
 #define UHCI_TD_STAT_ER 	(UHCI_TD_STAT_ST | UHCI_TD_STAT_BE |	\
 				 UHCI_TD_STAT_BB |			\
 				 UHCI_TD_STAT_TO | UHCI_TD_STAT_SE )
-#define UHCI_TD_STAT_STATUS(__td)	(((__td)->status >> 16) & 0x000000feU)
+#define UHCI_TD_STATUS(stat)	(((stat) >> 16) & 0x000000feU)
+#define UHCI_TD_STAT_STATUS(__td)	(UHCI_TD_STATUS((__td)->status))
 	phys32_t             token;
 #define UHCI_TD_TOKEN_DT1_TOGGLE   	(0x00000001U << 19)
 #define UHCI_TD_TOKEN_ENDPOINT(__ep) 	(((__ep) & 0x0f) << 15)
@@ -111,7 +112,6 @@ struct usb_ctrl_setup;
 struct uhci_td_meta {
 	struct uhci_td        *td;
 	phys_t                 td_phys;
-	struct uhci_td_meta   *prev;
 	struct uhci_td_meta   *next;
 	struct uhci_td        *shadow_td;
 	u32                    status_copy;
@@ -129,6 +129,13 @@ struct urb_private_uhci {
 	phys_t                 qh_phys;
 	struct uhci_td_meta    *tdm_head;
 	struct uhci_td_meta    *tdm_tail;
+	struct uhci_td_meta    *tdm_acttail;
+				/*
+				 * tdm_acttail indicate a tail of td whose
+				 * status is active in a td list.
+				 * tdm_tail may indicate a td whose status
+				 * is not active.
+				 */
 
 	u16                    refcount; /* only for skelton urbs */
 	u16                    frnum_issued; /* frame counter value
@@ -172,6 +179,8 @@ struct uhci_host {
 
 	LIST4_DEFINE_HEAD (inproc_urbs, struct usb_request_block, list);
 	LIST4_DEFINE_HEAD (guest_urbs, struct usb_request_block, list);
+	LIST4_DEFINE_HEAD (unlinked_urbs[2], struct usb_request_block, list);
+	int unlinked_urbs_index;
 	struct uhci_td_meta       *iso_urbs[UHCI_NUM_FRAMES];
 	struct usb_request_block  *guest_skeltons[UHCI_NUM_INTERVALS];
 	struct usb_request_block  *host_skelton[UHCI_NUM_SKELTYPES];
@@ -190,7 +199,6 @@ struct uhci_host {
 
 	/* locks for guest's and host's frame list */
 	spinlock_t              lock_hc;  /* HC */
-	spinlock_t              lock_gfl; /* Guest's frame list */
 	spinlock_t              lock_hfl; /* Host(VM)'s frame list */
 	u32                     incheck;
 
@@ -244,8 +252,6 @@ uhci_td_actlen(struct uhci_td *td)
 
 	return (size_t)len;
 }
-
-#define UHCI_TD_STAT_ACTLEN(_td)	uhci_td_actlen(_td)
 
 static inline u32
 uhci_td_explen(u16 len)
@@ -329,9 +335,10 @@ uhci_submit_bulk(struct usb_host *usbhc, struct usb_device *device,
 		 void *arg, int ioc);
 
 struct usb_request_block *
-create_urb(struct uhci_host *host);
+uhci_create_urb(struct uhci_host *host);
 void
-destroy_urb(struct uhci_host *host, struct usb_request_block *urb);
+uhci_destroy_urb(struct uhci_host *host, struct usb_request_block *urb);
+void uhci_destroy_unlinked_urbs (struct uhci_host *host);
 
 static inline bool
 is_linked(struct usb_request_block *urblist, struct usb_request_block *urb)

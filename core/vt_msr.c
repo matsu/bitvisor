@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "cache.h"
 #include "constants.h"
 #include "current.h"
 #include "int.h"
@@ -35,6 +36,7 @@
 #include "panic.h"
 #include "printf.h"
 #include "vt_msr.h"
+#include "vt_paging.h"
 
 #define MAXNUM_OF_VT_MSR 512
 
@@ -201,21 +203,50 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 	case MSR_IA32_KERNEL_GS_BASE:
 		r = vt_read_guest_msr (current->u.vt.msr.kerngs, msrdata);
 		break;
+	case MSR_IA32_MTRR_FIX4K_C0000:
+	case MSR_IA32_MTRR_FIX4K_C8000:
+	case MSR_IA32_MTRR_FIX4K_D0000:
+	case MSR_IA32_MTRR_FIX4K_D8000:
+	case MSR_IA32_MTRR_FIX4K_E0000:
+	case MSR_IA32_MTRR_FIX4K_E8000:
+	case MSR_IA32_MTRR_FIX4K_F0000:
+	case MSR_IA32_MTRR_FIX4K_F8000:
+	case MSR_IA32_MTRR_FIX16K_80000:
+	case MSR_IA32_MTRR_FIX16K_A0000:
+	case MSR_IA32_MTRR_FIX64K_00000:
+	case MSR_IA32_MTRR_DEF_TYPE:
+	case MSR_IA32_MTRR_PHYSBASE0:
+	case MSR_IA32_MTRR_PHYSMASK0:
+	case MSR_IA32_MTRR_PHYSBASE1:
+	case MSR_IA32_MTRR_PHYSMASK1:
+	case MSR_IA32_MTRR_PHYSBASE2:
+	case MSR_IA32_MTRR_PHYSMASK2:
+	case MSR_IA32_MTRR_PHYSBASE3:
+	case MSR_IA32_MTRR_PHYSMASK3:
+	case MSR_IA32_MTRR_PHYSBASE4:
+	case MSR_IA32_MTRR_PHYSMASK4:
+	case MSR_IA32_MTRR_PHYSBASE5:
+	case MSR_IA32_MTRR_PHYSMASK5:
+	case MSR_IA32_MTRR_PHYSBASE6:
+	case MSR_IA32_MTRR_PHYSMASK6:
+	case MSR_IA32_MTRR_PHYSBASE7:
+	case MSR_IA32_MTRR_PHYSMASK7:
+	case MSR_IA32_MTRR_PHYSBASE8:
+	case MSR_IA32_MTRR_PHYSMASK8:
+	case MSR_IA32_MTRR_PHYSBASE9:
+	case MSR_IA32_MTRR_PHYSMASK9:
+		r = cache_get_gmtrr (msrindex, msrdata);
+		break;
+	case MSR_IA32_MTRRCAP:
+		*msrdata = cache_get_gmtrrcap ();
+		break;
+	case MSR_IA32_PAT:
+		r = vt_paging_get_gpat (msrdata);
+		break;
 	default:
 		r = current->msr.read_msr (msrindex, msrdata);
 	}
 	return r;
-}
-
-static void
-vt_msr_spt_disable (void)
-{
-#ifdef CPU_MMU_SPT_DISABLE
-	ulong cr0;
-
-	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr0);
-	current->vmctl.write_control_reg (CONTROL_REG_CR0, cr0);
-#endif
 }
 
 bool
@@ -245,8 +276,8 @@ vt_write_msr (u32 msrindex, u64 msrdata)
 		/* FIXME: Reserved bits should be checked here. */
 		r = vt_write_guest_msr (current->u.vt.msr.efer, data);
 		vt_msr_update_lma ();
-		cpu_mmu_spt_updatecr3 ();
-		vt_msr_spt_disable ();
+		vt_paging_updatecr3 ();
+		vt_paging_flush_guest_tlb ();
 		break;
 	case MSR_IA32_STAR:
 		r = vt_write_guest_msr (current->u.vt.msr.star, msrdata);
@@ -268,6 +299,46 @@ vt_write_msr (u32 msrindex, u64 msrdata)
 		break;
 	case MSR_IA32_KERNEL_GS_BASE:
 		r = vt_write_guest_msr (current->u.vt.msr.kerngs, msrdata);
+		break;
+	case MSR_IA32_MTRR_FIX4K_C0000:
+	case MSR_IA32_MTRR_FIX4K_C8000:
+	case MSR_IA32_MTRR_FIX4K_D0000:
+	case MSR_IA32_MTRR_FIX4K_D8000:
+	case MSR_IA32_MTRR_FIX4K_E0000:
+	case MSR_IA32_MTRR_FIX4K_E8000:
+	case MSR_IA32_MTRR_FIX4K_F0000:
+	case MSR_IA32_MTRR_FIX4K_F8000:
+	case MSR_IA32_MTRR_FIX16K_80000:
+	case MSR_IA32_MTRR_FIX16K_A0000:
+	case MSR_IA32_MTRR_FIX64K_00000:
+	case MSR_IA32_MTRR_DEF_TYPE:
+	case MSR_IA32_MTRR_PHYSBASE0:
+	case MSR_IA32_MTRR_PHYSMASK0:
+	case MSR_IA32_MTRR_PHYSBASE1:
+	case MSR_IA32_MTRR_PHYSMASK1:
+	case MSR_IA32_MTRR_PHYSBASE2:
+	case MSR_IA32_MTRR_PHYSMASK2:
+	case MSR_IA32_MTRR_PHYSBASE3:
+	case MSR_IA32_MTRR_PHYSMASK3:
+	case MSR_IA32_MTRR_PHYSBASE4:
+	case MSR_IA32_MTRR_PHYSMASK4:
+	case MSR_IA32_MTRR_PHYSBASE5:
+	case MSR_IA32_MTRR_PHYSMASK5:
+	case MSR_IA32_MTRR_PHYSBASE6:
+	case MSR_IA32_MTRR_PHYSMASK6:
+	case MSR_IA32_MTRR_PHYSBASE7:
+	case MSR_IA32_MTRR_PHYSMASK7:
+	case MSR_IA32_MTRR_PHYSBASE8:
+	case MSR_IA32_MTRR_PHYSMASK8:
+	case MSR_IA32_MTRR_PHYSBASE9:
+	case MSR_IA32_MTRR_PHYSMASK9:
+		r = cache_set_gmtrr (msrindex, msrdata);
+		vt_paging_clear_all ();
+		vt_paging_flush_guest_tlb ();
+		break;
+	case MSR_IA32_PAT:
+		r = vt_paging_set_gpat (msrdata);
+		vt_paging_flush_guest_tlb ();
 		break;
 	default:
 		r = current->msr.write_msr (msrindex, msrdata);

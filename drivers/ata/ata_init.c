@@ -283,7 +283,7 @@ static void ata_init(void)
 {
 	if (!config.vmm.driver.ata)
 		return;
-	ASSERT(CORE_IO_DIR_IN == STORAGE_READ);
+	ASSERT((int)CORE_IO_DIR_IN == (int)STORAGE_READ);
 	pci_register_driver(&ata_driver);
 	pci_register_driver(&ahci_driver);
 	pci_register_driver(&raid_driver);

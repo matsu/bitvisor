@@ -157,46 +157,6 @@ free_config_descriptors(struct usb_config_descriptor *cdesc, int n)
 }
 
 /**
- * @brief free nobody refer handler
- * @params hostc usb host controller data
- */
-static int
-free_unref_handle(struct usb_host *host)
-{
-	struct usb_device_handle *handle, *nhandle;
-
-	LIST1_FOREACH_DELETABLE (host->handle, handle, nhandle) {
-		if (!handle->ref) {
-			LIST1_DEL(host->handle, handle);
-			free(handle->private_data);
-			free(handle);
-		}
-	}
-	return 0;
-}
-
-/**
- * @brief free a device handler
- * @params hostc usb host controller data
- * @params dev usb device
- */
-static int
-free_handle(struct usb_host *host, struct usb_device *dev)
-{
-	struct usb_device_handle *handle, *nhandle;
-
-	LIST1_FOREACH_DELETABLE (host->handle, handle, nhandle) {
-		if (!memcmp(&handle->ddesc, &dev->descriptor, dev->l_ddesc) &&
-		    !cmp_config_descriptor(&handle->cdesc, &dev->cdesc) &&
-		    !memcmp(handle->serial, dev->serial, dev->serial_len)) {
-			LIST1_DEL(host->handle, handle);
-			handle->remove(dev);
-		}
-	}
-	return 0;
-}
-
-/**
  * @brief called when a device has been removed
  * @params hostc usb host controller data
  * @params dev usb device
@@ -225,8 +185,8 @@ free_device(struct usb_host *host, struct usb_device *dev)
 	if (dev->config)
 		free_config_descriptors(dev->config, 1);
 
-	if (dev->handle)
-		dev->handle->ref--;
+	if (dev->handle && dev->handle->remove)
+		dev->handle->remove (dev);
 
 	/* remove it from device list */
 	if (host->device == dev) {
@@ -269,12 +229,8 @@ handle_connect_status(struct usb_host *ub_host, u64 portno, u16 status)
 				dprintft(1, "PORTNO 0-0-0-0-%d: USB device "
 					 "disconnect.\n", (int)dev->portno);
 				/* the device is disconnected. */
-				if (dev->handle && dev->handle->ref == 1)
-					free_handle(ub_host, dev);
-				/* find handles nobody refer and delete them */
-				free_unref_handle(ub_host);
+				free_device (ub_host, dev);
 			}
-			free_device(ub_host, dev);
 		}
 	}
 
@@ -310,7 +266,7 @@ handle_port_reset(struct usb_host *ub_host,
 	dprintft(1, "PORT[%d]: reset for a stalled device(%d).\n", 
 		 portno + 1, dev->devnum);
 	ub_host->last_changed_port = portno + 1;
-	free_device(ub_host, dev);
+	dev->bStatus = UD_STATUS_RESET;
 
 	return 0;
 }
@@ -731,6 +687,19 @@ dprintf_port(int level, u64 port)
         return;
 }
 
+static int
+is_same_device (struct usb_device *dev1, struct usb_device *dev2)
+{
+	if (dev1->l_ddesc != dev2->l_ddesc ||
+	    dev1->serial_len != dev2->serial_len)
+		return 0;
+	if (memcmp (&dev1->descriptor, &dev2->descriptor, dev1->l_ddesc) ||
+	    cmp_config_descriptor (&dev1->cdesc, &dev2->cdesc) ||
+	    memcmp (&dev1->serial, &dev2->serial, dev1->serial_len))
+		return 0;
+	return 1;
+}
+
 /**
  * @brief new usb device 
  * @params usbhc usb host controller data
@@ -742,6 +711,7 @@ new_usb_device(struct usb_host *usbhc,
 	       struct usb_request_block *urb, void *arg)
 {
 	struct usb_device *dev;
+	struct usb_device *dev_same_addr = NULL, *dev_same_port = NULL;
 	usb_dev_handle *udev;
 	usb_dev_handle *hdev;
 	struct usb_device *hubdev;
@@ -776,18 +746,21 @@ new_usb_device(struct usb_host *usbhc,
 	/* confirm the address is new. */
 	dev = get_device_by_address(usbhc, devadr);
 	if (dev) {
-		dprintft(1, "The same address(%d) found! Maybe reset.\n",
-						devadr);
-		free_device(usbhc, dev);
+		dprintft (1, "The same address(%d) found! %s.\n", devadr,
+			  dev->bStatus == UD_STATUS_RESET ? "Reset" :
+			  "Maybe reset");
+		dev_same_addr = dev;
 	}
 	/* confirm the port is new. */
 	dev = get_device_by_port(usbhc, usbhc->last_changed_port);
+	if (dev_same_addr && dev != dev_same_addr)
+		free_device (usbhc, dev_same_addr);
 	if (dev) {
 		dprintft(1, "the port(");
 		dprintf_port(1, usbhc->last_changed_port);
-		dprintf(1, ") may be reset.\n");
-
-		free_device(usbhc, dev);
+		dprintf (1, ") %s reset.\n",
+			 dev->bStatus == UD_STATUS_RESET ? "is" : "may be");
+		dev_same_port = dev;
 	}
 
 	/* new device */
@@ -902,16 +875,33 @@ new_usb_device(struct usb_host *usbhc,
 		dev->serial_len = ret;
 	}
 
+	if (dev_same_port) {
+		if (is_same_device (dev, dev_same_port)) {
+			dev_same_port->devnum = dev->devnum;
+			dev_same_port->bStatus = dev->bStatus;
+			free_device (usbhc, dev);
+			dprintft (1, "Reuse the previous device data"
+				  " of address(%d).\n", devadr);
+			return USB_HOOK_PASS;
+		} else {
+			dprintft (1, "Free the previous device data"
+				  " of address(%d).\n", devadr);
+			free_device (usbhc, dev_same_port);
+		}
+	}
+
 	spinlock_lock(&usbhc->lock_hk);
 	/* register a hook for SetConfiguration() */
 	usb_hook_register(usbhc, USB_HOOK_REPLY,
-			  USB_HOOK_MATCH_ALL,
+			  USB_HOOK_MATCH_DEV | USB_HOOK_MATCH_ENDP |
+			  USB_HOOK_MATCH_DATA,
 			  devadr, 0, &pat_setconf,
 			  device_state_change, NULL, dev);
 
 	/* register a hook for SetInterface() */
 	usb_hook_register(usbhc, USB_HOOK_REPLY,
-			  USB_HOOK_MATCH_ALL,
+			  USB_HOOK_MATCH_DEV | USB_HOOK_MATCH_ENDP |
+			  USB_HOOK_MATCH_DATA,
 			  devadr, 0, &pat_setinf,
 			  device_iface_change, NULL, dev);
 	spinlock_unlock(&usbhc->lock_hk);
@@ -941,7 +931,8 @@ usb_init_device_monitor(struct usb_host *host)
 	/* whenever SetAddress() issued */
 	spinlock_lock(&host->lock_hk);
 	usb_hook_register(host, USB_HOOK_REPLY, 
-			  USB_HOOK_MATCH_ALL, 0, 0, &pat_setadr, 
+			  USB_HOOK_MATCH_ADDR | USB_HOOK_MATCH_ENDP |
+			  USB_HOOK_MATCH_DATA, 0, 0, &pat_setadr, 
 			  new_usb_device, NULL, NULL);
 	spinlock_unlock(&host->lock_hk);
 
@@ -949,38 +940,11 @@ usb_init_device_monitor(struct usb_host *host)
 }
 
 void *
-usb_find_dev_handle (struct usb_host *usbhc, struct usb_device *dev) {
-
-	struct usb_device_handle *handler;
-
-	LIST1_FOREACH (usbhc->handle, handler) {
-		if (!memcmp(&handler->ddesc, &dev->descriptor, dev->l_ddesc) &&
-		    !cmp_config_descriptor(&handler->cdesc, &dev->cdesc) &&
-		    !memcmp(handler->serial, dev->serial, dev->serial_len)) {
-			handler->ref++;
-			break;
-		}
-	}
-	return handler;
-}
-
-void *
-usb_new_dev_handle (struct usb_host *usbhc, void *devinfo,
-		    void (*remove)(struct usb_device *),
-		    struct usb_device *dev) {
-
+usb_new_dev_handle (struct usb_host *usbhc, struct usb_device *dev)
+{
 	struct usb_device_handle *handler;
 
 	/* allocate new handler */
 	handler = zalloc_usb_device_handle();
-	handler->remove = remove;
-	handler->private_data = devinfo;
-	handler->ref = 1;
-	memcpy(&handler->ddesc, &dev->descriptor, dev->l_ddesc);
-	cpy_config_descriptor(&handler->cdesc, &dev->cdesc);
-	memcpy(handler->serial, dev->serial, dev->serial_len);
-	handler->serial_len = dev->serial_len;
-	LIST1_PUSH (usbhc->handle, handler);
-
 	return handler;
 }

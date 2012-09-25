@@ -29,7 +29,6 @@
 
 #include "asm.h"
 #include "constants.h"
-#include "cpu_mmu_spt.h"
 #include "current.h"
 #include "entry.h"
 #include "mm.h"
@@ -37,7 +36,7 @@
 #include "printf.h"
 #include "seg.h"
 #include "svm_msr.h"
-#include "svm_np.h"
+#include "svm_paging.h"
 #include "svm_regs.h"
 
 void
@@ -157,93 +156,55 @@ svm_write_general_reg (enum general_reg reg, ulong val)
 void
 svm_read_control_reg (enum control_reg reg, ulong *val)
 {
-	u64 tmp;
-
 	switch (reg) {
 	case CONTROL_REG_CR0:
-		*val = current->u.svm.vr.cr0;
+		*val = *current->u.svm.cr0;
 		break;
 	case CONTROL_REG_CR2:
 		*val = current->u.svm.vi.vmcb->cr2;
 		break;
 	case CONTROL_REG_CR3:
-		if (!current->u.svm.np)
-			*val = current->u.svm.vr.cr3;
-		else
-			*val = current->u.svm.vi.vmcb->cr3;
+		*val = *current->u.svm.cr3;
 		break;
 	case CONTROL_REG_CR4:
-		*val = current->u.svm.vr.cr4;
-		break;
-	case CONTROL_REG_CR8:
-		current->apic.read_cr8 (&tmp);
-		*val = tmp;
+		*val = *current->u.svm.cr4;
 		break;
 	default:
 		panic ("Fatal error: unknown control register.");
 	}
 }
 
-static void
-svm_spt_disable (struct vmcb *vmcb)
-{
-#ifdef CPU_MMU_SPT_DISABLE
-	vmcb->cr0 = current->u.svm.vr.cr0;
-	vmcb->cr3 = current->u.svm.vr.cr3;
-	vmcb->cr4 = current->u.svm.vr.cr4;
-#endif
-}
-
 void
 svm_write_control_reg (enum control_reg reg, ulong val)
 {
 	struct vmcb *vmcb;
+	ulong xor;
 
 	vmcb = current->u.svm.vi.vmcb;
 	switch (reg) {
 	case CONTROL_REG_CR0:
-		current->u.svm.vr.cr0 = val;
-		if (!current->u.svm.np)
-			val |= CR0_PG_BIT | CR0_WP_BIT;
-		vmcb->cr0 = val;
+		xor = *current->u.svm.cr0 ^ val;
+		*current->u.svm.cr0 = val;
+		if (xor & CR0_PG_BIT)
+			svm_paging_pg_change ();
+		vmcb->cr0 = svm_paging_apply_fixed_cr0 (val);
 		svm_msr_update_lma ();
-		if (!current->u.svm.np)
-			cpu_mmu_spt_updatecr3 ();
-		else
-			svm_np_updatecr3 ();
-		vmcb->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
-		svm_spt_disable (vmcb);
+		svm_paging_updatecr3 ();
+		svm_paging_flush_guest_tlb ();
 		break;
 	case CONTROL_REG_CR2:
 		vmcb->cr2 = val;
 		break;
 	case CONTROL_REG_CR3:
-		current->u.svm.vr.cr3 = val;
-		if (current->u.svm.np) {
-			current->u.svm.vi.vmcb->cr3 = val;
-			svm_np_updatecr3 ();
-		} else {
-			cpu_mmu_spt_updatecr3 ();
-		}
-		vmcb->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
-		svm_spt_disable (vmcb);
+		*current->u.svm.cr3 = val;
+		svm_paging_updatecr3 ();
+		svm_paging_flush_guest_tlb ();
 		break;
 	case CONTROL_REG_CR4:
-		current->u.svm.vr.cr4 = val;
-#ifdef CPU_MMU_SPT_USE_PAE
-		if (!current->u.svm.np)
-			val |= CR4_PAE_BIT;
-#endif
-		vmcb->cr4 = val;
-		if (!current->u.svm.np)
-			cpu_mmu_spt_updatecr3 ();
-		else
-			svm_np_updatecr3 ();
-		vmcb->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
-		svm_spt_disable (vmcb);
-		break;
-	case CONTROL_REG_CR8:
-		current->apic.write_cr8 (val);
+		*current->u.svm.cr4 = val;
+		vmcb->cr4 = svm_paging_apply_fixed_cr4 (val);
+		svm_paging_updatecr3 ();
+		svm_paging_flush_guest_tlb ();
 		break;
 	default:
 		panic ("Fatal error: unknown control register.");
@@ -389,12 +350,6 @@ svm_read_sreg_limit (enum sreg s, ulong *val)
 	default:
 		panic ("Fatal error: unknown sreg.");
 	}
-}
-
-void
-svm_spt_setcr3 (ulong cr3)
-{
-	current->u.svm.vi.vmcb->cr3 = cr3;
 }
 
 void

@@ -45,8 +45,6 @@ static struct guid anyguid = STORAGE_GUID_ANY;
 static struct config_data_storage *cfg;
 static int storage_desc;
 
-#ifdef STORAGE_ENC
-
 struct storage_keys {
 	lba_t		lba_low, lba_high;
 	struct crypto	*crypto;
@@ -160,13 +158,6 @@ storage_set_keys (struct storage_device *storage, struct storage_init *init)
 	}
 	storage->keynum = keyindex;
 }
-#else
-static void storage_set_keys(struct storage_device *storage)
-{
-	storage->keynum = 0;
-}
-#endif
-
 
 int
 storage_handle_sectors (struct storage_device *storage,

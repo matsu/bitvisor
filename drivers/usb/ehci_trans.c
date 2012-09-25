@@ -255,6 +255,7 @@ ehci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 		qtdm->qtd->altnext = tail_phys;
 
 	/* activate it in the shadow list */
+	spinlock_lock(&host->lock_hurb);
 	URB_EHCI(urb)->qh->link =
 		URB_EHCI(LIST4_TAIL (host->hurb, list))->qh->link;
 	URB_EHCI(LIST4_TAIL (host->hurb, list))->qh->link = (phys32_t)
@@ -264,6 +265,7 @@ ehci_submit_control(struct usb_host *usbhc, struct usb_device *device,
 
 	/* update the hurb list */
 	LIST4_ADD (host->hurb, list, urb);
+	spinlock_unlock(&host->lock_hurb);
 
 	return urb;
 }

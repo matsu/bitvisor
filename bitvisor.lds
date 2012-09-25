@@ -22,6 +22,9 @@ SECTIONS {
                 __initfunc_start = .;
                 *(.initfunc)
                 __initfunc_end = .;
+		__process_builtin = .;
+		*(.processes)
+		__process_builtin_end = .;
 	/* }
 	.bss : AT (phys + (bss - head)) { */
 		bss = .;

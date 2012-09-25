@@ -104,17 +104,6 @@ callrealmode_call_vcpu (struct vcpu *c, struct callrealmode_data *d)
 
 	/* set registers */
 	c->vmctl.reset ();
-	c->vmctl.write_control_reg (CONTROL_REG_CR0, CR0_PE_BIT | CR0_ET_BIT);
-	c->vmctl.write_control_reg (CONTROL_REG_CR0, CR0_ET_BIT);
-	c->vmctl.write_control_reg (CONTROL_REG_CR3, 0);
-	c->vmctl.write_control_reg (CONTROL_REG_CR4, 0);
-	c->vmctl.write_control_reg (CONTROL_REG_CR4, 0);
-	c->vmctl.write_realmode_seg (SREG_ES, 0);
-	c->vmctl.write_realmode_seg (SREG_CS, 0);
-	c->vmctl.write_realmode_seg (SREG_SS, 0);
-	c->vmctl.write_realmode_seg (SREG_DS, 0);
-	c->vmctl.write_realmode_seg (SREG_FS, 0);
-	c->vmctl.write_realmode_seg (SREG_GS, 0);
 	c->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
 	if (currentcpu->fullvirtualize == FULLVIRTUALIZE_VT)
 		c->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
@@ -379,6 +368,24 @@ callrealmode_startkernel32 (u32 paramsaddr, u32 startaddr)
 	d.u.startkernel32.paramsaddr = paramsaddr;
 	d.u.startkernel32.startaddr = startaddr;
 	callrealmode_call (&d);
+}
+
+void
+callrealmode_getfontinfo (u8 bh, u16 *es, u16 *bp, u16 *cx, u8 *dl)
+{
+	struct callrealmode_data d;
+
+	d.func = CALLREALMODE_FUNC_GETFONTINFO;
+	d.u.getfontinfo.bh = bh;
+	callrealmode_call (&d);
+	if (es)
+		*es = d.u.getfontinfo.es_ret;
+	if (bp)
+		*bp = d.u.getfontinfo.bp_ret;
+	if (cx)
+		*cx = d.u.getfontinfo.cx_ret;
+	if (dl)
+		*dl = d.u.getfontinfo.dl_ret;
 }
 
 INITFUNC ("global0", callrealmode_init_global);

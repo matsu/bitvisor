@@ -150,7 +150,7 @@ is_skelton(struct usb_request_block *urb)
 
 /* release_urb(): cleaning up usb_request_block structure 
    especially for guest-issued urbs(QH and TDs),
-   in contrasted with destroy_urb() for host-issued urbs 
+   in contrasted with uhci_destroy_urb() for host-issued urbs
 * @param host struct uhci_host 
 * @param urb usb_request_block 
 */
@@ -369,7 +369,7 @@ duplicate_qcontext(struct uhci_host *host, struct usb_request_block *g_urb)
 	URB_UHCI(g_urb)->qh_element_copy = URB_UHCI(g_urb)->qh->element;
 
 	/* create a urb for host(VM)'s (shadow) qcontext. */
-	urb = create_urb(host);
+	urb = uhci_create_urb(host);
 	if (!urb)
 		return NULL;
 	URB_UHCI(urb)->qh = uhci_alloc_qh(host, &URB_UHCI(urb)->qh_phys);
@@ -433,6 +433,8 @@ duplicate_qcontext(struct uhci_host *host, struct usb_request_block *g_urb)
 			break;
 		}
 
+		URB_UHCI(urb)->tdm_acttail = *h_tdm_p;
+
 		h_tdm_p = &(*h_tdm_p)->next;
 		g_tdm_p = &(*g_tdm_p)->next;
 	}
@@ -465,7 +467,7 @@ duplicate_qcontext(struct uhci_host *host, struct usb_request_block *g_urb)
 	return urb;
 fail_duplicate:
 	urb->status = URB_STATUS_UNLINKED;
-	destroy_urb(host, urb);
+	uhci_destroy_urb(host, urb);
 	return NULL;
 }
 
@@ -497,23 +499,26 @@ _copyback_qcontext(struct uhci_host *host,
 
 		/* qh->element still points to a TD 
 		   if short packet occured */
-		if (qh_element == (phys32_t)h_tdm->td_phys) {
+		if (qh_element == (phys32_t)h_tdm->td_phys)
+			break;
+
+		/* update qh->element */
+		/* Use td->link instead of td_phys to avoid special
+		 * care of termination.  Read a guest td->link here
+		 * because it might have been modified since its
+		 * shadow was created. */
+		if (qh_element == (phys32_t)h_tdm->td->link)
 			URB_UHCI(g_urb)->qh_element_copy = 
 				URB_UHCI(g_urb)->qh->element = 
-				(phys32_t)g_tdm->td_phys;
-			break;
-		}
+				(phys32_t)g_tdm->td->link;
 
 		h_tdm = h_tdm->next;
 		g_tdm = g_tdm->next;
 	}
 
 	/* reset qh->element if terminated */
-	if (is_terminate(qh_element)) {
-		URB_UHCI(g_urb)->qh_element_copy = 
-			URB_UHCI(g_urb)->qh->element = qh_element;
+	if (is_terminate(qh_element))
 		URB_UHCI(g_urb)->td_stat = 0;	/* copy td status */
-	}
 
 	dprintft(2, "%04x: %s: copybacked TDs.\n",
 		 host->iobase, __FUNCTION__);
@@ -536,8 +541,6 @@ uhci_copyback_qcontext(struct usb_host *hc,
 	dprintft(2, "%04x: %s(%p, %p) invoked.\n", 
 		 host->iobase, __FUNCTION__, urb, g_urb);
 	
-	spinlock_lock(&host->lock_gfl);
-
 	/* make sure that the original exists */
 	if (!is_linked(LIST4_HEAD (host->guest_urbs, list), g_urb)) {
 		dprintft(1, "%04x: copyback canceled since "
@@ -552,8 +555,6 @@ uhci_copyback_qcontext(struct usb_host *hc,
 		_copyback_qcontext(host, urb, g_urb);
 
 not_copyback:
-	spinlock_unlock(&host->lock_gfl);
-
 #if 0
        /* unlink the urb from frame list */
        uhci_deactivate_urb(host->hc, urb);
@@ -726,10 +727,10 @@ mark_inlinked_urbs_sub (struct uhci_host *host, int interval,
 					"found.\n", host->iobase,
 					__FUNCTION__, qh_link_phys, interval,
 					skelurb, URB_UHCI(skelurb)->qh_phys);
-				urb = create_urb(host);
+				urb = uhci_create_urb(host);
 				if (!urb) {
 					dprintft(2, "%04x: %s: "
-						 "create_urb failed.\n",
+						 "uhci_create_urb failed.\n",
 						 host->iobase, __FUNCTION__);
 					break;
 				}
@@ -878,9 +879,10 @@ update_marked_urbs(struct uhci_host *host,
 				 host->iobase, __FUNCTION__);
 			urb->mark = 0; /* unmark for delete */
 			urb->inlink = host->inlink_counter - 1;
-			newurb = create_urb(host);
+			newurb = uhci_create_urb(host);
 			if (!newurb) {
-				dprintft(1, "%04x: %s: create_urb failed.\n",
+				dprintft(1, "%04x: %s: "
+					 "uhci_create_urb failed.\n",
 					 host->iobase, __FUNCTION__);
 				goto shadow_fail;
 			}
@@ -978,14 +980,13 @@ shadow_marked_urbs(struct uhci_host *host,
 		if (r == USB_HOOK_DISCARD) {
 			/* discarded shadow must be never activated. */
 			urb->shadow->status = URB_STATUS_UNLINKED;
-			destroy_urb(host, urb->shadow);
+			uhci_destroy_urb(host, urb->shadow);
 			urb->shadow = NULL;
 			continue;
 		}
 		
 		/* activate the shadow in host's frame list */
 		uhci_activate_urb(host, urb->shadow);
-		LIST4_PUSH (host->inproc_urbs, list, urb->shadow);
 	}
 }
 
@@ -1074,7 +1075,7 @@ check_need_for_monitor_boost(struct uhci_host *host, u16 interval)
 	if (interval <= (1 << UHCI_TICK_INTERVAL))
 		return 0;
 
-	/* uhci_monitor_boost_hc is protected by 'host->lock_gfl' */
+	/* uhci_monitor_boost_hc is protected by usb_sc_lock */
 	/* is there a monitor boost already? */
 	if (uhci_monitor_boost_hc != 0)
 		return 0;
@@ -1085,7 +1086,7 @@ check_need_for_monitor_boost(struct uhci_host *host, u16 interval)
 static inline int
 unregister_monitor_boost(struct uhci_host *host)
 {
-	/* uhci_monitor_boost_hc is protected by 'host->lock_gfl' */
+	/* uhci_monitor_boost_hc is protected by usb_sc_lock */
 	/* check which host registered monitor boost */
 	if (uhci_monitor_boost_hc != host->iobase)
 		return 1;
@@ -1105,7 +1106,7 @@ register_monitor_boost(struct uhci_host *host)
 	int ret;
 	ret = set_ioc_to_host_skelton(host, UHCI_TICK_INTERVAL);
 
-	/* uhci_monitor_boost_hc is protected by 'host->lock_gfl' */
+	/* uhci_monitor_boost_hc is protected by usb_sc_lock */
 	uhci_monitor_boost_hc = host->iobase;
 
 	dprintft(1, "%04x: framelist monitor boost activated"
@@ -1140,12 +1141,12 @@ uhci_framelist_monitor(void *data)
 		host->cputime = cputime;
 
 		/* look for any updates in guest's framelist */
-		spinlock_lock(&host->lock_gfl);
+		usb_sc_lock(host->hc);
 
 		/* get current frame number */
 		cur_frnum = uhci_current_frame_number(host);
 		if (host->frame_number == cur_frnum) {
-			spinlock_unlock (&host->lock_gfl);
+			usb_sc_unlock(host->hc);
 			goto skip_a_turn;
 		}
 		
@@ -1183,13 +1184,17 @@ uhci_framelist_monitor(void *data)
 		/* deactivate and delete pairs of urb if needed */
 		sweep_unmarked_urbs(host, host->guest_skeltons[intvl]);
 
-		spinlock_unlock(&host->lock_gfl);
+		usb_sc_unlock(host->hc);
 
 		/* look for any advance in host's framelist */
 		if ((n = uhci_check_advance(host->hc)) > 0)
 			dprintft(3, "%04x: %s: "
 				 "%d urb(s) advanced.\n", 
 				 host->iobase, __FUNCTION__, n);
+
+		/* destroy unlinked urbs.  this function must not be
+		 * called twice in one frame cycle. */
+		uhci_destroy_unlinked_urbs (host);
 	skip_a_turn:
 		if (host->usb_stopped) {
 			dprintft(1, "=>%04x: uhci monitor thread is stopped."
@@ -1222,12 +1227,14 @@ exit_thread:
 			remove_and_deactivate_urb(host, urb);
 		}
 
+		spinlock_lock(&host->lock_hfl);
 		LIST4_FOREACH_DELETABLE (host->inproc_urbs, list, urb, nurb) {
 			LIST4_DEL (host->inproc_urbs, list, urb);
 			if (urb->shadow)
 				urb->shadow->shadow = NULL;
-			destroy_urb(host, urb);
+			uhci_destroy_urb(host, urb);
 		}
+		spinlock_unlock(&host->lock_hfl);
 
 		/* Remove guest skeltons */
 		for (intvl = 0; intvl < UHCI_NUM_INTERVALS; intvl++) {
@@ -1240,7 +1247,7 @@ exit_thread:
 		for (n_skels = 0; n_skels < UHCI_NUM_SKELTYPES; n_skels++) {
 			urb = host->host_skelton[n_skels];
 			urb->status = URB_STATUS_UNLINKED;
-			destroy_urb(host, urb);
+			uhci_destroy_urb(host, urb);
 			host->host_skelton[n_skels] = NULL;
 		}
 
@@ -1278,7 +1285,7 @@ scan_a_frame (struct uhci_host *host, phys32_t link_phys)
 			URB_UHCI(g_urb)->refcount++;
 			dprintf(4, "-><%p>", g_urb);
 		} else {
-			g_urb = create_urb(host);
+			g_urb = uhci_create_urb(host);
 			if (!g_urb)
 				break;
 			URB_UHCI(g_urb)->qh_phys = uhci_link(g_qh_phys);
@@ -1380,7 +1387,7 @@ scan_gframelist(struct uhci_host *host)
 	int frid;
 	int skel_n = 0;
 
-	spinlock_lock(&host->lock_gfl);
+	usb_sc_lock(host->hc);
 
 	host->gframelist_virt = 
 		mapmem_gphys(host->gframelist, PAGESIZE, 0);
@@ -1394,7 +1401,7 @@ scan_gframelist(struct uhci_host *host)
 
 	sort_skeltons (host, host->guest_skeltons, UHCI_NUM_INTERVALS);
 
-	spinlock_unlock(&host->lock_gfl);
+	usb_sc_unlock(host->hc);
 
 	dprintft(2, "%04x: %s: %d skeltons registered.\n",
 		 host->iobase, __FUNCTION__, skel_n);

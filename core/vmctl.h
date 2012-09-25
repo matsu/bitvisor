@@ -42,7 +42,6 @@ struct vmctl_func {
 	void (*start_vm) (void);
 	void (*generate_pagefault) (ulong err, ulong cr2);
 	void (*generate_external_int) (uint num);
-	void (*event_virtual) (void);
 	void (*read_general_reg) (enum general_reg reg, ulong *val);
 	void (*write_general_reg) (enum general_reg reg, ulong val);
 	void (*read_control_reg) (enum control_reg reg, ulong *val);
@@ -52,6 +51,7 @@ struct vmctl_func {
 	void (*read_sreg_base) (enum sreg s, ulong *val);
 	void (*read_sreg_limit) (enum sreg s, ulong *val);
 	void (*spt_setcr3) (ulong cr3);
+	void (*spt_tlbflush) (void);
 	void (*read_ip) (ulong *val);
 	void (*write_ip) (ulong val);
 	void (*read_flags) (ulong *val);
@@ -78,6 +78,7 @@ struct vmctl_func {
 	bool (*xsetbv) (u32 ic, u32 ia, u32 id);
 	void (*enable_resume) (void);
 	void (*resume) (void);
+	void (*paging_map_1mb) (void);
 };
 
 #endif

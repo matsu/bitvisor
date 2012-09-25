@@ -30,7 +30,6 @@
 #ifndef _CORE_SVM_MAIN_H
 #define _CORE_SVM_MAIN_H
 
-void svm_invlpg (ulong addr);
 void svm_init_signal (void);
 void svm_start_vm (void);
 

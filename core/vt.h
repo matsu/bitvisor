@@ -35,12 +35,6 @@
 #include "vt_msr.h"
 #include "vt_vmcs.h"
 
-enum vt_event_type {
-	VT_EVENT_TYPE_PHYSICAL,
-	VT_EVENT_TYPE_VIRTUAL,
-	VT_EVENT_TYPE_DELIVERY,
-};
-
 struct vt_realmode_data {
 	struct descreg idtr;
 	ulong tr_limit, tr_acr, tr_base;
@@ -60,17 +54,25 @@ struct vt_vmcs_info {
 	u64 vmcs_region_phys;
 };
 
+struct vt_ept;
+
 struct vt {
 	struct vt_vmentry_regs vr;
 	struct vt_vmcs_info vi;
 	struct vt_realmode_data realmode;
 	struct vt_intr_data intr;
-	enum vt_event_type event;
 	struct vt_io_data io;
 	struct vt_msr msr;
+	struct vt_ept *ept;
 	bool lme, lma;
 	bool first;
 	void *saved_vmcs;
+	u16 vpid;
+	ulong spt_cr3;
+	bool handle_pagefault;
+	bool ept_available;
+	bool invept_available;
+	bool unrestricted_guest_available, unrestricted_guest;
 };
 
 struct vt_pcpu_data {
@@ -82,7 +84,6 @@ struct vt_pcpu_data {
 
 void vt_generate_pagefault (ulong err, ulong cr2);
 void vt_generate_external_int (uint num);
-void vt_event_virtual (void);
 void vmctl_vt_init (void);
 void vt_vmptrld (u64 ptr);
 

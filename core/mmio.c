@@ -149,6 +149,7 @@ mmio_access_page (phys_t gphysaddr, bool emulation)
 	struct mmio_handle *h;
 	int i;
 
+	gphysaddr &= ~PAGESIZE_MASK;
 	if (gphysaddr <= 0xFFFFFFFFULL)
 		i = gphysaddr >> 28;
 	else

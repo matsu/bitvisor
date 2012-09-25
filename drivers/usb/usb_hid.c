@@ -110,7 +110,7 @@ usbhid_init_handle (struct usb_host *host, struct usb_device *dev)
 
 	spinlock_lock(&host->lock_hk);
 	usb_hook_register(host, USB_HOOK_REQUEST,
-			  USB_HOOK_MATCH_ADDR, dev->devnum, 0,
+			  USB_HOOK_MATCH_DEV, dev->devnum, 0,
 			  NULL, hid_intercept, dev, dev);
 	spinlock_unlock(&host->lock_hk);
 

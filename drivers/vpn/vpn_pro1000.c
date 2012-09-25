@@ -36,7 +36,7 @@
 static const char driver_name[] = "vpn_pro1000_driver";
 static const char driver_longname[] = "Intel PRO/1000 driver";
 
-#ifdef CRYPTO_VPN
+#ifdef VPN
 #ifdef VPN_PRO1000
 #include <core/vpnsys.h>
 
@@ -1441,9 +1441,9 @@ vpn_pro1000_config_write (struct pci_device *pci_device,
 	return CORE_IO_RET_DEFAULT;
 }
 #endif /* VPN_PRO1000 */
-#endif /* CRYPTO_VPN */
+#endif /* VPN */
 
-/* [1] defined (CRYPTO_VPN) && defined (VPN_PRO1000)
+/* [1] defined (VPN) && defined (VPN_PRO1000)
    [2] config.vmm.driver.vpn.PRO1000
    [3] config.vmm.tty_pro1000
    [4] config.vmm.driver.concealPRO1000
@@ -1467,7 +1467,7 @@ vpn_pro1000_config_write (struct pci_device *pci_device,
 static void 
 pro1000_new (struct pci_device *pci_device)
 {
-#ifdef CRYPTO_VPN
+#ifdef VPN
 #ifdef VPN_PRO1000
 	if ((!config.vmm.driver.concealPRO1000 &&
 	     config.vmm.driver.vpn.PRO1000) || config.vmm.tty_pro1000) {
@@ -1475,7 +1475,7 @@ pro1000_new (struct pci_device *pci_device)
 		return;
 	}
 #endif /* VPN_PRO1000 */
-#endif /* CRYPTO_VPN */
+#endif /* VPN */
 
 	printf ("A PRO/1000 device found. Disable it.\n");
 	return;
@@ -1485,13 +1485,13 @@ static int
 pro1000_config_read (struct pci_device *pci_device, 
 		     core_io_t io, u8 offset, union mem *data)
 {
-#ifdef CRYPTO_VPN
+#ifdef VPN
 #ifdef VPN_PRO1000
 	if (!config.vmm.driver.concealPRO1000 &&
 	    config.vmm.driver.vpn.PRO1000)
 		return vpn_pro1000_config_read (pci_device, io, offset, data);
 #endif /* VPN_PRO1000 */
-#endif /* CRYPTO_VPN */
+#endif /* VPN */
 
 	/* provide fake values 
 	   for reading the PCI configration space. */
@@ -1503,13 +1503,13 @@ static int
 pro1000_config_write (struct pci_device *pci_device, 
 		      core_io_t io, u8 offset, union mem *data)
 {
-#ifdef CRYPTO_VPN
+#ifdef VPN
 #ifdef VPN_PRO1000
 	if (!config.vmm.driver.concealPRO1000 &&
 	    config.vmm.driver.vpn.PRO1000)
 		return vpn_pro1000_config_write (pci_device, io, offset, data);
 #endif /* VPN_PRO1000 */
-#endif /* CRYPTO_VPN */
+#endif /* VPN */
 
 	/* do nothing, ignore any writing. */
 	return CORE_IO_RET_DONE;
@@ -1637,14 +1637,14 @@ vpn_pro1000_init (void)
 
 	if (config.vmm.driver.concealPRO1000)
 		regist = true;
-#ifdef CRYPTO_VPN
+#ifdef VPN
 #ifdef VPN_PRO1000
 	if (config.vmm.driver.vpn.PRO1000)
 		regist = true;
 	if (config.vmm.tty_pro1000)
 		regist = true;
 #endif /* VPN_PRO1000 */
-#endif /* CRYPTO_VPN */
+#endif /* VPN */
 	if (!regist)
 		return;
 	for (id = idlist; *id; id++) {

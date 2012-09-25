@@ -12,10 +12,12 @@ module1.bin : asm.s main.c $(INC)
 		-idirafter ../../include -o module1.bin asm.s main.c
 
 makedata : makedata.c
-	gcc -Wall -o makedata makedata.c -lssl
+	gcc -Wall `pkg-config --cflags openssl` -o makedata makedata.c \
+		`pkg-config --libs openssl || echo -lssl -lcrypto`
 
 readdata : readdata.c
-	gcc -Wall -o readdata readdata.c -lssl
+	gcc -Wall `pkg-config --cflags openssl` -o readdata readdata.c \
+		`pkg-config --libs openssl || echo -lssl -lcrypto`
 
 module2.bin : config.c configparser.c configparser.h makedata $(INC) \
  bitvisor.conf

@@ -44,6 +44,22 @@
 #include "usb_hook.h"
 #include "usb_mscd.h"
 
+/* these defines are workaround for doing #include uhci.h and ehci.h */
+#define alloc2_aligned uhci_alloc2_aligned
+#define is_error uhci_is_error
+#define is_active uhci_is_active
+#include "uhci.h"
+#undef alloc2_aligned
+#undef is_error
+#undef is_active
+#define alloc2_aligned ehci_alloc2_aligned
+#define is_error ehci_is_error
+#define is_active ehci_is_active
+#include "ehci.h"
+#undef alloc2_aligned
+#undef is_error
+#undef is_active
+
 DEFINE_ZALLOC_FUNC(usbmsc_device);
 DEFINE_ZALLOC_FUNC(usbmsc_unit);
 
@@ -342,6 +358,71 @@ usbmsc_copy_buffer(struct usb_buffer_list *dest,
 	return;
 }
 
+static void
+usbmsc_outbuf_halt_uhci (struct usb_host *usbhc, struct usb_request_block *urb,
+			 struct usbmsc_device *mscdev,
+			 struct usbmsc_unit *mscunit, struct uhci_host *uhcihc)
+{
+	struct usb_request_block *gurb = urb->shadow;
+	struct uhci_td_meta *tdm;
+	u8 devadr;
+
+	devadr = urb->address;
+	tdm = URB_UHCI (gurb)->tdm_head;
+	if (!is_active_td (tdm->td))
+		return;
+	if (UHCI_TD_TOKEN_PID (tdm->td) != UHCI_TD_TOKEN_PID_OUT) {
+		dprintft (0, "MSCD(%02x:%d): WARNING: "
+			  "PID is not OUT\n", devadr, mscdev->lun);
+		return;
+	}
+	tdm->status_copy = tdm->td->status = UHCI_TD_STAT_ST |
+		(tdm->td->status & ~UHCI_TD_STAT_AC);
+}
+
+static void
+usbmsc_outbuf_halt_ehci (struct usb_host *usbhc, struct usb_request_block *urb,
+			 struct usbmsc_device *mscdev,
+			 struct usbmsc_unit *mscunit, struct ehci_host *ehcihc)
+{
+	struct usb_request_block *gurb = urb->shadow;
+	struct ehci_qtd_meta *qtdm;
+	u8 devadr;
+
+	devadr = urb->address;
+	qtdm = URB_EHCI (gurb)->qtdm_head;
+	if (!is_active_qtd (qtdm->qtd))
+		return;
+	if (!is_out_qtd (qtdm->qtd)) {
+		dprintft (0, "MSCD(%02x:%d): WARNING: "
+			  "PID is not OUT\n", devadr, mscdev->lun);
+		return;
+	}
+	qtdm->qtd->token = EHCI_QTD_STAT_HL |
+		(qtdm->qtd->token & ~(EHCI_QTD_STAT_AC | EHCI_QTD_STAT_PG));
+	qtdm->status = (u8)qtdm->qtd->token & EHCI_QTD_STAT_MASK;
+	URB_EHCI (gurb)->qh->qtd_cur = (phys32_t)qtdm->qtd_phys;
+	memcpy (&URB_EHCI (gurb)->qh->qtd_ovlay, qtdm->qtd,
+		sizeof (struct ehci_qtd));
+	URB_EHCI (gurb)->qh_copy = *URB_EHCI (gurb)->qh;
+}
+
+static void
+usbmsc_outbuf_halt (struct usb_host *usbhc, struct usb_request_block *urb,
+		    struct usbmsc_device *mscdev, struct usbmsc_unit *mscunit)
+{
+	switch (usbhc->type) {
+	case USB_HOST_TYPE_UHCI:
+		usbmsc_outbuf_halt_uhci (usbhc, urb, mscdev, mscunit,
+					 usbhc->private);
+		break;
+	case USB_HOST_TYPE_EHCI:
+		usbmsc_outbuf_halt_ehci (usbhc, urb, mscdev, mscunit,
+					 usbhc->private);
+		break;
+	}
+}
+
 static int
 usbmsc_shadow_outbuf(struct usb_host *usbhc, 
 		     struct usb_request_block *urb, void *arg)
@@ -351,7 +432,7 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 	struct usb_device *dev;
 	struct usbmsc_device *mscdev;
 	struct usbmsc_unit *mscunit;
-	int ret, n_blocks;
+	int n_blocks;
 
 	devadr = urb->address;
 	dev = urb->dev;
@@ -369,10 +450,10 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 	if (urb->shadow->buffers) {
 		ASSERT(usbhc->op != NULL);
 		ASSERT(usbhc->op->shadow_buffer != NULL);
-		ret = usbhc->op->shadow_buffer(usbhc, 
-					       urb->shadow /* guest urb */, 
-					       0 /* just allocate, 
-						    no content copy */);
+		usbhc->op->shadow_buffer (usbhc,
+					  urb->shadow /* guest urb */,
+					  0 /* just allocate,
+					       no content copy */);
 	}
 
 	spinlock_lock(&mscdev->lock);
@@ -389,8 +470,10 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 		ASSERT(vadr);
 
 		/* double check */
-		if (memcmp((char *)vadr, "USBC", 4) != 0)
+		if (memcmp((char *)vadr, "USBC", 4) != 0) {
+			unmapmem((void *)vadr, gub->len);
 			goto shadow_data;
+		}
 
 		/* copy the cbw into a shadow */
 		memcpy((void *)hub->vadr, (void *)vadr, 
@@ -406,6 +489,17 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 		/* walk to the next */
 		gub = gub->next;
 		hub = hub->next;
+
+		switch (mscunit->command) {
+		case 0xA2:      /* SECURITY PROTOCOL IN */
+		case 0xB5:      /* SECURITY PROTOCOL OUT */
+			dprintft (0, "MSCD(%02x:%d): WARNING: "
+				  "ignoring command %02X.\n",
+				  devadr, mscdev->lun, mscunit->command);
+			usbmsc_outbuf_halt (usbhc, urb, mscdev, mscunit);
+			spinlock_unlock (&mscdev->lock);
+			return USB_HOOK_DISCARD;
+		}
 	} 
 
 	/* no more buffer to be cared */
@@ -906,10 +1000,9 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	
 	mscdev->unit[0] = usbmsc_create_unit(usbhc, dev);
 
-	handler = usb_find_dev_handle(usbhc, dev);
-	if (!handler)
-		handler = usb_new_dev_handle(usbhc, mscdev, usbmsc_remove,
-					     dev);
+	handler = usb_new_dev_handle (usbhc, dev);
+	handler->remove = usbmsc_remove;
+	handler->private_data = mscdev;
 	dev->handle = handler;
 	
 	spinlock_unlock(&mscdev->lock);
@@ -917,7 +1010,7 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	/* register a hook for GetMaxLun */
 	spinlock_lock(&usbhc->lock_hk);
 	usb_hook_register(usbhc, USB_HOOK_REPLY,
-			  USB_HOOK_MATCH_ADDR |
+			  USB_HOOK_MATCH_DEV |
 			  USB_HOOK_MATCH_ENDP | USB_HOOK_MATCH_DATA,
 			  devadr, 0, &pat_getmaxlun,
 			  usbmsc_getmaxlun, NULL, dev);
@@ -935,7 +1028,7 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 			/* register a hook for BULK IN transfers */
 			spinlock_lock(&usbhc->lock_hk);
 			usb_hook_register(usbhc, USB_HOOK_REQUEST,
-					  USB_HOOK_MATCH_ADDR |
+					  USB_HOOK_MATCH_DEV |
 					  USB_HOOK_MATCH_ENDP,
 					  devadr, 
 					  epdesc->bEndpointAddress,
@@ -943,7 +1036,7 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 					  usbmsc_shadow_inbuf,
 					  NULL, dev);
 			usb_hook_register(usbhc, USB_HOOK_REPLY,
-					  USB_HOOK_MATCH_ADDR |
+					  USB_HOOK_MATCH_DEV |
 					  USB_HOOK_MATCH_ENDP,
 					  devadr, 
 					  epdesc->bEndpointAddress,
@@ -956,7 +1049,7 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 			/* register a hook for BULK OUT transfers */
 			spinlock_lock(&usbhc->lock_hk);
 			usb_hook_register(usbhc, USB_HOOK_REQUEST,
-					  USB_HOOK_MATCH_ADDR |
+					  USB_HOOK_MATCH_DEV |
 					  USB_HOOK_MATCH_ENDP,
 					  devadr, 
 					  epdesc->bEndpointAddress,

@@ -31,6 +31,7 @@
 #include "current.h"
 #include "initfunc.h"
 #include "int.h"
+#include "localapic.h"
 #include "mm.h"
 #include "msr.h"
 #include "msr_pass.h"
@@ -110,6 +111,7 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 			if (phys_in_vmm (tmp))
 				panic ("relocating APIC Base to VMM address!");
 		}
+		localapic_change_base_msr (msrdata);
 		goto pass;
 	default:
 	pass:

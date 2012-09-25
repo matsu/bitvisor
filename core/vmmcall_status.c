@@ -97,9 +97,14 @@ get_status (void)
 }
 
 static void
-vmmcall_status_init (void)
+vmmcall_status_init_global (void)
 {
 	LIST1_HEAD_INIT (list1_status);
+}
+
+static void
+vmmcall_status_init (void)
+{
 	spinlock_init (&status_lock);
 #ifdef VMMCALL_STATUS_ENABLE
 	vmmcall_register ("get_status", get_status);
@@ -109,4 +114,5 @@ vmmcall_status_init (void)
 #endif
 }
 
+INITFUNC ("global3", vmmcall_status_init_global);
 INITFUNC ("vmmcal0", vmmcall_status_init);

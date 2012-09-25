@@ -1,0 +1,58 @@
+# -*- makefile-gmake -*-
+include Makefile.common
+clean_p = clean
+
+include $(dir)Makefile
+subouto := $(subdirs-1:%=$(dir)%/$(outo))
+subouto += $(subdirs-0:%=$(dir)%/$(outo))
+subouto += $(subdirs-:%=$(dir)%/$(outo))
+subouta := $(asubdirs-1:%=$(dir)%/$(outa))
+subouta += $(asubdirs-0:%=$(dir)%/$(outa))
+subouta += $(asubdirs-:%=$(dir)%/$(outa))
+suboutp := $(psubdirs-1:%=$(dir)%/$(outp))
+suboutp += $(psubdirs-0:%=$(dir)%/$(outp))
+suboutp += $(psubdirs-:%=$(dir)%/$(outp))
+subclean_p := $(subdirs-1:%=$(dir)%/$(clean_p))
+subclean_p += $(subdirs-0:%=$(dir)%/$(clean_p))
+subclean_p += $(subdirs-:%=$(dir)%/$(clean_p))
+subclean_p += $(asubdirs-1:%=$(dir)%/$(clean_p))
+subclean_p += $(asubdirs-0:%=$(dir)%/$(clean_p))
+subclean_p += $(asubdirs-:%=$(dir)%/$(clean_p))
+subclean_p += $(psubdirs-1:%=$(dir)%/$(clean_p))
+subclean_p += $(psubdirs-0:%=$(dir)%/$(clean_p))
+subclean_p += $(psubdirs-:%=$(dir)%/$(clean_p))
+m!=echo b
+m ?= g
+bins-1 ?=
+bobjs-1-name := $(bins-1:%=%-objs)
+bobjs-1-b := $(bobjs-1-name:%=$(%))
+bobjs-1-g := $(foreach i,$(bobjs-1-name),$($(i)))
+bobjs-1 := $(bobjs-1-$(m))
+bins-0 ?=
+bobjs-0-name := $(bins-0:%=%-objs)
+bobjs-0-b := $(bobjs-0-name:%=$(%))
+bobjs-0-g := $(foreach i,$(bobjs-0-name),$($(i)))
+bobjs-0 := $(bobjs-0-$(m))
+bins- ?=
+bobjs--name := $(bins-:%=%-objs)
+bobjs--b := $(bobjs--name:%=$(%))
+bobjs--g := $(foreach i,$(bobjs--name),$($(i)))
+bobjs- := $(bobjs--$(m))
+bobjs = $(bobjs-1:%=$(dir)%) $(bobjs-0:%=$(dir)%) $(bobjs-:%=$(dir)%)
+objs = $(objs-1:%=$(dir)%) $(objs-0:%=$(dir)%) $(objs-:%=$(dir)%) \
+	$(subouto) $(subouta) $(suboutp)
+deps = $(objs-1:%.o=$(dir)%.d) $(objs-0:%.o=$(dir)%.d) $(objs-:%.o=$(dir)%.d) \
+	$(bobjs-1:%.o=$(dir)%.d) $(bobjs-0:%.o=$(dir)%.d) \
+	$(bobjs-:%.o=$(dir)%.d)
+bins = $(bins-1:%=$(dir)%.bin) $(bins-0:%=$(dir)%.bin) $(bins-:%=$(dir)%.bin)
+
+.PHONY : clean-dir
+clean-dir : $(subclean_p)
+	$(V-info) CLEAN $(dir)
+	$(RM) $(dir)$(target) $(dir)$(outo) $(dir)$(outa) $(objs) $(deps)
+	$(RM) $(dir)$(flags) $(dir)$(depends) $(dir)$(objects)
+	$(RM) $(dir)$(outp) $(bobjs) $(bins) $(bins:%=%.s) $(dir)$(boptions)
+
+.PHONY : $(subclean_p)
+$(subclean_p) :
+	$(MAKE) -f Makefile.clean clean-dir DIR=$(@D)

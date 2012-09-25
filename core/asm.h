@@ -34,11 +34,23 @@
 #include "linkage.h"
 #include "types.h"
 
+enum invvpid_type {
+	INVVPID_TYPE_INDIVIDUAL_ADDRESS = 0,
+	INVVPID_TYPE_SINGLE_CONTEXT = 1,
+	INVVPID_TYPE_ALL_CONTEXTS = 2,
+	INVVPID_TYPE_SINGLE_CONTEXT_EXCEPT_GLOBAL = 3,
+};
+
+enum invept_type {
+	INVEPT_TYPE_SINGLE_CONTEXT = 1,
+	INVEPT_TYPE_ALL_CONTEXTS = 2,
+};
+
 struct vt_vmentry_regs {
 	ulong rax, rcx, rdx, rbx, cr2, rbp, rsi, rdi;
 	ulong r8, r9, r10, r11, r12, r13, r14, r15;
 	ulong cr3;
-	int pe, pg;
+	int re, pg;
 	struct {
 		int enable, num;
 		u16 es, cs, ss, ds, fs, gs;
@@ -46,10 +58,19 @@ struct vt_vmentry_regs {
 };
 
 struct svm_vmrun_regs {
-	ulong cr0, rcx, rdx, rbx, cr4, rbp, rsi, rdi;
+	ulong padding1, rcx, rdx, rbx, padding2, rbp, rsi, rdi;
 	ulong r8, r9, r10, r11, r12, r13, r14, r15;
-	ulong cr3;
 };
+
+struct invvpid_desc {
+	u64 vpid;
+	u64 linearaddr;
+} __attribute__ ((packed));
+
+struct invept_desc {
+	u64 eptp;
+	u64 reserved;
+} __attribute__ ((packed));
 
 #define SW_SREG_ES_BIT (1 << 0)
 #define SW_SREG_CS_BIT (1 << 1)
@@ -665,6 +686,7 @@ static inline void
 asm_wrrsp_and_jmp (ulong rsp, void *jmpto)
 {
 	asm volatile (
+		"xor %%ebp,%%ebp; "
 #ifdef __x86_64__
 		"mov %0,%%rsp; jmp *%1"
 #else
@@ -840,6 +862,26 @@ asm_xsetbv (u32 c, u32 a, u32 d)
 	asm volatile (".byte 0x0F, 0x01, 0xD1" /* xsetbv */
 		      :
 		      : "c" (c), "a" (a), "d" (d));
+}
+
+/* 66 0f 38 81 3e          invvpid (%esi),%edi*/
+static inline void
+asm_invvpid (enum invvpid_type type, struct invvpid_desc *desc)
+{
+	asm volatile (".byte 0x66, 0x0F, 0x38, 0x81, 0x3E" /* invvpid */
+		      :
+		      : "D" (type), "S" (desc)
+		      : "memory", "cc");
+}
+
+/* 66 0f 38 80 3e          invept (%esi),%edi*/
+static inline void
+asm_invept (enum invept_type type, struct invept_desc *desc)
+{
+	asm volatile (".byte 0x66, 0x0F, 0x38, 0x80, 0x3E" /* invept */
+		      :
+		      : "D" (type), "S" (desc)
+		      : "memory", "cc");
 }
 
 #endif

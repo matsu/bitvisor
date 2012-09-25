@@ -218,6 +218,18 @@ update_cr3 (void)
 	current->vmctl.spt_setcr3 (current->spt.cr3tbl_phys);
 }
 
+static void
+clear_all (void)
+{
+	pmap_t p;
+
+	pmap_open_vmm (&p, current->spt.cr3tbl_phys, current->spt.levels);
+	pmap_clear (&p);
+	pmap_close (&p);
+	current->spt.cnt = 0;
+	current->vmctl.spt_setcr3 (current->spt.cr3tbl_phys);
+}
+
 static bool
 spt_tlbflush (void)
 {
@@ -1130,6 +1142,21 @@ update_cr3 (void)
 	spinlock_unlock (&current->spt.shadow2_lock);
 }
 
+static void
+clear_all (void)
+{
+	pmap_t p;
+
+	pmap_open_vmm (&p, current->spt.cr3tbl_phys, current->spt.levels);
+	pmap_clear (&p);
+	pmap_close (&p);
+	current->spt.cnt = 0;
+	current->vmctl.spt_setcr3 (current->spt.cr3tbl_phys);
+	clear_rwmap ();
+	clear_shadow1 ();
+	clear_shadow2 ();
+}
+
 static bool
 spt_tlbflush (void)
 {
@@ -1394,9 +1421,9 @@ update_rwmap (spt_t *cspt, u64 gfn, void *pte, u64 hphys)
 		oldpte = *p->pte;
 		if ((oldpte & mask) == p->hphys) {
 			*p->pte = oldpte & ~(PTE_D_BIT | PTE_RW_BIT);
-			LIST3_PUSH (cspt->rwmap_free, rwmap, p);
+			r = true;
 		}
-		r = true;
+		LIST3_PUSH (cspt->rwmap_free, rwmap, p);
 	}
 	if (pte != NULL) {
 		hr = rwmap_hash_index (gfn);
@@ -1859,18 +1886,16 @@ makerdonly (spt_t *cspt, u64 key)
 			oldpte = *p->pte;
 		pte_changed:
 			if ((oldpte & PTE_ADDR_MASK64) != p->hphys) {
-				newpte = 0;
+				/* Do nothing */
 			} else if (spt == cspt) {
 				*p->pte = oldpte & ~(PTE_D_BIT | PTE_RW_BIT);
-				newpte = 0;
-			} else {
-				newpte = oldpte & ~PTE_RW_BIT;
-				if (asm_lock_cmpxchgq (p->pte, &oldpte, newpte))
-					goto pte_changed;
-			}
-			if (newpte & PTE_D_BIT) {
+			} else if (oldpte & PTE_D_BIT) {
 				r = false;
 				continue;
+			} else if (oldpte & PTE_RW_BIT) {
+				newpte = oldpte & ~(PTE_D_BIT | PTE_RW_BIT);
+				if (asm_lock_cmpxchgq (p->pte, &oldpte, newpte))
+					goto pte_changed;
 			}
 			LIST3_DEL (spt->rwmap_fail, rwmap, p);
 			LIST3_PUSH (spt->rwmap_free, rwmap, p);
@@ -2102,7 +2127,12 @@ map_page (u64 v, struct map_page_data1 m1, struct map_page_data2 m2[5],
 		} else {
 			key1 = (gfns[1] << KEY_GFN_SHIFT) | KEY_GLVL3;
 		}
-		key2 = (gfns[2] << KEY_GFN_SHIFT) | KEY_GLVL3;
+		if (gfns[2] == GFN_GLOBAL || gfns[2] == GFN_UNUSED) {
+			key2 = ((gfns[0] << KEY_GFN_SHIFT) & KEY_LP2MASK) |
+				KEY_LARGEPAGE;
+		} else {
+			key2 = (gfns[2] << KEY_GFN_SHIFT) | KEY_GLVL3;
+		}
 	} else {
 		panic ("map_page: glvl error");
 		for (;;);
@@ -2393,6 +2423,30 @@ update_cr3 (void)
 	rw_spinlock_unlock_ex (&cspt->shadow2_lock);
 }
 
+static void
+clear_all (void)
+{
+	pmap_t p;
+	struct cpu_mmu_spt_shadow *q, *qn;
+	spt_t *const cspt = current->spt.data;
+
+	pmap_open_vmm (&p, cspt->cr3tbl_phys, cspt->levels);
+	pmap_clear (&p);
+	pmap_close (&p);
+	cspt->cnt = 0;
+	current->vmctl.spt_setcr3 (cspt->cr3tbl_phys);
+	rw_spinlock_lock_ex (&cspt->shadow1_lock);
+	LIST3_FOREACH_DELETABLE (cspt->shadow1_normal, shadow, q, qn)
+		modified_shadow1 (cspt, q);
+	clean_modified_shadow1 (cspt, true);
+	rw_spinlock_unlock_ex (&cspt->shadow1_lock);
+	rw_spinlock_lock_ex (&cspt->shadow2_lock);
+	LIST3_FOREACH_DELETABLE (cspt->shadow2_normal, shadow, q, qn)
+		modified_shadow2 (cspt, q);
+	clean_modified_shadow2 (cspt, true);
+	rw_spinlock_unlock_ex (&cspt->shadow2_lock);
+}
+
 static bool
 spt_tlbflush (void)
 {
@@ -2523,12 +2577,13 @@ generate_pf_noexec (u32 err, ulong cr2)
 	current->vmctl.generate_pagefault (err, cr2);
 }
 
-/* this function is called when shadow page table entries are cleared
-   from TLB. every VM exit in VT. */
-bool
+/* this function is called when shadow page table entries can be cleared
+   from TLB. */
+void
 cpu_mmu_spt_tlbflush (void)
 {
-	return spt_tlbflush ();
+	if (spt_tlbflush ())
+		current->vmctl.spt_tlbflush ();
 }
 
 /* this function is called when a guest sets CR3 */
@@ -2537,6 +2592,7 @@ cpu_mmu_spt_updatecr3 (void)
 {
 	update_cr3 ();
 	acpi_smi_hook ();
+	current->vmctl.spt_tlbflush ();
 }
 
 /* this function is called by INVLPG in a guest */
@@ -2545,17 +2601,18 @@ void
 cpu_mmu_spt_invalidate (ulong virtual_addr)
 {
 	invalidate_page (virtual_addr);
+	current->vmctl.spt_tlbflush ();
 }
 
 static void
-set_m1 (u64 entry0, bool write, bool user, bool wp, struct map_page_data1 *m1)
+set_m1 (u32 attr, bool write, bool user, bool wp, struct map_page_data1 *m1)
 {
 	m1->write = write;
 	m1->user = user;
 	m1->wp = wp;
-	m1->pwt = !!(entry0 & PTE_PWT_BIT);
-	m1->pcd = !!(entry0 & PTE_PCD_BIT);
-	m1->pat = !!(entry0 & PTE_PAT_BIT);
+	m1->pwt = !!(attr & PTE_PWT_BIT);
+	m1->pcd = !!(attr & PTE_PCD_BIT);
+	m1->pat = !!(attr & PTE_PAT_BIT);
 }
 
 static void
@@ -2590,7 +2647,7 @@ set_gfns (u64 entries[5], int levels, u64 gfns[5])
 
 	for (i = levels; i >= 0; i--) {
 		entry = entries[i];
-		if (i == 1 && (entry & PDE_PS_BIT)) {
+		if ((i == 1 || i == 2) && (entry & PDE_PS_BIT)) {
 			if (entry & PDE_G_BIT)
 				gfns[i] = GFN_GLOBAL;
 			else
@@ -2605,6 +2662,7 @@ set_gfns (u64 entries[5], int levels, u64 gfns[5])
 void
 cpu_mmu_spt_pagefault (ulong err, ulong cr2)
 {
+	bool map;
 	int levels;
 	enum vmmerr r;
 	bool wr, us, ex, wp;
@@ -2612,6 +2670,7 @@ cpu_mmu_spt_pagefault (ulong err, ulong cr2)
 	struct map_page_data1 m1;
 	struct map_page_data2 m2[5];
 	u64 efer, gfns[5], entries[5];
+	u32 attr;
 
 	get_cr0_cr3_cr4_and_efer (&cr0, &cr3, &cr4, &efer);
 	wr = !!(err & PAGEFAULT_ERR_WR_BIT);
@@ -2634,14 +2693,20 @@ cpu_mmu_spt_pagefault (ulong err, ulong cr2)
 		generate_pf_noexec (err, cr2);
 		break;
 	case VMMERR_SUCCESS:
-		set_m1 (entries[0], wr, us, wp, &m1);
-		set_m2 (entries, levels, m2);
 		set_gfns (entries, levels, gfns);
+		attr = cache_get_attr (gfns[0] << PAGESIZE_SHIFT,
+				       entries[0] & PTE_ATTR_MASK);
+		set_m1 (attr, wr, us, wp, &m1);
+		set_m2 (entries, levels, m2);
+		map = false;
 		mmio_lock ();
-		if (!mmio_access_page (gfns[0] << PAGESIZE_SHIFT, true))
+		if (!mmio_access_page (gfns[0] << PAGESIZE_SHIFT, true)) {
 			map_page (cr2, m1, m2, gfns, levels);
+			map = true;
+		}
 		mmio_unlock ();
-		current->vmctl.event_virtual ();
+		if (map)
+			current->vmctl.spt_tlbflush ();
 		break;
 	default:
 		panic ("unknown err");
@@ -2666,6 +2731,8 @@ cpu_mmu_spt_map_1mb (void)
 	struct map_page_data2 m2[5];
 	u64 efer, gfns[5], entries[5];
 	ulong cr2;
+	bool map = false;
+	u32 attr;
 
 	get_cr0_cr3_cr4_and_efer (&cr0, &cr3, &cr4, &efer);
 	wr = false;
@@ -2677,14 +2744,26 @@ cpu_mmu_spt_map_1mb (void)
 				     entries, &levels);
 		if (r != VMMERR_SUCCESS)
 			continue;
-		set_m1 (entries[0], wr, us, wp, &m1);
-		set_m2 (entries, levels, m2);
 		set_gfns (entries, levels, gfns);
+		attr = cache_get_attr (gfns[0] << PAGESIZE_SHIFT,
+				       entries[0] & PTE_ATTR_MASK);
+		set_m1 (attr, wr, us, wp, &m1);
+		set_m2 (entries, levels, m2);
 		mmio_lock ();
-		if (!mmio_access_page (gfns[0] << PAGESIZE_SHIFT, false))
+		if (!mmio_access_page (gfns[0] << PAGESIZE_SHIFT, false)) {
 			map_page (cr2, m1, m2, gfns, levels);
+			map = true;
+		}
 		mmio_unlock ();
 	}
+	if (map)
+		current->vmctl.spt_tlbflush ();
+}
+
+void
+cpu_mmu_spt_clear_all (void)
+{
+	clear_all ();
 }
 
 static void

@@ -31,10 +31,12 @@
 #define _CORE_VCPU_H
 
 #include "acpi.h"
+#include "cache.h"
 #include "cpu_mmu_spt.h"
 #include "cpuid.h"
 #include "gmm.h"
 #include "io_io.h"
+#include "localapic.h"
 #include "mmio.h"
 #include "msr.h"
 #include "svm.h"
@@ -53,9 +55,9 @@ struct nmi_func {
 	unsigned int (*get_nmi_count) (void);
 };
 
-struct apic_func {
-	void (*read_cr8) (u64 *val);
-	void (*write_cr8) (u64 val);
+struct sx_init_func {
+	unsigned int (*get_init_count) (void);
+	void (*inc_init_count) (void);
 };
 
 struct vcpu {
@@ -80,9 +82,11 @@ struct vcpu {
 	struct vcpu *vcpu0;
 	struct mmio_data mmio;
 	struct nmi_func nmi;
-	struct apic_func apic;
 	struct xsetbv_data xsetbv;
 	struct acpi_data acpi;
+	struct localapic_data localapic;
+	struct sx_init_func sx_init;
+	struct cache_data cache;
 };
 
 void vcpu_list_foreach (bool (*func) (struct vcpu *p, void *q), void *q);

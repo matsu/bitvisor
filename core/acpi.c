@@ -60,6 +60,11 @@
 #define PM1_CNT_SLP_EN_BIT	0x2000
 #define IS_STRUCT_SIZE_OK(l, h, m) \
 	((l) >= ((u8 *)&(m) - (u8 *)(h)) + sizeof (m))
+#define ACCESS_SIZE_UNDEFINED	0
+#define ACCESS_SIZE_BYTE	1
+#define ACCESS_SIZE_WORD	2
+#define ACCESS_SIZE_DWORD	3
+#define ACCESS_SIZE_QWORD	4
 
 struct rsdp {
 	u8 signature[8];
@@ -134,7 +139,7 @@ struct facp {
 	u16 iapc_boot_arch;
 	u8 reserved2;
 	u32 flags;
-	u8 reset_reg[12];
+	struct gas reset_reg;
 	u8 reset_value;
 	u8 reserved3[3];
 	u64 x_firmware_ctrl;
@@ -168,6 +173,11 @@ static u32 pm1a_cnt_ioaddr;
 static u32 pm_tmr_ioaddr;
 static u64 facs_addr;
 static u32 smi_cmd;
+static struct gas reset_reg;
+static u8 reset_value;
+#ifdef ACPI_DSDT
+static u32 dsdt_addr;
+#endif
 
 static u8
 acpi_checksum (void *p, int len)
@@ -381,7 +391,7 @@ acpi_smi_monitor (enum iotype type, u32 port, void *data)
 {
 	if (current->acpi.smi_hook_disabled)
 		panic ("SMI monitor called while SMI hook is disabled");
-	cpu_mmu_spt_map_1mb ();
+	current->vmctl.paging_map_1mb ();
 	current->vmctl.extern_iopass (current, smi_cmd, true);
 	current->acpi.smi_hook_disabled = true;
 	return IOACT_RERUN;
@@ -455,6 +465,88 @@ get_facs_addr (struct facp *facp)
 		panic ("ACPI FACP is too short");
 }
 
+static void
+get_reset_info (struct facp *facp)
+{
+	if (IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->reset_reg) &&
+	    IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->reset_value)) {
+		reset_reg = facp->reset_reg;
+		reset_value = facp->reset_value;
+	}
+}
+
+static bool
+gas_write (struct gas *addr, u64 value)
+{
+	void *p;
+	int len;
+
+	switch (addr->address_space_id) {
+	case ADDRESS_SPACE_ID_MEM:
+		switch (addr->access_size) {
+		case ACCESS_SIZE_UNDEFINED:
+		case ACCESS_SIZE_BYTE:
+			len = 1;
+			break;
+		case ACCESS_SIZE_WORD:
+			len = 2;
+			break;
+		case ACCESS_SIZE_DWORD:
+			len = 4;
+			break;
+		case ACCESS_SIZE_QWORD:
+			len = 8;
+			break;
+		default:
+			return false;
+		}
+		p = mapmem_hphys (addr->address, len, MAPMEM_WRITE |
+				  MAPMEM_PCD | MAPMEM_PWT);
+		memcpy (p, &value, len);
+		unmapmem (p, len);
+		return true;
+	case ADDRESS_SPACE_ID_IO:
+		switch (addr->access_size) {
+		case ACCESS_SIZE_UNDEFINED:
+		case ACCESS_SIZE_BYTE:
+			asm_outb (addr->address, value);
+			break;
+		case ACCESS_SIZE_WORD:
+			asm_outw (addr->address, value);
+			break;
+		case ACCESS_SIZE_DWORD:
+			asm_outl (addr->address, value);
+			break;
+		case ACCESS_SIZE_QWORD:
+		default:
+			return false;
+		}
+		return true;
+	default:
+		return false;
+	}
+}
+
+void
+acpi_reset (void)
+{
+	if (reset_reg.register_bit_width != 8) /* width must be 8 */
+		return;
+	if (reset_reg.register_bit_offset != 0) /* offset must be 0 */
+		return;
+	/* The address space ID must be system memory, system I/O or
+	 * PCI configuration space. PCI configuration space support is
+	 * not yet implemented. */
+	switch (reset_reg.address_space_id) {
+	case ADDRESS_SPACE_ID_MEM:
+	case ADDRESS_SPACE_ID_IO:
+		gas_write (&reset_reg, reset_value);
+		break;
+	default:
+		break;
+	}
+}
+
 void
 acpi_poweroff (void)
 {
@@ -485,6 +577,14 @@ get_acpi_time_raw (u32 *r)
 		return true;
 	}
 	return false;
+}
+
+static void
+acpi_init_paral (void)
+{
+#ifdef ACPI_DSDT
+	acpi_dsdt_parse (dsdt_addr);
+#endif
 }
 
 static void
@@ -530,11 +630,12 @@ acpi_init_global (void)
 		return;
 	}
 #ifdef ACPI_DSDT
-	acpi_dsdt_parse (q->dsdt);
+	dsdt_addr = q->dsdt;
 #endif
 	get_pm1a_cnt_ioaddr (q);
 	get_pm_tmr_ioaddr (q);
 	get_facs_addr (q);
+	get_reset_info (q);
 	smi_cmd = q->smi_cmd;
 	if (0)
 		debug_dump (q, q->header.length);
@@ -545,3 +646,4 @@ acpi_init_global (void)
 }
 
 INITFUNC ("global3", acpi_init_global);
+INITFUNC ("paral30", acpi_init_paral);

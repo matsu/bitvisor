@@ -80,6 +80,8 @@ struct ehci_qtd_meta {
 	struct ehci_qtd_meta *shadow;
 	struct ehci_qtd_meta *next;
 	struct ehci_qtd_meta *altnext;
+	struct ehci_qtd *ovlay;
+	u32 check_advance_count;
 };
 
 struct ehci_qh {
@@ -113,7 +115,7 @@ struct ehci_qh {
 } __attribute__ ((packed));
 
 struct ehci_host {
-	spinlock_t lock;
+	spinlock_t lock_hurb;
 	phys_t iobase;
 	phys_t headqh_phys[2];
 	LIST4_DEFINE_HEAD (unlink_messages, struct usb_request_block, list);
@@ -146,6 +148,7 @@ struct urb_private_ehci {
 
 	/* cache of qTD overlay */
 	struct ehci_qh          qh_copy;
+	u32 check_advance_count;
 };
 
 #define URB_EHCI(_urb)					\

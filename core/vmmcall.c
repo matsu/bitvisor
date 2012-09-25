@@ -110,4 +110,4 @@ vmmcall_init (void)
 	call_initfunc ("vmmcal");
 }
 
-INITFUNC ("global3", vmmcall_init);
+INITFUNC ("paral10", vmmcall_init);

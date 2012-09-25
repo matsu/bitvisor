@@ -104,8 +104,12 @@ void ata_set_ctlblk_handler(struct ata_host *host, int ch)
  ********************************************************************************/
 int ata_config_read(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data)
 {
+	struct ata_host *ata_host = pci_device->host;
 	struct pci_config_space *config_space = &pci_device->config_space;
 
+	if (ahci_config_read (ata_host->ahci_data, pci_device, io, offset,
+			      data))
+		return CORE_IO_RET_DONE;
 	core_io_handle_default(io, data);
 	switch (offset & 0xFC) {
 	case 0x00: // can virtualize Vendor/Device ID
@@ -119,6 +123,10 @@ int ata_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, uni
 	struct ata_host *ata_host = pci_device->host;
 	struct pci_config_space *config_space = &pci_device->config_space;
 	union mem *regptr = (union mem *)&config_space->regs8[offset];
+
+	if (ahci_config_write (ata_host->ahci_data, pci_device, io, offset,
+			       data))
+		return CORE_IO_RET_DONE;
 
 	/* To avoid TOCTTOU, lock the devices while the base addresses may be changed. */
 	ata_channel_lock (ata_host->channel[0]);
@@ -168,13 +176,6 @@ int ata_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, uni
 
 	case PCI_CONFIG_BASE_ADDRESS4:
 		ata_set_bm_handler(ata_host);
-		ahci_config_write (ata_host->ahci_data, pci_device, io, offset,
-				   data);
-		break;
-
-	case PCI_CONFIG_BASE_ADDRESS5:
-		ahci_config_write (ata_host->ahci_data, pci_device, io, offset,
-				   data);
 		break;
 	}
 

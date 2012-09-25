@@ -104,7 +104,6 @@ uhci_new(struct pci_device *pci_device)
 	host = zalloc_uhci_host();
 	spinlock_init(&host->lock_pmap);
 	spinlock_init(&host->lock_hc);
-	spinlock_init(&host->lock_gfl);
 	spinlock_init(&host->lock_hfl);
 	host->pci_device = pci_device;
 	host->interrupt_line = pci_device->config_space.interrupt_line;

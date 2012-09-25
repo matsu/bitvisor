@@ -1,11 +1,16 @@
 syntax: glob
 *.o
 *.a
+*.d
 *~
-core/builtin/process_builtin.s
+process/process_builtin.s
 bitvisor.elf
 bitvisor.map
 .config*
+.depends
+.flags
+.objects
+.boptions
 defconfig
 boot/login/conf/bitvisor.conf
 boot/login/initrd/initrd.gz
@@ -19,5 +24,6 @@ boot/login-simple/makedata
 boot/login-simple/module1.bin
 boot/login-simple/module2.bin
 boot/login-simple/readdata
+*.bin
+*.bin.s
 syntax: regexp
-^core/builtin/bin_[^.]*$

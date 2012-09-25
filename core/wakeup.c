@@ -29,6 +29,7 @@
 
 #include "ap.h"
 #include "beep.h"
+#include "cache.h"
 #include "entry.h"
 #include "initfunc.h"
 #include "main.h"
@@ -193,6 +194,7 @@ wakeup_cont (void)
 		rw_spinlock_lock_sh (&wakeup_wait_lock);
 		rw_spinlock_unlock_sh (&wakeup_wait_lock);
 	}
+	update_mtrr_and_pat ();
 	resume_vm (waking_vector);
 	panic ("resume_vm failed.");
 }

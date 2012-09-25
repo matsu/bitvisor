@@ -249,7 +249,7 @@ int1a_TCG_CompactHashLogExtendEvent (u32 data_addr, u32 data_len, u32 esi,
 }
 
 void
-tcg_measure (u32 phys, u32 len)
+tcg_measure (void *virt, u32 len)
 {
 	struct TCG_HashLogExtendEvent_input_param_blk input;
 	struct {
@@ -257,16 +257,22 @@ tcg_measure (u32 phys, u32 len)
 		char buf[32];
 	} s;
 	u32 *log;
-	u64 log_phys;
+	u32 log_phys, phys;
 	u32 ret, feat, event, edi;
 	u8 major, minor;
+	void *tmp;
 
 	if (!len)
 		return;
 	if (!int1a_TCG_StatusCheck (&ret, &major, &minor, &feat, &event,
 				    &edi))
 		return;
-	log = alloc2 (32, &log_phys);
+	phys = 0x100000;
+	log_phys = phys + len;
+	log = mapmem_hphys (log_phys, 32, MAPMEM_WRITE);
+	tmp = mapmem_hphys (phys, len, MAPMEM_WRITE);
+	memcpy (tmp, virt, len);
+	unmapmem (tmp, len);
 	memset (&input, 0, sizeof input);
 	input.u.format_2.IPBLength = sizeof input.u.format_2;
 	input.u.format_2.HashDataPtr = phys;
@@ -281,6 +287,6 @@ tcg_measure (u32 phys, u32 len)
 		printf ("TCG_HashLogExtendEvent error\n");
 	else
 		printf ("EventNumber = %u\n", s.output.EventNumber);
-	free (log);
+	unmapmem (log, 32);
 }
 #endif

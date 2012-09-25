@@ -31,7 +31,9 @@
 #define _CORE_PCPU_H
 
 #include "asm.h"
+#include "cache.h"
 #include "desc.h"
+#include "panic.h"
 #include "seg.h"
 #include "spinlock.h"
 #include "svm.h"
@@ -59,6 +61,8 @@ struct pcpu {
 	struct tss64 tss64;
 	struct vt_pcpu_data vt;
 	struct svm_pcpu_data svm;
+	struct cache_pcpu_data cache;
+	struct panic_pcpu_data panic;
 	enum fullvirtualize_type fullvirtualize;
 	int cpunum;
 	int pid;
@@ -76,6 +80,7 @@ struct pcpu_gs {
 				   /* %gs:16 (process.c, process_sysenter.s) */
 	void *current PCPU_GS_ALIGN;	/* %gs:24 (current.h) */
 	u64 nmi;		/* %gs:32 (nmi_pass.c) */
+	u64 init_count;		/* %gs:40 (sx_init_pass.c, sx_handler.s) */
 };
 
 extern struct pcpu pcpu_default;

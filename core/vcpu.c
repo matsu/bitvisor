@@ -78,4 +78,4 @@ vcpu_init_global (void)
 	spinlock_init (&vcpu_list_lock);
 }
 
-INITFUNC ("global3", vcpu_init_global);
+INITFUNC ("paral00", vcpu_init_global);

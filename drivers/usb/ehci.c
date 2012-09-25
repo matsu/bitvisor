@@ -74,7 +74,7 @@ ehci_new(struct pci_device *pci_device)
 	dprintft(2, "A EHCI found.\n");
 	host = alloc_ehci_host();
 	memset(host, 0, sizeof(*host));
-	spinlock_init(&host->lock);
+	spinlock_init(&host->lock_hurb);
 	pci_device->host = host;
 	for (i = 0; i < EHCI_URBHASH_SIZE; i++)
 		LIST2_HEAD_INIT (host->urbhash[i], urbhash);
@@ -217,26 +217,26 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 						*(u32 *)buf = 
 							cmd & ~(0x00000020U);
 #endif /* defined(ENABLE_DELAYED_START) */
-						spinlock_lock(&host->lock);
+						usb_sc_lock(host->usb_host);
 						host->enable_async = 1;
-						spinlock_unlock(&host->lock);
+						usb_sc_unlock(host->usb_host);
 					}
 				} else {
-					spinlock_lock(&host->lock);
+					usb_sc_lock(host->usb_host);
 					host->enable_async = 0;
-					spinlock_unlock(&host->lock);
+					usb_sc_unlock(host->usb_host);
 				}
 				if (cmd & 0x00000040) {
 					dprintf(3, "DBELL,");
-					spinlock_lock(&host->lock);
+					usb_sc_lock(host->usb_host);
 					if (host->doorbell)
 						host->doorbell = 0;
-					spinlock_unlock(&host->lock);
+					usb_sc_unlock(host->usb_host);
 				} else {
-					spinlock_lock(&host->lock);
+					usb_sc_lock(host->usb_host);
 					if (host->doorbell)
 						*(u32 *)buf |= 0x00000040U;
-					spinlock_unlock(&host->lock);
+					usb_sc_unlock(host->usb_host);
 				}
 				if (cmd & 0x00000080)
 					dprintf(3, "LHCRESET,");
@@ -245,9 +245,9 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 			break;
 		case 0x04: /* USBSTS */
 			if (!wr) {
-				spinlock_lock(&host->lock);
+				usb_sc_lock(host->usb_host);
 				ehci_check_advance(host->usb_host);
-				spinlock_unlock(&host->lock);
+				usb_sc_unlock(host->usb_host);
 				dprintft(3, "read(USBSTS, %d) = %08x[", 
 					len, *reg);
 				if (*reg & 0x00000001)
@@ -262,11 +262,11 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 					dprintf(3, "SYSE,");
 				if (*reg & 0x00000020) {
 					dprintf(3, "ASADV,");
-					spinlock_lock(&host->lock);
+					usb_sc_lock(host->usb_host);
 					if (host->doorbell)
 					host->doorbell = 0;
 					ehci_cleanup_urbs (host);
-					spinlock_unlock(&host->lock);
+					usb_sc_unlock(host->usb_host);
 				}
 				if (*reg & 0x00001000)
 					dprintf(3, "HALT,");
@@ -324,7 +324,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 			REGPRN(2, wr, "ASYNCLISTADDR");
 			if (wr) {
 				dprintf(3, ": %08x", *(u32 *)buf);
-				spinlock_lock(&host->lock);
+				usb_sc_lock(host->usb_host);
 				if (host->headqh_phys[0] &&
 				    (host->headqh_phys[0] != 
 				     (*(u32 *)buf & 0xffffffe0U)))
@@ -341,17 +341,17 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				}
 #if defined(ENABLE_SHADOW)
 				*reg = host->headqh_phys[1] | 0x00000002U;
-				spinlock_unlock(&host->lock);
+				usb_sc_unlock(host->usb_host);
 				dprintf(3, " -> %08x\n", *reg);
 				ret = 1;
 #else
 				dprintf(3, "\n");
 #endif
 			} else {
-				spinlock_lock(&host->lock);
+				usb_sc_lock(host->usb_host);
 				*(u32 *)buf = 
 					host->headqh_phys[0] | 0x00000002U;
-				spinlock_unlock(&host->lock);
+				usb_sc_unlock(host->usb_host);
 				dprintf(3, ": %08x == %08x\n", 
 					*(u32 *)buf, *(u32 *)reg);
 				ret = 1;
@@ -392,12 +392,12 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				if (host->portsc[portno] == status)
 					break;
 
-				spinlock_lock(&host->lock);
+				usb_sc_lock(host->usb_host);
 				host->portsc[portno] = status;
 				port_sc = status & mask;
 				handle_connect_status(host->usb_host, 
 							portno, port_sc);
-				spinlock_unlock(&host->lock);
+				usb_sc_unlock(host->usb_host);
 
 				dprintft(4, "read(PORTSC%d, %d) = %08x[", 
 					portno + 1, len, status);
@@ -488,7 +488,6 @@ ehci_config_write(struct pci_device *pci_device,
 {
 	struct ehci_host *host = pci_device->host;
 	u32 iobase;
-	void *handle;
 
 	switch (offset) {
 	case PCI_CONFIG_BASE_ADDRESS0:
@@ -497,9 +496,8 @@ ehci_config_write(struct pci_device *pci_device,
 			 "with %08x\n", iobase);
 		if (iobase < 0xffffffdeU) {
 			host->iobase = iobase;
-			handle = mmio_register(iobase, 0x80, 
-					       ehci_register_handler, 
-					       (void *)host);
+			mmio_register (iobase, 0x80, ehci_register_handler,
+				       (void *)host);
 		}
 		break;
 	case 0x61:

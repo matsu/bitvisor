@@ -1014,6 +1014,15 @@ phys_in_vmm (u64 phys)
 		? true : false;
 }
 
+void
+mm_force_unlock (void)
+{
+	spinlock_unlock (&mm_lock);
+	spinlock_unlock (&mm_lock2);
+	spinlock_unlock (&mm_lock_process_virt_to_phys);
+	spinlock_unlock (&mapmem_lock);
+}
+
 /*** process ***/
 
 static void
@@ -1604,14 +1613,26 @@ pmap_read (pmap_t *m)
 		tmp = m->entry[m->readlevel];
 		if (!(tmp & PDE_P_BIT))
 			return 0;
+		if (m->readlevel == 2 && (tmp & PDE_PS_BIT)) {
+			/* m->curlevel is zero or one */
+			/* m->levels must be 4 */
+			/* create a 2MiB PDE from a 1GiB PDPE */
+			tmp &= ~0x3FE00000ULL;
+			tmp |= (m->curaddr & 0x3FE00000);
+			if (m->curlevel == 0)
+				goto handle_pde_ps_bit;
+			return tmp;
+		}
 		if (m->readlevel == 1 && (tmp & PDE_PS_BIT)) {
+		handle_pde_ps_bit:
+			/* m->curlevel is zero */
 			tmp &= ~PDE_PS_BIT;
 			if (tmp & PDE_4M_PAT_BIT) {
 				tmp |= PTE_PAT_BIT;
 				tmp &= ~PDE_4M_PAT_BIT;
 			}
 			if (m->levels == 2) {
-				tmp |= ((tmp & 0x1E000) >> 12) << 32;
+				tmp |= ((tmp & 0x1FE000) >> 13) << 32;
 				tmp &= ~0x3FF000ULL;
 				tmp |= (m->curaddr & 0x3FF000);
 			} else {

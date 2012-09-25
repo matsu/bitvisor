@@ -202,7 +202,7 @@ struct config_data_vmm_iccard {
 };
 
 struct config_data_vmm {
-	char randomSeed[4096];
+	char randomSeed[1024];
 	int f11panic;
 	int f12msg;
 	int auto_reboot;

@@ -61,7 +61,7 @@ vt_panic_dump (void)
 	printf ("VMCS IDTR %08lX+%08lX   ", tmp, tmp2);
 	asm_vmread (VMCS_GUEST_RFLAGS, &tmp);
 	printf ("VMCS RFLAGS %08lX\n", tmp);
-	printf ("pe=%d pg=%d ", current->u.vt.vr.pe, current->u.vt.vr.pg);
+	printf ("re=%d pg=%d ", current->u.vt.vr.re, current->u.vt.vr.pg);
 	printf ("sw:en=0x%X ", current->u.vt.vr.sw.enable);
 	printf ("es=0x%X ", current->u.vt.vr.sw.es);
 	printf ("cs=0x%X ", current->u.vt.vr.sw.cs);

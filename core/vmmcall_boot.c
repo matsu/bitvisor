@@ -134,7 +134,7 @@ loadcfg (void)
 	ASSERT (data);
 	tmpbuf = alloc (d->datalen);
 	ASSERT (tmpbuf);
-#ifdef CRYPTO_VPN
+#ifdef CRYPTO
 	decryptcfg (pass, d->passlen, data, d->datalen, tmpbuf);
 #else
 	panic ("cannot decrypt");

@@ -8,8 +8,6 @@
 #include "usb_log.h"
 #include "usb_hub.h"
 
-DEFINE_ZALLOC_FUNC(usb_hub_device);
-DEFINE_ZALLOC_FUNC(device_list);
 DEFINE_GET_U16_FROM_SETUP_FUNC(wIndex);
 DEFINE_GET_U16_FROM_SETUP_FUNC(wValue);
 
@@ -26,48 +24,13 @@ usbhub_set_portno(struct usb_host *usbhc, u8 devadr, u64 port)
 static int
 usbhub_device_disconnect(struct usb_host *usbhc, u8 devadr, u64 port)
 {
-	u64 hub_port;
-	struct usb_device *dev, *rmdev = (struct usb_device *)NULL;
-	struct usb_hub_device *hubdev = (struct usb_hub_device *)NULL;
-	struct device_list *d_list;
+	struct usb_device *dev;
 
 	dprintft(3, "HUB(%02x): HUB PORT(%d) status disconnect.\n",
 				 devadr, (int)(port & USB_PORT_MASK));
-	hub_port = (port & USB_HUB_MASK) >> USB_HUB_SHIFT;
-	for (dev = usbhc->device; dev; dev = dev->next) {
-		if (dev->portno == port) {
-			dprintft(1, "PORTNO ");
-			dprintf_port(1, port);
-			dprintf(1,": USB device disconnect.\n");
-			rmdev = dev;
-		} else if (dev->portno == hub_port) {
-			hubdev = (struct usb_hub_device *)
-				dev->handle->private_data;
-		}
-
-		if (rmdev && hubdev)
-			break;
-	}
-
-	if (!rmdev || !hubdev)
-		return USB_HOOK_PASS;
-
-	for (d_list = hubdev->list; d_list; d_list = d_list->next) {
-		if (d_list->device != rmdev)
-			continue;
-
-		if (d_list->next)
-			d_list->next->prev = d_list->prev;
-
-		if (d_list->prev)
-			d_list->prev->next = d_list->next;
-		else
-			hubdev->list = d_list->next;
-		free(d_list);
-		break;
-	}
-	free_device(usbhc, rmdev);
-
+	dev = get_device_by_port (usbhc, port);
+	if (dev)
+		free_device (usbhc, dev);
 	return USB_HOOK_PASS;
 }
 
@@ -109,29 +72,32 @@ usbhub_connect_changed(struct usb_host *usbhc,
 	return ret;
 }
 
-static void 
-usbhub_clean_list(struct usb_device *dev, struct device_list *list)
+static void
+usbhub_clean_list (struct usb_device *hubdev)
 {
-	struct device_list *tmp_list, *nxt_list;
+	struct usb_device *dev;
+	struct usb_host *usbhc;
 
-	for (tmp_list = list; tmp_list; tmp_list = nxt_list) {
-		dprintft(1, "PORTNO ");
-		dprintf_port(1, tmp_list->device->portno);
-		dprintf(1, ": USB device disconnect.\n");
-
-		nxt_list = tmp_list->next;
-		free_device(dev->host, tmp_list->device);
-		free(tmp_list);
+	usbhc = hubdev->host;
+	if (!usbhc) {
+		dprintft (1, "hubdev->host NULL.\n");
+		return;
 	}
-	return;
+again:
+	for (dev = usbhc->device; dev; dev = dev->next) {
+		if (dev->parent == hubdev) {
+			/* if dev is hub, dev->next may be freed
+			 * during free_device() */
+			free_device (usbhc, dev);
+			goto again;
+		}
+	}
 }
 
 
 static void
 usbhub_remove(struct usb_device *dev)
 {
-	struct usb_hub_device *hubdev;
-
 	dprintft(1, "HUB(%02x): HUB device disconnect.\n", dev->devnum);
 
 	if (!dev || !dev->handle) {
@@ -139,18 +105,10 @@ usbhub_remove(struct usb_device *dev)
 		return;
 	}
 
-	hubdev = (struct usb_hub_device *)dev->handle->private_data;
 	free(dev->handle);
 	dev->handle = NULL;
 
-	if (!hubdev || !hubdev->list) {
-		dprintft(1, "HUB(%02x): No device handling entry.\n",
-			 dev->devnum);
-		return;
-	}
-
-	usbhub_clean_list(dev, hubdev->list);
-	free(hubdev);
+	usbhub_clean_list (dev);
 	return;
 }
 
@@ -161,7 +119,6 @@ init_hub_device(struct usb_host *usbhc,
 {
 	u8 devadr, cls;
 	struct usb_device *dev;
-	struct usb_hub_device *hub_dev;
 	struct usb_device_handle *handler;
 	static const struct usb_hook_pattern pat_clrpf = {
 		.pid = USB_PID_SETUP,
@@ -194,24 +151,16 @@ init_hub_device(struct usb_host *usbhc,
 		return USB_HOOK_PASS;
 	}
 
-	hub_dev = zalloc_usb_hub_device();
-	handler = usb_find_dev_handle(usbhc, dev);
-
-	if (!hub_dev) {
-		dprintft(1, "HUB(%02x): hub device can't use.\n", devadr);
-		return USB_HOOK_DISCARD;
-	}
-
-	if (!handler)
-		handler = usb_new_dev_handle(usbhc, hub_dev, usbhub_remove,
-					     dev);
+	handler = usb_new_dev_handle (usbhc, dev);
+	handler->remove = usbhub_remove;
 	dev->handle = handler;
 
 	/* notify whenever ClearPortFeature() issued. */
 	spinlock_lock(&usbhc->lock_hk);
-	usb_hook_register(usbhc, USB_HOOK_REPLY, USB_HOOK_MATCH_ALL,
-			  devadr, 0, &pat_clrpf, usbhub_connect_changed,
-			  NULL, dev);
+	usb_hook_register (usbhc, USB_HOOK_REPLY, USB_HOOK_MATCH_DEV |
+			   USB_HOOK_MATCH_ENDP | USB_HOOK_MATCH_DATA,
+			   devadr, 0, &pat_clrpf, usbhub_connect_changed,
+			   NULL, dev);
 	spinlock_unlock(&usbhc->lock_hk);
 
 	return USB_HOOK_PASS;
@@ -245,25 +194,10 @@ void
 hub_portdevice_register(struct usb_host *host, 
 			u64 hub_port, struct usb_device *dev)
 {
-        struct usb_device *hubdev;
-	struct usb_hub_device *hub;
-	struct device_list *d_list;
+	struct usb_device *hubdev;
 
 	for (hubdev = host->device; hubdev; hubdev = hubdev->next)
 		if (hub_port == hubdev->portno) {
-			hub = (struct usb_hub_device*)
-				hubdev->handle->private_data;
-			d_list = zalloc_device_list();
-			d_list->device = dev;
-
-			if (!hub->list) {
-				d_list->prev = (struct device_list *)NULL;
-			} else {
-				d_list->prev = hub->list->prev;
-				hub->list->prev = d_list;
-			}
-			d_list->next = hub->list;
-			hub->list = d_list;
 			dev->parent = hubdev;
 			dprintft(3, "HUB(%02x): HUB PORT(%d) device "
 				 "checked and registered.\n",

@@ -366,6 +366,8 @@ setconfig (char *name, char *value, struct config_data *cfg)
 		     "storage.keys_conf[%d].keyindex", i);
 		ssi (u16num, &name, &src, &len, "storage.conf%d.keybits",
 		     "storage.keys_conf[%d].keybits", i);
+		ssi (noconv, &name, &src, &len, "storage.conf%d.extend",
+		     "storage.keys_conf[%d].extend", i);
 	}
 	/* vmm */
 	ss (uintnum, &name, &src, &len, "vmm.f11panic", "vmm.f11panic");
@@ -512,7 +514,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 		       cfg->storage.keys_conf[i].keyindex);
 		CONF1 ("storage.keys_conf[%d].keybits", i,
 		       cfg->storage.keys_conf[i].keybits);
-		CONF1 ("storage.conf%d.extend", i,
+		CONF1 ("storage.keys_conf[%d].extend", i,
 		       cfg->storage.keys_conf[i].extend);
 	}
 	/* vmm */
