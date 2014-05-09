@@ -39,6 +39,7 @@
 #include "savemsr.h"
 #include "seg.h"
 #include "string.h"
+#include "uefi.h"
 #include "vmmcall_boot.h"
 
 static struct vcpu *callrealmode_vcpu;
@@ -226,6 +227,9 @@ callrealmode_call_directly (struct callrealmode_data *d)
 static void
 callrealmode_call (struct callrealmode_data *d)
 {
+	if (uefi_booted)
+		panic ("callrealmode_call is not allowed on UEFI systems:"
+		       " d->func=%d", d->func);
 	if (callrealmode_vcpu)
 		callrealmode_call_vcpu (callrealmode_vcpu, d);
 	else

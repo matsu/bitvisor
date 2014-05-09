@@ -61,7 +61,7 @@ os_load (void *bin, u32 binsize)
 	if (!bin || !binsize)
 		return 0;
 	b = bin;
-	if (b[0] != 0x7F && b[1] != 'E' && b[2] != 'L' && b[3] != 'F')
+	if (b[0] != 0x7F || b[1] != 'E' || b[2] != 'L' || b[3] != 'F')
 		return 0;
 	ehdr = bin;
 	phdr = (Elf32_Phdr *)((u8 *)bin + ehdr->e_phoff);
@@ -155,9 +155,9 @@ load_minios (u32 kernelstart, u32 kernelsize, u32 ramdiskstart,
 	u32 minios_startaddr, ramdisk_startaddr;
 
 	kernel = osalloc (kernelstart, kernelsize);
-	ramdisk = osmap (ramdiskstart, ramdisksize);
-	if (!kernel && !ramdisk)
+	if (!kernel)
 		return 0;
+	ramdisk = osmap (ramdiskstart, ramdisksize);
 	if (memorysize - vmmsize <= MINMEM)
 		panic ("loading minios: out of memory");
 	ramdisk_startaddr = ramdisk_load (ramdisk, ramdisksize);

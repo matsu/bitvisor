@@ -30,10 +30,13 @@ CONSTANTS-$(CONFIG_ACPI_TIME_SOURCE) += -DACPI_TIME_SOURCE
 CONSTANTS-$(CONFIG_TCG_BIOS) += -DTCG_BIOS
 CONSTANTS-$(CONFIG_BACKTRACE) += -DBACKTRACE
 CONSTANTS-$(CONFIG_TTY_VGA) += -DTTY_VGA
+CONSTANTS-$(CONFIG_SHIFT_KEY_DEBUG) += -DSHIFT_KEY_DEBUG
 
 CONSTANTS-1 += -DUSE_PAE
 
 CFLAGS += -Ivpn/lib
+CFLAGS += -Iedk/Foundation/Efi/Include/ -Iedk/Foundation/Framework/Include/
+CFLAGS += -Iedk/Foundation/Include/ -Iedk/Foundation/Efi/
 
 c!=echo $(dir)*.c
 c += $(wildcard $(dir)*.c)

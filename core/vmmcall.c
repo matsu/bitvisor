@@ -85,7 +85,7 @@ vmmcall (void)
 	ulong cmd;
 
 	current->vmctl.read_general_reg (GENERAL_REG_RAX, &cmd);
-	if (cmd < VMMCALL_MAX)
+	if (cmd < VMMCALL_MAX && vmmcall_data[cmd].func)
 		vmmcall_data[cmd].func ();
 	else
 		current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);

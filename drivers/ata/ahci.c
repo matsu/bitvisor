@@ -934,7 +934,7 @@ ahci_cmd_start (struct ahci_data *ad, struct ahci_port *pt, u32 pxci)
 			cmdtbl = mapmem_gphys (ctphys, cmdtbl_size (prdtl),
 					       MAPMEM_WRITE);
 			totalsize = ahci_get_dmalen (cmdtbl, prdtl, &intrflag);
-			ASSERT (totalsize < 4 * 1024 * 1024);
+			ASSERT (totalsize <= 4 * 1024 * 1024);
 			if (pt->my[i].dmabuf != NULL)
 				panic ("pt->my[i].dmabuf=%p is not NULL!",
 				       pt->my[i].dmabuf);
@@ -1054,6 +1054,8 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 			}
 		}
 		if (port && ahci_port_eq (port_off, len, PxCI)) {
+			if (!port->storage_device)
+				ahci_port_data_init (ad, port_num);
 			/* PxCI is written before PxCMD.ST is set to 1
 			   in some BIOSes */
 			ASSERT (port->storage_device);
@@ -1696,17 +1698,17 @@ ahci_new (struct pci_device *pci_device)
 
 bool
 ahci_config_read (void *ahci_data, struct pci_device *pci_device,
-		  core_io_t io, u8 offset, union mem *data)
+		  u8 iosize, u16 offset, union mem *data)
 {
 	struct ahci_data *ad = ahci_data;
 
 	if (!ahci_data)
 		return false;
 	if (ad->idp_config >= 0x40 &&
-	    offset + io.size - 1 >= ad->idp_config &&
+	    offset + iosize - 1 >= ad->idp_config &&
 	    offset < ad->idp_config + 8) {
 		idphandler (ad, offset - ad->idp_config, false, &data->dword,
-			    io.size);
+			    iosize);
 		return true;
 	}
 	return false;
@@ -1714,7 +1716,7 @@ ahci_config_read (void *ahci_data, struct pci_device *pci_device,
 
 bool
 ahci_config_write (void *ahci_data, struct pci_device *pci_device,
-		   core_io_t io, u8 offset, union mem *data)
+		   u8 iosize, u16 offset, union mem *data)
 {
 	struct ahci_data *ad = ahci_data;
 	u32 tmp;
@@ -1723,15 +1725,15 @@ ahci_config_write (void *ahci_data, struct pci_device *pci_device,
 	if (!ahci_data)
 		return false;
 	if (ad->idp_config >= 0x40 &&
-	    offset + io.size - 1 >= ad->idp_config &&
+	    offset + iosize - 1 >= ad->idp_config &&
 	    offset < ad->idp_config + 8) {
 		idphandler (ad, offset - ad->idp_config, true, &data->dword,
-			    io.size);
+			    iosize);
 		return true;
-	} else if (offset + io.size - 1 >= 0x10 && offset < 0x28) {
-		if ((offset & 3) || io.size != 4)
-			panic ("%s: io:%08x, offset=%02x, data:%08x\n",
-			       __func__, *(int*)&io, offset, data->dword);
+	} else if (offset + iosize - 1 >= 0x10 && offset < 0x28) {
+		if ((offset & 3) || iosize != 4)
+			panic ("%s: iosize:%02x, offset=%02x, data:%08x\n",
+			       __func__, iosize, offset, data->dword);
 		i = (offset - 0x10) >> 2;
 		ASSERT (i >= 0 && i < 6);
 		tmp = pci_device->base_address_mask[i];

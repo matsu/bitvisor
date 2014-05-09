@@ -1622,21 +1622,25 @@ int pro100_io_handler(core_io_t io, union mem *data, void *arg)
 }
 
 // PCI コンフィグレーションレジスタの読み込み処理
-int pro100_config_read(struct pci_device *dev, core_io_t io, u8 offset, union mem *data)
+int
+pro100_config_read (struct pci_device *dev, u8 iosize, u16 offset,
+		    union mem *data)
 {
-	core_io_handle_default(io, data);
+	pci_handle_default_config_read (dev, iosize, offset, data);
 
 	return CORE_IO_RET_DONE;
 }
 
 // PCI コンフィグレーションレジスタの書き込み処理
-int pro100_config_write(struct pci_device *dev, core_io_t io, u8 offset, union mem *data)
+int
+pro100_config_write (struct pci_device *dev, u8 iosize, u16 offset,
+		     union mem *data)
 {
 	PRO100_CTX *ctx = (PRO100_CTX *)dev->host;
 	UINT mode = 0;
 	UINT addr = 0;
 
-	if (io.type == CORE_IO_TYPE_OUT32)
+	if (iosize == 4)
 	{
 		switch (offset)
 		{
@@ -1656,7 +1660,7 @@ int pro100_config_write(struct pci_device *dev, core_io_t io, u8 offset, union m
 		}
 	}
 
-	pci_handle_default_config_write(dev, io, offset, data);
+	pci_handle_default_config_write (dev, iosize, offset, data);
 
 	switch (mode)
 	{

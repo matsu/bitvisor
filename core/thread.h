@@ -32,6 +32,4 @@
 
 #include <core/thread.h>
 
-void thread_set_process_switch (phys_t switchto);
-
 #endif

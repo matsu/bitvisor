@@ -28,10 +28,14 @@
  */
 
 #include "asm.h"
+#include "calluefi.h"
+#include "cpu.h"
 #include "initfunc.h"
 #include "keyboard.h"
+#include "pcpu.h"
 #include "process.h"
 #include "spinlock.h"
+#include "uefi.h"
 
 #define KBD_STATUS 0x64
 #define KBD_DATA 0x60
@@ -119,6 +123,8 @@ wait_for_kbdrecv (bool receiving)
 void
 keyboard_reset (void)
 {
+	if (uefi_booted)
+		return;
 	wait_for_kbdsend (false);
 	asm_outb (KBD_STATUS, 0x60);
 	wait_for_kbdsend (false);
@@ -132,6 +138,8 @@ setkbdled (int ledstatus)
 {
 	u8 gomi;
 
+	if (uefi_booted)
+		return;
 	wait_for_kbdsend (false);
 	asm_outb (KBD_DATA, 0xED);
 	wait_for_kbdrecv (true);
@@ -160,6 +168,8 @@ keyboard_flush (void)
 	u8 data;
 	u8 status;
 
+	if (uefi_booted)
+		return;
 	do {
 		asm_inb (KBD_DATA, &data);
 		asm_inb (KBD_STATUS, &status);
@@ -181,9 +191,40 @@ keycode_to_ascii (u8 key)
 static int
 keyboard_getchar (void)
 {
+	u32 uefi_key;
 	u8 key;
 	int c;
 
+	if (uefi_booted && currentcpu_available () &&
+	    !currentcpu->pass_vm_created && get_cpu_id () == 0) {
+		for (;;) {
+			uefi_key = call_uefi_getkey ();
+			switch (uefi_key & 0xFFFF) {
+			case 0x0:
+				return uefi_key >> 16;
+			case 0x1:	   /* up */
+				return 16; /* ^P */
+			case 0x2:	   /* down */
+				return 14; /* ^N */
+			case 0x3:	   /* right */
+				return 6;  /* ^F */
+			case 0x4:	   /* left */
+				return 2;  /* ^B */
+			case 0x5:	   /* home */
+				return 1;  /* ^A */
+			case 0x6:	   /* end */
+				return 5;  /* ^E */
+			case 0x8:	   /* delete */
+				return 4;  /* ^D */
+			case 0x9:	   /* page up */
+				return 128+'v';
+			case 0xA:	   /* page down */
+				return 22; /* ^V */
+			case 0x17:	   /* escape */
+				return 27; /* ^[ */
+			}
+		}
+	}
 	spinlock_lock (&keyboard_lock);
 retry:
 	key = keyboard_getkey ();

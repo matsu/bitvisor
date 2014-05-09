@@ -45,8 +45,8 @@ vmcall_iccard (void)
 	return (int)r.rax;
 }
 
-VOID CALLBACK
-timerproc (HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
+static void
+timerproc (HWND hwnd)
 {
 	HANDLE t;
 	LUID l;
@@ -86,6 +86,16 @@ timerproc (HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
 	}
 }
 
+static LRESULT CALLBACK
+wndproc (HWND hwnd, UINT nMsg, WPARAM wParam, LPARAM lParam)
+{
+	if (nMsg == WM_TIMER) {
+		timerproc (hwnd);
+		return 0;
+	}
+	return DefWindowProc (hwnd, nMsg, wParam, lParam);
+}
+
 int STDCALL
 WinMain (HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
 {
@@ -96,7 +106,10 @@ WinMain (HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
 			     WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
 			     CW_USEDEFAULT, CW_USEDEFAULT,
 			     CW_USEDEFAULT, NULL, NULL, hInst, NULL);
-	SetTimer (hwnd, 1, 1000, timerproc);
+	SetWindowLong (hwnd, GWL_WNDPROC, (LONG)wndproc);
+	/* use the wndproc instead of a timer callback, because
+	 * signal() did not work correctly in the timer callback. */
+	SetTimer (hwnd, 1, 1000, NULL);
 	while (GetMessage (&msg, NULL, 0, 0))
 		DispatchMessage (&msg);
 	return 0;

@@ -43,6 +43,7 @@
 #include "panic.h"
 #include "printf.h"
 #include "string.h"
+#include "uefi.h"
 
 static u64 phys_blank;
 
@@ -85,6 +86,9 @@ install_int0x15_hook (void)
 	u32 n, nn1, nn2;
 	u32 t1, t2;
 	void *p;
+
+	if (uefi_booted)
+		return;
 
 	len1 = guest_int0x15_hook_end - guest_int0x15_hook;
 	int0x15_code = alloc_realmodemem (len1);

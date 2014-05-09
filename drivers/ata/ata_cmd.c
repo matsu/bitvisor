@@ -85,6 +85,7 @@ static const ata_cmd_type_t ata_cmd_type_table[256] = {
 	[0x25] = { ATA_CMD_DMA,	STORAGE_READ,  1 },	// READ DMA EXT
 	[0xCA] = { ATA_CMD_DMA,	STORAGE_WRITE, 0 },	// WRITE DMA
 	[0x35] = { ATA_CMD_DMA,	STORAGE_WRITE, 1 },	// WRITE DMA EXT
+	[0x3D] = { ATA_CMD_DMA,	STORAGE_WRITE, 1 },	// WRITE DMA FUA EXT
 
 	// QUEUED DMA
 	[0xC7] = { ATA_CMD_DMQ, STORAGE_READ,  0 },	// READ DMA QUEUED

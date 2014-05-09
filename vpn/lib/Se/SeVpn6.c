@@ -278,6 +278,7 @@ void SeVpn6InitSecConfig(SE_VPN6 *v6, SE_SEC_CONFIG *c)
 	SeStrCpy(c->VpnCertName, sizeof(c->VpnCertName), vc->VpnCertNameV6);
 	SeStrCpy(c->VpnCaCertName, sizeof(c->VpnCaCertName), vc->VpnCaCertNameV6);
 	SeStrCpy(c->VpnRsaKeyName, sizeof(c->VpnRsaKeyName), vc->VpnRsaKeyNameV6);
+	c->VpnPhase1Mode = vc->VpnPhase1ModeV6;
 	c->VpnPhase1Crypto = vc->VpnPhase1CryptoV6;
 	c->VpnPhase1Hash = vc->VpnPhase1HashV6;
 	c->VpnPhase1LifeKilobytes = vc->VpnPhase1LifeKilobytesV6;

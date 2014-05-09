@@ -34,6 +34,7 @@
 #include "entry.h"
 #include "int.h"
 #include "linkage.h"
+#include "localapic.h"
 #include "mm.h"
 #include "panic.h"
 #include "pcpu.h"
@@ -43,8 +44,8 @@
 #include "spinlock.h"
 #include "string.h"
 #include "thread.h"
+#include "uefi.h"
 
-#define APINIT_ADDR		((APINIT_SEGMENT << 4) + APINIT_OFFSET)
 #define APINIT_SIZE		(cpuinit_end - cpuinit_start)
 #define APINIT_POINTER(n)	((void *)(apinit + ((u8 *)&n - cpuinit_start)))
 #define ICR_MODE_NMI		0x400
@@ -73,6 +74,8 @@ static spinlock_t sync_lock;
 static u32 sync_id;
 static volatile u32 sync_count;
 static spinlock_t *apinitlock;
+static u32 apinit_addr;
+static bool ap_started;
 
 /* this function is called after starting AP and switching a stack */
 /* unlock the spinlock because the stack is switched */
@@ -100,7 +103,24 @@ apinitproc1 (void)
 static asmlinkage void
 bspinitproc1 (void)
 {
-	ap_start ();
+	printf ("Processor 0 (BSP)\n");
+	spinlock_init (&sync_lock);
+	sync_id = 0;
+	sync_count = 0;
+	num_of_processors = 0;
+	spinlock_init (&ap_lock);
+
+	if (!uefi_booted) {
+		apinit_addr = 0xF000;
+		ap_start ();
+	} else {
+		apinit_addr = alloc_realmodemem (APINIT_SIZE + 15);
+		ASSERT (apinit_addr >= 0x1000);
+		while ((apinit_addr & 0xF) != (APINIT_OFFSET & 0xF))
+			apinit_addr++;
+		ASSERT (apinit_addr > APINIT_OFFSET);
+		localapic_delayed_ap_start (ap_start);
+	}
 	initproc_bsp ();
 	panic ("bspinitproc1");
 }
@@ -138,33 +158,27 @@ apic_wait_for_idle (volatile u32 *apic_icr)
 }
 
 static void
-apic_assert_init (volatile u32 *apic_icr)
+apic_send_init (volatile u32 *apic_icr)
 {
 	apic_wait_for_idle (apic_icr);
-	*apic_icr = ICR_DEST_OTHER | ICR_TRIGGER_LEVEL | ICR_MODE_INIT |
-		ICR_LEVEL_ASSERT;
-}
-
-static void
-apic_deassert_init (volatile u32 *apic_icr)
-{
-	apic_wait_for_idle (apic_icr);
-	*apic_icr = ICR_DEST_OTHER | ICR_TRIGGER_LEVEL | ICR_MODE_INIT;
+	*apic_icr = ICR_DEST_OTHER | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
+		ICR_MODE_INIT;
 }
 
 static void
 apic_send_startup_ipi (volatile u32 *apic_icr, u32 addr)
 {
 	apic_wait_for_idle (apic_icr);
-	*apic_icr = ICR_DEST_OTHER | ICR_LEVEL_ASSERT | ICR_MODE_STARTUP |
-		addr;
+	*apic_icr = ICR_DEST_OTHER | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
+		ICR_MODE_STARTUP | addr;
 }
 
 static void
 apic_send_nmi (volatile u32 *apic_icr)
 {
 	apic_wait_for_idle (apic_icr);
-	*apic_icr = ICR_DEST_OTHER | ICR_LEVEL_ASSERT | ICR_MODE_NMI;
+	*apic_icr = ICR_DEST_OTHER | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
+		ICR_MODE_NMI;
 	apic_wait_for_idle (apic_icr);
 }
 
@@ -179,10 +193,8 @@ ap_start_addr (u8 addr, bool (*loopcond) (void *data), void *data)
 	apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
 			   MAPMEM_PCD, apic_icr_phys, sizeof *apic_icr);
 	ASSERT (apic_icr);
-	apic_assert_init (apic_icr);
-	usleep (200000);
-	apic_deassert_init (apic_icr);
-	usleep (200000);
+	apic_send_init (apic_icr);
+	usleep (10000);
 	while (loopcond (data)) {
 		apic_send_startup_ipi (apic_icr, addr);
 		usleep (200000);
@@ -206,14 +218,20 @@ ap_start (void)
 	u8 *apinit;
 	u32 tmp;
 	int i;
+	u8 buf[5];
+	u8 *p;
+	u32 apinit_segment;
 
-	printf ("Processor 0 (BSP)\n");
-	spinlock_init (&sync_lock);
-	sync_id = 0;
-	sync_count = 0;
-	num_of_processors = 0;
-	spinlock_init (&ap_lock);
-	apinit = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE, APINIT_ADDR,
+	apinit_segment = (apinit_addr - APINIT_OFFSET) >> 4;
+	/* Put a "ljmpw" instruction to the physical address 0 */
+	p = mapmem_hphys (0, 5, MAPMEM_WRITE);
+	memcpy (buf, p, 5);
+	p[0] = 0xEA;		/* ljmpw */
+	p[1] = APINIT_OFFSET & 0xFF;
+	p[2] = APINIT_OFFSET >> 8;
+	p[3] = apinit_segment & 0xFF;
+	p[4] = apinit_segment >> 8;
+	apinit = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE, apinit_addr,
 			 APINIT_SIZE);
 	ASSERT (apinit);
 	memcpy (apinit, cpuinit_start, APINIT_SIZE);
@@ -222,7 +240,7 @@ ap_start (void)
 	*num = 0;
 	spinlock_init (apinitlock);
 	i = 0;
-	ap_start_addr (APINIT_ADDR >> 12, ap_start_loopcond, &i);
+	ap_start_addr (0, ap_start_loopcond, &i);
 	for (;;) {
 		spinlock_lock (&ap_lock);
 		tmp = num_of_processors;
@@ -232,6 +250,9 @@ ap_start (void)
 		usleep (1000000);
 	}
 	unmapmem ((void *)apinit, APINIT_SIZE);
+	memcpy (p, buf, 5);
+	unmapmem (p, 5);
+	ap_started = true;
 }
 
 static void
@@ -253,6 +274,8 @@ panic_wakeup_all (void)
 	volatile u32 *apic_icr;
 
 	if (!apic_available ())
+		return;
+	if (!ap_started)
 		return;
 	asm_rdmsr64 (MSR_IA32_APIC_BASE_MSR, &tmp);
 	if (!(tmp & MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT))

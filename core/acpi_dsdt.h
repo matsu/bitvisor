@@ -35,5 +35,6 @@
 extern unsigned char acpi_dsdt_system_state[6][5];
 
 void acpi_dsdt_parse (ulong dsdt);
+void acpi_ssdt_parse (u8 *ssdt, u32 len);
 
 #endif

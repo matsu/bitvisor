@@ -346,6 +346,9 @@ pe_change (bool pe)
 
 	/* enable emulation */
 	pe_change_enable_sw (pe);
+
+	current->u.vt.exint_re_pending = false;
+	current->u.vt.exint_update = true;
 }
 
 void
@@ -846,6 +849,8 @@ vt_reset (void)
 	current->u.vt.realmode.tr_base = 0;
 	current->u.vt.realmode.idtr.base = 0;
 	current->u.vt.realmode.idtr.limit = 0xFFFF;
+	current->u.vt.exint_re_pending = false;
+	current->u.vt.exint_update = true;
 	vt_msr_update_lma ();
 	vt_paging_updatecr3 ();
 	vt_paging_flush_guest_tlb ();

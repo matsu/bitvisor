@@ -29,6 +29,7 @@
 
 #include <core.h>
 #include <core/initfunc.h>
+#include <core/list.h>
 #include <core/mmio.h>
 #include <core/tty.h>
 #include "pci.h"
@@ -212,6 +213,10 @@ struct data2 {
 	void *recvphys_param, *recvvirt_param;
 	u32 rctl, rfctl, tctl;
 	u8 macaddr[6];
+#ifdef TTY_PRO1000
+	struct pci_device *pci_device;
+#endif
+	LIST1_DEFINE (struct data2);
 };
 
 struct data {
@@ -229,9 +234,9 @@ struct data {
 
 #ifdef TTY_PRO1000
 static u32 regs_at_init[PCI_CONFIG_REGS32_NUM];
-static struct pci_device *pro1000_pci_device;
 static struct data2 *putchar_d2;
 #endif /* TTY_PRO1000 */
+static LIST1_DEFINE_HEAD (struct data2, d2list);
 
 static int
 iohandler (core_io_t io, union mem *data, void *arg)
@@ -982,10 +987,12 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 		if (nt >= NUM_OF_RDESC)
 			nt = 0;
 		if (h == nt || i == num) {
-			vpn_premap_PhysicalNicRecv (d2->recvphys_func, d2, i,
-						    pkt, pktsize,
-						    d2->recvphys_param,
-						    pkt_premap);
+			if (d2->recvphys_func)
+				vpn_premap_PhysicalNicRecv (d2->recvphys_func,
+							    d2, i, pkt,
+							    pktsize,
+							    d2->recvphys_param,
+							    pkt_premap);
 			if (h == nt)
 				break;
 			i = 0;
@@ -1236,7 +1243,7 @@ pro1000_tty_send (void *handle, void *packet, unsigned int packet_size)
 	struct data2 *d2;
 
 	d2 = handle;
-	if (!d2->initialized)
+	if (!d2->tdesc[0].initialized)
 		return;
 	pkt = packet;
 	memcpy (pkt + 0, config.vmm.tty_pro1000_mac_address, 6);
@@ -1311,12 +1318,18 @@ tty_pro1000_init (struct data2 *d2)
 	{
 		/* Transmit Descriptor Control */
 		volatile u32 *txdctl = (void *)(u8 *)d2->d1[0].map + 0x3828;
-		*txdctl = (*txdctl & 0x400000) | 0x1010000;
+		volatile u32 *txdctl_new = (void *)(u8 *)d2->d1[0].map +
+			0xE028;
+		*txdctl = (*txdctl & 0x400000) | 0x3010000;
+		*txdctl_new = (*txdctl_new & 0x400000) | 0x3010000;
 	}
 	{
 		/* Transmit Descriptor Control 1 */
 		volatile u32 *txdctl1 = (void *)(u8 *)d2->d1[0].map + 0x3928;
-		*txdctl1 = (*txdctl1 & 0x400000) | 0x1010000;
+		volatile u32 *txdctl1_new = (void *)(u8 *)d2->d1[0].map +
+			0xE048;
+		*txdctl1 = (*txdctl1 & 0x400000) | 0x3010000;
+		*txdctl1_new = (*txdctl1_new & 0x400000) | 0x3010000;
 	}
 	/* Receive Initialization */
 	{
@@ -1345,10 +1358,10 @@ tty_pro1000_init (struct data2 *d2)
 		volatile u32 *tipg = (void *)(u8 *)d2->d1[0].map + 0x410;
 		*tipg = 0x00702008;
 	}
-	d2->initialized = true;
+	d2->tdesc[0].initialized = true;
 	{
 		int i;
-		pci_config_address_t addr = pro1000_pci_device->address;
+		pci_config_address_t addr = d2->pci_device->address;
 
 		for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
 			addr.reg_no = i;
@@ -1366,6 +1379,17 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	struct data *d;
 	void *tmp;
 
+	if ((pci_device->config_space.base_address[0] &
+	     PCI_CONFIG_BASE_ADDRESS_SPACEMASK) !=
+	    PCI_CONFIG_BASE_ADDRESS_MEMSPACE) {
+		printf ("vpn_pro1000: region 0 is not memory space\n");
+		return;
+	}
+	if ((pci_device->base_address_mask[0] &
+	     PCI_CONFIG_BASE_ADDRESS_MEMMASK) & 0xFFFF) {
+		printf ("vpn_pro1000: region 0 is too small\n");
+		return;
+	}
 	printf ("PRO/1000 found.\n");
 
 #ifdef VTD_TRANS
@@ -1395,22 +1419,23 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
 #ifdef TTY_PRO1000
-	pro1000_pci_device = pci_device;
+	d2->pci_device = pci_device;
 	tty_pro1000_init (d2);
 #endif /* TTY_PRO1000 */
+	LIST1_PUSH (d2list, d2);
 	return;
 }
 
-static int 
-vpn_pro1000_config_read (struct pci_device *pci_device, 
-			 core_io_t io, u8 offset, union mem *data)
+static int
+vpn_pro1000_config_read (struct pci_device *pci_device, u8 iosize,
+			 u16 offset, union mem *data)
 {
 	return CORE_IO_RET_DEFAULT;
 }
 
-static int 
-vpn_pro1000_config_write (struct pci_device *pci_device, 
-			  core_io_t io, u8 offset, union mem *data)
+static int
+vpn_pro1000_config_write (struct pci_device *pci_device, u8 iosize,
+			  u16 offset, union mem *data)
 {
 	struct data *d = pci_device->host;
 	u32 tmp;
@@ -1424,10 +1449,10 @@ vpn_pro1000_config_write (struct pci_device *pci_device,
 	else
 		d->disable = false;
 
-	if (offset + io.size - 1 >= 0x10 && offset <= 0x24) {
-		if ((offset & 3) || io.size != 4)
-			panic ("%s: io:%08x, offset=%02x, data:%08x\n",
-			       __func__, *(int*)&io, offset, data->dword);
+	if (offset + iosize - 1 >= 0x10 && offset <= 0x24) {
+		if ((offset & 3) || iosize != 4)
+			panic ("%s: iosize:%02x, offset=%02x, data:%08x\n",
+			       __func__, iosize, offset, data->dword);
 		i = (offset - 0x10) >> 2;
 		ASSERT (i >= 0 && i < 6);
 		tmp = pci_device->base_address_mask[i];
@@ -1481,33 +1506,35 @@ pro1000_new (struct pci_device *pci_device)
 	return;
 }
 
-static int 
-pro1000_config_read (struct pci_device *pci_device, 
-		     core_io_t io, u8 offset, union mem *data)
+static int
+pro1000_config_read (struct pci_device *pci_device, u8 iosize,
+		     u16 offset, union mem *data)
 {
 #ifdef VPN
 #ifdef VPN_PRO1000
 	if (!config.vmm.driver.concealPRO1000 &&
 	    config.vmm.driver.vpn.PRO1000)
-		return vpn_pro1000_config_read (pci_device, io, offset, data);
+		return vpn_pro1000_config_read (pci_device, iosize, offset,
+						data);
 #endif /* VPN_PRO1000 */
 #endif /* VPN */
 
 	/* provide fake values 
 	   for reading the PCI configration space. */
-	data->dword = 0UL;
+	memset (data, 0, iosize);
 	return CORE_IO_RET_DONE;
 }
 
-static int 
-pro1000_config_write (struct pci_device *pci_device, 
-		      core_io_t io, u8 offset, union mem *data)
+static int
+pro1000_config_write (struct pci_device *pci_device, u8 iosize,
+		      u16 offset, union mem *data)
 {
 #ifdef VPN
 #ifdef VPN_PRO1000
 	if (!config.vmm.driver.concealPRO1000 &&
 	    config.vmm.driver.vpn.PRO1000)
-		return vpn_pro1000_config_write (pci_device, io, offset, data);
+		return vpn_pro1000_config_write (pci_device, iosize, offset,
+						 data);
 #endif /* VPN_PRO1000 */
 #endif /* VPN */
 
@@ -1626,6 +1653,46 @@ static u32 idlist[] = {
 	0x15038086,
 	0x150C8086,
 	0x15258086,
+	0x04388086,
+	0x043A8086,
+	0x043C8086,
+	0x04408086,
+	0x10C98086,
+	0x10CA8086,
+	0x10E68086,
+	0x10E78086,
+	0x10E88086,
+	0x150A8086,
+	0x150D8086,
+	0x150E8086,
+	0x150F8086,
+	0x15108086,
+	0x15118086,
+	0x15168086,
+	0x15188086,
+	0x15208086,
+	0x15218086,
+	0x15228086,
+	0x15238086,
+	0x15248086,
+	0x15268086,
+	0x15278086,
+	0x15338086,
+	0x15348086,
+	0x15358086,
+	0x15368086,
+	0x15378086,
+	0x15388086,
+	0x15398086,
+	0x153A8086,
+	0x153B8086,
+	0x15598086,
+	0x155A8086,
+	0x157B8086,
+	0x157C8086,
+	0x1F408086,
+	0x1F418086,
+	0x1F458086,
 	0,
 };
 
@@ -1647,6 +1714,7 @@ vpn_pro1000_init (void)
 #endif /* VPN */
 	if (!regist)
 		return;
+	LIST1_HEAD_INIT (d2list);
 	for (id = idlist; *id; id++) {
 		pro1000_driver.id.id = *id;
 		pci_register_driver (&pro1000_driver);
@@ -1661,22 +1729,31 @@ suspend_pro1000 (void)
 #ifdef TTY_PRO1000
 	if (!putchar_d2)
 		return;
-	putchar_d2->initialized = false;
+	putchar_d2->tdesc[0].initialized = false;
 #endif /* TTY_PRO1000 */
 }
 
 static void
 resume_pro1000 (void)
 {
+	struct data2 *d2;
 #ifdef TTY_PRO1000
 	int i;
 	pci_config_address_t addr;
+#endif
 
+	/* All descriptors should be reinitialized before
+	 * receiving/transmitting enabled by the guest OS. */
+	LIST1_FOREACH (d2list, d2) {
+		d2->tdesc[0].initialized = false;
+		d2->tdesc[1].initialized = false;
+		d2->rdesc[0].initialized = false;
+		d2->rdesc[1].initialized = false;
+	}
+#ifdef TTY_PRO1000
 	if (!putchar_d2)
 		return;
-	if (!pro1000_pci_device)
-		return;
-	addr = pro1000_pci_device->address;
+	addr = putchar_d2->pci_device->address;
 	for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
 		addr.reg_no = i;
 		pci_write_config_data32 (addr, 0, regs_at_init[i]);

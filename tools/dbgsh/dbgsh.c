@@ -51,8 +51,10 @@ vmcall_dbgsh (int c)
 	call_vmm_ret_t r;
 
 	CALL_VMM_GET_FUNCTION ("dbgsh", &f);
-	if (!call_vmm_function_callable (&f))
-		return -1;
+	if (!call_vmm_function_callable (&f)) {
+		fprintf (stderr, "vmmcall \"dbgsh\" failed\n");
+		exit (1);
+	}
 	a.rbx = (long)c;
 	call_vmm_call_function (&f, &a, &r);
 	return (int)r.rax;
@@ -76,17 +78,22 @@ main (int argc, char **argv)
 		fp = NULL;
 	}
 	vmcall_dbgsh (-1);
-	if (vmcall_dbgsh (-1) == -1)
-		exit (1);
 	atexit (e);
 	NOECHO ();
 	s = -1;
 	for (;;) {
 		r = vmcall_dbgsh (s);
+		if (r == (0x100 | '\n')) {
+			vmcall_dbgsh (0);
+			exit (0);
+		}
 		s = -1;
 		if (r == 0) {
 			s = GETCHAR ();
+			if (s == 0)
+				s |= 0x100;
 		} else if (r > 0) {
+			r &= 0xFF;
 			if (fp) {
 				fprintf (fp, "%c", r);
 				fflush (fp);

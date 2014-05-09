@@ -163,6 +163,11 @@ wakeup_ap (void)
 	u8 buf[5];
 	u8 *p;
 
+	/* Do nothing if no APs were started before suspend.  It is
+	 * true when there is only one logical processor for real or
+	 * the guest OS uses BSP only on UEFI systems. */
+	if (num_of_processors + 1 == 1)
+		return;
 	/* Put a "ljmpw" instruction to the physical address 0 to
 	   avoid the alignment restriction of the SIPI. */
 	p = mapmem_hphys (0, 5, MAPMEM_WRITE);

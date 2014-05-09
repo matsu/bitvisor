@@ -53,6 +53,24 @@ write_count (void)
 	asm_vmwrite (VMCS_VMENTRY_MSR_LOAD_COUNT, current->u.vt.msr.count);
 }
 
+static bool
+read_guest_efer (u64 *efer)
+{
+	if (!current->u.vt.save_load_efer_enable)
+		return vt_read_guest_msr (current->u.vt.msr.efer, efer);
+	asm_vmread64 (VMCS_GUEST_IA32_EFER, efer);
+	return false;
+}
+
+static bool
+write_guest_efer (u64 efer)
+{
+	if (!current->u.vt.save_load_efer_enable)
+		return vt_write_guest_msr (current->u.vt.msr.efer, efer);
+	asm_vmwrite64 (VMCS_GUEST_IA32_EFER, efer);
+	return false;
+}
+
 void
 vt_msr_update_lma (void)
 {
@@ -68,9 +86,9 @@ vt_msr_update_lma (void)
 		asm_vmread (VMCS_VMENTRY_CTL, &ctl);
 		ctl |= VMCS_VMENTRY_CTL_64_GUEST_BIT;
 		asm_vmwrite (VMCS_VMENTRY_CTL, ctl);
-		vt_read_guest_msr (current->u.vt.msr.efer, &efer);
+		read_guest_efer (&efer);
 		efer |= mask;
-		vt_write_guest_msr (current->u.vt.msr.efer, efer);
+		write_guest_efer (efer);
 #else
 		panic ("Long mode is not supported!");
 #endif
@@ -81,9 +99,9 @@ vt_msr_update_lma (void)
 		asm_vmread (VMCS_VMENTRY_CTL, &ctl);
 		ctl &= ~VMCS_VMENTRY_CTL_64_GUEST_BIT;
 		asm_vmwrite (VMCS_VMENTRY_CTL, ctl);
-		vt_read_guest_msr (current->u.vt.msr.efer, &efer);
+		read_guest_efer (&efer);
 		efer &= ~mask;
-		vt_write_guest_msr (current->u.vt.msr.efer, efer);
+		write_guest_efer (efer);
 	}
 }
 
@@ -170,7 +188,7 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 		*msrdata = a;
 		break;
 	case MSR_IA32_EFER:
-		r = vt_read_guest_msr (current->u.vt.msr.efer, &data);
+		r = read_guest_efer (&data);
 		if (r)
 			break;
 		data &= ~mask;
@@ -267,14 +285,14 @@ vt_write_msr (u32 msrindex, u64 msrdata)
 		asm_vmwrite (VMCS_GUEST_IA32_SYSENTER_EIP, (ulong)msrdata);
 		break;
 	case MSR_IA32_EFER:
-		r = vt_read_guest_msr (current->u.vt.msr.efer, &data);
+		r = read_guest_efer (&data);
 		if (r)
 			break;
 		current->u.vt.lme = !!(msrdata & MSR_IA32_EFER_LME_BIT);
 		data &= mask;
 		data |= msrdata & ~mask;
 		/* FIXME: Reserved bits should be checked here. */
-		r = vt_write_guest_msr (current->u.vt.msr.efer, data);
+		r = write_guest_efer (data);
 		vt_msr_update_lma ();
 		vt_paging_updatecr3 ();
 		vt_paging_flush_guest_tlb ();
@@ -362,19 +380,17 @@ vt_msr_init (void)
 	current->u.vt.msr.guest = msr_guest_virt;
 	current->u.vt.msr.count = 0;
 	write_count ();
-	asm_vmwrite (VMCS_VMEXIT_MSRLOAD_ADDR, msr_vmm_phys);
-	asm_vmwrite (VMCS_VMEXIT_MSRLOAD_ADDR_HIGH, msr_vmm_phys >> 32);
-	asm_vmwrite (VMCS_VMEXIT_MSRSTORE_ADDR, msr_guest_phys);
-	asm_vmwrite (VMCS_VMEXIT_MSRSTORE_ADDR_HIGH, msr_guest_phys >> 32);
-	asm_vmwrite (VMCS_VMENTRY_MSRLOAD_ADDR, msr_guest_phys);
-	asm_vmwrite (VMCS_VMENTRY_MSRLOAD_ADDR_HIGH, msr_guest_phys >> 32);
-	current->u.vt.msr.efer = vt_add_guest_msr (MSR_IA32_EFER);
+	asm_vmwrite64 (VMCS_VMEXIT_MSRLOAD_ADDR, msr_vmm_phys);
+	asm_vmwrite64 (VMCS_VMEXIT_MSRSTORE_ADDR, msr_guest_phys);
+	asm_vmwrite64 (VMCS_VMENTRY_MSRLOAD_ADDR, msr_guest_phys);
+	if (!current->u.vt.save_load_efer_enable)
+		current->u.vt.msr.efer = vt_add_guest_msr (MSR_IA32_EFER);
 	current->u.vt.msr.star = vt_add_guest_msr (MSR_IA32_STAR);
 	current->u.vt.msr.lstar = vt_add_guest_msr (MSR_IA32_LSTAR);
 	current->u.vt.msr.cstar = vt_add_guest_msr (MSR_AMD_CSTAR);
 	current->u.vt.msr.fmask = vt_add_guest_msr (MSR_IA32_FMASK);
 	current->u.vt.msr.kerngs = vt_add_guest_msr (MSR_IA32_KERNEL_GS_BASE);
-	vt_write_guest_msr (current->u.vt.msr.efer, 0);
+	write_guest_efer (0);
 	vt_write_guest_msr (current->u.vt.msr.star, 0);
 	vt_write_guest_msr (current->u.vt.msr.lstar, 0);
 	vt_write_guest_msr (current->u.vt.msr.cstar, 0);

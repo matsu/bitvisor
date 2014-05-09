@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "exint_pass.h"
@@ -49,7 +50,7 @@ static void
 exint_pass_int_enabled (void)
 {
 	current->vmctl.exint_pending (false);
-	current->vmctl.exint_pass (false);
+	current->vmctl.exint_pass (!!config.vmm.no_intr_intercept);
 }
 
 static void
@@ -76,7 +77,7 @@ do_exint_pass (void)
 		if (num >= 0)
 			current->exint.exintfunc_default (num);
 		current->vmctl.exint_pending (false);
-		current->vmctl.exint_pass (false);
+		current->vmctl.exint_pass (!!config.vmm.no_intr_intercept);
 	} else {
 		current->vmctl.exint_pending (true);
 		current->vmctl.exint_pass (true);

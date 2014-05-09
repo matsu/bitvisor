@@ -492,6 +492,7 @@ ehci_copyback_trans(struct usb_host *usbhc,
 		if (hqtdm->qtd_phys == (phys_t)cur_hqtd_phys) {
 			memcpy (&qtd_ovlay, gqtdm->qtd,
 				sizeof (struct ehci_qtd));
+			URB_EHCI (gurb)->qh->qtd_cur = gqtdm->qtd_phys;
 			break;
 		}
 		/* find the next qTD */
@@ -930,7 +931,10 @@ mark_inlinked_urbs(struct ehci_host *host,
 		gurb->inlink = host->inlink_counter;
 
 		status = is_active_urb(gurb);
-		if (gurb->status != status) {
+		/* If the guest modifies data while the VMM creates a
+		 * new urb, gurb->status == 2 && status == 2 may be
+		 * true.  If status == 2, the urb must be updated. */
+		if (gurb->status != status || status == 2) {
 			dprintft(3, "%s: %llx: re-activated?! %d -> %d\n", 
 				 __FUNCTION__, URB_EHCI(gurb)->qh_phys,
 				 gurb->status, status);

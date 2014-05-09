@@ -631,7 +631,8 @@ reghook (struct RTL8169_SUB_CTX *sctx, int i, u32 a, u32 b)
 }
 
 static int
-rtl8169_offset_check(struct pci_device *dev, core_io_t io, u8 offset, union mem *data)
+rtl8169_offset_check (struct pci_device *dev, u8 iosize,
+		      u16 offset, union mem *data)
 {
 	int 		  ret = CORE_IO_RET_DONE;
 	int 		  i;
@@ -657,10 +658,11 @@ rtl8169_offset_check(struct pci_device *dev, core_io_t io, u8 offset, union mem 
 	{
 		sctx = (RTL8169_SUB_CTX *)dev->host;
 
-		if (offset + io.size - 1 >= 0x10 && offset <= 0x24) {
-			if ((offset & 3) || io.size != 4)
-				panic ("%s: io:%08x, offset=%02x, data:%08x\n",
-				       __func__, *(int*)&io, offset, data->dword);
+		if (offset + iosize - 1 >= 0x10 && offset <= 0x24) {
+			if ((offset & 3) || iosize != 4)
+				panic ("%s: iosize:%02x, offset=%02x,"
+				       " data:%08x\n",
+				       __func__, iosize, offset, data->dword);
 			i = (offset - 0x10) >> 2;
 			ASSERT (i >= 0 && i < 6);
 			tmp = dev->base_address_mask[i];
@@ -1572,8 +1574,8 @@ rtl8169_io_handler(core_io_t io, union mem *data, void *arg)
 // PCI コンフィグレーションレジスタの読み込み処理
 //
 static int
-rtl8169_config_read_sub (struct pci_device *dev, core_io_t io,
-			 u8 offset, union mem *data)
+rtl8169_config_read_sub (struct pci_device *dev, u8 iosize,
+			 u16 offset, union mem *data)
 {
 	int ret = CORE_IO_RET_DONE;
 
@@ -1594,7 +1596,8 @@ rtl8169_config_read_sub (struct pci_device *dev, core_io_t io,
 	}
 	else
 	{	
-		core_io_handle_default(io, data);
+		pci_handle_default_config_read (dev, iosize, offset,
+						data);
 #ifdef _DEBUG
 		time = get_cpu_time(); 
 		printf("(%llu) ", time);
@@ -1608,8 +1611,8 @@ rtl8169_config_read_sub (struct pci_device *dev, core_io_t io,
 // PCI コンフィグレーションレジスタの書き込み処理
 //
 static int
-rtl8169_config_write_sub (struct pci_device *dev, core_io_t io,
-			  u8 offset, union mem *data)
+rtl8169_config_write_sub (struct pci_device *dev, u8 iosize,
+			  u16 offset, union mem *data)
 {
 	int ret = CORE_IO_RET_DONE;
 
@@ -1630,7 +1633,7 @@ rtl8169_config_write_sub (struct pci_device *dev, core_io_t io,
 	}
 	else
 	{
-		ret = rtl8169_offset_check(dev, io, offset, data);
+		ret = rtl8169_offset_check (dev, iosize, offset, data);
 #ifdef _DEBUG
 		time = get_cpu_time(); 
 		printf("(%llu) ", time);
@@ -1796,21 +1799,21 @@ rtl8169_tty_init (struct pci_device *dev)
 #endif	/* TTY_RTL8169 */
 
 static int
-rtl8169_config_read (struct pci_device *dev, core_io_t io,
-		     u8 offset, union mem *data)
+rtl8169_config_read (struct pci_device *dev, u8 iosize, u16 offset,
+		     union mem *data)
 {
 	if (config.vmm.driver.vpn.RTL8169) /* vpn enabled */
-		return rtl8169_config_read_sub (dev, io, offset, data);
-	data->dword = 0UL;
+		return rtl8169_config_read_sub (dev, iosize, offset, data);
+	memset (data, 0, iosize);
 	return CORE_IO_RET_DONE;
 }
 
 static int
-rtl8169_config_write (struct pci_device *dev, core_io_t io,
-		      u8 offset, union mem *data)
+rtl8169_config_write (struct pci_device *dev, u8 iosize, u16 offset,
+		      union mem *data)
 {
 	if (config.vmm.driver.vpn.RTL8169) /* vpn enabled */
-		return rtl8169_config_write_sub (dev, io, offset, data);
+		return rtl8169_config_write_sub (dev, iosize, offset, data);
 	return CORE_IO_RET_DONE;
 }
 

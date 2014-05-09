@@ -43,6 +43,7 @@
 #define APIC_ICR_LOW_VEC_MASK	0xFF
 #define APIC_ICR_LOW_MT_MASK	0x700
 #define APIC_ICR_LOW_MT_STARTUP	0x600
+#define APIC_ICR_LOW_MT_INIT	0x500
 #define APIC_ICR_LOW_DM_LOGICAL_BIT	0x800
 #define APIC_ICR_LOW_DSH_MASK	0xC0000
 #define APIC_ICR_LOW_DSH_DEST	0x00000
@@ -56,6 +57,9 @@ struct do_startup_data {
 	struct vcpu *vcpu0;
 	u32 sipi_vector, apic_id;
 };
+
+static void (*ap_start) (void);
+static void *mmio_handle;
 
 static bool
 do_startup (struct vcpu *p, void *q)
@@ -122,6 +126,20 @@ mmio_apic (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f)
 	}
 
 	apic_icr_low = buf;
+	if (ap_start) {
+		switch (*apic_icr_low & APIC_ICR_LOW_MT_MASK) {
+		case APIC_ICR_LOW_MT_INIT:
+		case APIC_ICR_LOW_MT_STARTUP:
+			ap_start ();
+			ap_start = NULL;
+			call_initfunc ("dbsp");
+			if (!current->vcpu0->localapic.registered) {
+				mmio_unregister (mmio_handle);
+				mmio_handle = NULL;
+				return 0;
+			}
+		}
+	}
 	switch (*apic_icr_low & APIC_ICR_LOW_MT_MASK) {
 	default:
 		return 0;
@@ -171,10 +189,22 @@ localapic_change_base_msr (u64 msrdata)
 void
 localapic_mmio_register (void)
 {
+	void *handle = NULL;
+
 	if (!current->vcpu0->localapic.registered) {
-		mmio_register (APIC_BASE, APIC_LEN, mmio_apic, NULL);
+		if (!current->vcpu0->localapic.delayed_ap_start)
+			handle = mmio_register (APIC_BASE, APIC_LEN, mmio_apic,
+						NULL);
+		if (handle)
+			mmio_handle = handle;
 		current->vcpu0->localapic.registered = true;
 	}
+}
+
+void
+localapic_delayed_ap_start (void (*func) (void))
+{
+	ap_start = func;
 }
 
 static void
@@ -184,4 +214,19 @@ localapic_init (void)
 		current->localapic.registered = false;
 }
 
+static void
+localapic_init2 (void)
+{
+	void *handle = NULL;
+
+	if (!ap_start || current != current->vcpu0)
+		return;
+	if (!current->localapic.registered)
+		handle = mmio_register (APIC_BASE, APIC_LEN, mmio_apic, NULL);
+	if (handle)
+		mmio_handle = handle;
+	current->localapic.delayed_ap_start = true;
+}
+
 INITFUNC ("vcpu0", localapic_init);
+INITFUNC ("pass5", localapic_init2);

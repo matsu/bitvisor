@@ -36,10 +36,12 @@ struct localapic_data {
 	u32 apic_id;
 	u32 sipi_vector;
 	bool registered;
+	bool delayed_ap_start;
 };
 
 u32 localapic_wait_for_sipi (void);
 void localapic_mmio_register (void);
 void localapic_change_base_msr (u64 msrdata);
+void localapic_delayed_ap_start (void (*func) (void));
 
 #endif

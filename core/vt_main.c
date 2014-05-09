@@ -36,6 +36,7 @@
 #include "exint_pass.h"
 #include "gmm_pass.h"
 #include "initfunc.h"
+#include "int.h"
 #include "linkage.h"
 #include "panic.h"
 #include "pcpu.h"
@@ -292,7 +293,6 @@ vt__nmi (void)
 		return;
 	if (current->u.vt.vr.re)
 		panic ("NMI in real mode");
-	printf ("VT NMI!\n");	/* DEBUG */
 	vid->vmcs_intr_info.v = 0;
 	vid->vmcs_intr_info.s.vector = EXCEPTION_NMI;
 	vid->vmcs_intr_info.s.type = INTR_INFO_TYPE_NMI;
@@ -356,6 +356,8 @@ vt__vm_run (void)
 		current->u.vt.first = false;
 		return;
 	}
+	if (current->u.vt.exint_update)
+		vt_update_exint ();
 	if (current->u.vt.saved_vmcs)
 		spinlock_unlock (&currentcpu->suspend_lock);
 	status = call_vt__vmresume ();
@@ -698,7 +700,13 @@ err:
 static void
 do_xsetbv (void)
 {
-	if (cpu_emul_xsetbv ())
+	u16 cs;
+
+	/* According to the manual, XSETBV causes a VM exit regardless
+	 * of the value of CPL.  Maybe it is different from the real
+	 * behavior, but check CPL here to be sure. */
+	vt_read_sreg_sel (SREG_CS, &cs);
+	if ((cs & 3) || cpu_emul_xsetbv ())
 		make_gp_fault (0);
 	else
 		add_ip ();
@@ -708,14 +716,49 @@ static void
 do_ept_violation (void)
 {
 	ulong eqe;
-	ulong gpl, gph;
 	u64 gp;
 
 	asm_vmread (VMCS_EXIT_QUALIFICATION, &eqe);
-	asm_vmread (VMCS_GUEST_PHYSICAL_ADDRESS, &gpl);
-	asm_vmread (VMCS_GUEST_PHYSICAL_ADDRESS_HIGH, &gph);
-	conv32to64 (gpl, gph, &gp);
+	asm_vmread64 (VMCS_GUEST_PHYSICAL_ADDRESS, &gp);
 	vt_paging_npf (!!(eqe & EPT_VIOLATION_EXIT_QUAL_WRITE_BIT), gp);
+}
+
+static void
+do_re_external_int (void)
+{
+	ulong rflags;
+	int num;
+
+	vt_read_flags (&rflags);
+	if (rflags & RFLAGS_IF_BIT) {
+		num = do_externalint_enable ();
+		if (num >= 0)
+			vt_generate_external_int (num);
+		current->u.vt.exint_re_pending = false;
+		current->u.vt.exint_update = true;
+	} else {
+		current->u.vt.exint_re_pending = true;
+		current->u.vt.exint_update = true;
+	}
+}
+
+static void
+do_external_int (void)
+{
+	if (current->u.vt.vr.re && current->u.vt.exint_pass)
+		do_re_external_int ();
+	else
+		do_exint_pass ();
+}
+
+static void
+do_interrupt_window (void)
+{
+	if (current->u.vt.exint_re_pending && current->u.vt.vr.re &&
+	    current->u.vt.exint_pass)
+		do_re_external_int ();
+	if (current->u.vt.exint_pending)
+		current->exint.hlt ();
 }
 
 static void
@@ -748,10 +791,10 @@ vt__exit_reason (void)
 		break;
 	case EXIT_REASON_EXTERNAL_INT:
 		STATUS_UPDATE (asm_lock_incl (&stat_intcnt));
-		do_exint_pass ();
+		do_external_int ();
 		break;
 	case EXIT_REASON_INTERRUPT_WINDOW:
-		current->exint.hlt ();
+		do_interrupt_window ();
 		break;
 	case EXIT_REASON_INVLPG:
 		do_invlpg ();
@@ -991,11 +1034,7 @@ vt_init_signal (void)
 void
 vt_start_vm (void)
 {
-	ulong pin;
-
-	asm_vmread (VMCS_PIN_BASED_VMEXEC_CTL, &pin);
-	pin |= VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT;
-	asm_vmwrite (VMCS_PIN_BASED_VMEXEC_CTL, pin);
+	current->exint.int_enabled ();
 	vt_paging_start ();
 	vt_mainloop ();
 }

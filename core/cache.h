@@ -33,22 +33,30 @@
 #include "types.h"
 
 #define MTRR_VCNT_MAX		10
+#define NUM_MTRR_FIX		11
+
+struct cache_regs {
+	u8 pat_data[8];
+	u64 mtrr_def_type;
+	u64 mtrr_physbase[MTRR_VCNT_MAX], mtrr_physmask[MTRR_VCNT_MAX];
+	union {
+		u8 byte[NUM_MTRR_FIX * 8];
+		u64 msr[NUM_MTRR_FIX];
+	} mtrr_fix;
+	u64 syscfg;
+	u64 top_mem2;
+};
 
 struct cache_pcpu_data {
-	bool pat, mtrr;
+	bool pat, mtrr, syscfg_exist;
 	u64 mtrrcap;
-	u64 syscfg;
-	u8 pat_data[8];
 	u8 pat_index_from_type[8];
+	struct cache_regs h;
 };
 
 struct cache_data {
-	u8 gpat_data[8];
-	u64 gmtrr_def_type;
-	u64 gmtrr_physbase[MTRR_VCNT_MAX], gmtrr_physmask[MTRR_VCNT_MAX];
-	u8 gmtrr_fix[88];
-	u64 gsyscfg;
-	u64 gtop_mem2;
+	struct cache_regs g;
+	bool pass_mtrrfix;
 };
 
 void update_mtrr_and_pat (void);

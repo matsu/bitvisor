@@ -30,6 +30,17 @@
 #ifndef _PCI_INTERNAL_H
 #define _PCI_INTERNAL_H
 
+struct pci_config_mmio_data {
+	struct pci_config_mmio_data *next;
+	u64 base;
+	u16 seg_group;
+	u8 bus_start;
+	u8 bus_end;
+	phys_t phys;
+	uint len;
+	void *map;
+};
+
 /********************************************************************************
  * PCI internal definitions and interfaces
  ********************************************************************************/
@@ -67,5 +78,9 @@ extern int pci_config_addr_handler(core_io_t io, union mem *data, void *arg);
 void pci_save_config_addr(void);
 void pci_restore_config_addr(void);
 extern void pci_append_device(struct pci_device *dev);
+int pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
+			     uint len, u32 flags);
+
+extern struct pci_config_mmio_data *pci_config_mmio_data_head;
 
 #endif

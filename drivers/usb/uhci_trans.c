@@ -923,9 +923,9 @@ cmpxchgl(u32 *ptr, u32 old, u32 new)
 {
 	u32 prev;
 
-	asm volatile ("lock; cmpxchgl %1,%2"
-		      : "=a"(prev)
-		      : "q"(new), "m"(*ptr), "0"(old)
+	asm volatile ("lock; cmpxchgl %2,%1"
+		      : "=&a"(prev), "+m"(*ptr)
+		      : "q"(new), "0"(old)
 		      : "memory");
 
 	return prev;

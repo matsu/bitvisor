@@ -30,6 +30,7 @@
 #include "asm.h"
 #include "assert.h"
 #include "callrealmode.h"
+#include "calluefi.h"
 #include "comphappy.h"
 #include "constants.h"
 #include "current.h"
@@ -45,6 +46,7 @@
 #include "printf.h"
 #include "spinlock.h"
 #include "string.h"
+#include "uefi.h"
 
 #define VMMSIZE_ALL		(128 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
@@ -61,12 +63,12 @@
 
 #ifdef __x86_64__
 #	define PDPE_ATTR		(PDE_P_BIT | PDE_RW_BIT | PDE_US_BIT)
-#	define NUM_OF_HPHYS_PAGES	(1 * 1024 * 1024)
+#	define MIN_HPHYS_LEN		(8UL * 1024 * 1024 * 1024)
+#	define PAGE1GB_HPHYS_LEN	(512UL * 1024 * 1024 * 1024)
 #	define HPHYS_ADDR		(1ULL << (12 + 9 + 9 + 9))
 #else
 #	define PDPE_ATTR		PDE_P_BIT
-#	define NUM_OF_HPHYS_PAGES	((MAPMEM_ADDR_START - HPHYS_ADDR) / \
-					PAGESIZE)
+#	define MIN_HPHYS_LEN		(MAPMEM_ADDR_START - HPHYS_ADDR)
 #	define HPHYS_ADDR		0x80000000
 #endif
 
@@ -128,7 +130,7 @@ bool use_pae = USE_PAE_BOOL;
 u16 e801_fake_ax, e801_fake_bx;
 u64 memorysize = 0, vmmsize = 0;
 static u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
-static u32 vmm_start_phys;
+u32 __attribute__ ((section (".data"))) vmm_start_phys;
 static spinlock_t mm_lock, mm_lock2;
 static spinlock_t mm_lock_process_virt_to_phys;
 static LIST1_DEFINE_HEAD (struct page, list1_freepage[NUM_OF_ALLOCSIZE]);
@@ -140,6 +142,16 @@ static virt_t mapmem_lastvirt;
 static struct sysmemmapdata sysmemmap[MAXNUM_OF_SYSMEMMAP];
 static int sysmemmaplen;
 static u32 realmodemem_base, realmodemem_limit, realmodemem_fakelimit;
+#ifdef __x86_64__
+static u64 vmm_pml4[512] __attribute__ ((aligned (PAGESIZE)));
+#endif
+static u64 vmm_pdp[512] __attribute__ ((aligned (PAGESIZE)));
+static u64 vmm_pd[512] __attribute__ ((aligned (PAGESIZE)));
+static u64 vmm_pd1[512] __attribute__ ((aligned (PAGESIZE)));
+static u64 vmm_pd2[512] __attribute__ ((aligned (PAGESIZE)));
+static phys_t process_virt_to_phys_pdp_phys;
+static u64 *process_virt_to_phys_pdp;
+static u64 hphys_len;
 
 #define E801_16MB 0x1000000
 #define E801_AX_MAX 0x3C00
@@ -150,6 +162,9 @@ struct memsizetmp {
 	void *addr;
 	int ok;
 };
+
+static void process_create_initial_map (void *virt, phys_t phys);
+static void process_virt_to_phys_prepare (void);
 
 u32
 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
@@ -188,7 +203,7 @@ getfakesysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
 }
 
 static void
-getallsysmemmap (void)
+getallsysmemmap_bios (void)
 {
 	int i;
 	u32 n = 0, nn = 1;
@@ -200,6 +215,45 @@ getallsysmemmap (void)
 		sysmemmap[i].nn = nn;
 	}
 	sysmemmaplen = i;
+}
+
+static void
+getallsysmemmap_uefi (void)
+{
+	u32 offset;
+	u64 *p;
+	int i;
+
+	call_uefi_get_memory_map ();
+	for (i = 0, offset = 0;
+	     i < MAXNUM_OF_SYSMEMMAP && offset + 5 * 8 <= uefi_memory_map_size;
+	     i++, offset += uefi_memory_map_descsize) {
+		p = (u64 *)&uefi_memory_map_data[offset];
+		if (i)
+			sysmemmap[i - 1].nn = i;
+		sysmemmap[i].n = i;
+		sysmemmap[i].nn = 0;
+		sysmemmap[i].m.base = p[1];
+		sysmemmap[i].m.len = p[3] << 12;
+		switch (p[0] & 0xFFFFFFFF) {
+		case 7:
+			sysmemmap[i].m.type = SYSMEMMAP_TYPE_AVAILABLE;
+			break;
+		default:
+			sysmemmap[i].m.type = SYSMEMMAP_TYPE_RESERVED;
+			break;
+		}
+	}
+	sysmemmaplen = i;
+}
+
+static void
+getallsysmemmap (void)
+{
+	if (uefi_booted)
+		getallsysmemmap_uefi ();
+	else
+		getallsysmemmap_bios ();
 }
 
 static inline void
@@ -295,8 +349,15 @@ find_vmm_phys (void)
 	return phys;
 }
 
-u32
-alloc_realmodemem (uint len)
+void __attribute__ ((section (".entry.text")))
+uefi_init_get_vmmsize (u32 *vmmsize, u32 *align)
+{
+	*vmmsize = VMMSIZE_ALL;
+	*align = 0x400000;
+}
+
+static u32
+alloc_realmodemem_bios (uint len)
 {
 	u16 *int0x12_ret, size;
 
@@ -309,6 +370,55 @@ alloc_realmodemem (uint len)
 		*int0x12_ret = size;
 	unmapmem (int0x12_ret, sizeof *int0x12_ret);
 	return realmodemem_fakelimit + 1;
+}
+
+static u32
+alloc_realmodemem_uefi (uint len)
+{
+	u64 limit = 0xFFFFF;
+	u64 phys;
+	int npages;
+	int ret;
+	int remain;
+
+	remain = realmodemem_limit & PAGESIZE_MASK;
+	if (realmodemem_limit && len > remain) {
+		phys = realmodemem_limit & ~PAGESIZE_MASK;
+		npages = (len - remain + PAGESIZE - 1) >> PAGESIZE_SHIFT;
+		ret = call_uefi_allocate_pages (1, 8, npages, &phys);
+		if (ret)
+			panic ("alloc_realmodemem %d", ret);
+		if (phys + (npages << PAGESIZE_SHIFT) !=
+		    (realmodemem_limit & ~PAGESIZE_MASK)) {
+			ret = call_uefi_free_pages (phys, npages);
+			if (ret)
+				panic ("alloc_realmodemem free %d", ret);
+			realmodemem_limit = 0;
+		} else {
+			remain += npages << PAGESIZE_SHIFT;
+		}
+	}
+	if (!realmodemem_limit) {
+		phys = limit;
+		npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
+		ret = call_uefi_allocate_pages (1, 8, npages, &phys);
+		if (ret)
+			panic ("alloc_realmodemem %d", ret);
+		remain = npages << PAGESIZE_SHIFT;
+		realmodemem_limit = phys + remain;
+	}
+	ASSERT (len <= remain);
+	realmodemem_limit -= len;
+	return realmodemem_limit;
+}
+
+u32
+alloc_realmodemem (uint len)
+{
+	if (uefi_booted)
+		return alloc_realmodemem_uefi (len);
+	else
+		return alloc_realmodemem_bios (len);
 }
 
 static void
@@ -469,7 +579,7 @@ num_of_available_pages (void)
 }
 
 static void
-move_vmm (void)
+create_vmm_pd (void)
 {
 	int i;
 	ulong cr3;
@@ -513,54 +623,134 @@ move_vmm (void)
 	memcpy (&vmm_pd_32[0x200], &entry_pd[0x200], 0x400);
 	memset (&vmm_pd_32[0x300],                0, 0x400);
 #endif
+}
 
+static void
+move_vmm (void)
+{
+	ulong cr4;
+
+	/* Disable Page Global temporarily during copying */
+	asm_rdcr4 (&cr4);
+	asm_wrcr4 (cr4 & ~CR4_PGE_BIT);
+	create_vmm_pd ();
 #ifdef __x86_64__
 	move_vmm_area64 ();
 #else
 	move_vmm_area32 ();
 #endif
+	asm_wrcr4 (cr4);
+}
+
+static bool
+page1gb_available (void)
+{
+	u32 a, b, c, d;
+
+	asm_cpuid (CPUID_EXT_0, 0, &a, &b, &c, &d);
+	if (a < CPUID_EXT_1)
+		return false;
+	asm_cpuid (CPUID_EXT_1, 0, &a, &b, &c, &d);
+	if (!(d & CPUID_EXT_1_EDX_PAGE1GB_BIT))
+		return false;
+	return true;
+}
+
+static void
+map_hphys_sub (pmap_t *m, u64 hphys_addr, u64 attr, u64 attrmask, ulong size,
+	       int level)
+{
+	u64 pde;
+	ulong addr;
+
+	addr = hphys_len;
+	while (addr >= size) {
+		addr -= size;
+		pmap_seek (m, hphys_addr + addr, level);
+		pmap_autoalloc (m);
+		pde = pmap_read (m);
+		if ((pde & PDE_P_BIT) && (pde & PDE_ADDR_MASK64) != addr)
+			panic ("map_hphys: error");
+		pde = addr | attr;
+		pmap_write (m, pde, attrmask);
+	}
+	if (addr)
+		panic ("map_hphys: hphys_len %llu is bad", hphys_len);
 }
 
 static void
 map_hphys (void)
 {
-	ulong cr3, addr, size;
-	u64 pde, attr, attrmask;
+	ulong cr3, size;
+	u64 attr, attrmask;
 	pmap_t m;
+	int level;
+	unsigned int i;
 
 	asm_rdcr3 (&cr3);
 	pmap_open_vmm (&m, cr3, PMAP_LEVELS);
-	addr = (ulong)NUM_OF_HPHYS_PAGES * PAGESIZE;
+	hphys_len = MIN_HPHYS_LEN;
 	attr = PDE_P_BIT | PDE_RW_BIT | PDE_PS_BIT | PDE_G_BIT;
-	attrmask = attr | PDE_US_BIT;
+	attrmask = attr | PDE_US_BIT | PDE_PWT_BIT | PDE_PCD_BIT |
+		PDE_PS_PAT_BIT;
 #ifdef USE_PAE
 	size = PAGESIZE2M;
 #else
 	size = PAGESIZE4M;
 #endif
-	while (addr >= size) {
-		addr -= size;
-		pmap_seek (&m, HPHYS_ADDR + addr, 2);
-		pmap_autoalloc (&m);
-		pde = pmap_read (&m);
-		if ((pde & PDE_P_BIT) && (pde & PDE_ADDR_MASK64) != addr)
-			panic ("map_hphys: error");
-		pde = addr | attr;
-		pmap_write (&m, pde, attrmask);
+	level = 2;
+	if (page1gb_available ()) {
+#ifdef __x86_64__
+		hphys_len = PAGE1GB_HPHYS_LEN;
+		size = PAGESIZE1G;
+		level = 3;
+#endif
 	}
-	if (addr)
-		panic ("map_hphys: NUM_OF_HPHYS_PAGES is bad");
+	for (i = 0; i < 8; i++) {
+		map_hphys_sub (&m, HPHYS_ADDR + hphys_len * i,
+			       ((i & 1) ? PDE_PWT_BIT : 0) |
+			       ((i & 2) ? PDE_PCD_BIT : 0) |
+			       ((i & 4) ? PDE_PS_PAT_BIT : 0) | attr,
+			       attrmask, size, level);
+#ifndef __x86_64__
+		/* 32bit address space is not enough for mapping a lot
+		 * of uncached pages */
+		break;
+#endif
+	}
 	pmap_close (&m);
 }
 
 static void
 unmap_user_area (void)
 {
+	void *virt;
 	phys_t phys;
+#ifdef USE_PAE
+	phys_t phys2;
+#endif
 
-	mm_process_alloc (&phys);
+	alloc_page (&virt, &phys);
+	process_create_initial_map (virt, phys);
+#ifdef USE_PAE
+	alloc_page (&virt, &phys2);
+	((u64 *)virt)[0] = phys | PDPE_ATTR;
+	((u64 *)virt)[1] = vmm_pdp[1];
+	((u64 *)virt)[2] = vmm_pdp[2];
+	((u64 *)virt)[3] = vmm_pdp[3];
+	phys = phys2;
+#ifdef __x86_64__
+	memset (&((u64 *)virt)[4], 0, PAGESIZE - sizeof (u64) * 4);
+	alloc_page (&virt, &phys2);
+	memcpy (virt, vmm_pml4, PAGESIZE);
+	((u64 *)virt)[0] = phys | PDE_P_BIT | PDE_RW_BIT | PDE_US_BIT;
+	phys = phys2;
+#endif
+#endif
 	asm_wrcr3 (phys);
 	currentcpu->cr3 = phys;
+	/* Free the dummy page */
+	mm_process_free (mm_process_switch (1));
 }
 
 static void
@@ -572,19 +762,25 @@ mm_init_global (void)
 	spinlock_init (&mm_lock2);
 	spinlock_init (&mm_lock_process_virt_to_phys);
 	spinlock_init (&mapmem_lock);
-	getallsysmemmap ();
-	find_realmodemem ();
-	vmm_start_phys = find_vmm_phys ();
-	if (vmm_start_phys == 0) {
-		printf ("Out of memory.\n");
-		debug_sysmemmap_print ();
-		panic ("Out of memory.");
+	if (uefi_booted) {
+		create_vmm_pd ();
+		asm_wrcr3 (vmm_base_cr3);
+	} else {
+		getallsysmemmap ();
+		find_realmodemem ();
+		vmm_start_phys = find_vmm_phys ();
+		if (vmm_start_phys == 0) {
+			printf ("Out of memory.\n");
+			debug_sysmemmap_print ();
+			panic ("Out of memory.");
+		}
+		printf ("%lld bytes (%lld MiB) RAM available.\n",
+			memorysize, memorysize >> 20);
+		printf ("VMM will use 0x%08X-0x%08X (%d MiB).\n",
+			vmm_start_phys, vmm_start_phys + VMMSIZE_ALL,
+			VMMSIZE_ALL >> 20);
+		move_vmm ();
 	}
-	printf ("%lld bytes (%lld MiB) RAM available.\n",
-		memorysize, memorysize >> 20);
-	printf ("VMM will use 0x%08X-0x%08X (%d MiB).\n", vmm_start_phys,
-		vmm_start_phys + VMMSIZE_ALL, VMMSIZE_ALL >> 20);
-	move_vmm ();
 	for (i = 0; i < NUM_OF_ALLOCLIST; i++)
 		LIST1_HEAD_INIT (alloclist[i]);
 	for (i = 0; i < NUM_OF_ALLOCSIZE; i++) {
@@ -614,6 +810,7 @@ mm_init_global (void)
 	mapmem_lastvirt = MAPMEM_ADDR_START;
 	map_hphys ();
 	unmap_user_area ();	/* for detecting null pointer */
+	process_virt_to_phys_prepare ();
 }
 
 /* allocate n or more pages */
@@ -1010,8 +1207,7 @@ sym_to_phys (void *sym)
 bool
 phys_in_vmm (u64 phys)
 {
-	return (phys & 0xFFFFFFFFFFC00000ULL) == (u64)vmm_start_phys
-		? true : false;
+	return phys >= vmm_start_phys && phys < vmm_start_phys + VMMSIZE_ALL;
 }
 
 void
@@ -1054,35 +1250,13 @@ mm_process_alloc (phys_t *phys2)
 
 	alloc_page (&virt, &phys);
 	process_create_initial_map (virt, phys);
-#ifdef USE_PAE
-	alloc_page (&virt, phys2);
-	((u64 *)virt)[0] = phys | PDPE_ATTR;
-	((u64 *)virt)[1] = vmm_pdp[1];
-	((u64 *)virt)[2] = vmm_pdp[2];
-	((u64 *)virt)[3] = vmm_pdp[3];
-#ifdef __x86_64__
-	memset (&((u64 *)virt)[4], 0, PAGESIZE - sizeof (u64) * 4);
-	phys = *phys2;
-	alloc_page (&virt, phys2);
-	memcpy (virt, vmm_pml4, PAGESIZE);
-	((u64 *)virt)[0] = phys | PDE_P_BIT | PDE_RW_BIT | PDE_US_BIT;
-#endif
-#else
 	*phys2 = phys;
-#endif
 	return 0;
 }
 
 void
 mm_process_free (phys_t phys)
 {
-#ifdef USE_PAE
-#ifdef __x86_64__
-	free_page_phys (((u64 *)phys_to_virt (((u64 *)phys_to_virt (phys))[0]
-					      & ~PAGESIZE_MASK))[0]);
-#endif
-	free_page_phys (((u64 *)phys_to_virt (phys))[0]);
-#endif
 	free_page_phys (phys);
 }
 
@@ -1197,6 +1371,16 @@ mm_process_map_shared_physpage (virt_t virt, phys_t phys, bool rw)
 	return 0;
 }
 
+static void
+process_virt_to_phys_prepare (void)
+{
+	void *virt;
+
+	alloc_page (&virt, &process_virt_to_phys_pdp_phys);
+	memset (virt, 0, 0x20);
+	process_virt_to_phys_pdp = virt;
+}
+
 static int
 process_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
 {
@@ -1205,7 +1389,19 @@ process_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
 	pmap_t m;
 
 	spinlock_lock (&mm_lock_process_virt_to_phys);
+#ifdef USE_PAE
+	if (virt < 0x40000000) {
+		*process_virt_to_phys_pdp = procphys | PDE_P_BIT;
+		pmap_open_vmm (&m, process_virt_to_phys_pdp_phys, 3);
+	} else {
+		ulong cr3;
+
+		asm_rdcr3 (&cr3);
+		pmap_open_vmm (&m, cr3, PMAP_LEVELS);
+	}
+#else
 	pmap_open_vmm (&m, procphys, PMAP_LEVELS);
+#endif
 	pmap_seek (&m, virt, 1);
 	pte = pmap_read (&m);
 	if (pte & PTE_P_BIT) {
@@ -1444,12 +1640,41 @@ mm_process_unmapall (void)
 phys_t
 mm_process_switch (phys_t switchto)
 {
+#ifdef USE_PAE
+	u64 old, new;
+	phys_t ret;
+	ulong cr3;
+	pmap_t m;
+
+	asm_rdcr3 (&cr3);
+	pmap_open_vmm (&m, cr3, PMAP_LEVELS);
+	pmap_seek (&m, 0, 3);
+	old = pmap_read (&m);
+	/* 1 is a special value for P=0 */
+	if (!(old & PDE_P_BIT))
+		ret = 1;
+	else
+		ret = old & ~PDE_ATTR_MASK;
+	if (switchto != ret) {
+		if (switchto == 1)
+			new = 0;
+		else
+			new = switchto | PDE_P_BIT;
+		pmap_write (&m, new, PDE_P_BIT);
+		asm_wrcr3 (cr3);
+	}
+	pmap_close (&m);
+	return ret;
+#else
 	ulong oldcr3;
 
+	/* 1 is a special value for new threads */
+	if (switchto == 1)
+		switchto = currentcpu->cr3;
 	asm_rdcr3 (&oldcr3);
 	asm_wrcr3 ((ulong)switchto);
-	thread_set_process_switch (switchto);
 	return oldcr3;
+#endif
 }
 
 /**********************************************************************/
@@ -1881,13 +2106,27 @@ cmpxchg_hphys_q (u64 phys, u64 *olddata, u64 data, u32 attr)
 /*** accessing memory ***/
 
 static void *
-mapped_hphys_addr (u64 hphys, uint len)
+mapped_hphys_addr (u64 hphys, uint len, int flags)
 {
-	if ((hphys >> PAGESIZE_SHIFT) >= NUM_OF_HPHYS_PAGES)
+	u64 hphys_addr = HPHYS_ADDR;
+	u64 hphys_len_copy = hphys_len;
+
+#ifdef __x86_64__
+	if (flags & MAPMEM_PAT)
+		hphys_addr += hphys_len_copy * 4;
+	if (flags & MAPMEM_PCD)
+		hphys_addr += hphys_len_copy * 2;
+	if (flags & MAPMEM_PWT)
+		hphys_addr += hphys_len_copy;
+#else
+	if (flags & (MAPMEM_PWT | MAPMEM_PCD | MAPMEM_PAT))
 		return NULL;
-	if (((hphys + len - 1) >> PAGESIZE_SHIFT) >= NUM_OF_HPHYS_PAGES)
+#endif
+	if (hphys >= hphys_len_copy)
 		return NULL;
-	return (void *)(virt_t)(HPHYS_ADDR + hphys);
+	if (hphys + len - 1 >= hphys_len_copy)
+		return NULL;
+	return (void *)(virt_t)(hphys_addr + hphys);
 }
 
 static void *
@@ -1915,7 +2154,7 @@ mapped_gphys_addr (u64 gphys, uint len, int flags)
 		if (fakerom)
 			return NULL;
 	}
-	return mapped_hphys_addr (hphys, len);
+	return mapped_hphys_addr (hphys, len, flags);
 }
 
 static void *
@@ -2029,10 +2268,8 @@ mapmem (int flags, u64 physaddr, uint len)
 	pmap_t m;
 	ulong hostcr3;
 
-	if (flags & (MAPMEM_PWT | MAPMEM_PCD | MAPMEM_PAT))
-		goto skip;
 	if (flags & MAPMEM_HPHYS) {
-		r = mapped_hphys_addr (physaddr, len);
+		r = mapped_hphys_addr (physaddr, len, flags);
 		if (!r)
 			goto skip;
 		return r;

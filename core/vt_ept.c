@@ -69,9 +69,8 @@ vt_ept_init (void)
 		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
 	ept->cnt = 0;
 	current->u.vt.ept = ept;
-	asm_vmwrite (VMCS_EPT_POINTER, ept->ncr3tbl_phys |
-		     VMCS_EPT_POINTER_EPT_WB | VMCS_EPT_PAGEWALK_LENGTH_4);
-	asm_vmwrite (VMCS_EPT_POINTER_HIGH, 0);
+	asm_vmwrite64 (VMCS_EPT_POINTER, ept->ncr3tbl_phys |
+		       VMCS_EPT_POINTER_EPT_WB | VMCS_EPT_PAGEWALK_LENGTH_4);
 }
 
 static void
@@ -139,7 +138,6 @@ void
 vt_ept_updatecr3 (void)
 {
 	ulong cr3, cr4;
-	u32 tmpl, tmph;
 	u64 tmp64;
 
 	vt_paging_flush_guest_tlb ();
@@ -149,21 +147,13 @@ vt_ept_updatecr3 (void)
 			asm_vmread (VMCS_GUEST_CR3, &cr3);
 			cr3 &= 0xFFFFFFE0;
 			read_gphys_q (cr3 + 0x0, &tmp64, 0);
-			conv64to32 (tmp64, &tmpl, &tmph);
-			asm_vmwrite (VMCS_GUEST_PDPTE0, tmpl);
-			asm_vmwrite (VMCS_GUEST_PDPTE0_HIGH, tmph);
+			asm_vmwrite64 (VMCS_GUEST_PDPTE0, tmp64);
 			read_gphys_q (cr3 + 0x8, &tmp64, 0);
-			conv64to32 (tmp64, &tmpl, &tmph);
-			asm_vmwrite (VMCS_GUEST_PDPTE1, tmpl);
-			asm_vmwrite (VMCS_GUEST_PDPTE1_HIGH, tmph);
+			asm_vmwrite64 (VMCS_GUEST_PDPTE1, tmp64);
 			read_gphys_q (cr3 + 0x10, &tmp64, 0);
-			conv64to32 (tmp64, &tmpl, &tmph);
-			asm_vmwrite (VMCS_GUEST_PDPTE2, tmpl);
-			asm_vmwrite (VMCS_GUEST_PDPTE2_HIGH, tmph);
+			asm_vmwrite64 (VMCS_GUEST_PDPTE2, tmp64);
 			read_gphys_q (cr3 + 0x18, &tmp64, 0);
-			conv64to32 (tmp64, &tmpl, &tmph);
-			asm_vmwrite (VMCS_GUEST_PDPTE3, tmpl);
-			asm_vmwrite (VMCS_GUEST_PDPTE3_HIGH, tmph);
+			asm_vmwrite64 (VMCS_GUEST_PDPTE3, tmp64);
 		}
 	}
 }

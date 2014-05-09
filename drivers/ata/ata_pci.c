@@ -102,38 +102,44 @@ void ata_set_ctlblk_handler(struct ata_host *host, int ch)
 /********************************************************************************
  * PCI configuration space handler
  ********************************************************************************/
-int ata_config_read(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data)
+int
+ata_config_read (struct pci_device *pci_device, u8 iosize, u16 offset,
+		 union mem *data)
 {
 	struct ata_host *ata_host = pci_device->host;
 	struct pci_config_space *config_space = &pci_device->config_space;
 
-	if (ahci_config_read (ata_host->ahci_data, pci_device, io, offset,
+	if (ahci_config_read (ata_host->ahci_data, pci_device, iosize, offset,
 			      data))
 		return CORE_IO_RET_DONE;
-	core_io_handle_default(io, data);
+	ASSERT (offset < 0x100);
+	pci_handle_default_config_read (pci_device, iosize, offset, data);
 	switch (offset & 0xFC) {
 	case 0x00: // can virtualize Vendor/Device ID
-		regcpy(data, config_space->regs8 + offset, (size_t)io.size);
+		regcpy(data, config_space->regs8 + offset, (size_t)iosize);
 	}
 	return CORE_IO_RET_DONE;
 }
 
-int ata_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data)
+int
+ata_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
+		  union mem *data)
 {
 	struct ata_host *ata_host = pci_device->host;
 	struct pci_config_space *config_space = &pci_device->config_space;
 	union mem *regptr = (union mem *)&config_space->regs8[offset];
 
-	if (ahci_config_write (ata_host->ahci_data, pci_device, io, offset,
+	if (ahci_config_write (ata_host->ahci_data, pci_device, iosize, offset,
 			       data))
 		return CORE_IO_RET_DONE;
+	ASSERT (offset < 0x100);
 
 	/* To avoid TOCTTOU, lock the devices while the base addresses may be changed. */
 	ata_channel_lock (ata_host->channel[0]);
 	ata_channel_lock (ata_host->channel[1]);
 
 	/* update cache */
-	regcpy(regptr, data, (size_t)io.size);
+	regcpy(regptr, data, (size_t)iosize);
 
 	/* pre-write */
 	switch (offset & 0xFC) {
@@ -147,7 +153,7 @@ int ata_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, uni
 	}
 
 	/* do write */
-	pci_handle_default_config_write(pci_device, io, offset, regptr);
+	pci_handle_default_config_write (pci_device, iosize, offset, regptr);
 
 	/* post-write */
 	switch (offset & 0xFC) {

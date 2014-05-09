@@ -291,9 +291,9 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 	return ret;
 }
 
-static int 
-uhci_config_read(struct pci_device *pci_device, 
-		 core_io_t io, u8 offset, union mem *data)
+static int
+uhci_config_read (struct pci_device *pci_device, u8 iosize, u16 offset,
+		  union mem *data)
 {
 	/* if it is BAR4, then register io_handler */
 	if (offset == 0x20)
@@ -301,9 +301,9 @@ uhci_config_read(struct pci_device *pci_device,
 	return CORE_IO_RET_DEFAULT;
 }
 
-static int 
-uhci_config_write(struct pci_device *pci_device, 
-		  core_io_t io, u8 offset, union mem *data)
+static int
+uhci_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
+		   union mem *data)
 {
 	/* if BAR4 is accessed, then register/update an io_handler */
 	if (offset == PCI_CONFIG_BASE_ADDRESS4) {

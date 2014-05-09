@@ -39,6 +39,8 @@ struct mmio_handle {
 	uint len;
 	void *data;
 	mmio_handler_t handler;
+	bool unregistered;
+	bool unlocked_handler;
 };
 
 struct mmio_list {
@@ -49,6 +51,9 @@ struct mmio_list {
 struct mmio_data {
 	LIST1_DEFINE_HEAD (struct mmio_list, mmio[17]);
 	LIST1_DEFINE_HEAD (struct mmio_handle, handle);
+	rw_spinlock_t rwlock;
+	bool unregister_flag;
+	unsigned int lock_count;
 };
 
 int mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len,

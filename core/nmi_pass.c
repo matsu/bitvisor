@@ -51,7 +51,7 @@ get_nmi_count (void)
 {
 	unsigned int r = 0;
 
-	asm volatile ("xchgl %0, %%gs:gs_nmi" : "=r" (r) : "r" (r));
+	asm volatile ("xchgl %0, %%gs:gs_nmi" : "+r" (r));
 	return r;
 }
 

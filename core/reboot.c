@@ -63,6 +63,18 @@ do_panic_reboot (void)
 void
 handle_init_to_bsp (void)
 {
+	int d;
+
+	if (config.vmm.auto_reboot == 1) {
+		d = msgopen ("reboot");
+		if (d >= 0) {
+			msgsendint (d, 0);
+			msgclose (d);
+			printf ("Reboot failed.\n");
+		} else {
+			printf ("reboot not found.\n");
+		}
+	}
 	if (config.vmm.auto_reboot)
 		auto_reboot ();
 	panic ("INIT signal to BSP");
@@ -71,6 +83,7 @@ handle_init_to_bsp (void)
 static void
 do_reboot (void)
 {
+	call_initfunc ("panic"); /* for disabling VT-x */
 	acpi_reset ();
 	rebooting = true;
 	/*

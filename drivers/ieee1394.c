@@ -47,21 +47,23 @@ ieee1394_new(struct pci_device *pci_device)
 	return;
 }
 
-static int 
-ieee1394_config_read(struct pci_device *pci_device, 
-		 core_io_t io, u8 offset, union mem *data)
+static int
+ieee1394_config_read (struct pci_device *pci_device, u8 iosize,
+		      u16 offset, union mem *data)
 {
+	ulong zero = 0UL;
+
 	if (!ieee1394_disable)
 		return CORE_IO_RET_DEFAULT;
 	/* provide fake values 
 	   for reading the PCI configration space. */
-	data->dword = 0UL;
+	memcpy (data, &zero, iosize);
 	return CORE_IO_RET_DONE;
 }
 
-static int 
-ieee1394_config_write(struct pci_device *pci_device, 
-		  core_io_t io, u8 offset, union mem *data)
+static int
+ieee1394_config_write (struct pci_device *pci_device, u8 iosize,
+		       u16 offset, union mem *data)
 {
 	if (!ieee1394_disable)
 		return CORE_IO_RET_DEFAULT;

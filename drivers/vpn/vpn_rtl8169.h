@@ -221,8 +221,10 @@ u64 time = 0;
 // 関数プロトタイプ
 static void rtl8169_init();
 static void rtl8169_new(struct pci_device *pci_device);
-static int  rtl8169_config_read(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data);
-static int  rtl8169_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data);
+static int  rtl8169_config_read (struct pci_device *pci_device, u8 iosize,
+				 u16 offset, union mem *data);
+static int  rtl8169_config_write (struct pci_device *pci_device, u8 iosize,
+				  u16 offset, union mem *data);
 static int  rtl8169_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags);
 static int  rtl8169_io_handler(core_io_t io, union mem *data, void *arg);
 static bool rtl8169_init_vpn_client(RTL8169_CTX *ctx, RTL8169_SUB_CTX *sctx);
@@ -242,7 +244,8 @@ static void SendVirtualNic (SE_HANDLE nic_handle, UINT num_packets, void **packe
 static void SetVirtualNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param);
 static void rtl8169_send_virt_nic(SE_HANDLE nic_handle, phys_t rxdescphys, void *data, UINT size);
 
-static int  rtl8169_offset_check(struct pci_device *dev, core_io_t io, u8 offset, union mem *data);
+static int  rtl8169_offset_check (struct pci_device *dev, u8 iosize,
+				  u16 offset, union mem *data);
 static void reghook(struct RTL8169_SUB_CTX *sctx, int i, u32 a, u32 b);
 static void unreghook(struct RTL8169_SUB_CTX *sctx);
 

@@ -417,6 +417,7 @@ void SeVpn4InitSecConfig(SE_VPN4 *v4, SE_SEC_CONFIG *c)
 	SeStrCpy(c->VpnCertName, sizeof(c->VpnCertName), vc->VpnCertNameV4);
 	SeStrCpy(c->VpnCaCertName, sizeof(c->VpnCaCertName), vc->VpnCaCertNameV4);
 	SeStrCpy(c->VpnRsaKeyName, sizeof(c->VpnRsaKeyName), vc->VpnRsaKeyNameV4);
+	c->VpnPhase1Mode = vc->VpnPhase1ModeV4;
 	c->VpnPhase1Crypto = vc->VpnPhase1CryptoV4;
 	c->VpnPhase1Hash = vc->VpnPhase1HashV4;
 	c->VpnPhase1LifeKilobytes = vc->VpnPhase1LifeKilobytesV4;

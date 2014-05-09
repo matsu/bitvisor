@@ -75,6 +75,7 @@ struct SE_VPN_CONFIG
 	char VpnRsaKeyNameV4[MAX_SIZE];	// VpnCertNameV4 で指定した X.509 証明書に対応した RSA 秘密鍵の名前
 	bool VpnSpecifyIssuerV4;		// 証明書認証を用いる場合に証明書要求フィールドに自分の証明書の発行者名を明記するかどうか
 
+	UINT VpnPhase1ModeV4;			// IKE Phase one mode (Main/Aggressive)
 	UCHAR VpnPhase1CryptoV4;		// フェーズ 1 における暗号化アルゴリズム
 	UCHAR VpnPhase1HashV4;			// フェーズ 1 における署名アルゴリズム
 	UINT VpnPhase1LifeKilobytesV4;	// ISAKMP SA の有効期限の値 (単位: キロバイト, 0 の場合は無効)
@@ -115,6 +116,7 @@ struct SE_VPN_CONFIG
 	char VpnCaCertNameV6[MAX_SIZE];	// 接続先 VPN サーバーから返された X.509 証明書を検証する CA 証明書のファイル名
 	char VpnRsaKeyNameV6[MAX_SIZE];	// VpnCertNameV6 で指定した X.509 証明書に対応した RSA 秘密鍵の名前
 	bool VpnSpecifyIssuerV6;		// 証明書認証を用いる場合に証明書要求フィールドに自分の証明書の発行者名を明記するかどうか
+	UINT VpnPhase1ModeV6;			// IKE Phase one (Main/Aggressive)
 	UCHAR VpnPhase1CryptoV6;		// フェーズ 1 における暗号化アルゴリズム
 	UCHAR VpnPhase1HashV6;			// フェーズ 1 における署名アルゴリズム
 	UINT VpnPhase1LifeKilobytesV6;	// ISAKMP SA の有効期限の値 (単位: キロバイト, 0 の場合は無効)

@@ -78,6 +78,7 @@ struct SE_IKE_HEADER
 #define SE_IKE_IS_SUPPORTED_PAYLOAD_TYPE(i) (((i) >= SE_IKE_PAYLOAD_SA) && ((i) <= SE_IKE_PAYLOAD_VENDOR_ID))
 
 // IKE 交換種類
+#define SE_IKE_EXCHANGE_TYPE_MAIN		2		// Main mode
 #define SE_IKE_EXCHANGE_TYPE_AGGRESSIVE	4		// アグレッシブモード
 #define SE_IKE_EXCHANGE_TYPE_INFORMATION	5	// 情報交換
 #define SE_IKE_EXCHANGE_TYPE_QUICK		32		// クイックモード
@@ -473,6 +474,7 @@ SE_IPV6_ADDR SeIkeGetIPv6Address(SE_IKE_IP_ADDR *a);
 void SeIkeIpAddressToStr(char *str, SE_IKE_IP_ADDR *a);
 bool SeIkeIsZeroIP(SE_IKE_IP_ADDR *a);
 
+UINT SeIkeStrToPhase1Mode(char *name);
 UCHAR SeIkeStrToPhase1CryptId(char *name);
 UCHAR SeIkeStrToPhase1HashId(char *name);
 UCHAR SeIkeStrToPhase2CryptId(char *name);

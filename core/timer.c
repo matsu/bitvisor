@@ -54,6 +54,8 @@ struct timer_data {
 static LIST1_DEFINE_HEAD (struct timer_data, list1_timer_on);
 static LIST1_DEFINE_HEAD (struct timer_data, list1_timer_off);
 static LIST1_DEFINE_HEAD (struct timer_data, list1_timer_free);
+static void timer_thread (void *thread_data);
+static bool timer_thread_run = false;
 
 void *
 timer_new (void (*callback) (void *handle, void *data), void *data)
@@ -94,6 +96,11 @@ timer_set (void *handle, u64 interval_usec)
 		    d->interval - (time - d->settime) > interval_usec)
 			break;
 	LIST1_INSERT (list1_timer_on, d, p);
+	if (!timer_thread_run) {
+		thread_new (timer_thread, NULL, VMM_STACKSIZE);
+		timer_thread_run = true;
+		/* FIXME: Stop thread when no timers are active. */
+	}
 	spinlock_unlock (&timer_lock);
 }
 
@@ -127,9 +134,9 @@ timer_thread (void *thread_data)
 	for (;;) {
 		call = false;
 		spinlock_lock (&timer_lock);
-		time = get_time ();
 		p = LIST1_POP (list1_timer_on);
 		if (p) {
+			time = get_time ();
 			if (p->enable && (time - p->settime) >= p->interval) {
 				p->enable = false;
 				call = true;
@@ -162,7 +169,6 @@ timer_init_global (void)
 	for (i = 0; i < MAX_TIMER; i++)
 		LIST1_PUSH (list1_timer_free, &p[i]);
 	spinlock_init (&timer_lock);
-	thread_new (timer_thread, NULL, VMM_STACKSIZE);
 }
 
 INITFUNC ("paral20", timer_init_global);

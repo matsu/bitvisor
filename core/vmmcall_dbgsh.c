@@ -46,27 +46,35 @@ static tid_t tid;
 static bool i;
 
 static int
+dbgsh_send_to_guest (int c)
+{
+	int tmp;
+
+	s = c;
+	while (r == -1 || s != -1) {
+#ifndef FWDBG
+		spinlock_lock (&dbgsh_lock2);
+		stopped = true;
+		thread_will_stop ();
+		spinlock_unlock (&dbgsh_lock2);
+#endif
+		schedule ();
+	}
+	tmp = r;
+	r = -1;
+	return tmp;
+}
+
+static int
 dbgsh_ttyin_msghandler (int m, int c)
 {
 	int tmp;
 
 	if (m == 0) {
-	retry:
-		s = 0;
-		while (r == -1 || s != -1) {
-#ifndef FWDBG
-			spinlock_lock (&dbgsh_lock2);
-			stopped = true;
-			thread_will_stop ();
-			spinlock_unlock (&dbgsh_lock2);
-#endif
-			schedule ();
-		}
-		tmp = r;
-		r = -1;
-		if (tmp == 0)
-			goto retry;
-		return tmp;
+		do
+			tmp = dbgsh_send_to_guest (0);
+		while (tmp == 0);
+		return tmp & 0xFF;
 	}
 	return 0;
 }
@@ -75,19 +83,9 @@ static int
 dbgsh_ttyout_msghandler (int m, int c)
 {
 	if (m == 0) {
-		if (c == 0)
-			c = ' ';
-		s = c;
-		while (r == -1 || s != -1) {
-#ifndef FWDBG
-			spinlock_lock (&dbgsh_lock2);
-			stopped = true;
-			thread_will_stop ();
-			spinlock_unlock (&dbgsh_lock2);
-#endif
-			schedule ();
-		}
-		r = -1;
+		if (c <= 0 || c > 0x100)
+			c = 0x100;
+		dbgsh_send_to_guest (c);
 	}
 	return 0;
 }
@@ -110,26 +108,41 @@ dbgsh_thread (void *arg)
 		msgsenddesc (shell, ttyout);
 		msgsendint (shell, 0);
 		msgclose (shell);
+		dbgsh_send_to_guest (0x100 | '\n');
 		schedule ();
 	}
 }
 
-static void
-dbgsh (void)
+static int
+dbgsh_disabled (int b)
 {
-	ulong rbx;
-	int b;
+	static const char msg[] =
+		"dbgsh is disabled by \"config.vmm.dbgsh\".\n";
+	static uint off;
+	uint offset;
+	char c;
 
-	if (!config.vmm.dbgsh)
-		return;
+	offset = off;
+	if (b != -1)
+		offset++;
+	if (offset >= sizeof msg)
+		offset = 0;
+	c = msg[offset];
+	off = offset;
+	if (c == '\0')
+		return 0x100 | '\n';
+	return c;
+}
+
+static int
+dbgsh_enabled (int b)
+{
 	spinlock_lock (&dbgsh_lock);
 	if (!i) {
 		tid = thread_new (dbgsh_thread, NULL, VMM_STACKSIZE);
 		i = true;
 	}
 	spinlock_unlock (&dbgsh_lock);
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	b = (int)rbx;
 	if (b != -1) {
 		r = b;
 		s = -1;
@@ -140,7 +153,22 @@ dbgsh (void)
 		spinlock_unlock (&dbgsh_lock2);
 #endif
 	}
-	current->vmctl.write_general_reg (GENERAL_REG_RAX, (ulong)s);
+	return s;
+}
+
+static void
+dbgsh (void)
+{
+	ulong rbx;
+	int a, b;
+
+	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
+	b = (int)rbx;
+	if (!config.vmm.dbgsh)
+		a = dbgsh_disabled (b);
+	else
+		a = dbgsh_enabled (b);
+	current->vmctl.write_general_reg (GENERAL_REG_RAX, (ulong)a);
 }
 
 static void

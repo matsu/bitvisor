@@ -28,10 +28,13 @@
  */
 
 #include "arith.h"
+#include "calluefi.h"
+#include "cpu.h"
 #include "debug.h"
 #include "initfunc.h"
 #include "list.h"
 #include "mm.h"
+#include "pcpu.h"
 #include "printf.h"
 #include "process.h"
 #include "putchar.h"
@@ -39,6 +42,7 @@
 #include "spinlock.h"
 #include "string.h"
 #include "tty.h"
+#include "uefi.h"
 #include "vramwrite.h"
 
 struct tty_udp_data {
@@ -54,6 +58,8 @@ static int logoffset, loglen;
 static spinlock_t putchar_lock;
 static bool logflag;
 static LIST1_DEFINE_HEAD (struct tty_udp_data, tty_udp_list);
+static unsigned char uefi_log[1024];
+static int uefi_logoffset;
 
 static int
 ttyin_msghandler (int m, int c)
@@ -145,6 +151,8 @@ tty_udp_putchar (unsigned char c)
 void
 tty_putchar (unsigned char c)
 {
+	int i;
+
 	if (logflag) {
 		spinlock_lock (&putchar_lock);
 		log[(logoffset + loglen) % sizeof log] = c;
@@ -158,7 +166,30 @@ tty_putchar (unsigned char c)
 #ifdef TTY_SERIAL
 	serial_putchar (c);
 #else
-	vramwrite_putchar (c);
+	if (uefi_booted) {
+		if (currentcpu_available () && currentcpu->pass_vm_created) {
+			spinlock_lock (&putchar_lock);
+			for (i = 0; i < uefi_logoffset; i++)
+				vramwrite_putchar (uefi_log[i]);
+			uefi_logoffset = 0;
+			spinlock_unlock (&putchar_lock);
+			vramwrite_putchar (c);
+		} else if (currentcpu_available () && get_cpu_id () == 0) {
+			spinlock_lock (&putchar_lock);
+			for (i = 0; i < uefi_logoffset; i++)
+				call_uefi_putchar (uefi_log[i]);
+			uefi_logoffset = 0;
+			call_uefi_putchar (c);
+			spinlock_unlock (&putchar_lock);
+		} else {
+			spinlock_lock (&putchar_lock);
+			if (uefi_logoffset < sizeof uefi_log)
+				uefi_log[uefi_logoffset++] = c;
+			spinlock_unlock (&putchar_lock);
+		}
+	} else {
+		vramwrite_putchar (c);
+	}
 #endif
 }
 
@@ -192,7 +223,8 @@ tty_init_global (void)
 	loglen = 0;
 	logflag = true;
 	spinlock_init (&putchar_lock);
-	vramwrite_init_global ((void *)0x800B8000);
+	if (!uefi_booted)
+		vramwrite_init_global ((void *)0x800B8000);
 	putchar_set_func (tty_putchar, NULL);
 }
 

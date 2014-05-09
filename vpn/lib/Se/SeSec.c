@@ -40,6 +40,523 @@
 #define SE_INTERNAL
 #include <Se/Se.h>
 
+//Main mode
+bool SeSecSendMain1(SE_SEC *s)
+{
+	SE_IKE_SA *sa;
+	SE_SEC_CONFIG *config;
+	char tmp1[MAX_SIZE], tmp2[MAX_SIZE];
+	UINT vpn_connect_timeout_interval;
+	// 引数チェック
+	if (s == NULL)
+	{
+		return false;
+	}
+
+	config = &s->Config;
+
+	if (config->VpnAuthMethod != SE_SEC_AUTH_METHOD_PASSWORD)
+	{
+		SeError("IKE: main mode: VpnAuthMethod is not Password");
+		return false;
+	}
+
+	if (s->SendStrictIdV6 && s->IPv6)
+	{
+		if (SeIkeIsZeroIP(&config->MyVirtualIpAddress))
+		{
+			// 自分の使用すべき仮想 IP アドレスが指定されていない
+			return false;
+		}
+	}
+
+	SeIkeIpAddressToStr(tmp1, &s->Config.VpnGatewayAddress);
+	SeIkeIpAddressToStr(tmp2, &s->Config.MyIpAddress);
+	SeInfo("IKE: VPN Connect Start: %s -> %s", tmp2, tmp1);
+
+	// IKE SA の作成
+	sa = SeSecNewIkeSa(s, s->Config.MyIpAddress, s->Config.VpnGatewayAddress,
+		SE_SEC_IKE_UDP_PORT, SE_SEC_IKE_UDP_PORT, SeSecGenIkeSaInitCookie(s));
+	sa->ResponderCookie = 0;
+
+	SeInfo("IKE: SA #%u Created", sa->Id);
+
+	SeBinToStr(tmp1, sizeof(tmp1), &sa->InitiatorCookie, sizeof(sa->InitiatorCookie));
+	SeInfo("IKE: SA #%u: Initiator Cookie: 0x%s", sa->Id, tmp1);
+
+	// DH 作成
+	sa->Dh = SeDhNewGroup2();
+
+	// 乱数生成
+	sa->Phase1MyRand = SeRandBuf(SE_SHA1_HASH_SIZE);
+
+	vpn_connect_timeout_interval = s->Config.VpnConnectTimeout * 1000;
+	sa->ConnectTimeoutTick = SeSecTick(s) + (UINT64)(vpn_connect_timeout_interval);
+
+	SeSecAddTimer(s, vpn_connect_timeout_interval);
+
+	// パケットの構築
+	if (true)
+	{
+		SE_LIST *payload_list;
+		SE_LIST *transform_value_list;
+		SE_IKE_PACKET_PAYLOAD *transform_payload;
+		SE_LIST *transform_payload_list;
+		SE_LIST *proposal_payload_list;
+		SE_IKE_PACKET_PAYLOAD *proposal_payload;
+		SE_BUF *packet_buf;
+		SE_IKE_PACKET *packet;
+		SE_IKE_PACKET_PAYLOAD *sa_payload;
+
+		payload_list = SeNewList(NULL);
+
+		// トランスフォーム値リストの作成
+		transform_value_list = SeNewList(NULL);
+		SeAdd(transform_value_list, SeIkeNewTransformValue(SE_IKE_TRANSFORM_VALUE_P1_CRYPTO, config->VpnPhase1Crypto));
+		SeAdd(transform_value_list, SeIkeNewTransformValue(SE_IKE_TRANSFORM_VALUE_P1_HASH, config->VpnPhase1Hash));
+		SeAdd(transform_value_list, SeIkeNewTransformValue(SE_IKE_TRANSFORM_VALUE_P1_AUTH_METHOD, SE_IKE_P1_AUTH_METHOD_PRESHAREDKEY));
+		SeAdd(transform_value_list, SeIkeNewTransformValue(SE_IKE_TRANSFORM_VALUE_P1_DH_GROUP, SE_IKE_P1_DH_GROUP_1024_MODP));
+		SeAdd(transform_value_list, SeIkeNewTransformValue(SE_IKE_TRANSFORM_VALUE_P1_LIFE_TYPE, SE_IKE_P1_LIFE_TYPE_SECONDS));
+		SeAdd(transform_value_list, SeIkeNewTransformValue(SE_IKE_TRANSFORM_VALUE_P1_LIFE_VALUE, config->VpnPhase1LifeSeconds));
+		if (config->VpnPhase1LifeKilobytes != 0)
+		{
+			SeAdd(transform_value_list, SeIkeNewTransformValue(SE_IKE_TRANSFORM_VALUE_P1_LIFE_TYPE, SE_IKE_P1_LIFE_TYPE_KILOBYTES));
+			SeAdd(transform_value_list, SeIkeNewTransformValue(SE_IKE_TRANSFORM_VALUE_P1_LIFE_VALUE, config->VpnPhase1LifeKilobytes));
+		}
+
+		// トランスフォームペイロードの作成
+		transform_payload = SeIkeNewTransformPayload(0, SE_IKE_TRANSFORM_ID_P1_KEY_IKE, transform_value_list);
+
+		// トランスフォームペイロードリストの作成
+		transform_payload_list = SeNewList(NULL);
+		SeAdd(transform_payload_list, transform_payload);
+
+		// プロポーザルペイロードの作成
+		proposal_payload = SeIkeNewProposalPayload(0, SE_IKE_PROTOCOL_ID_IKE, NULL, 0, transform_payload_list);
+
+		// プロポーザルペイロードリストの作成
+		proposal_payload_list = SeNewList(NULL);
+		SeAdd(proposal_payload_list, proposal_payload);
+
+		// SA ペイロードの追加
+		sa_payload = SeIkeNewSaPayload(proposal_payload_list);
+		SeAdd(payload_list, sa_payload);
+
+		// ベンダ ID ペイロードの追加
+		SeAdd(payload_list, SeIkeNewDataPayload(SE_IKE_PAYLOAD_VENDOR_ID,
+			SE_SEC_VENDOR_ID_STR, SeStrLen(SE_SEC_VENDOR_ID_STR)));
+
+		// IKE パケットのビルド
+		packet = SeIkeNew(sa->InitiatorCookie, 0, SE_IKE_EXCHANGE_TYPE_MAIN,
+			false, false, false, 0,
+			payload_list);
+
+		packet_buf = SeIkeBuild(packet, NULL);
+
+		// ペイロードのコピーをとっておく
+		sa->SAi_b = SeCloneBuf(sa_payload->BitArray);
+
+		sa->TransferBytes += packet->DecryptedPayload->Size;
+
+		// 送信
+		SeSecSendUdp(s, &sa->DestAddr, &sa->SrcAddr, sa->DestPort, sa->SrcPort, packet_buf->Buf, packet_buf->Size);
+
+		sa->Status = 1;
+
+		SeFreeBuf(packet_buf);
+		SeIkeFree(packet);
+	}
+
+	return true;
+}
+
+void SeSecRecvMain2(SE_SEC *s, SE_IKE_SA *sa, void *data, UINT size)
+{
+	SE_IKE_PACKET *packet = NULL;
+	SE_LIST *payload_list = NULL;
+	SE_IKE_PACKET_PAYLOAD *sa_payload = NULL;
+
+	// 引数チェック
+	if (s == NULL || sa == NULL || data == NULL)
+	{
+		return;
+	}
+
+	packet = SeIkeParse(data, size, NULL);
+	if (packet == NULL)
+	{
+		return;
+	}
+
+	sa->ResponderCookie = packet->ResponderCookie;
+
+	payload_list = packet->PayloadList;
+	if (payload_list == NULL)
+	{
+		SeError("IKE: SA #%u: Invalid Response Payload", sa->Id);
+		goto exit;
+	}
+
+	// SA ペイロードの取得
+	sa_payload = SeIkeGetPayload(payload_list, SE_IKE_PAYLOAD_SA, 0);
+
+	if (sa_payload == NULL)
+	{
+		SeError("IKE: SA #%u: Invalid Response Payload", sa->Id);
+		goto exit;
+	}
+
+	// Here we must proceed SA payload if we have sent multiple proposals in packet 1
+
+	sa->TransferBytes += packet->DecryptedPayload->Size;
+
+	sa->Status = 2;
+
+	SeSecSendMain3(s, sa);
+
+exit:
+	SeIkeFree(packet);
+}
+
+void SeSecSendMain3(SE_SEC *s, SE_IKE_SA *sa)
+{
+	SE_LIST *payload_list = NULL;
+	SE_IKE_PACKET *packet = NULL;
+	SE_BUF *packet_buf = NULL;
+
+	// 引数チェック
+	if (s == NULL || sa == NULL)
+	{
+		return;
+	}
+
+	payload_list = SeNewList(NULL);
+
+	// 鍵交換ペイロードの追加
+	SeAdd(payload_list, SeIkeNewDataPayload(SE_IKE_PAYLOAD_KEY_EXCHANGE,
+		sa->Dh->MyPublicKey->Buf, sa->Dh->MyPublicKey->Size));
+
+	// 乱数ペイロードの追加
+	SeAdd(payload_list, SeIkeNewDataPayload(SE_IKE_PAYLOAD_RAND,
+		sa->Phase1MyRand->Buf, sa->Phase1MyRand->Size));
+
+	packet = SeIkeNew(sa->InitiatorCookie, sa->ResponderCookie, SE_IKE_EXCHANGE_TYPE_MAIN,
+		false, false, false, 0,
+		payload_list);
+
+	packet_buf = SeIkeBuild(packet, NULL);
+
+	// 送信
+	SeSecSendUdp(s, &sa->DestAddr, &sa->SrcAddr, sa->DestPort, sa->SrcPort, packet_buf->Buf, packet_buf->Size);
+
+	sa->TransferBytes += packet->DecryptedPayload->Size;
+
+	sa->Status = 3;
+
+	SeFreeBuf(packet_buf);
+	SeIkeFree(packet);
+}
+
+void SeSecRecvMain4(SE_SEC *s, SE_IKE_SA *sa, void *data, UINT size)
+{
+	SE_SEC_CONFIG *config = NULL;
+
+	SE_IKE_PACKET *packet = NULL;
+	SE_LIST *payload_list = NULL;
+	SE_IKE_PACKET_PAYLOAD *key_payload = NULL, *rand_payload = NULL;
+
+	// 引数チェック
+	if (s == NULL || sa == NULL || data == NULL)
+	{
+		return;
+	}
+
+	config = &s->Config;
+
+	packet = SeIkeParse(data, size, NULL);
+	if (packet == NULL)
+	{
+		return;
+	}
+
+	payload_list = packet->PayloadList;
+	if (payload_list == NULL)
+	{
+		SeError("IKE: SA #%u: Invalid Response Payload", sa->Id);
+		goto exit;
+	}
+
+	// 鍵交換ペイロードの取得
+	key_payload = SeIkeGetPayload(payload_list, SE_IKE_PAYLOAD_KEY_EXCHANGE, 0);
+
+	// 乱数ペイロードの取得
+	rand_payload = SeIkeGetPayload(payload_list, SE_IKE_PAYLOAD_RAND, 0);
+
+	if (key_payload == NULL || rand_payload == NULL)
+	{
+		SeError("IKE: SA #%u: Invalid Response Payload", sa->Id);
+		goto exit;
+	}
+	 // パスワードバッファの作成
+	sa->Phase1Password = SeIkeStrToPassword(config->VpnPassword);
+
+	// DH 共有鍵の計算
+	sa->Dh->YourPublicKey = SeCloneBuf(key_payload->Payload.KeyExchange.Data);
+
+	if (sa->Dh->YourPublicKey->Size != SE_DH_KEY_SIZE)
+	{
+		// 鍵サイズ不正
+		SeError("IKE: SA #%u: Invalid DH Key Size: %u", sa->Id, sa->Dh->YourPublicKey->Size);
+		goto exit;
+	}
+
+	sa->TransferBytes += packet->DecryptedPayload->Size;
+
+	// Phase one keyset computing
+	{
+		UCHAR private_key[SE_DH_KEY_SIZE];
+		SE_BUF *tmp_buf = NULL;
+
+		if (SeDhCompute(sa->Dh, private_key, sa->Dh->YourPublicKey->Buf, sa->Dh->YourPublicKey->Size) == false)
+		{
+			SeError("IKE: SA #%u: DH Computing Key Failed", sa->Id);
+			goto exit;
+		}
+
+		// パスワード認証
+		tmp_buf = SeNewBuf();
+		SeWriteBufBuf(tmp_buf, sa->Phase1MyRand);
+		SeWriteBufBuf(tmp_buf, rand_payload->Payload.Rand.Data);
+		SeMacSha1(sa->SKEYID, sa->Phase1Password->Buf, sa->Phase1Password->Size,
+			tmp_buf->Buf, tmp_buf->Size);
+
+		SeFreeBuf(tmp_buf);
+
+		// 鍵セットの計算
+		SeSecCalcP1KeySet(&sa->P1KeySet, sa->SKEYID, sizeof(sa->SKEYID), private_key, sizeof(private_key),
+			sa->InitiatorCookie, sa->ResponderCookie,
+			SeIkePhase1CryptIdToKeySize(config->VpnPhase1Crypto));
+	}
+
+	sa->Status = 4;
+
+	SeSecSendMain5(s, sa);
+
+exit:
+	SeIkeFree(packet);
+
+}
+
+void SeSecSendMain5(SE_SEC *s, SE_IKE_SA *sa)
+{
+	SE_SEC_CONFIG *config = NULL;
+
+	SE_LIST *payload_list = NULL;
+	SE_IKE_PACKET_PAYLOAD *id_payload = NULL, *hash_payload = NULL;
+	SE_IKE_PACKET *packet = NULL;
+	SE_BUF *packet_buf = NULL;
+
+	// 引数チェック
+	if (s == NULL || sa == NULL)
+	{
+		return;
+	}
+
+	config = &s->Config;
+
+	payload_list = SeNewList(NULL);
+
+	// Initiator IP address is sent as ID
+	if (s->IPv6 == false)
+	{
+		UINT myip = Se4IPToUINT(SeIkeGetIPv4Address(&config->MyIpAddress));
+		id_payload = SeIkeNewIdPayload(SE_IKE_ID_IPV4_ADDR, 0, 0, &myip, sizeof(myip));
+	}
+	else
+	{
+		id_payload = SeIkeNewIdPayload(SE_IKE_ID_IPV6_ADDR, 0, 0,
+					&config->MyIpAddress.Address.Ipv6, sizeof(SE_IPV6_ADDR));
+	}
+
+	sa->IDii_b = SeIkeBuildIdPayload(&id_payload->Payload.Id);
+
+	SeAdd(payload_list, id_payload);
+
+	// Initiator hash computing
+	{
+		UCHAR hash_init[SE_SHA1_HASH_SIZE];
+		SE_BUF *b = SeNewBuf();
+
+		SeWriteBufBuf(b, sa->Dh->MyPublicKey);
+		SeWriteBufBuf(b, sa->Dh->YourPublicKey);
+		SeWriteBuf(b, &sa->InitiatorCookie, sizeof(sa->InitiatorCookie));
+		SeWriteBuf(b, &sa->ResponderCookie, sizeof(sa->ResponderCookie));
+		SeWriteBufBuf(b, sa->SAi_b);
+		SeWriteBufBuf(b, sa->IDii_b);
+		SeMacSha1(hash_init, sa->SKEYID, sizeof(sa->SKEYID), b->Buf, b->Size);
+		SeFreeBuf(b);
+
+		hash_payload = SeIkeNewDataPayload(SE_IKE_PAYLOAD_HASH, hash_init, sizeof(hash_init));
+	}
+
+	SeAdd(payload_list, hash_payload);
+
+	// Computation of the phase one IV
+	SeSecCalcP1Iv(sa->Phase1Iv,
+		sa->Dh->MyPublicKey->Buf,
+		sa->Dh->MyPublicKey->Size,
+		sa->Dh->YourPublicKey->Buf,
+		sa->Dh->YourPublicKey->Size,
+		sizeof(sa->Phase1Iv));
+
+	// Computation of key, packets 5 and 6 of phase one and everything in phase two are encrypted with
+	if (config->VpnPhase1Crypto == SE_IKE_P1_CRYPTO_DES_CBC)
+	{
+		// DES
+		UCHAR *p_key = (UCHAR *)sa->P1KeySet.SKEYID_e->Buf;
+
+		sa->Phase2DesKey = SeDesNewKey(p_key);
+	}
+	else
+	{
+		// 3DES
+		UCHAR *p_key = (UCHAR *)sa->P1KeySet.SKEYID_e->Buf;
+
+		sa->Phase2DesKey = SeDes3NewKey(
+			p_key + SE_DES_KEY_SIZE * 0,
+			p_key + SE_DES_KEY_SIZE * 1,
+			p_key + SE_DES_KEY_SIZE * 2);
+	}
+
+	packet = SeIkeNew(sa->InitiatorCookie, sa->ResponderCookie, SE_IKE_EXCHANGE_TYPE_MAIN,
+		true, false, false, 0,
+		payload_list);
+
+	//Building encrypted packet
+	{
+		SE_IKE_CRYPTO_PARAM cparam;
+		SeZero(&cparam, sizeof(cparam));
+		SeCopy(cparam.Iv, sa->Phase1Iv, sizeof(cparam.Iv));
+		cparam.DesKey = sa->Phase2DesKey;
+
+		packet_buf = SeIkeBuild(packet, &cparam);
+		SeCopy(sa->Phase1Iv, cparam.NextIv, SE_DES_IV_SIZE);
+	}
+
+	// 送信
+	SeSecSendUdp(s, &sa->DestAddr, &sa->SrcAddr, sa->DestPort, sa->SrcPort, packet_buf->Buf, packet_buf->Size);
+
+	sa->TransferBytes += packet->DecryptedPayload->Size;
+
+	sa->Status = 5;
+
+	SeFreeBuf(packet_buf);
+	SeIkeFree(packet);
+}
+
+void SeSecRecvMain6(SE_SEC *s, SE_IKE_SA *sa, void *data, UINT size)
+{
+	SE_SEC_CONFIG *config = NULL;
+
+	SE_IKE_PACKET *packet = NULL;
+	SE_LIST *payload_list = NULL;
+	SE_IKE_PACKET_PAYLOAD *id_payload = NULL, *hash_payload = NULL;
+
+	// 引数チェック
+	if (s == NULL || sa == NULL || data == NULL)
+	{
+		return;
+	}
+
+	config = &s->Config;
+
+	// Parsing encrypted packet
+	{
+		SE_IKE_CRYPTO_PARAM cparam;
+		SeZero(&cparam, sizeof(cparam));
+		cparam.DesKey = sa->Phase2DesKey;
+
+		SeCopy(cparam.Iv, sa->Phase1Iv, SE_DES_IV_SIZE);
+
+		packet = SeIkeParse(data, size, &cparam);
+		if (packet == NULL)
+		{
+			return;
+		}
+		SeCopy(sa->Phase1Iv, cparam.NextIv, SE_DES_IV_SIZE);
+	}
+
+	payload_list = packet->PayloadList;
+	if (payload_list == NULL)
+	{
+		SeError("IKE: SA #%u: Invalid Response Payload", sa->Id);
+		goto exit;
+	}
+
+	// ID ペイロードの取得
+	id_payload = SeIkeGetPayload(payload_list, SE_IKE_PAYLOAD_ID, 0);
+
+	// ハッシュペイロードの取得
+	hash_payload = SeIkeGetPayload(payload_list, SE_IKE_PAYLOAD_HASH, 0);
+
+	if (id_payload == NULL || hash_payload == NULL)
+	{
+		SeError("IKE: SA #%u: Invalid Response Payload", sa->Id);
+
+		goto exit;
+	}
+
+	// Responder hash computing
+	{
+		UCHAR hash_resp[SE_SHA1_HASH_SIZE];
+		SE_BUF *b = SeNewBuf();
+
+		SeWriteBufBuf(b, sa->Dh->YourPublicKey);
+		SeWriteBufBuf(b, sa->Dh->MyPublicKey);
+		SeWriteBuf(b, &sa->ResponderCookie, sizeof(sa->ResponderCookie));
+		SeWriteBuf(b, &sa->InitiatorCookie, sizeof(sa->InitiatorCookie));
+		SeWriteBufBuf(b, sa->SAi_b);
+		SeWriteBufBuf(b, id_payload->BitArray);
+		SeMacSha1(hash_resp, sa->SKEYID, sizeof(sa->SKEYID), b->Buf, b->Size);
+		SeFreeBuf(b);
+
+		if ((SeCmpEx(hash_resp, sizeof(hash_resp),
+			hash_payload->Payload.Hash.Data->Buf,
+			hash_payload->Payload.Hash.Data->Size) == false))
+		{
+			// レスポンダハッシュ値の比較
+			SeError("IKE: SA #%u: Phase 1 Auth Failed (Invalid Responder Hash)", sa->Id);
+
+			goto exit;
+		}
+	}
+
+	sa->TransferBytes += packet->DecryptedPayload->Size;
+
+	sa->Status = 6;
+
+	sa->Phase = 1;
+	sa->Phase1EstablishedTick = SeSecTick(s);
+
+	if (config->VpnPhase1LifeSeconds != 0)
+	{
+		SeSecAddTimer(s, (UINT)SeSecLifeSeconds64bit(config->VpnPhase1LifeSeconds));
+	}
+
+	if (true)
+	{
+		// フェーズ 2 の開始を準備
+		UINT interval = config->VpnWaitPhase2BlankSpan;
+		UINT64 start_tick = SeSecTick(s) + (UINT64)interval;
+
+		sa->Phase2StartTick = start_tick;
+		SeSecAddTimer(s, interval);
+	}
+
+exit:
+	SeIkeFree(packet);
+}
+
 // IKE SA の削除メッセージ送信
 void SeSecSendIkeSaDeleteMsg(SE_SEC *s, SE_IKE_SA *sa)
 {
@@ -796,12 +1313,12 @@ void SeSecSendIkeSaMsgPhase2(SE_SEC *s, SE_IKE_SA *sa)
 }
 
 // IKE SA フェーズ 1 アグレッシブモード 応答受信処理
-void SeSecProcessIkeSaMsgPhase1(SE_SEC *s, SE_IKE_SA *sa, SE_IKE_PACKET *packet_header, void *data, UINT size)
+void SeSecRecvAggr(SE_SEC *s, SE_IKE_SA *sa, void *data, UINT size)
 {
 	SE_IKE_PACKET *packet;
 	SE_SEC_CONFIG *config;
 	// 引数チェック
-	if (s == NULL || sa == NULL || packet_header == NULL || data == NULL)
+	if (s == NULL || sa == NULL || data == NULL)
 	{
 		return;
 	}
@@ -1179,6 +1696,29 @@ void SeSecProcessIkeSaMsgPhase1(SE_SEC *s, SE_IKE_SA *sa, SE_IKE_PACKET *packet_
 	SeIkeFree(packet);
 }
 
+void SeSecProcessIkeSaMsgPhase1(SE_SEC *s, SE_IKE_SA *sa, SE_IKE_PACKET *packet_header, void *data, UINT size)
+{
+	if (s->Config.VpnPhase1Mode == SE_IKE_EXCHANGE_TYPE_MAIN)
+	{
+		if (sa->Status == 1)
+		{
+			SeSecRecvMain2(s, sa, data, size);
+		}
+		else if (sa->Status == 3)
+		{
+			SeSecRecvMain4(s, sa, data, size);
+		}
+		else if (sa->Status == 5)
+		{
+			SeSecRecvMain6(s, sa, data, size);
+		}
+	}
+	else if ((s->Config.VpnPhase1Mode == SE_IKE_EXCHANGE_TYPE_AGGRESSIVE))
+	{
+		SeSecRecvAggr(s, sa, data, size);
+	}
+}
+
 // フェーズ 2 用 IV の計算
 void SeSecCalcP2Iv(void *iv, void *p1_iv, UINT p1_iv_size, UINT msg_id, UINT request_size)
 {
@@ -1406,7 +1946,7 @@ void SeSecProcessIkeSaMsg(SE_SEC *s, SE_IKE_SA *sa, SE_IKE_PACKET *packet_header
 
 	if (sa->Phase == 0)
 	{
-		// フェーズ 1 アグレッシブモード 応答受信処理
+		// フェーズ 1 アグレッシブモード or main mode 応答受信処理
 		SeSecProcessIkeSaMsgPhase1(s, sa, packet_header, data, size);
 	}
 	else if (sa->Phase == 1)
@@ -1430,8 +1970,8 @@ void SeSecProcessIkeSaMsg(SE_SEC *s, SE_IKE_SA *sa, SE_IKE_PACKET *packet_header
 	}
 }
 
-// VPN 接続の開始
-bool SeSecStartVpnConnect(SE_SEC *s)
+//Aggressive mode
+bool SeSecSendAggr(SE_SEC *s)
 {
 	SE_IKE_SA *sa;
 	SE_SEC_CONFIG *config;
@@ -1666,6 +2206,20 @@ LABEL_ERROR:
 	}
 
 	return ok;
+}
+
+// VPN 接続の開始
+bool SeSecStartVpnConnect(SE_SEC *s)
+{
+	if (s->Config.VpnPhase1Mode == SE_IKE_EXCHANGE_TYPE_MAIN)
+	{
+		return SeSecSendMain1(s);
+	}
+	else if (s->Config.VpnPhase1Mode == SE_IKE_EXCHANGE_TYPE_AGGRESSIVE)
+	{
+		return SeSecSendAggr(s);
+	}
+	return false;
 }
 
 // 強制再接続する
@@ -1995,16 +2549,20 @@ void SeSecUdpRecvCallback(SE_IKE_IP_ADDR *dest_addr, SE_IKE_IP_ADDR *src_addr, U
 	}
 
 	// 対応する SA の検索
-	if (packet_header->ExchangeType == SE_IKE_EXCHANGE_TYPE_AGGRESSIVE)
+	if (packet_header->ExchangeType == SE_IKE_EXCHANGE_TYPE_AGGRESSIVE || (packet_header->ExchangeType == SE_IKE_EXCHANGE_TYPE_MAIN))
 	{
 		UINT i;
-		// フェーズ 1 アグレッシブモード応答パケット
+		// フェーズ 1 アグレッシブモード or main mode 応答パケット
 		for (i = 0;i < SE_LIST_NUM(s->IkeSaList);i++)
 		{
 			SE_IKE_SA *sa2 = SE_LIST_DATA(s->IkeSaList, i);
 
 			if (sa2->InitiatorCookie == packet_header->InitiatorCookie &&
-				sa2->ResponderCookie == 0 &&
+				((packet_header->ExchangeType == SE_IKE_EXCHANGE_TYPE_AGGRESSIVE &&
+				sa2->ResponderCookie == 0) ||
+				(packet_header->ExchangeType == SE_IKE_EXCHANGE_TYPE_MAIN &&
+				((sa2->ResponderCookie == 0 && sa2->Status == 1) ||
+				sa2->ResponderCookie == packet_header->ResponderCookie))) &&
 				sa2->DestPort == src_port &&
 				sa2->SrcPort == dest_port &&
 				SeCmp(&sa2->DestAddr, src_addr, sizeof(SE_IKE_IP_ADDR)) == 0 &&

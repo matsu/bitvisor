@@ -421,8 +421,10 @@ extern int ata_bm_handler(core_io_t io, union mem *data, void *arg);
 extern void ata_set_cmdblk_handler(struct ata_host *host, int ch);
 extern void ata_set_ctlblk_handler(struct ata_host *host, int ch);
 extern void ata_set_bm_handler(struct ata_host *host);
-extern int ata_config_read(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data);
-extern int ata_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data);
+extern int ata_config_read (struct pci_device *pci_device, u8 iosize,
+			    u16 offset, union mem *data);
+extern int ata_config_write (struct pci_device *pci_device, u8 iosize,
+			     u16 offset, union mem *data);
 
 // defined in ata_vendor.c
 extern void ata_init_vendor(struct ata_host *host);

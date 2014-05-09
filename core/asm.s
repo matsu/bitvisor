@@ -160,6 +160,7 @@ asm_vmrun_regs_32:
 	mov	4*RSI(%eax),%esi
 	mov	4*RDI(%eax),%edi
 	mov	24(%esp),%eax	# arg2
+	clgi
 	vmload
 	vmrun
 	vmsave
@@ -342,6 +343,7 @@ asm_vmrun_regs_64:
 	mov	8*RBP(%rdi),%rbp
 	mov	8*RSI(%rdi),%rsi
 	mov	8*RDI(%rdi),%rdi
+	clgi
 	vmload
 	vmrun
 	vmsave

@@ -192,6 +192,8 @@ vt__vmcs_init (void)
 	u32 entry_ctls_or, entry_ctls_and;
 	ulong sysenter_cs, sysenter_esp, sysenter_eip;
 	ulong exitctl64;
+	ulong exitctl_efer = 0, entryctl_efer = 0;
+	u64 host_efer;
 	u32 procbased_ctls2_or, procbased_ctls2_and = 0;
 	ulong procbased_ctls2 = 0;
 
@@ -204,6 +206,9 @@ vt__vmcs_init (void)
 	current->u.vt.invept_available = false;
 	current->u.vt.unrestricted_guest_available = false;
 	current->u.vt.unrestricted_guest = false;
+	current->u.vt.save_load_efer_enable = false;
+	current->u.vt.exint_pass = true;
+	current->u.vt.exint_pending = false;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
@@ -248,6 +253,14 @@ vt__vmcs_init (void)
 		    VMCS_PROC_BASED_VMEXEC_CTL2_UNRESTRICTED_GUEST_BIT)
 			current->u.vt.unrestricted_guest_available = true;
 	}
+	if ((exit_ctls_and & VMCS_VMEXIT_CTL_SAVE_IA32_EFER_BIT) &&
+	    (exit_ctls_and & VMCS_VMEXIT_CTL_LOAD_IA32_EFER_BIT) &&
+	    (entry_ctls_and & VMCS_VMENTRY_CTL_LOAD_IA32_EFER_BIT)) {
+		current->u.vt.save_load_efer_enable = true;
+		exitctl_efer |= VMCS_VMEXIT_CTL_SAVE_IA32_EFER_BIT;
+		exitctl_efer |= VMCS_VMEXIT_CTL_LOAD_IA32_EFER_BIT;
+		entryctl_efer |= VMCS_VMENTRY_CTL_LOAD_IA32_EFER_BIT;
+	}
 
 	/* get current information */
 	vt_get_current_regs_in_vmcs (&host_riv);
@@ -277,27 +290,19 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_HOST_GS_SEL, host_riv.gs.sel);
 	asm_vmwrite (VMCS_HOST_TR_SEL, host_riv.tr.sel);
 	/* 64-Bit Control Fields */
-	asm_vmwrite (VMCS_ADDR_IOBMP_A, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_ADDR_IOBMP_A_HIGH, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_ADDR_IOBMP_B, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_ADDR_IOBMP_B_HIGH, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_ADDR_MSRBMP, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_ADDR_MSRBMP_HIGH, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_VMEXIT_MSRSTORE_ADDR, 0);
-	asm_vmwrite (VMCS_VMEXIT_MSRSTORE_ADDR_HIGH, 0);
-	asm_vmwrite (VMCS_VMEXIT_MSRLOAD_ADDR, 0);
-	asm_vmwrite (VMCS_VMEXIT_MSRLOAD_ADDR_HIGH, 0);
-	asm_vmwrite (VMCS_VMENTRY_MSRLOAD_ADDR, 0);
-	asm_vmwrite (VMCS_VMENTRY_MSRLOAD_ADDR_HIGH, 0);
-	asm_vmwrite (VMCS_EXEC_VMCS_POINTER, 0);
-	asm_vmwrite (VMCS_EXEC_VMCS_POINTER_HIGH, 0);
-	asm_vmwrite (VMCS_TSC_OFFSET, 0);
-	asm_vmwrite (VMCS_TSC_OFFSET_HIGH, 0);
+	asm_vmwrite64 (VMCS_ADDR_IOBMP_A, 0xFFFFFFFFFFFFFFFFULL);
+	asm_vmwrite64 (VMCS_ADDR_IOBMP_B, 0xFFFFFFFFFFFFFFFFULL);
+	asm_vmwrite64 (VMCS_ADDR_MSRBMP, 0xFFFFFFFFFFFFFFFFULL);
+	asm_vmwrite64 (VMCS_VMEXIT_MSRSTORE_ADDR, 0);
+	asm_vmwrite64 (VMCS_VMEXIT_MSRLOAD_ADDR, 0);
+	asm_vmwrite64 (VMCS_VMENTRY_MSRLOAD_ADDR, 0);
+	asm_vmwrite64 (VMCS_EXEC_VMCS_POINTER, 0);
+	asm_vmwrite64 (VMCS_TSC_OFFSET, 0);
 	/* 64-Bit Guest-State Fields */
-	asm_vmwrite (VMCS_VMCS_LINK_POINTER, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_VMCS_LINK_POINTER_HIGH, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_GUEST_IA32_DEBUGCTL, 0);
-	asm_vmwrite (VMCS_GUEST_IA32_DEBUGCTL_HIGH, 0);
+	asm_vmwrite64 (VMCS_VMCS_LINK_POINTER, 0xFFFFFFFFFFFFFFFFULL);
+	asm_vmwrite64 (VMCS_GUEST_IA32_DEBUGCTL, 0);
+	if (current->u.vt.save_load_efer_enable)
+		asm_vmwrite64 (VMCS_GUEST_IA32_EFER, 0);
 	/* 32-Bit Control Fields */
 	asm_vmwrite (VMCS_PIN_BASED_VMEXEC_CTL,
 		     (/* VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT */0 |
@@ -316,10 +321,11 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_PAGEFAULT_ERRCODE_MATCH, 0);
 	asm_vmwrite (VMCS_CR3_TARGET_COUNT, 0);
 	asm_vmwrite (VMCS_VMEXIT_CTL, (exit_ctls_or & exit_ctls_and) |
-		     exitctl64);
+		     exitctl64 | exitctl_efer);
 	asm_vmwrite (VMCS_VMEXIT_MSR_STORE_COUNT, 0);
 	asm_vmwrite (VMCS_VMEXIT_MSR_LOAD_COUNT, 0);
-	asm_vmwrite (VMCS_VMENTRY_CTL, entry_ctls_or & entry_ctls_and);
+	asm_vmwrite (VMCS_VMENTRY_CTL, (entry_ctls_or & entry_ctls_and) |
+		     entryctl_efer);
 	asm_vmwrite (VMCS_VMENTRY_MSR_LOAD_COUNT, 0);
 	asm_vmwrite (VMCS_VMENTRY_INTR_INFO_FIELD, 0);
 	asm_vmwrite (VMCS_VMENTRY_EXCEPTION_ERRCODE, 0);
@@ -394,6 +400,10 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_HOST_IA32_SYSENTER_EIP, sysenter_eip);
 	asm_vmwrite (VMCS_HOST_RSP, 0xDEADBEEF);
 	asm_vmwrite (VMCS_HOST_RIP, 0xDEADBEEF);
+	if (current->u.vt.save_load_efer_enable) {
+		asm_rdmsr64 (MSR_IA32_EFER, &host_efer);
+		asm_vmwrite64 (VMCS_HOST_IA32_EFER, host_efer);
+	}
 
 	/* allocate iobmp */
 	vt_iopass_init ();

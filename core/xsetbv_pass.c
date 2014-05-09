@@ -31,6 +31,7 @@
 #include "xsetbv_pass.h"
 #include "current.h"
 #include "initfunc.h"
+#include "printf.h"
 
 static bool
 do_xsetbv_pass (u32 ic, u32 ia, u32 id)
@@ -40,8 +41,12 @@ do_xsetbv_pass (u32 ic, u32 ia, u32 id)
 	switch (ic) {
 	case 0:			/* XCR0 */
 		/* passthrough because these bits does not affect the VMM */
-		ia &= XCR0_X87_STATE_BIT | XCR0_SSE_STATE_BIT;
-		id = 0;
+		if ((ia & ~(XCR0_X87_STATE_BIT | XCR0_SSE_STATE_BIT |
+			    XCR0_AVX_STATE_BIT)) || id) {
+			printf ("XSETBV error! ECX:0x%X EAX:0x%X EDX:0x%X\n",
+				ic, ia, id);
+			return true;
+		}
 		asm_rdcr4 (&cr4);
 		if (!(cr4 & CR4_OSXSAVE_BIT)) {
 			cr4 |= CR4_OSXSAVE_BIT;

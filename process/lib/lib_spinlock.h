@@ -49,7 +49,7 @@ spinlock_lock (spinlock_t *l)
 #else
 		      : "=abcd" (dummy)
 #endif
-		      , "=m" (*l)
+		      , "+m" (*l)
 		      : "0" ((char)1)
 		      : "cc");
 }
@@ -65,7 +65,7 @@ spinlock_unlock (spinlock_t *l)
 #else
 		      : "=abcd" (dummy)
 #endif
-		      , "=m" (*l)
+		      , "+m" (*l)
 		      : "0" ((char)0));
 }
 

@@ -33,6 +33,7 @@
 #include "process.h"
 #include "sleep.h"
 #include "time.h"
+#include "uefi.h"
 
 void
 waitcycles (u32 d, u32 a)
@@ -127,7 +128,8 @@ usleep_msghandler (int m, int c)
 static void
 sleep_init_global (void)
 {
-	sleep_set_timer_counter ();
+	if (!uefi_booted)
+		sleep_set_timer_counter ();
 }
 
 static void

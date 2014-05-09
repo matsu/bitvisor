@@ -82,6 +82,7 @@ struct SE_SEC_CONFIG
 	char VpnCertName[MAX_SIZE];		// 証明書認証を用いる場合に使用する X.509 証明書ファイルの名前
 	char VpnCaCertName[MAX_SIZE];	// 接続先 VPN サーバーから返された X.509 証明書を検証する CA 証明書のファイル名
 	char VpnRsaKeyName[MAX_SIZE];	// VpnCertName で指定した X.509 証明書に対応した RSA 秘密鍵の名前
+	UINT VpnPhase1Mode;				// VPN phase one mode (Main or Aggressive)
 	UCHAR VpnPhase1Crypto;			// フェーズ 1 における暗号化アルゴリズム
 	UCHAR VpnPhase1Hash;			// フェーズ 1 における署名アルゴリズム
 	UINT VpnPhase1LifeKilobytes;	// ISAKMP SA の有効期限の値 (単位: キロバイト, 0 の場合は無効)
@@ -140,6 +141,7 @@ struct SE_IKE_SA
 	UINT64 ResponderCookie;
 	UINT64 TransferBytes;								// 転送バイト数
 	UINT Phase;											// フェーズ番号
+	UINT Status;										// Phase one status (number of packet being sent/proceed)
 	SE_DH *Dh;											// DH
 	SE_BUF *Phase1MyRand;								// P1 での自分の乱数
 	SE_BUF *Phase1Password;								// P1 でのパスワード
@@ -147,6 +149,7 @@ struct SE_IKE_SA
 	SE_BUF *Phase2YourRand;								// P2 での相手の乱数
 	SE_BUF *SAi_b, *IDii_b;
 	UINT64 ConnectTimeoutTick;							// 接続タイムアウトが発生する時刻
+	UCHAR SKEYID[SE_SHA1_HASH_SIZE];					// Key, all other keys are derived from
 	SE_IKE_P1_KEYSET P1KeySet;							// フェーズ 1 用鍵セット
 	UCHAR Phase1Iv[SE_DES_BLOCK_SIZE];					// フェーズ 1 用 IV
 	UINT Phase2MessageId;								// フェーズ 2 用最終メッセージ ID
@@ -248,6 +251,15 @@ UINT SeSecGenIkeSaMessageId(SE_SEC *s);
 UINT SeSecGenIPsecSASpi(SE_SEC *s);
 
 void SeSecFreeP1KeySet(SE_IKE_P1_KEYSET *set);
+
+bool SeSecSendMain1(SE_SEC *s);
+void SeSecRecvMain2(SE_SEC *s, SE_IKE_SA *sa, void *data, UINT size);
+void SeSecSendMain3(SE_SEC *s, SE_IKE_SA *sa);
+void SeSecRecvMain4(SE_SEC *s, SE_IKE_SA *sa, void *data, UINT size);
+void SeSecSendMain5(SE_SEC *s, SE_IKE_SA *sa);
+void SeSecRecvMain6(SE_SEC *s, SE_IKE_SA *sa, void *data, UINT size);
+bool SeSecSendAggr(SE_SEC *s);
+void SeSecRecvAggr(SE_SEC *s, SE_IKE_SA *sa, void *data, UINT size);
 
 bool SeSecStartVpnConnect(SE_SEC *s);
 void SeSecProcessIkeSaMsg(SE_SEC *s, SE_IKE_SA *sa, SE_IKE_PACKET *packet_header, void *data, UINT size);

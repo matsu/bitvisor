@@ -98,6 +98,7 @@ struct config_data_vpn {
 	char vpnCaCertV4[4096];
 	char vpnRsaKeyV4[4096];
 	char vpnSpecifyIssuerV4[8];
+	char vpnPhase1ModeV4[16];
 	char vpnPhase1CryptoV4[16];
 	char vpnPhase1HashV4[16];
 	char vpnPhase1LifeSecondsV4[16];
@@ -133,6 +134,7 @@ struct config_data_vpn {
 	char vpnCaCertV6[4096];
 	char vpnRsaKeyV6[4096];
 	char vpnSpecifyIssuerV6[8];
+	char vpnPhase1ModeV6[16];
 	char vpnPhase1CryptoV6[16];
 	char vpnPhase1HashV6[16];
 	char vpnPhase1LifeSecondsV6[16];
@@ -210,6 +212,8 @@ struct config_data_vmm {
 	int dbgsh;
 	int status;
 	int boot_active;
+	int no_intr_intercept;
+	int ignore_tsc_invariant;
 	int tty_pro1000;
 	char tty_pro1000_mac_address[6];
 	int tty_rtl8169;

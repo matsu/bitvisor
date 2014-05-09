@@ -64,7 +64,7 @@ spinlock_lock (spinlock_t *l)
 #else
 		      : "=abcd" (dummy)
 #endif
-		      , "=m" (*l)
+		      , "+m" (*l)
 		      : "0" ((u8)1)
 		      : "cc");
 }
@@ -101,7 +101,7 @@ spinlock_lock_debug (spinlock_t *l, char *msg)
 #else
 		      : "=abd" (dummy)
 #endif
-		      , "=m" (*l)
+		      , "+m" (*l)
 		      , "=c" (c)
 		      : "0" ((u8)1)
 		      , "2" (0xFFFFFFFF)
@@ -122,7 +122,7 @@ spinlock_unlock (spinlock_t *l)
 #else
 		      : "=abcd" (dummy)
 #endif
-		      , "=m" (*l)
+		      , "+m" (*l)
 		      : "0" ((u8)0));
 }
 
@@ -142,7 +142,7 @@ rw_spinlock_lock_sh (rw_spinlock_t *l)
 		      "      cmpl %1, %0 \n" /* test a sign */
 		      "      js   2b \n" /* if negative, do spin loop */
 		      "1: \n"
-		      : "=m" (*l)
+		      : "+m" (*l)
 		      : "ri" ((rw_spinlock_t)0)
 		      , "ri" ((rw_spinlock_t)1)
 		      : "cc");
@@ -152,7 +152,7 @@ static inline void
 rw_spinlock_unlock_sh (rw_spinlock_t *l)
 {
 	asm volatile ("lock subl %1, %0"
-		      : "=m" (*l)
+		      : "+m" (*l)
 		      : "ri" ((rw_spinlock_t)1)
 		      : "cc");
 }
@@ -168,17 +168,33 @@ rw_spinlock_lock_ex (rw_spinlock_t *l)
 		      " lock cmpxchgl %2, %0 \n" /* if *l==0, *l=0x80000000 */
 		      "      jne      2b \n" /* else do spin loop */
 		      "1: \n"
-		      : "=m" (*l)
+		      : "+m" (*l)
 		      : "a" (0)
 		      , "r" (0x80000000)
 		      : "cc");
+}
+
+/* return value 0: lock succeeded */
+static inline rw_spinlock_t
+rw_spinlock_trylock_ex (rw_spinlock_t *l)
+{
+	rw_spinlock_t ret;
+
+	/* if (*l==(ret=0)) *l=0x80000000; else ret=*l; */
+	asm volatile ("lock cmpxchgl %2, %0"
+		      : "+m" (*l)
+		      , "=&a" (ret)
+		      : "r" (0x80000000)
+		      , "1" (0)
+		      : "cc");
+	return ret;
 }
 
 static inline void
 rw_spinlock_unlock_ex (rw_spinlock_t *l)
 {
 	asm volatile ("lock andl %1,%0"
-		      : "=m" (*l)
+		      : "+m" (*l)
 		      : "ri" ((rw_spinlock_t)0x7FFFFFFF)
 		      : "cc");
 }

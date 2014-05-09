@@ -9,8 +9,8 @@
 #define VMMCALL_TYPE_VMMCALL 2
 
 struct call_vmm_get_function_sub_data {
-	unsigned long addr;
-	int off, ret;
+	unsigned long addr, arg;
+	int ret;
 };
 
 struct call_vmm_call_function_sub_data {
@@ -56,33 +56,33 @@ static void
 call_vmm_get_function_sub (void *data)
 {
 	struct call_vmm_get_function_sub_data *p;
+	unsigned long tmp;
 
 	p = data;
-	asm volatile ("call *%3" : "=a" (p->ret)
-		      : "a" (0), "b" (p->addr + p->off), "r" (p->addr));
+	asm volatile ("mov $1f,%1\n"
+		      "jmp *%4\n"
+		      "1:"
+		      : "=a" (p->ret), "=&S" (tmp)
+		      : "a" (0), "b" (p->arg), "r" (p->addr));
 }
 
 void
-call_vmm_get_function (unsigned long addr0, unsigned long addr1,
-		       unsigned long addr2, unsigned long addr3,
+call_vmm_get_function (unsigned long addr0, unsigned long addr1, int aoff,
 		       int off, call_vmm_function_t *function)
 {
 	struct call_vmm_get_function_sub_data data;
 
-	data.off = off;
-	if (addr0 ^ addr1 < 0x1000)
+	if ((addr0 ^ addr1) < 0x1000)
 		data.addr = addr0;
 	else
 		data.addr = addr1;
+	data.arg = data.addr + off;
 	if (!call_vmm_docall (call_vmm_get_function_sub, &data)) {
 		function->vmmcall_number = data.ret;
 		function->vmmcall_type = VMMCALL_TYPE_VMCALL;
 		return;
 	}
-	if (addr2 ^ addr3 < 0x1000)
-		data.addr = addr2;
-	else
-		data.addr = addr3;
+	data.addr += aoff;
 	if (!call_vmm_docall (call_vmm_get_function_sub, &data)) {
 		function->vmmcall_number = data.ret;
 		function->vmmcall_type = VMMCALL_TYPE_VMMCALL;

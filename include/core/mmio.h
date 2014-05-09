@@ -38,5 +38,7 @@ typedef int (*mmio_handler_t) (void *data, phys_t gphys, bool wr, void *buf,
 void *mmio_register (phys_t gphys, uint len, mmio_handler_t handler,
 		     void *data);
 void mmio_unregister (void *handle);
+void *mmio_register_unlocked (phys_t gphys, uint len, mmio_handler_t handler,
+			      void *data);
 
 #endif

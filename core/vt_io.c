@@ -135,14 +135,8 @@ iobmp_allocation (void)
 static void
 load_iobmpaddr (void)
 {
-	u32 low0, high0, low1, high1;
-
-	conv64to32 (current->u.vt.io.iobmpphys[0], &low0, &high0);
-	conv64to32 (current->u.vt.io.iobmpphys[1], &low1, &high1);
-	asm_vmwrite (VMCS_ADDR_IOBMP_A, low0);
-	asm_vmwrite (VMCS_ADDR_IOBMP_A_HIGH, high0);
-	asm_vmwrite (VMCS_ADDR_IOBMP_B, low1);
-	asm_vmwrite (VMCS_ADDR_IOBMP_B_HIGH, high1);
+	asm_vmwrite64 (VMCS_ADDR_IOBMP_A, current->u.vt.io.iobmpphys[0]);
+	asm_vmwrite64 (VMCS_ADDR_IOBMP_B, current->u.vt.io.iobmpphys[1]);
 }
 
 static void

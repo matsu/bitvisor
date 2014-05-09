@@ -57,7 +57,6 @@ svm_nmi (void)
 		return;
 	if (!current->nmi.get_nmi_count ())
 		return;
-	printf ("SVM NMI!\n");	/* DEBUG */
 	svm->intr.vmcb_intr_info.v = 0;
 	svm->intr.vmcb_intr_info.s.vector = EXCEPTION_NMI;
 	svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_NMI;
@@ -491,6 +490,7 @@ svm_init_signal (void)
 void
 svm_start_vm (void)
 {
+	current->exint.int_enabled ();
 	svm_paging_start ();
 	svm_mainloop ();
 }

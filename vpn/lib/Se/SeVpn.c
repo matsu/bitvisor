@@ -826,6 +826,7 @@ SE_VPN_CONFIG *SeVpnLoadConfig(SE_LIST *o)
 
 			c.VpnSpecifyIssuerV4 = SeGetConfigBool(o, "VpnSpecifyIssuerV4");
 
+			c.VpnPhase1ModeV4 = SeIkeStrToPhase1Mode(SeGetConfigStr(o, "VpnPhase1ModeV4"));
 			c.VpnPhase1CryptoV4 = SeIkeStrToPhase1CryptId(SeGetConfigStr(o, "VpnPhase1CryptoV4"));
 			c.VpnPhase1HashV4 = SeIkeStrToPhase1HashId(SeGetConfigStr(o, "VpnPhase1HashV4"));
 			c.VpnPhase1LifeKilobytesV4 = SeGetConfigInt(o, "VpnPhase1LifeKilobytesV4");
@@ -872,6 +873,11 @@ SE_VPN_CONFIG *SeVpnLoadConfig(SE_LIST *o)
 					SeStrCpy(error_str, sizeof(error_str), "VpnRsaKeyNameV4: Invalid Value.");
 					goto LABEL_ERROR;
 				}
+			}
+			if (c.VpnPhase1ModeV4 == 0)
+			{
+				SeStrCpy(error_str, sizeof(error_str), "VpnPhase1ModeV4: Invalid Value.");
+				goto LABEL_ERROR;
 			}
 			if (c.VpnPhase1CryptoV4 == 0)
 			{
@@ -999,6 +1005,7 @@ SE_VPN_CONFIG *SeVpnLoadConfig(SE_LIST *o)
 
 			c.VpnSpecifyIssuerV6 = SeGetConfigBool(o, "VpnSpecifyIssuerV6");
 
+			c.VpnPhase1ModeV6 = SeIkeStrToPhase1Mode(SeGetConfigStr(o, "VpnPhase1ModeV4"));
 			c.VpnPhase1CryptoV6 = SeIkeStrToPhase1CryptId(SeGetConfigStr(o, "VpnPhase1CryptoV6"));
 			c.VpnPhase1HashV6 = SeIkeStrToPhase1HashId(SeGetConfigStr(o, "VpnPhase1HashV6"));
 			c.VpnPhase1LifeKilobytesV6 = SeGetConfigInt(o, "VpnPhase1LifeKilobytesV6");
@@ -1046,6 +1053,11 @@ SE_VPN_CONFIG *SeVpnLoadConfig(SE_LIST *o)
 					SeStrCpy(error_str, sizeof(error_str), "VpnRsaKeyNameV6: Invalid Value.");
 					goto LABEL_ERROR;
 				}
+			}
+			if (c.VpnPhase1ModeV6 == 0)
+			{
+				SeStrCpy(error_str, sizeof(error_str), "VpnPhase1ModeV6: Invalid Value.");
+				goto LABEL_ERROR;
 			}
 			if (c.VpnPhase1CryptoV6 == 0)
 			{

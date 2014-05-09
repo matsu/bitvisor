@@ -49,10 +49,10 @@ struct vga_func_data {
 };
 
 static void vga_intel_new (struct pci_device *pci_device);
-static int vga_intel_config_read (struct pci_device *pci_device, core_io_t io,
-				  u8 offset, union mem *data);
-static int vga_intel_config_write (struct pci_device *pci_device, core_io_t io,
-				   u8 offset, union mem *data);
+static int vga_intel_config_read (struct pci_device *pci_device, u8 iosize,
+				  u16 offset, union mem *data);
+static int vga_intel_config_write (struct pci_device *pci_device, u8 iosize,
+				   u16 offset, union mem *data);
 static int vga_intel_is_ready (struct vga_func_data *data);
 static int vga_intel_transfer_image (struct vga_func_data *data,
 				     enum vga_func_transfer_dir dir,
@@ -133,6 +133,7 @@ vga_intel_new (struct pci_device *pci_device)
 		d->swap64_line = 0x96;
 		break;
 	case 0x0126:		/* X220 */
+	case 0x0046:		/* CF-J9 */
 		d->swap64_line = 0x66;
 		break;
 	}
@@ -142,24 +143,24 @@ vga_intel_new (struct pci_device *pci_device)
 }
 
 static int
-vga_intel_config_read (struct pci_device *pci_device, core_io_t io, u8 offset,
+vga_intel_config_read (struct pci_device *pci_device, u8 iosize, u16 offset,
 		       union mem *data)
 {
 	return CORE_IO_RET_DEFAULT;
 }
 
 static int
-vga_intel_config_write (struct pci_device *pci_device, core_io_t io, u8 offset,
+vga_intel_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 			union mem *data)
 {
 	struct vga_func_data *d = pci_device->host;
 	u32 tmp;
 	int i;
 
-	if (offset + io.size - 1 >= 0x10 && offset <= 0x24) {
-		if ((offset & 3) || io.size != 4)
-			panic ("%s: io:%08x, offset=%02x, data:%08x\n",
-			       __func__, *(int *)&io, offset, data->dword);
+	if (offset + iosize - 1 >= 0x10 && offset <= 0x24) {
+		if ((offset & 3) || iosize != 4)
+			panic ("%s: iosize:%02x, offset=%02x, data:%08x\n",
+			       __func__, iosize, offset, data->dword);
 		i = (offset - 0x10) >> 2;
 		ASSERT (i >= 0 && i < 6);
 		tmp = pci_device->base_address_mask[i];

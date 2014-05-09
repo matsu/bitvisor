@@ -782,7 +782,7 @@ getbuf (struct parsedata *d)
 		d->head = d->ok;
 		d->ok = NULL;
 		d->c++;
-		if (((d->c - d->start) % d->progress) == 0)
+		if (d->progress && ((d->c - d->start) % d->progress) == 0)
 			printf ("%c", d->progresschar);
 	}
 	if (d->head == NULL)
@@ -2368,6 +2368,7 @@ loop2:
 		/* some BIOSes have a DSDT which has If() operator */
 		/* in ObjectList of Device() block. (see ACPI spec 4.0a) */
 		/* ObjectList2 includes If() operator for workaround. */
+		/* D34010WYKH 2014-01 has ZeroOp in ObjectList of Device(). */
 		addbuf (d, AML_DeviceOp, AML_PkgLength, 
 			AML_NameString, AML_ObjectList2, AML_PkgEND, OK);
 		break;
@@ -2392,6 +2393,8 @@ loop2:
 		addbuf (d, AML_Nothing, OK);
 		addbuf (d, AML_Object, AML_ObjectList2, OK);
 		addbuf (d, AML_DefIfElse, AML_ObjectList2, OK);
+		/* ZeroOp is a workaround for D34010WYKH 2014-01 */
+		addbuf (d, AML_ZeroOp, AML_ObjectList2, OK);
 		break;
 	case AML_ObjectReference:
 		addbuf (d, AML_TermArg, OK); /* FIXME: correct? */
@@ -2507,7 +2510,7 @@ err:
 }
 
 static void
-parser (unsigned char *start, unsigned char *end)
+parser (unsigned char *start, unsigned char *end, bool print_progress)
 {
 	struct parsedata d;
 	struct parsedatalist *q;
@@ -2519,15 +2522,17 @@ parser (unsigned char *start, unsigned char *end)
 	search_device = 1;
 #endif
 	d.breakhead = NULL;
-	d.progress = ((end - start) + 25) / 50;
+	d.progress = print_progress ? ((end - start) + 25) / 50 : 0;
 	d.progresschar = 'o';
 	d.start = start;
 	d.end = end;
 
-	for (i = 0, j = end - start; i < j; i += d.progress)
-		printf (".");
-	for (i = 0, j = end - start; i < j; i += d.progress)
-		printf ("\b");
+	if (d.progress) {
+		for (i = 0, j = end - start; i < j; i += d.progress)
+			printf (".");
+		for (i = 0, j = end - start; i < j; i += d.progress)
+			printf ("\b");
+	}
 	if (search_device) {
 		d.breakfind = 1;
 		d.c = start;
@@ -2545,13 +2550,16 @@ parser (unsigned char *start, unsigned char *end)
 		addbuflist (&d.head->bufhead, AML_AMLCode);
 		d.head->limithead = NULL;
 		q = parsemain (&d);
-		printf ("%c", d.progresschar);
+		if (d.progress)
+			printf ("%c", d.progresschar);
 		parsefreepathlist (&q->pathhead);
 		parsefreebuflist (&q->bufhead);
 		parsefreelimitlist (&q->limithead);
 		parsefree (q);
-		for (i = 0, j = end - start; i < j; i += d.progress)
-			printf ("\b");
+		if (d.progress) {
+			for (i = 0, j = end - start; i < j; i += d.progress)
+				printf ("\b");
+		}
 		d.progresschar = 'O';
 	}
 	d.breakfind = 0;
@@ -2570,7 +2578,8 @@ parser (unsigned char *start, unsigned char *end)
 	addbuflist (&d.head->bufhead, AML_AMLCode);
 	d.head->limithead = NULL;
 	q = parsemain (&d);
-	printf ("%c\n", d.progresschar);
+	if (d.progress)
+		printf ("%c\n", d.progresschar);
 #ifdef DISABLE_SLEEP
 	if (q->system_state_name[2] && *q->system_state_name[2] == '_') {
 		replace_byte (&d, q->system_state_name[2], 'D');
@@ -2581,9 +2590,12 @@ parser (unsigned char *start, unsigned char *end)
 		printf ("Disable ACPI S3\n");
 	}
 #endif
-	for (i = 0; i < 6; i++)
+	for (i = 0; i < 6; i++) {
+		if (!q->system_state[i][0])
+			continue;
 		for (j = 0; j < 5; j++)
 			acpi_dsdt_system_state[i][j] = q->system_state[i][j];
+	}
 	parsefreepathlist (&q->pathhead);
 	parsefreebuflist (&q->bufhead);
 	parsefreelimitlist (&q->limithead);
@@ -2606,6 +2618,12 @@ acpi_dsdt_parse (ulong dsdt)
 	unmapmem (p, 8);
 	q = mapmem_hphys (dsdt, len, MAPMEM_WRITE);
 	ASSERT (q);
-	parser (q, q + len);
+	parser (q, q + len, true);
 	unmapmem (q, len);
+}
+
+void
+acpi_ssdt_parse (u8 *ssdt, u32 len)
+{
+	parser (ssdt, ssdt + len, false);
 }

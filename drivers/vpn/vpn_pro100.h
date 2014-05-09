@@ -255,8 +255,10 @@ void pro100_init();
 void pro100_new(struct pci_device *pci_device);
 void pro100_init_recv_buffer(PRO100_CTX *ctx);
 void pro100_alloc_recv_buffer(PRO100_CTX *ctx);
-int pro100_config_read(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data);
-int pro100_config_write(struct pci_device *pci_device, core_io_t io, u8 offset, union mem *data);
+int pro100_config_read (struct pci_device *pci_device, u8 iosize, u16 offset,
+			union mem *data);
+int pro100_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
+			 union mem *data);
 int pro100_io_handler(core_io_t io, union mem *data, void *arg);
 int pro100_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags);
 bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size);

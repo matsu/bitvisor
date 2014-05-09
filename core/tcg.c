@@ -32,6 +32,7 @@
 #include "mm.h"
 #include "printf.h"
 #include "string.h"
+#include "uefi.h"
 #include <tcg.h>
 
 #define TCPA 0x41504354
@@ -90,6 +91,8 @@ int1a_TCG_StatusCheck (u32 *return_code, u8 *major, u8 *minor,
 {
 	struct tcgbios_args args;
 
+	if (uefi_booted)
+		return false;
 	args.in_ebx = 0;
 	args.in_ecx = 0;
 	args.in_edx = 0;

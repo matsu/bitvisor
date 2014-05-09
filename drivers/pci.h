@@ -122,6 +122,8 @@ struct pci_config_space {
 #define PCI_CONFIG_COMMAND_IOENABLE	0x1
 #define PCI_CONFIG_COMMAND_MEMENABLE	0x2
 
+struct pci_config_mmio_data;
+
 // data structures
 struct pci_device {
 	LIST_DEFINE(pci_device_list);
@@ -132,6 +134,7 @@ struct pci_device {
 	u32 base_address_mask[PCI_CONFIG_BASE_ADDRESS_NUMS+1];
 	u8 in_base_address_mask_emulation;
 	bool conceal;
+	struct pci_config_mmio_data *config_mmio;
 };
 
 struct pci_driver {
@@ -139,8 +142,10 @@ struct pci_driver {
 	struct idmask id;
 	struct idmask class;
 	void (*new)(struct pci_device *dev);
-	int (*config_read)(struct pci_device *dev, core_io_t ioaddr, u8 offset, union mem *data);
-	int (*config_write)(struct pci_device *dev, core_io_t ioaddr, u8 offset, union mem *data);
+	int (*config_read) (struct pci_device *dev, u8 iosize, u16 offset,
+			    union mem *data);
+	int (*config_write) (struct pci_device *dev, u8 iosize, u16 offset,
+			     union mem *data);
 	struct {
 		unsigned int use_base_address_mask_emulation: 1;
 	} options;
@@ -149,7 +154,12 @@ struct pci_driver {
 
 // exported functions
 extern void pci_register_driver (struct pci_driver *driver);
-extern void pci_handle_default_config_write(struct pci_device *pci_device, core_io_t ioaddr, u8 offset, union mem *data);
+extern void pci_handle_default_config_read (struct pci_device *pci_device,
+					    u8 iosize, u16 offset,
+					    union mem *data);
+extern void pci_handle_default_config_write (struct pci_device *pci_device,
+					     u8 iosize, u16 offset,
+					     union mem *data);
 extern u32  pci_read_config_data_port();
 extern void pci_write_config_data_port(u32 data);
 
@@ -161,5 +171,14 @@ extern void pci_write_config_data16(pci_config_address_t addr, int offset, u16 d
 extern void pci_write_config_data32(pci_config_address_t addr, int offset, u32 data);
 
 struct pci_device *pci_possible_new_device (pci_config_address_t addr);
+void pci_readwrite_config_mmio (struct pci_config_mmio_data *p, bool wr,
+				uint bus_no, uint device_no, uint func_no,
+				uint offset, uint iosize, void *data);
+void pci_read_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
+			   uint device_no, uint func_no, uint offset,
+			   uint iosize, void *data);
+void pci_write_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
+			    uint device_no, uint func_no, uint offset,
+			    uint iosize, void *data);
 
 #endif

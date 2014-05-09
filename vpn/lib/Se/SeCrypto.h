@@ -101,6 +101,7 @@ struct SE_DH
 	DH *dh;
 	SE_BUF *MyPublicKey;
 	SE_BUF *MyPrivateKey;
+	SE_BUF *YourPublicKey;
 	UINT Size;
 };
 

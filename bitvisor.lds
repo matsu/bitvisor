@@ -9,12 +9,17 @@ SECTIONS {
 	. = virt;
 	head = .;
 	. = virt + SIZEOF_HEADERS;
-	.text : AT (phys + (code - head)) {
+	.entry : AT (phys + (code - head)) {
 		code = .;
 		*(.entry)
+		*(.entry.text)
+		*(.entry.data)
+	} :all
+	.text : AT (phys + (text - head)) {
+		text = .;
 		*(.text)
 		codeend = .;
-	} :all
+	}
 	.data : AT (phys + (data - head)) {
 		data = .;
 		*(.data)
@@ -25,8 +30,8 @@ SECTIONS {
 		__process_builtin = .;
 		*(.processes)
 		__process_builtin_end = .;
-	/* }
-	.bss : AT (phys + (bss - head)) { */
+	}
+	.bss : AT (phys + (bss - head)) {
 		bss = .;
 		*(.bss)
 		*(COMMON)

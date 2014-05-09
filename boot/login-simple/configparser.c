@@ -377,6 +377,10 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (uintnum, &name, &src, &len, "vmm.dbgsh", "vmm.dbgsh");
 	ss (uintnum, &name, &src, &len, "vmm.status", "vmm.status");
 	ss (uintnum, &name, &src, &len, "vmm.boot_active", "vmm.boot_active");
+	ss (uintnum, &name, &src, &len, "vmm.no_intr_intercept",
+	    "vmm.no_intr_intercept");
+	ss (uintnum, &name, &src, &len, "vmm.ignore_tsc_invariant",
+	    "vmm.ignore_tsc_invariant");
 	ss (uintnum, &name, &src, &len, "vmm.tty_pro1000", "vmm.tty_pro1000");
 	ss (mac_addr, &name, &src, &len, "vmm.tty_pro1000_mac_address",
 	    "vmm.tty_pro1000_mac_address");
@@ -442,6 +446,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vpn.vpnCaCertV4);
 	CONF (vpn.vpnRsaKeyV4);
 	CONF (vpn.vpnSpecifyIssuerV4);
+	CONF (vpn.vpnPhase1ModeV4);
 	CONF (vpn.vpnPhase1CryptoV4);
 	CONF (vpn.vpnPhase1HashV4);
 	CONF (vpn.vpnPhase1LifeSecondsV4);
@@ -477,6 +482,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vpn.vpnCaCertV6);
 	CONF (vpn.vpnRsaKeyV6);
 	CONF (vpn.vpnSpecifyIssuerV6);
+	CONF (vpn.vpnPhase1ModeV6);
 	CONF (vpn.vpnPhase1CryptoV6);
 	CONF (vpn.vpnPhase1HashV6);
 	CONF (vpn.vpnPhase1LifeSecondsV6);
@@ -525,6 +531,8 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.dbgsh);
 	CONF (vmm.status);
 	CONF (vmm.boot_active);
+	CONF (vmm.no_intr_intercept);
+	CONF (vmm.ignore_tsc_invariant);
 	CONF (vmm.tty_pro1000);
 	CONF (vmm.tty_pro1000_mac_address);
 	CONF (vmm.tty_rtl8169);

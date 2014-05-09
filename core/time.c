@@ -32,6 +32,7 @@
 #include "arith.h"
 #include "asm.h"
 #include "comphappy.h"
+#include "config.h"
 #include "constants.h"
 #include "convert.h"
 #include "initfunc.h"
@@ -44,9 +45,8 @@
 #include "time.h"
 #include "vmmcall_status.h"
 
-static u64 volatile lasttime;
+static u64 lastcputime;
 static u64 lastacpitime;
-static spinlock_t time_lock;
 
 static u64
 tsc_to_time (u64 tsc, u64 hz)
@@ -77,18 +77,18 @@ u64
 get_cpu_time (void)
 {
 	u64 tsc, time;
+	u64 lasttime = lasttime;
 
+	asm_lock_cmpxchgq (&lastcputime, &lasttime, lasttime);
 	tsc = get_cpu_time_raw ();
 	time = tsc_to_time (tsc - currentcpu->tsc, currentcpu->hz);
 	time += currentcpu->timediff;
-	spinlock_lock (&time_lock);
 	if (lasttime <= time) {
-		lasttime = time;
+		asm_lock_cmpxchgq (&lastcputime, &lasttime, time);
 	} else {
 		currentcpu->timediff += lasttime - time;
 		time = lasttime;
 	}
-	spinlock_unlock (&time_lock);
 	return time;
 }
 
@@ -124,11 +124,21 @@ get_time (void)
 
 	ok = false;
 #ifdef ACPI_TIME_SOURCE
-	ok = get_acpi_time (&ret);
+	/* prefer invariant TSC */
+	if (!currentcpu->use_invariant_tsc)
+		ok = get_acpi_time (&ret);
 #endif
 	if (!ok)
 		ret = get_cpu_time ();
 	return ret;
+}
+
+static void
+time_init_dbsp (void)
+{
+	sync_all_processors ();
+	usleep (1000000 >> 4);
+	sync_all_processors ();
 }
 
 static void
@@ -143,6 +153,15 @@ time_init_pcpu (void)
 	if (!(d & CPUID_1_EDX_TSC_BIT))
 		panic ("Processor %d does not support TSC",
 		       currentcpu->cpunum);
+	currentcpu->use_invariant_tsc = false;
+	if (!config.vmm.ignore_tsc_invariant) {
+		asm_cpuid (CPUID_EXT_0, 0, &a, &b, &c, &d);
+		if (a >= CPUID_EXT_7) {
+			asm_cpuid (CPUID_EXT_7, 0, &a, &b, &c, &d);
+			if (d & CPUID_EXT_7_EDX_TSCINVARIANT_BIT)
+				currentcpu->use_invariant_tsc = true;
+		}
+	}
 	sync_all_processors ();
 	asm_rdtsc (&tsc1_l, &tsc1_h);
 	if (currentcpu->cpunum == 0)
@@ -152,10 +171,21 @@ time_init_pcpu (void)
 	conv32to64 (tsc1_l, tsc1_h, &tsc1);
 	conv32to64 (tsc2_l, tsc2_h, &tsc2);
 	count = (tsc2 - tsc1) << 4;
-	printf ("Processor %d %llu Hz\n", currentcpu->cpunum, count);
+	printf ("Processor %d %llu Hz%s\n", currentcpu->cpunum, count,
+		currentcpu->use_invariant_tsc ? " (Invariant TSC)" : "");
 	currentcpu->tsc = tsc1;
 	currentcpu->hz = count;
 	currentcpu->timediff = 0;
+}
+
+static void
+time_wakeup (void)
+{
+	u32 tsc_l, tsc_h;
+
+	/* Read current TSC again to keep TSC >= currentcpu->tsc */
+	asm_rdtsc (&tsc_l, &tsc_h);
+	conv32to64 (tsc_l, tsc_h, &currentcpu->tsc);
 }
 
 static int
@@ -183,12 +213,12 @@ time_status (void)
 		  " cpu: %d\n"
 		  " hz: %llu\n"
 		  " tsc: %llu\n"
-		  " lasttime: %llu\n"
+		  " lastcputime: %llu\n"
 		  " timediff: %llu\n"
 		  , currentcpu->cpunum
 		  , currentcpu->hz
 		  , currentcpu->tsc
-		  , lasttime
+		  , lastcputime
 		  , currentcpu->timediff);
 	return buf;
 }
@@ -202,12 +232,13 @@ time_init_global_status (void)
 static void
 time_init_global (void)
 {
-	spinlock_init (&time_lock);
-	lasttime = 0;
+	lastcputime = 0;
 	lastacpitime = 0;
 }
 
 INITFUNC ("global3", time_init_global);
 INITFUNC ("paral01", time_init_global_status);
 INITFUNC ("pcpu4", time_init_pcpu);
+INITFUNC ("dbsp4", time_init_dbsp);
 INITFUNC ("msg0", time_init_msg);
+INITFUNC ("wakeup0", time_wakeup);

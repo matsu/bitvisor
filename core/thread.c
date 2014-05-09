@@ -67,7 +67,6 @@ struct thread_data {
 	int pid;
 	ulong syscallstack;
 	phys_t process_switch;
-	bool process_switch_enable;
 };
 
 static struct thread_data td[MAXNUM_OF_THREADS];
@@ -86,26 +85,20 @@ thread_data_init (struct thread_data *d, struct thread_context *c, void *stack,
 	d->stack = stack;
 	d->pid = 0;
 	d->syscallstack = 0;
-	d->process_switch_enable = false;
+	d->process_switch = 1;
 	d->state = THREAD_RUN;
 }
 
 static void
-thread_data_save (struct thread_data *d)
+thread_data_save_and_load (struct thread_data *old, struct thread_data *new)
 {
-	d->stack = currentcpu->stackaddr;
-	d->pid = currentcpu->pid;
-	d->syscallstack = syscallstack;
-}
-
-static void
-thread_data_load (struct thread_data *d)
-{
-	currentcpu->stackaddr = d->stack;
-	currentcpu->pid = d->pid;
-	syscallstack = d->syscallstack;
-	if (d->process_switch_enable)
-		mm_process_switch (d->process_switch);
+	old->stack = currentcpu->stackaddr;
+	old->pid = currentcpu->pid;
+	old->syscallstack = syscallstack;
+	currentcpu->stackaddr = new->stack;
+	currentcpu->pid = new->pid;
+	syscallstack = new->syscallstack;
+	old->process_switch = mm_process_switch (new->process_switch);
 }
 
 tid_t
@@ -142,9 +135,8 @@ found:
 	LIST1_DEL (td_runnable, d);
 	oldtid = currentcpu->tid;
 	newtid = d->tid;
-	thread_data_save (&td[oldtid]);
 	currentcpu->tid = newtid;
-	thread_data_load (d);
+	thread_data_save_and_load (&td[oldtid], d);
 	switch (td[oldtid].state) {
 	case THREAD_EXIT:
 		old_stack = td[oldtid].stack;
@@ -278,13 +270,6 @@ thread_exit (void)
 		       currentcpu->tid, td[currentcpu->tid].state);
 	}
 	schedule ();
-}
-
-void
-thread_set_process_switch (phys_t switchto)
-{
-	td[currentcpu->tid].process_switch = switchto;
-	td[currentcpu->tid].process_switch_enable = true;
 }
 
 static void

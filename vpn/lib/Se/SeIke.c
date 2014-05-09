@@ -95,6 +95,23 @@ UINT SeIkePhase2CryptIdToKeySize(UCHAR id)
 	return 0;
 }
 
+// Phase one mode selection
+UINT SeIkeStrToPhase1Mode(char *name)
+{
+	if (SeStrCmp(name, "Main") == 0)
+	{
+		return SE_IKE_EXCHANGE_TYPE_MAIN;
+	}
+	else if (SeStrCmp(name, "Aggressive") == 0)
+	{
+		return SE_IKE_EXCHANGE_TYPE_AGGRESSIVE;
+	}
+	else
+	{
+		return 0;
+	}
+}
+
 // 文字列をアルゴリズム名に変換
 UCHAR SeIkeStrToPhase1CryptId(char *name)
 {

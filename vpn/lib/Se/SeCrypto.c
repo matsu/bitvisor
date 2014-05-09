@@ -213,6 +213,7 @@ void SeDhFree(SE_DH *dh)
 
 	SeFreeBuf(dh->MyPrivateKey);
 	SeFreeBuf(dh->MyPublicKey);
+	SeFreeBuf(dh->YourPublicKey);
 
 	SeFree(dh);
 }

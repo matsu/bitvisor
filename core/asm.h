@@ -339,6 +339,19 @@ asm_vmwrite (ulong index, ulong val)
 #endif
 }
 
+static inline void
+asm_vmwrite64 (ulong index, u64 val)
+{
+	ulong tmp, tmp_high;
+
+	tmp = val;
+	asm_vmwrite (index, tmp);
+	if (sizeof val != sizeof (ulong)) {
+		tmp_high = val >> 32;
+		asm_vmwrite (index + 1, tmp_high);
+	}
+}
+
 /* 0f 01 c2                vmlaunch  */
 static inline void
 asm_vmlaunch (void)
@@ -410,6 +423,20 @@ asm_vmread (ulong index, ulong *val)
 		      : "r" (index)
 		      : "cc");
 #endif
+}
+
+static inline void
+asm_vmread64 (ulong index, u64 *val)
+{
+	ulong tmp, tmp_high;
+
+	asm_vmread (index, &tmp);
+	if (sizeof *val != sizeof (ulong)) {
+		asm_vmread (index + 1, &tmp_high);
+		*val = tmp | (u64)tmp_high << 32;
+	} else {
+		*val = tmp;
+	}
 }
 
 static inline void
@@ -775,7 +802,7 @@ asm_mul_and_div (u32 mul1, u32 mul2, u32 div1, u32 *quotient, u32 *remainder)
 static inline void
 asm_lock_incl (u32 *d)
 {
-	asm volatile ("lock incl %0" : "=m" (*d));
+	asm volatile ("lock incl %0" : "+m" (*d));
 }
 
 /*
@@ -794,7 +821,7 @@ asm_lock_cmpxchgl (u32 *dest, u32 *cmp, u32 eq)
 
 	asm volatile ("lock cmpxchgl %4,%1 ; je 1f ; inc %2 ; 1:"
 		      : "=&a" (*cmp)
-		      , "=m" (*dest)
+		      , "+m" (*dest)
 		      , "=&r" (tmp)
 		      : "0" (*cmp)
 		      , "r" (eq)
@@ -811,7 +838,7 @@ asm_lock_cmpxchgq (u64 *dest, u64 *cmp, u64 eq)
 #ifdef __x86_64__
 	asm volatile ("lock cmpxchgq %4,%1 ; je 1f ; inc %2 ; 1:"
 		      : "=&a" (*cmp)
-		      , "=m" (*dest)
+		      , "+m" (*dest)
 		      , "=&r" (tmp)
 		      : "0" (*cmp)
 		      , "r" (eq)
@@ -820,7 +847,7 @@ asm_lock_cmpxchgq (u64 *dest, u64 *cmp, u64 eq)
 #else
 	asm volatile ("lock cmpxchg8b %1 ; je 1f ; inc %2 ; 1:"
 		      : "=&A" (*cmp)
-		      , "=m" (*dest)
+		      , "+m" (*dest)
 		      , "=&r" (tmp)
 		      : "0" (*cmp)
 		      , "b" ((u32)eq)
@@ -839,7 +866,7 @@ asm_lock_ulong_swap (ulong *mem, ulong newval)
 
 	asm volatile ("xchg %0,%1"
 		      : "=r" (oldval)
-		      , "=m" (*mem)
+		      , "+m" (*mem)
 		      : "0" (newval));
 	return oldval;
 }

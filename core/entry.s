@@ -52,18 +52,20 @@
 	CPUID_1_EDX_PAE_BIT = 0x40
 	CPUID_1_EDX_CX8_BIT = 0x100
 	CPUID_1_EDX_PGE_BIT = 0x2000
-	CPUID_0x80000001_EDX_64_BIT = 0x20000000
+	CPUID_EXT_0 = 0x80000000
+	CPUID_EXT_1 = 0x80000001
+	CPUID_EXT_1_EDX_64_BIT = 0x20000000
 	CR0_PE_BIT = 0x1
 	CR0_TS_BIT = 0x8
 	CR0_PG_BIT = 0x80000000
 	CR4_PSE_BIT = 0x10
 	CR4_PAE_BIT = 0x20
+	CR4_MCE_BIT = 0x40
 	CR4_PGE_BIT = 0x80
 	EFLAGS_ID_BIT = 0x200000
 	MSR_IA32_EFER = 0xC0000080
 	MSR_IA32_EFER_LME_BIT = 0x100
-	GUEST_APINIT_SEGMENT = 0x0000
-	GUEST_APINIT_OFFSET = 0xF000
+	GUEST_APINIT_OFFSET = 0x0000
 
 	.include "longmode.h"
 
@@ -82,6 +84,435 @@
 	.code32
 	.globl	entry
 entry:
+	# boot/loader jumps to here in real-address mode
+	test	$0xF9F9F9F9,%eax	# (test;stc;stc in 16bit mode)
+	jc	1f			# must be short jump for 16bit & 32bit
+	shl	%al
+	inc	%eax			# (rex prefix in 64bit mode)
+	rcr	%al			# undo %al
+	jnc	uefi64_entry
+	jmp	multiboot_entry
+1:
+	.code16
+	# %dl	drive
+	# %ds	0
+	# %si	0x7C00 (buffer for int $0x13 extended read)
+	# %ss	0
+	# %cs	0xF00
+	# 0(%sp) (uint32_t) length
+	# 4(%sp) (uint32_t) 1st module offset
+	# 8(%sp) (uint32_t) 2nd module offset
+	REALMODE_ENTRY_OFFSET = 0x8000
+	push	%ds
+	push	%si
+	push	%dx
+	mov	%sp,%bp
+	push	%cs
+	pop	%ds
+	mov	$realmode_entry,%esi
+	sub	$head,%esi
+	xor	%ax,%ax
+	mov	%ax,%es
+	mov	$REALMODE_ENTRY_OFFSET,%di
+	mov	$realmode_entry_end-realmode_entry,%cx
+	cld
+	rep	movsb
+	ljmp	$0x0,$REALMODE_ENTRY_OFFSET
+realmode_entry:
+	# Enable A20
+	cli
+	in	$0x92,%al
+	or	$0x2,%al
+	out	%al,$0x92
+
+	# Copy the first 64KiB
+	mov	%ds,%ax
+	movzwl	%ax,%esi
+	shl	$4,%esi
+	sub	$8,%sp
+	mov	$0x100000,%edi
+	mov	$0x10000/2,%cx
+	call	1f
+	push	%esi
+	push	%edi
+	movl	$0,-4(%bp)
+
+	mov	$'L'|('o'<<8)|('a'<<16)|('d'<<24),%eax
+	call	3f
+	mov	6(%bp),%eax		# Length in bytes
+	add	$511,%eax
+	shr	$9,%eax
+	sub	$0x40,%eax
+	jbe	2f
+	mov	%eax,-8(%bp)		# Length in sectors
+	mov	$'i'|('n'<<8)|('g'<<16)|(' '<<24),%eax
+	call	3f
+5:
+	sti
+	subl	$0x40,-8(%bp)
+	jbe	2f
+	lds	2(%bp),%si
+	mov	0(%bp),%dl		# Drive number
+	movw	$0x10,(%si)		# Size of packet
+	mov	-8(%bp),%eax		# Number of remaining sectors
+	cmpl	$0x40,%eax
+	jb	4f
+	mov	$0x40,%ax
+4:
+	mov	%ax,2(%si)		# Number of sectors to read
+	mov	$0x42,%ah		# Extended read command
+	int	$0x13
+	jc	5f
+	movzwl	2(%si),%ecx
+	add	%ecx,8(%si)		# LBA += number of sectors
+	adcl	$0,12(%si)
+	shl	$9+6,%ecx
+	sub	%ecx,-4(%bp)
+	jnb	6f
+4:
+	mov	$'.',%eax
+	call	3f
+	mov	6(%bp),%eax
+	add	%eax,-4(%bp)
+	jnb	4b
+6:
+	shr	$9+6-8,%ecx		# Number of words to copy
+	pop	%edi
+	pop	%esi
+	push	%esi
+	call	1f
+	push	%edi
+	jmp	5b
+5:
+	mov	$'E'|('r'<<8)|('r'<<16)|('o'<<24),%eax
+	call	3f
+	mov	$'r'|('!'<<8)|('\r'<<16)|('\n'<<24),%eax
+	call	3f
+	int	$0x16
+	int	$0x19
+	jmp	5b
+1:
+	cli
+	lgdt	%cs:4f-realmode_entry+REALMODE_ENTRY_OFFSET
+	mov	%cr0,%eax
+	or	$CR0_PE_BIT,%eax
+	mov	%eax,%cr0
+	ljmp	$0x08,$1f-realmode_entry+REALMODE_ENTRY_OFFSET
+1:
+	mov	$0x18,%ax
+	mov	%ax,%ds
+	mov	%ax,%es
+	cld
+	rep	movsw %ds:(%esi),%es:(%edi)
+	mov	$0x10,%ax
+	mov	%ax,%ds
+	mov	%ax,%es
+	mov	%cr0,%eax
+	and	$~CR0_PE_BIT,%eax
+	mov	%eax,%cr0
+	ljmp	$0x0,$1f-realmode_entry+REALMODE_ENTRY_OFFSET
+1:
+	push	%cs
+	pop	%ds
+	push	%cs
+	pop	%es
+	ret
+2:
+	mov	$'\r'|('\n'<<8),%eax
+	call	3f
+	# Make a multiboot info
+	push	%cs
+	pop	%ds
+	push	%cs
+	pop	%es
+	mov	$realmode_entry_end-realmode_entry+REALMODE_ENTRY_OFFSET,%ebx
+	cld
+	mov	%bx,%di
+	xor	%ax,%ax
+	mov	$88/2,%cx
+	rep	stosw
+	mov	0(%bp),%al		# Drive number
+	mov	%al,15(%bx)
+	orb	$2,(%bx)		# Set a boot device flag
+	# Modules
+	mov	10(%bp),%eax		# 1st module offset
+	test	%eax,%eax
+	je	1f
+	mov	%di,24(%bx)		# Write a modules structure address
+	orb	$8,(%bx)		# Set a mods flag
+	add	$0x100000,%eax		# Calculate the address of the module
+	stosl				# Store the 1st module start address
+	mov	14(%bp),%eax		# 2nd module offset
+	test	%eax,%eax
+	je	2f
+	add	$0x100000,%eax		# Calculate the address of the module
+	stosl				# Store the 1st module end address
+	add	$8,%di
+	incb	20(%bx)			# Increment modules count
+	stosl				# Store the 2nd module start address
+2:
+	mov	6(%bp),%eax		# End of the data
+	add	$0x100000,%eax		# Calculate the address
+	stosl				# Store the module end address
+	add	$8,%di
+	incb	20(%bx)			# Increment modules count
+1:
+	cli
+	lgdt	4f-realmode_entry+REALMODE_ENTRY_OFFSET
+	mov	%cr0,%eax
+	or	$CR0_PE_BIT,%eax
+	mov	%eax,%cr0
+	ljmp	$0x08,$1f-realmode_entry+REALMODE_ENTRY_OFFSET
+1:
+	mov	$0x18,%ax
+	mov	%ax,%ds
+	addr32 lgdtl	entry_gdtr_phys-DIFFPHYS
+	mov	$ENTRY_SEL_DATA32,%ax
+	mov	%ax,%ds
+	mov	%ax,%es
+	mov	%ax,%ss
+	ljmpl	$ENTRY_SEL_CODE32,$multiboot_entry-DIFFPHYS
+3:
+	pushal
+	mov	$7,%bx
+	mov	$0xE,%ah
+	int	$0x10
+	popal
+	shr	$8,%eax
+	jne	3b
+	ret
+4:
+	.short	0x1F
+	.long	4b-2-realmode_entry+REALMODE_ENTRY_OFFSET
+	.quad	0x00009B000000FFFF	# 0x08  CODE16, DPL=0
+	.quad	0x000093000000FFFF	# 0x10  DATA16, DPL=0
+	.quad   0x00CF93000000FFFF      # 0x18  DATA32, DPL=0
+realmode_entry_end:
+
+	.code64
+uefi64_entry:
+.if longmode
+	# The entry_pd that will not be used in 64bit mode is used for
+	# a page table during this routine
+	push	%rbx
+	push	%rsi
+	push	%rdi
+	mov	%rcx,%rdi
+	mov	%rdx,%rsi
+	mov	%r8,%rdx
+	mov	%r9,%rcx
+	mov	8*8(%rsp),%r8
+	push	%rbp
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
+	push	%rcx
+	xor	%ecx,%ecx
+	lea	entry_pd(%rip),%ebx
+	lea	head-0x100000+0x3(%rip),%eax
+1:
+	mov	%rax,(%rbx,%rcx,8)
+	add	$0x1000,%eax
+	add	$1,%ecx
+	cmp	$512,%ecx
+	jb	1b
+	lea	7(%ebx),%eax
+	mov	%rax,(%rbx)
+	lea	head-0x100000(%rip),%rax
+	add	%rax,entry_pml4(%rip)
+	add	%rax,entry_pdp+0(%rip)
+	add	%rax,entry_pdp+8(%rip)
+	addq	$entry_pd-entry_pd0,entry_pdp+8(%rip)
+	sub	$head-0x100000,%rax
+	mov	%rax,uefi_entry_physoff(%rip)
+	pop	%rcx
+	mov	%es,%eax
+	push	%rax
+	mov	%ss,%eax
+	push	%rax
+	mov	%ds,%eax
+	push	%rax
+	mov	%fs,%eax
+	push	%rax
+	mov	%gs,%eax
+	push	%rax
+	mov	%cr3,%rax
+	mov	%rax,uefi_entry_cr3(%rip)
+	mov	%rsp,uefi_entry_rsp(%rip)
+	lea	uefi_entry_ret(%rip),%rax
+	mov	%rax,uefi_entry_ret_addr(%rip)
+	lea	entry_pml4(%rip),%rax
+	cli
+	mov	%rax,%cr3
+	mov	$start_stack,%rsp
+	mov	$1f,%rax
+	jmp	*%rax
+1:
+	call	uefi_init
+	mov	%rax,1b(%rip)
+	mov	uefi_entry_physoff(%rip),%rax
+	call	uefi_entry_rip_plus_rax
+	mov	uefi_entry_rsp(%rip),%rsp
+	mov	uefi_entry_cr3(%rip),%rax
+	mov	%rax,%cr3
+	mov	1b(%rip),%rax
+uefi_entry_ret:
+	pop	%rbx
+	mov	%ebx,%gs
+	pop	%rbx
+	mov	%ebx,%fs
+	pop	%rbx
+	mov	%ebx,%ds
+	pop	%rbx
+	mov	%ebx,%ss
+	pop	%rbx
+	mov	%ebx,%es
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	pop	%rbp
+	pop	%rdi
+	pop	%rsi
+	pop	%rbx
+	ret
+.else
+	or	$-1,%eax
+	ret
+.endif
+
+	.globl	uefi_entry_virttophys
+uefi_entry_virttophys:
+	mov	uefi_entry_physoff(%rip),%rax
+	add	%rdi,%rax
+	ret
+
+# uefi_entry_call: number of arguments of UEFI API must be <= 4
+	.globl	uefi_entry_call
+uefi_entry_call:
+	mov	uefi_entry_physoff(%rip),%rax
+	call	uefi_entry_rip_plus_rax
+	mov	%rsp,%rsi
+	mov	uefi_entry_rsp(%rip),%rsp
+	mov	uefi_entry_cr3(%rip),%rax
+	mov	%rax,%cr3
+	cld
+	sti
+	xchg	%rcx,%rdx
+	push	%r9
+	push	%r8
+	push	%rdx
+	push	%rcx
+	call	*%rdi
+	cli
+	mov	%rsi,%rsp
+	lea	entry_pml4(%rip),%rsi
+	mov	%rsi,%cr3
+	ret
+
+	.globl	uefi_entry_pcpy
+uefi_entry_pcpy:
+	mov	uefi_entry_physoff(%rip),%rax
+	call	uefi_entry_rip_plus_rax
+	mov	uefi_entry_cr3(%rip),%rax
+	mov	%rax,%cr3
+	lea	entry_pml4(%rip),%rax
+	cld
+1:
+	sub	$8,%rdx
+	jb	1f
+	movsq
+	jne	1b
+	mov	%rax,%cr3
+	ret
+1:
+	add	$8,%edx
+	.byte	0xA8			# test $imm,%al
+1:
+	movsb
+	sub	$1,%edx
+	jnb	1b
+	mov	%rax,%cr3
+	ret
+
+uefi_entry_rip_plus_rax:
+	add	%rax,(%rsp)
+	ret
+
+	.globl	uefi_entry_start
+uefi_entry_start:
+.if longmode
+	mov	uefi_entry_physoff(%rip),%rax
+	call	uefi_entry_rip_plus_rax
+	mov	uefi_entry_cr3(%rip),%rax
+	mov	%rax,%cr3
+	mov	uefi_entry_physoff(%rip),%rax
+	add	$head-0x100000,%rax
+	neg	%rax
+	add	%rdi,%rax
+	add	%rax,entry_pml4-DIFFPHYS(%rdi)
+	add	%rax,entry_pdp+0-DIFFPHYS(%rdi)
+	add	%rax,entry_pdp+8-DIFFPHYS(%rdi)
+	mov	%rdi,%rax
+	mov	$0x83,%al
+	xor	%ebx,%ebx
+1:
+	mov	%rax,entry_pd-DIFFPHYS(%rdi,%rbx,8)
+	add	$0x200000,%rax
+	add	$1,%ebx
+	cmp	$512,%ebx
+	jb	1b
+	lea	entry_pml4-DIFFPHYS(%rdi),%rax
+	mov	%rax,%cr3
+	mov	%edi,vmm_start_phys
+	sgdtq	calluefi_uefi_gdtr
+	sidtq	calluefi_uefi_idtr
+	sldt	calluefi_uefi_ldtr
+	mov	%es,calluefi_uefi_sregs+0
+	mov	%cs,calluefi_uefi_sregs+2
+	mov	%ss,calluefi_uefi_sregs+4
+	mov	%ds,calluefi_uefi_sregs+6
+	mov	%fs,calluefi_uefi_sregs+8
+	mov	%gs,calluefi_uefi_sregs+10
+	mov	uefi_entry_cr3(%rip),%rax
+	mov	%rax,calluefi_uefi_cr3
+	mov	$bss,%edi		# Clear BSS
+	mov	$end+3,%ecx		#
+	sub	%edi,%ecx		#
+	shr	$2,%ecx			#
+	xor	%eax,%eax		#
+	cld				#
+	rep	stosl			#
+	mov	%cr4,%rcx
+	or	$(CR4_PAE_BIT|CR4_PGE_BIT),%rcx
+	and	$~CR4_MCE_BIT,%rcx
+	mov	%cr3,%rax
+	mov	%rcx,entry_cr4		# Save CR4
+	mov	%rax,vmm_base_cr3	# Save CR3
+	mov	%rcx,%cr4
+	lgdtq	entry_gdtr		# Load GDTR
+	ljmpl	*1f
+1:
+	.long	callmain64
+	.long	ENTRY_SEL_CODE64
+.else
+	ret
+.endif
+
+uefi_entry_cr3:
+	.quad	0
+	.globl	uefi_entry_rsp
+uefi_entry_rsp:
+	.quad	0
+	.globl	uefi_entry_ret_addr
+uefi_entry_ret_addr:
+	.quad	0
+uefi_entry_physoff:
+	.quad	0
+
+	.code32
+multiboot_entry:
 	# We must use physical addresses while paging is off
 	# The VMM is loaded at 0x00100000- (Symbols are placed at 0x40100000-)
 	mov	$-DIFFPHYS,%ebp		# Difference of physical & virtual addr
@@ -129,6 +560,9 @@ entry:
 	mov	%eax,%es
 	ljmp	$ENTRY_SEL_CODE16,$entry16-cpuinit_start
 
+	# alignment for the data after the code
+	# this is necessary for atomic read access of apinit_procs
+	.align	16
 	.globl	cpuinit_start
 cpuinit_start:
 	.code16
@@ -137,12 +571,10 @@ cpuinit_start:
 cpuinit_tmpstack:
 1:
 	cli
-	ljmp $GUEST_APINIT_SEGMENT,$1f-cpuinit_start+GUEST_APINIT_OFFSET
-1:
 	mov	%cs,%ax			# %ds <- %cs
 	mov	%ax,%ds			#
 	# Increment the number of processors.
-	lock incw apinit_procs-cpuinit_start+GUEST_APINIT_OFFSET
+	lock incl apinit_procs-cpuinit_start+GUEST_APINIT_OFFSET
 	# Setup realmode segments
 	mov	%ax,%ss			# %ss <- %cs
 	mov	$cpuinit_tmpstack-cpuinit_start+GUEST_APINIT_OFFSET,%sp
@@ -278,13 +710,13 @@ check_flags:
 	test	$CPUID_1_EDX_PGE_BIT,%edx
 	je	1f
 .if longmode
-	mov	$0x80000000,%eax
+	mov	$CPUID_EXT_0,%eax
 	cpuid
-	cmp	$0x80000000,%eax
+	cmp	$CPUID_EXT_0,%eax
 	jbe	1f
-	mov	$0x80000001,%eax
+	mov	$CPUID_EXT_1,%eax
 	cpuid
-	test	$CPUID_0x80000001_EDX_64_BIT,%edx
+	test	$CPUID_EXT_1_EDX_64_BIT,%edx
 	je	1f
 .else
 	xor	%eax,%eax
@@ -304,9 +736,10 @@ msg_badcpu:
         .align  4
 	.short  0
 entry_gdtr:
-	.short  0x27
+	.short  0x3F
 	.long   entry_gdt
 	.short	0
+	.long	0
 entry_gdtr_phys:
 	.short	0x3F
 	.long	entry_gdt-DIFFPHYS
@@ -346,12 +779,11 @@ callmain32:
 	mov	%ebx,%gs
 	mov	%eax,%ss
 	mov	$start_stack,%esp
-	mov	entry_ebx,%edi
-	movl	$0,entry_ebx
-	test	%edi,%edi			# AP?
-	je	1f				# Yes-
+	cmpb	$0,bspinit_done			# BSP?
+	jne	1f				# No-
+	movb	$1,bspinit_done
 	# BSP
-	push	%edi
+	pushl	entry_ebx
 	xor	%ebp,%ebp
 	call	vmm_main
 	cli
@@ -373,12 +805,13 @@ callmain64:
 	mov	%ebx,%gs
 	mov	%eax,%ss
 	mov	$start_stack,%esp
+	mov	$bspinit_done,%eax
+	cmpb	$0,(%rax)			# BSP?
+	jne	1f				# No-
+	movb	$1,(%rax)
+	# BSP
 	mov	$entry_ebx,%eax
 	mov	(%rax),%edi
-	movl	$0,(%rax)
-	test	%edi,%edi			# AP?
-	je	1f				# Yes-
-	# BSP
 	call	vmm_main
 	cli
 	hlt
@@ -387,6 +820,9 @@ callmain64:
 	call	apinitproc0
 	cli
 	hlt
+
+bspinit_done:
+	.byte	0
 
 	# Provisional page tables
 	.align	PAGESIZE
@@ -425,24 +861,6 @@ entry_pd: # Page directory for PAE OFF	#   7654321|76543210
 start_stack:
 
 	######## ENTRY SECTION END
-
-	.data
-	.align	PAGESIZE
-	.globl	vmm_pml4
-vmm_pml4:
-	.space	PAGESIZE
-	.globl	vmm_pdp
-vmm_pdp:
-	.space	PAGESIZE
-	.globl	vmm_pd
-vmm_pd:
-	.space	PAGESIZE
-	.globl	vmm_pd1
-vmm_pd1:
-	.space	PAGESIZE
-	.globl	vmm_pd2
-vmm_pd2:
-	.space	PAGESIZE
 
 	.text
 	.code32

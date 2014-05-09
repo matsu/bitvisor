@@ -55,7 +55,7 @@ getchar_logget_linux (void)
 		c = buf->buf[offset++];
 		if (offset >= sizeof buf->buf)
 			offset = 0;
-		asm volatile ("lock decl %0" : : "m" (buf->n) : "memory");
+		asm volatile ("lock decl %0" : "+m" (buf->n));
 		return c;
 	} else {
 		return -1;

@@ -36,6 +36,8 @@
 #include "pci_internal.h"
 #include "pci_init.h"
 #include "pci_conceal.h"
+#include <core/acpi.h>
+#include <core/mmio.h>
 
 static const char driver_name[] = "pci_driver";
 
@@ -92,6 +94,18 @@ static void pci_read_config_space(struct pci_device *dev)
 	}
 }
 
+static struct pci_config_mmio_data *
+pci_search_config_mmio (u16 seg_group, u8 bus_no)
+{
+	struct pci_config_mmio_data *p;
+
+	for (p = pci_config_mmio_data_head; p; p = p->next)
+		if (p->seg_group == seg_group &&
+		    p->bus_start <= bus_no && bus_no <= p->bus_end)
+			return p;
+	return NULL;
+}
+
 static struct pci_device *pci_new_device(pci_config_address_t addr)
 {
 	struct pci_device *dev;
@@ -104,6 +118,7 @@ static struct pci_device *pci_new_device(pci_config_address_t addr)
 		pci_read_config_space(dev);
 		pci_save_base_address_masks(dev);
 		dev->conceal = pci_conceal_new_device (dev);
+		dev->config_mmio = pci_search_config_mmio (0, addr.bus_no);
 		pci_append_device(dev);
 	}
 	return dev;
@@ -154,13 +169,52 @@ oom:
 	panic_oom();
 }
 
+static void
+pci_read_mcfg (void)
+{
+	uint n;
+	struct pci_config_mmio_data d, *tmp, **pnext;
+
+	pnext = &pci_config_mmio_data_head;
+	*pnext = NULL;
+	for (n = 0; acpi_read_mcfg (n, &d.base, &d.seg_group, &d.bus_start,
+				    &d.bus_end); n++) {
+		d.next = NULL;
+		d.phys = d.base + (d.bus_start << 20);
+		d.len = ((u32)(d.bus_end - d.bus_start) + 1) << 20;
+		d.map = mapmem_hphys (d.phys, d.len, MAPMEM_WRITE |
+				      MAPMEM_PCD | MAPMEM_PWT);
+		tmp = alloc (sizeof *tmp);
+		memcpy (tmp, &d, sizeof *tmp);
+		*pnext = tmp;
+		pnext = &tmp->next;
+	}
+}
+
+static void
+pci_mcfg_register_handler (void)
+{
+	uint n;
+	struct pci_config_mmio_data *p;
+
+	for (n = 0, p = pci_config_mmio_data_head; p; n++, p = p->next) {
+		printf ("MCFG [%u] %04X:%02X-%02X (%llX,%X)\n",
+			n, p->seg_group, p->bus_start, p->bus_end, p->phys,
+			p->len);
+		mmio_register_unlocked (p->phys, p->len,
+					pci_config_mmio_handler, p);
+	}
+}
+
 static void pci_init()
 {
+	pci_read_mcfg ();
 	pci_find_devices();
 	core_io_register_handler(PCI_CONFIG_ADDR_PORT, 1, pci_config_addr_handler, NULL,
 				 CORE_IO_PRIO_HIGH, driver_name);
 	core_io_register_handler(PCI_CONFIG_DATA_PORT, 4, pci_config_data_handler, NULL,
 				 CORE_IO_PRIO_HIGH, driver_name);
+	pci_mcfg_register_handler ();
 	return;
 }
 DRIVER_INIT(pci_init);

@@ -49,6 +49,7 @@
 #include "time.h"
 #include "tty.h"
 #include "types.h"
+#include "uefi.h"
 
 #define BIOS_AREA_SIZE 4096
 
@@ -548,14 +549,18 @@ panic (char *format, ...)
 #ifndef TTY_SERIAL
 		setkbdled (LED_NUMLOCK_BIT | LED_SCROLLLOCK_BIT |
 			   LED_CAPSLOCK_BIT);
-		disable_apic ();
-		if (bios_area_saved)
-			copy_bios_area (bios_area_panic, bios_area_orig);
-		callrealmode_setvideomode (VIDEOMODE_80x25TEXT_16COLORS);
-		if (bios_area_saved)
-			copy_bios_area (NULL, bios_area_panic);
-		if (panic_reboot)
-			printf ("%s\n", panicmsg);
+		if (!uefi_booted) {
+			disable_apic ();
+			if (bios_area_saved)
+				copy_bios_area (bios_area_panic,
+						bios_area_orig);
+			callrealmode_setvideomode
+				(VIDEOMODE_80x25TEXT_16COLORS);
+			if (bios_area_saved)
+				copy_bios_area (NULL, bios_area_panic);
+			if (panic_reboot)
+				printf ("%s\n", panicmsg);
+		}
 		keyboard_reset ();
 		usleep (250000);
 		setkbdled (LED_SCROLLLOCK_BIT | LED_CAPSLOCK_BIT);
@@ -597,8 +602,10 @@ panic_init_global (void)
 static void
 panic_init_global3 (void)
 {
-	copy_bios_area (bios_area_orig, NULL);
-	bios_area_saved = true;
+	if (!uefi_booted) {
+		copy_bios_area (bios_area_orig, NULL);
+		bios_area_saved = true;
+	}
 	panicmem = alloc (1048576);
 }
 
