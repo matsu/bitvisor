@@ -33,5 +33,6 @@
 void tty_udp_register (void (*tty_send) (void *handle, void *packet,
 					 unsigned int packet_size),
 		       void *handle);
+void tty_get_logbuf_info (virt_t *virt, phys_t *phys, uint *size);
 
 #endif

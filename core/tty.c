@@ -51,9 +51,11 @@ struct tty_udp_data {
 	void *handle;
 };
 
+static struct {
+	unsigned int logoffset, loglen;
+	unsigned char log[65536];
+}  __attribute__ ((aligned (0x1000), packed)) logbuf;
 static int ttyin, ttyout;
-static unsigned char log[65536];
-static int logoffset, loglen;
 static spinlock_t putchar_lock;
 static bool logflag;
 static LIST1_DEFINE_HEAD (struct tty_udp_data, tty_udp_list);
@@ -84,10 +86,11 @@ ttylog_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 
 	if (m == 1 && bufcnt >= 1) {
 		q = buf[0].base;
-		for (i = 0; i < buf[0].len && i < loglen; i++)
-			q[i] = log[(logoffset + i) % sizeof log];
+		for (i = 0; i < buf[0].len && i < logbuf.loglen; i++)
+			q[i] = logbuf.log[(logbuf.logoffset + i) %
+					  sizeof logbuf.log];
 	}
-	return loglen;
+	return logbuf.loglen;
 }
 
 void
@@ -154,11 +157,13 @@ tty_putchar (unsigned char c)
 
 	if (logflag) {
 		spinlock_lock (&putchar_lock);
-		log[(logoffset + loglen) % sizeof log] = c;
-		if (loglen == sizeof log)
-			logoffset = (logoffset + 1) % sizeof log;
+		logbuf.log[(logbuf.logoffset + logbuf.loglen) %
+			   sizeof logbuf.log] = c;
+		if (logbuf.loglen == sizeof logbuf.log)
+			logbuf.logoffset = (logbuf.logoffset + 1) %
+				sizeof logbuf.log;
 		else
-			loglen++;
+			logbuf.loglen++;
 		spinlock_unlock (&putchar_lock);
 	}
 	tty_udp_putchar (c);
@@ -204,6 +209,17 @@ tty_udp_register (void (*tty_send) (void *handle, void *packet,
 	LIST1_ADD (tty_udp_list, p);
 }
 
+void
+tty_get_logbuf_info (virt_t *virt, phys_t *phys, uint *size)
+{
+	if (virt)
+		*virt = (virt_t)&logbuf;
+	if (phys)
+		*phys = sym_to_phys (&logbuf);
+	if (size)
+		*size = sizeof logbuf;
+}
+
 static void
 tty_init_global2 (void)
 {
@@ -213,8 +229,8 @@ tty_init_global2 (void)
 static void
 tty_init_global (void)
 {
-	logoffset = 0;
-	loglen = 0;
+	logbuf.logoffset = 0;
+	logbuf.loglen = 0;
 	logflag = true;
 	spinlock_init (&putchar_lock);
 	if (!uefi_booted)

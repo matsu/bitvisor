@@ -387,6 +387,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (uintnum, &name, &src, &len, "vmm.tty_rtl8169", "vmm.tty_rtl8169");
 	ss (mac_addr, &name, &src, &len, "vmm.tty_rtl8169_mac_address",
 	    "vmm.tty_rtl8169_mac_address");
+	ss (uintnum, &name, &src, &len, "vmm.tty_ieee1394", "vmm.tty_ieee1394");
 	ss (uintnum, &name, &src, &len, "vmm.driver.ata", "vmm.driver.ata");
 	ss (uintnum, &name, &src, &len, "vmm.driver.usb.uhci", "vmm.driver.usb.uhci");
 	ss (uintnum, &name, &src, &len, "vmm.driver.usb.ehci", "vmm.driver.usb.ehci");
@@ -537,6 +538,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.tty_pro1000_mac_address);
 	CONF (vmm.tty_rtl8169);
 	CONF (vmm.tty_rtl8169_mac_address);
+	CONF (vmm.tty_ieee1394);
 	CONF (vmm.driver.ata);
 	CONF (vmm.driver.usb.uhci);
 	CONF (vmm.driver.usb.ehci);

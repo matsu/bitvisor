@@ -95,6 +95,8 @@ ieee1394_init(void) __initcode__
 {
 	if (!config.vmm.driver.conceal1394)
 		return;
+	if (config.vmm.tty_ieee1394)
+		return;
 #if defined(IEEE1394_CONCEALER)
 	ieee1394_disable = true;
 	pci_register_driver(&ieee1394_driver);
