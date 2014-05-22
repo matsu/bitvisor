@@ -99,9 +99,6 @@ ieee1394_init(void) __initcode__
 	ieee1394_disable = true;
 	pci_register_driver(&ieee1394_driver);
 #endif
-#if defined (FWDBG)
-	ieee1394_disable = false;
-#endif
 	return;
 }
 PCI_DRIVER_INIT(ieee1394_init);

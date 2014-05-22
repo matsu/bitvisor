@@ -140,9 +140,6 @@ setup_bootparams_for_linux (u32 ramdisk_startaddr, u32 ramdisksize,
 		*(u32 *)((u8 *)tmp + 0x21C) = ramdisksize;
 	}
 	snprintf ((char *)tmp + 0x1000, 0x1000, "%s",
-#ifdef FWDBG
-		  "ohci1394_dma=early "
-#endif
 		  "quiet");
 }
 

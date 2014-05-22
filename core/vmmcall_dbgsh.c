@@ -52,12 +52,10 @@ dbgsh_send_to_guest (int c)
 
 	s = c;
 	while (r == -1 || s != -1) {
-#ifndef FWDBG
 		spinlock_lock (&dbgsh_lock2);
 		stopped = true;
 		thread_will_stop ();
 		spinlock_unlock (&dbgsh_lock2);
-#endif
 		schedule ();
 	}
 	tmp = r;
@@ -146,12 +144,10 @@ dbgsh_enabled (int b)
 	if (b != -1) {
 		r = b;
 		s = -1;
-#ifndef FWDBG
 		spinlock_lock (&dbgsh_lock2);
 		if (stopped)
 			thread_wakeup (tid);
 		spinlock_unlock (&dbgsh_lock2);
-#endif
 	}
 	return s;
 }
@@ -181,23 +177,6 @@ vmmcall_dbgsh_init_global (void)
 }
 
 static void
-vmmcall_dbgsh_init_pcpu (void)
-{
-#ifdef FWDBG
-	char buf[100];
-
-	spinlock_lock (&dbgsh_lock);
-	if (!i) {
-		snprintf (buf, 100, "dbgsh:s=%p,r=%p\n", &s, &r);
-		debug_addstr (buf);
-		thread_new (dbgsh_thread, NULL, PAGESIZE);
-		i = true;
-	}
-	spinlock_unlock (&dbgsh_lock);
-#endif
-}
-
-static void
 vmmcall_dbgsh_init (void)
 {
 #ifdef DBGSH
@@ -213,4 +192,3 @@ vmmcall_dbgsh_init (void)
 
 INITFUNC ("vmmcal0", vmmcall_dbgsh_init);
 INITFUNC ("global3", vmmcall_dbgsh_init_global);
-INITFUNC ("pcpu1", vmmcall_dbgsh_init_pcpu);

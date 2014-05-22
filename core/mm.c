@@ -797,14 +797,6 @@ mm_init_global (void)
 		if ((u64)(virt_t)head <= pagestruct[i].virt &&
 		    pagestruct[i].virt < (u64)(virt_t)end)
 			continue;
-#ifdef FWDBG
-		if (i == 0) {
-			extern char *dbgpage;
-			dbgpage = (char *)pagestruct[i].virt;
-			snprintf (dbgpage, PAGESIZE, "BitVisor dbgpage\n");
-			continue;
-		}
-#endif
 		mm_page_free (&pagestruct[i]);
 	}
 	mapmem_lastvirt = MAPMEM_ADDR_START;

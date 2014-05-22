@@ -30,7 +30,6 @@
 #include "arith.h"
 #include "calluefi.h"
 #include "cpu.h"
-#include "debug.h"
 #include "initfunc.h"
 #include "list.h"
 #include "mm.h"
@@ -208,11 +207,6 @@ tty_udp_register (void (*tty_send) (void *handle, void *packet,
 static void
 tty_init_global2 (void)
 {
-	char buf[100];
-
-	snprintf (buf, 100, "tty:log=%p,logoffset=%p,loglen=%p,logmax=%lu\n",
-		  log, &logoffset, &loglen, (unsigned long)sizeof log);
-	debug_addstr (buf);
 	LIST1_HEAD_INIT (tty_udp_list);
 }
 
