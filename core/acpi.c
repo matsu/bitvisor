@@ -417,9 +417,9 @@ acpi_pm1_sleep (u32 v)
 	struct facs *facs;
 	u32 new_waking_vector;
 	u32 old_waking_vector;
+	int i;
 #ifdef ACPI_DSDT
 	bool m[6];
-	int i;
 	u8 n;
 #endif
 
