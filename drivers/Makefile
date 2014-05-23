@@ -11,3 +11,4 @@ objs-1 += core.o dmar.o ieee1394.o iommu.o pci_conceal.o pci_core.o
 objs-1 += pci_debug.o pci_init.o security.o
 objs-$(CONFIG_LOG_TO_IEEE1394) += ieee1394log.o
 objs-$(CONFIG_VGA_INTEL_DRIVER) += vga_intel.o
+objs-$(CONFIG_TTY_X540) += x540.o
