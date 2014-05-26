@@ -122,34 +122,6 @@ vt_io (void)
 }
 
 static void
-iobmp_allocation (void)
-{
-	alloc_page (&current->u.vt.io.iobmp[0],
-		    &current->u.vt.io.iobmpphys[0]);
-	alloc_page (&current->u.vt.io.iobmp[1],
-		    &current->u.vt.io.iobmpphys[1]);
-	memset (current->u.vt.io.iobmp[0], 0, PAGESIZE);
-	memset (current->u.vt.io.iobmp[1], 0, PAGESIZE);
-}
-
-static void
-load_iobmpaddr (void)
-{
-	asm_vmwrite64 (VMCS_ADDR_IOBMP_A, current->u.vt.io.iobmpphys[0]);
-	asm_vmwrite64 (VMCS_ADDR_IOBMP_B, current->u.vt.io.iobmpphys[1]);
-}
-
-static void
-enable_iobmp (void)
-{
-	ulong tmp;
-
-	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &tmp);
-	tmp |= VMCS_PROC_BASED_VMEXEC_CTL_USEIOBMP_BIT;
-	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, tmp);
-}
-
-static void
 set_iobmp (struct vcpu *v, u32 port, int bit)
 {
 	u8 *p;
@@ -164,29 +136,13 @@ set_iobmp (struct vcpu *v, u32 port, int bit)
 }
 
 void
-vt_iopass_init (void)
-{
-	iobmp_allocation ();
-	load_iobmpaddr ();
-	enable_iobmp ();
-	current->u.vt.io.iobmpflag = true;
-}
-
-void
 vt_iopass (u32 port, bool pass)
 {
-	if (!current->u.vt.io.iobmpflag) {
-		if (pass == false)
-			return;
-		vt_iopass_init ();
-	}
 	set_iobmp (current, port, !pass);
 }
 
 void
 vt_extern_iopass (struct vcpu *p, u32 port, bool pass)
 {
-	if (!p->u.vt.io.iobmpflag)
-		return;
 	set_iobmp (p, port, !pass);
 }

@@ -35,14 +35,12 @@
 struct vcpu;
 
 struct vt_io_data {
-	bool iobmpflag;
 	u64 iobmpphys[2];
 	void *iobmp[2];
 };
 
 void vt_io (void);
 void vt_iopass (u32 port, bool pass);
-void vt_iopass_init (void);
 void vt_extern_iopass (struct vcpu *p, u32 port, bool pass);
 
 #endif
