@@ -38,5 +38,6 @@ struct svm_msrbmp {
 void svm_msr_update_lma (void);
 bool svm_read_msr (u32 msrindex, u64 *msrdata);
 bool svm_write_msr (u32 msrindex, u64 msrdata);
+void svm_msrpass (u32 msrindex, bool wr, bool pass);
 
 #endif

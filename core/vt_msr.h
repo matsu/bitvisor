@@ -45,12 +45,18 @@ struct vt_msr {
 	int efer, star, lstar, cstar, fmask, kerngs;
 };
 
+struct vt_msrbmp {
+	void *msrbmp;
+	u64 msrbmp_phys;
+};
+
 void vt_msr_update_lma (void);
 int vt_add_guest_msr (ulong index);
 bool vt_read_guest_msr (int i, u64 *data);
 bool vt_write_guest_msr (int i, u64 data);
 bool vt_read_msr (u32 msrindex, u64 *msrdata);
 bool vt_write_msr (u32 msrindex, u64 msrdata);
+void vt_msrpass (u32 msrindex, bool wr, bool pass);
 void vt_msr_init (void);
 
 #endif

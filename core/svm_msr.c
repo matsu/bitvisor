@@ -258,3 +258,93 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 	}
 	return r;
 }
+
+static void
+svm_setmsrbmp (u8 *p, u32 bit2offset, bool wr, int bit)
+{
+	u32 bitoffset = bit2offset << 1;
+
+	if (wr)
+		bitoffset++;
+	if (bit)
+		p[bitoffset >> 3] |= 1 << (bitoffset & 7);
+	else
+		p[bitoffset >> 3] &= ~(1 << (bitoffset & 7));
+}
+
+void
+svm_msrpass (u32 msrindex, bool wr, bool pass)
+{
+	u8 *p;
+
+	switch (msrindex) {
+	case MSR_AMD_CSTAR:
+	case MSR_AMD_SYSCFG:
+	case MSR_AMD_TOP_MEM2:
+	case MSR_IA32_EFER:
+	case MSR_IA32_FMASK:
+	case MSR_IA32_FS_BASE:
+	case MSR_IA32_GS_BASE:
+	case MSR_IA32_KERNEL_GS_BASE:
+	case MSR_IA32_LSTAR:
+	case MSR_IA32_MTRR_DEF_TYPE:
+	case MSR_IA32_MTRR_FIX16K_80000:
+	case MSR_IA32_MTRR_FIX16K_A0000:
+	case MSR_IA32_MTRR_FIX4K_C0000:
+	case MSR_IA32_MTRR_FIX4K_C8000:
+	case MSR_IA32_MTRR_FIX4K_D0000:
+	case MSR_IA32_MTRR_FIX4K_D8000:
+	case MSR_IA32_MTRR_FIX4K_E0000:
+	case MSR_IA32_MTRR_FIX4K_E8000:
+	case MSR_IA32_MTRR_FIX4K_F0000:
+	case MSR_IA32_MTRR_FIX4K_F8000:
+	case MSR_IA32_MTRR_FIX64K_00000:
+	case MSR_IA32_MTRR_PHYSBASE0:
+	case MSR_IA32_MTRR_PHYSBASE1:
+	case MSR_IA32_MTRR_PHYSBASE2:
+	case MSR_IA32_MTRR_PHYSBASE3:
+	case MSR_IA32_MTRR_PHYSBASE4:
+	case MSR_IA32_MTRR_PHYSBASE5:
+	case MSR_IA32_MTRR_PHYSBASE6:
+	case MSR_IA32_MTRR_PHYSBASE7:
+	case MSR_IA32_MTRR_PHYSBASE8:
+	case MSR_IA32_MTRR_PHYSBASE9:
+	case MSR_IA32_MTRR_PHYSMASK0:
+	case MSR_IA32_MTRR_PHYSMASK1:
+	case MSR_IA32_MTRR_PHYSMASK2:
+	case MSR_IA32_MTRR_PHYSMASK3:
+	case MSR_IA32_MTRR_PHYSMASK4:
+	case MSR_IA32_MTRR_PHYSMASK5:
+	case MSR_IA32_MTRR_PHYSMASK6:
+	case MSR_IA32_MTRR_PHYSMASK7:
+	case MSR_IA32_MTRR_PHYSMASK8:
+	case MSR_IA32_MTRR_PHYSMASK9:
+	case MSR_IA32_PAT:
+	case MSR_IA32_STAR:
+	case MSR_IA32_SYSENTER_CS:
+	case MSR_IA32_SYSENTER_EIP:
+	case MSR_IA32_SYSENTER_ESP:
+		pass = false;
+		break;
+	case MSR_IA32_MTRRCAP:
+		if (!wr)
+			pass = false;
+		break;
+	case MSR_AMD_VM_CR:
+	case MSR_AMD_VM_HSAVE_PA:
+		if (wr)
+			pass = false;
+		break;
+	case 0xC0010020:	/* PATCH_LOADER MSR */
+		if (wr)
+			pass = true;
+		break;
+	}
+	p = current->u.svm.msrbmp->msrbmp;
+	if (msrindex <= 0x1FFF)
+		svm_setmsrbmp (p, msrindex, wr, !pass);
+	else if (msrindex >= 0xC0000000 && msrindex <= 0xC0001FFF)
+		svm_setmsrbmp (p + 0x800, msrindex - 0xC0000000, wr, !pass);
+	else if (msrindex >= 0xC0010000 && msrindex <= 0xC0011FFF)
+		svm_setmsrbmp (p + 0x1000, msrindex - 0xC0010000, wr, !pass);
+}

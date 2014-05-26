@@ -197,6 +197,7 @@ vt__vmcs_init (void)
 	u32 procbased_ctls2_or, procbased_ctls2_and = 0;
 	ulong procbased_ctls2 = 0;
 	struct vt_io_data *io;
+	struct vt_msrbmp *msrbmp;
 
 	current->u.vt.first = true;
 	/* The iobmp initialization must be executed during
@@ -214,6 +215,15 @@ vt__vmcs_init (void)
 			asm_pause ();
 	}
 	current->u.vt.io = io;
+	if (current->vcpu0 == current) {
+		msrbmp = alloc (sizeof *msrbmp);
+		alloc_page (&msrbmp->msrbmp, &msrbmp->msrbmp_phys);
+		memset (msrbmp->msrbmp, 0xFF, PAGESIZE);
+	} else {
+		while (!(msrbmp = current->vcpu0->u.vt.msrbmp))
+			asm_pause ();
+	}
+	current->u.vt.msrbmp = msrbmp;
 	current->u.vt.saved_vmcs = NULL;
 	current->u.vt.vpid = 0;
 	current->u.vt.ept = NULL;
@@ -307,7 +317,7 @@ vt__vmcs_init (void)
 	/* 64-Bit Control Fields */
 	asm_vmwrite64 (VMCS_ADDR_IOBMP_A, io->iobmpphys[0]);
 	asm_vmwrite64 (VMCS_ADDR_IOBMP_B, io->iobmpphys[1]);
-	asm_vmwrite64 (VMCS_ADDR_MSRBMP, 0xFFFFFFFFFFFFFFFFULL);
+	asm_vmwrite64 (VMCS_ADDR_MSRBMP, msrbmp->msrbmp_phys);
 	asm_vmwrite64 (VMCS_VMEXIT_MSRSTORE_ADDR, 0);
 	asm_vmwrite64 (VMCS_VMEXIT_MSRLOAD_ADDR, 0);
 	asm_vmwrite64 (VMCS_VMENTRY_MSRLOAD_ADDR, 0);
@@ -329,6 +339,7 @@ vt__vmcs_init (void)
 		      VMCS_PROC_BASED_VMEXEC_CTL_UNCONDIOEXIT_BIT |
 		      VMCS_PROC_BASED_VMEXEC_CTL_USETSCOFF_BIT |
 		      VMCS_PROC_BASED_VMEXEC_CTL_USEIOBMP_BIT |
+		      VMCS_PROC_BASED_VMEXEC_CTL_USEMSRBMP_BIT |
 		      (procbased_ctls2_and ?
 		       VMCS_PROC_BASED_VMEXEC_CTL_ACTIVATECTLS2_BIT : 0) |
 		      procbased_ctls_or) & procbased_ctls_and);
