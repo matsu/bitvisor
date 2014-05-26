@@ -379,11 +379,16 @@ vt_msrpass (u32 msrindex, bool wr, bool pass)
 	u8 *p;
 
 	switch (msrindex) {
+	case MSR_IA32_SYSENTER_CS:
+	case MSR_IA32_SYSENTER_ESP:
+	case MSR_IA32_SYSENTER_EIP:
+	case MSR_IA32_FS_BASE:
+	case MSR_IA32_GS_BASE:
+		/* These are able to be pass-through. */
+		break;
 	case MSR_AMD_CSTAR:
 	case MSR_IA32_EFER:
 	case MSR_IA32_FMASK:
-	case MSR_IA32_FS_BASE:
-	case MSR_IA32_GS_BASE:
 	case MSR_IA32_KERNEL_GS_BASE:
 	case MSR_IA32_LSTAR:
 	case MSR_IA32_MTRR_DEF_TYPE:
@@ -420,9 +425,6 @@ vt_msrpass (u32 msrindex, bool wr, bool pass)
 	case MSR_IA32_MTRR_PHYSMASK9:
 	case MSR_IA32_PAT:
 	case MSR_IA32_STAR:
-	case MSR_IA32_SYSENTER_CS:
-	case MSR_IA32_SYSENTER_EIP:
-	case MSR_IA32_SYSENTER_ESP:
 		pass = false;
 		break;
 	case MSR_IA32_MTRRCAP:
