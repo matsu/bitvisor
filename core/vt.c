@@ -86,7 +86,6 @@ static struct vmctl_func func = {
 	vt_iopass,
 	vt_exint_pass,
 	vt_exint_pending,
-	vt_extern_iopass,
 	vt_init_signal,
 	vt_tsc_offset_changed,
 	vt_panic_dump,

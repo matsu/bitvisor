@@ -507,7 +507,7 @@ acpi_smi_monitor (enum iotype type, u32 port, void *data)
 	if (current->acpi.smi_hook_disabled)
 		panic ("SMI monitor called while SMI hook is disabled");
 	current->vmctl.paging_map_1mb ();
-	current->vmctl.extern_iopass (current, smi_cmd, true);
+	current->vmctl.iopass (smi_cmd, true);
 	current->acpi.smi_hook_disabled = true;
 	return IOACT_RERUN;
 }
@@ -518,7 +518,7 @@ acpi_smi_hook (void)
 	if (!current->vcpu0->acpi.iopass)
 		return;
 	if (current->acpi.smi_hook_disabled) {
-		current->vmctl.extern_iopass (current, smi_cmd, false);
+		current->vmctl.iopass (smi_cmd, false);
 		current->acpi.smi_hook_disabled = false;
 	}
 }

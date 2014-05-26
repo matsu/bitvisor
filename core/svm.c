@@ -60,8 +60,6 @@ static void svm_spt_tlbflush (void);
 static void svm_spt_setcr3 (ulong cr3);
 static void svm_invlpg (ulong addr);
 
-static void svm_iopass (u32 port, bool pass) { UNIMPLEMENTED (); }
-
 static struct vmctl_func func = {
 	svm_vminit,
 	svm_vmexit,
@@ -94,7 +92,6 @@ static struct vmctl_func func = {
 	svm_iopass,
 	svm_exint_pass,
 	svm_exint_pending,
-	svm_extern_iopass,
 	svm_init_signal,
 	svm_tsc_offset_changed,
 	svm_panic_dump,

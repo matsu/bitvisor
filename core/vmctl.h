@@ -68,7 +68,6 @@ struct vmctl_func {
 	void (*iopass) (u32 port, bool pass);
 	void (*exint_pass) (bool enable);
 	void (*exint_pending) (bool pending);
-	void (*extern_iopass) (struct vcpu *p, u32 port, bool pass);
 	void (*init_signal) (void);
 	void (*tsc_offset_changed) (void);
 	void (*panic_dump) (void);

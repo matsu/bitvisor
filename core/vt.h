@@ -61,7 +61,7 @@ struct vt {
 	struct vt_vmcs_info vi;
 	struct vt_realmode_data realmode;
 	struct vt_intr_data intr;
-	struct vt_io_data io;
+	struct vt_io_data *io;
 	struct vt_msr msr;
 	struct vt_ept *ept;
 	bool lme, lma;

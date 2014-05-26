@@ -767,7 +767,11 @@ asm_sti_and_nop_and_cli (void)
 static inline void
 asm_pause (void)
 {
-	asm volatile ("pause");
+	/* This function is used by in loops of spinlock-like
+	 * functions.  So memory may be modified by other CPUs during
+	 * this function.  "memory" avoids some optimization for
+	 * convenient. */
+	asm volatile ("pause" : : : "memory");
 }
 
 static inline void

@@ -40,6 +40,6 @@ struct svm_io {
 };
 
 void svm_ioio (void);
-void svm_extern_iopass (struct vcpu *p, u32 port, bool pass);
+void svm_iopass (u32 port, bool pass);
 
 #endif

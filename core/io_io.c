@@ -38,12 +38,6 @@
 #include "panic.h"
 #include "printf.h"
 
-struct call_iopass_data {
-	struct vcpu *vcpu0;
-	u32 port;
-	bool pass;
-};
-
 enum ioact
 do_io_nothing (enum iotype type, u32 port, void *data)
 {
@@ -67,33 +61,20 @@ do_io_nothing (enum iotype type, u32 port, void *data)
 	return IOACT_CONT;
 }
 
-static bool
-call_iopass (struct vcpu *p, void *q)
-{
-	struct call_iopass_data *d;
-
-	d = q;
-	if (p->vcpu0 == d->vcpu0)
-		p->vmctl.extern_iopass (p, d->port, d->pass);
-	return false;
-}
-
 iofunc_t
 set_iofunc (u32 port, iofunc_t func)
 {
 	iofunc_t old, *p;
-	struct call_iopass_data d;
+	bool pass;
 
 	p = &current->vcpu0->io.iofunc[port & 0xFFFF];
 	/* old = *p; *p = func; */
 	old = (iofunc_t)asm_lock_ulong_swap ((ulong *)p, (ulong)func);
-	d.vcpu0 = current->vcpu0;
-	d.port = port;
 	if (func == do_iopass_default)
-		d.pass = true;
+		pass = true;
 	else
-		d.pass = false;
-	vcpu_list_foreach (call_iopass, &d);
+		pass = false;
+	current->vmctl.iopass (port, pass);
 	return old;
 }
 

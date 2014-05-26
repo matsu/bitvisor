@@ -41,6 +41,5 @@ struct vt_io_data {
 
 void vt_io (void);
 void vt_iopass (u32 port, bool pass);
-void vt_extern_iopass (struct vcpu *p, u32 port, bool pass);
 
 #endif

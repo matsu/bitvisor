@@ -151,15 +151,26 @@ static void
 svm_vmcb_init (void)
 {
 	struct vmcb *p;
+	struct svm_io *io;
 
 	current->u.svm.saved_vmcb = NULL;
 	alloc_page ((void **)&current->u.svm.vi.vmcb,
 		    &current->u.svm.vi.vmcb_phys);
-	alloc_pages (&current->u.svm.io.iobmp,
-		     &current->u.svm.io.iobmp_phys, 3);
+	/* The iobmp initialization must be executed during
+	 * current->vcpu0 == current, because the iobmp is accessed by
+	 * vmctl.iopass() that is called from set_iofunc() during
+	 * current->vcpu0 == current. */
+	if (current->vcpu0 == current) {
+		io = alloc (sizeof *io);
+		alloc_pages (&io->iobmp, &io->iobmp_phys, 3);
+		memset (io->iobmp, 0xFF, PAGESIZE * 3);
+	} else {
+		while (!(io = current->vcpu0->u.svm.io))
+			asm_pause ();
+	}
+	current->u.svm.io = io;
 	alloc_pages (&current->u.svm.msr.msrbmp,
 		     &current->u.svm.msr.msrbmp_phys, 2);
-	memset (current->u.svm.io.iobmp, 0xFF, PAGESIZE * 3);
 	memset (current->u.svm.msr.msrbmp, 0xFF, PAGESIZE * 2);
 	/* passthrough writing to PATCH_LOADER MSR (0xC0010020) */
 	((u8 *)current->u.svm.msr.msrbmp)[0x1008] &= ~2;
@@ -180,7 +191,7 @@ svm_vmcb_init (void)
 	p->intercept_vmrun = 1;
 	p->intercept_vmmcall = 1;
 	p->intercept_cpuid = 1;
-	p->iopm_base_pa = current->u.svm.io.iobmp_phys;
+	p->iopm_base_pa = io->iobmp_phys;
 	p->msrpm_base_pa = current->u.svm.msr.msrbmp_phys;
 	p->guest_asid = 1;	/* FIXME */
 	p->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;

@@ -52,7 +52,7 @@ struct svm {
 	struct svm_vmrun_regs vr;
 	struct svm_vmcb_info vi;
 	struct svm_intr_data intr;
-	struct svm_io io;
+	struct svm_io *io;
 	struct svm_msr msr;
 	struct svm_np *np;
 	bool lme, lma;

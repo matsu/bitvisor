@@ -127,7 +127,7 @@ set_iobmp (struct vcpu *v, u32 port, int bit)
 	u8 *p;
 
 	port &= 0xFFFF;
-	p = (u8 *)v->u.vt.io.iobmp[port >> 15];
+	p = (u8 *)v->u.vt.io->iobmp[port >> 15];
 	port &= 0x7FFF;
 	if (bit)
 		p[port >> 3] |= 1 << (port & 7);
@@ -139,10 +139,4 @@ void
 vt_iopass (u32 port, bool pass)
 {
 	set_iobmp (current, port, !pass);
-}
-
-void
-vt_extern_iopass (struct vcpu *p, u32 port, bool pass)
-{
-	set_iobmp (p, port, !pass);
 }

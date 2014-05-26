@@ -196,14 +196,24 @@ vt__vmcs_init (void)
 	u64 host_efer;
 	u32 procbased_ctls2_or, procbased_ctls2_and = 0;
 	ulong procbased_ctls2 = 0;
+	struct vt_io_data *io;
 
 	current->u.vt.first = true;
-	alloc_page (&current->u.vt.io.iobmp[0],
-		    &current->u.vt.io.iobmpphys[0]);
-	alloc_page (&current->u.vt.io.iobmp[1],
-		    &current->u.vt.io.iobmpphys[1]);
-	memset (current->u.vt.io.iobmp[0], 0xFF, PAGESIZE);
-	memset (current->u.vt.io.iobmp[1], 0xFF, PAGESIZE);
+	/* The iobmp initialization must be executed during
+	 * current->vcpu0 == current, because the iobmp is accessed by
+	 * vmctl.iopass() that is called from set_iofunc() during
+	 * current->vcpu0 == current. */
+	if (current->vcpu0 == current) {
+		io = alloc (sizeof *io);
+		alloc_page (&io->iobmp[0], &io->iobmpphys[0]);
+		alloc_page (&io->iobmp[1], &io->iobmpphys[1]);
+		memset (io->iobmp[0], 0xFF, PAGESIZE);
+		memset (io->iobmp[1], 0xFF, PAGESIZE);
+	} else {
+		while (!(io = current->vcpu0->u.vt.io))
+			asm_pause ();
+	}
+	current->u.vt.io = io;
 	current->u.vt.saved_vmcs = NULL;
 	current->u.vt.vpid = 0;
 	current->u.vt.ept = NULL;
@@ -295,8 +305,8 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_HOST_GS_SEL, host_riv.gs.sel);
 	asm_vmwrite (VMCS_HOST_TR_SEL, host_riv.tr.sel);
 	/* 64-Bit Control Fields */
-	asm_vmwrite64 (VMCS_ADDR_IOBMP_A, current->u.vt.io.iobmpphys[0]);
-	asm_vmwrite64 (VMCS_ADDR_IOBMP_B, current->u.vt.io.iobmpphys[1]);
+	asm_vmwrite64 (VMCS_ADDR_IOBMP_A, io->iobmpphys[0]);
+	asm_vmwrite64 (VMCS_ADDR_IOBMP_B, io->iobmpphys[1]);
 	asm_vmwrite64 (VMCS_ADDR_MSRBMP, 0xFFFFFFFFFFFFFFFFULL);
 	asm_vmwrite64 (VMCS_VMEXIT_MSRSTORE_ADDR, 0);
 	asm_vmwrite64 (VMCS_VMEXIT_MSRLOAD_ADDR, 0);
