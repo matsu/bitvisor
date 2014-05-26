@@ -152,6 +152,7 @@ svm_vmcb_init (void)
 {
 	struct vmcb *p;
 	struct svm_io *io;
+	struct svm_msrbmp *msrbmp;
 
 	current->u.svm.saved_vmcb = NULL;
 	alloc_page ((void **)&current->u.svm.vi.vmcb,
@@ -169,11 +170,17 @@ svm_vmcb_init (void)
 			asm_pause ();
 	}
 	current->u.svm.io = io;
-	alloc_pages (&current->u.svm.msr.msrbmp,
-		     &current->u.svm.msr.msrbmp_phys, 2);
-	memset (current->u.svm.msr.msrbmp, 0xFF, PAGESIZE * 2);
-	/* passthrough writing to PATCH_LOADER MSR (0xC0010020) */
-	((u8 *)current->u.svm.msr.msrbmp)[0x1008] &= ~2;
+	if (current->vcpu0 == current) {
+		msrbmp = alloc (sizeof *msrbmp);
+		alloc_pages (&msrbmp->msrbmp, &msrbmp->msrbmp_phys, 2);
+		memset (msrbmp->msrbmp, 0xFF, PAGESIZE * 2);
+		/* passthrough writing to PATCH_LOADER MSR (0xC0010020) */
+		((u8 *)msrbmp->msrbmp)[0x1008] &= ~2;
+	} else {
+		while (!(msrbmp = current->vcpu0->u.svm.msrbmp))
+			asm_pause ();
+	}
+	current->u.svm.msrbmp = msrbmp;
 	p = current->u.svm.vi.vmcb;
 	memset (p, 0, PAGESIZE);
 	p->intercept_read_cr = ~0x104;
@@ -192,7 +199,7 @@ svm_vmcb_init (void)
 	p->intercept_vmmcall = 1;
 	p->intercept_cpuid = 1;
 	p->iopm_base_pa = io->iobmp_phys;
-	p->msrpm_base_pa = current->u.svm.msr.msrbmp_phys;
+	p->msrpm_base_pa = msrbmp->msrbmp_phys;
 	p->guest_asid = 1;	/* FIXME */
 	p->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
 	svm_seg_reset (p);

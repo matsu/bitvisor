@@ -53,7 +53,7 @@ struct svm {
 	struct svm_vmcb_info vi;
 	struct svm_intr_data intr;
 	struct svm_io *io;
-	struct svm_msr msr;
+	struct svm_msrbmp *msrbmp;
 	struct svm_np *np;
 	bool lme, lma;
 	struct vmcb *saved_vmcb;
