@@ -172,7 +172,7 @@ vt_read_control_reg (enum control_reg reg, ulong *val)
 {
 	switch (reg) {
 	case CONTROL_REG_CR0:
-		asm_vmread (VMCS_CR0_READ_SHADOW, val);
+		*val = vt_read_cr0 ();
 		break;
 	case CONTROL_REG_CR2:
 		*val = current->u.vt.vr.cr2;
@@ -181,7 +181,7 @@ vt_read_control_reg (enum control_reg reg, ulong *val)
 		*val = current->u.vt.vr.cr3;
 		break;
 	case CONTROL_REG_CR4:
-		asm_vmread (VMCS_CR4_READ_SHADOW, val);
+		*val = vt_read_cr4 ();
 		break;
 	default:
 		panic ("Fatal error: unknown control register.");

@@ -35,6 +35,7 @@
 #include "vt_ept.h"
 #include "vt_main.h"
 #include "vt_paging.h"
+#include "vt_regs.h"
 
 bool
 vt_paging_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e)
@@ -325,11 +326,11 @@ vt_paging_pg_change (void)
 	else
 		tmp &= ~VMCS_PROC_BASED_VMEXEC_CTL_INVLPGEXIT_BIT;
 	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, tmp);
-	asm_vmread (VMCS_CR0_READ_SHADOW, &tmp);
+	tmp = vt_read_cr0 ();
 	asm_vmwrite (VMCS_GUEST_CR0, vt_paging_apply_fixed_cr0 (tmp));
 	tmp = use_spt ? current->u.vt.spt_cr3 : current->u.vt.vr.cr3;
 	asm_vmwrite (VMCS_GUEST_CR3, tmp);
-	asm_vmread (VMCS_CR4_READ_SHADOW, &tmp);
+	tmp = vt_read_cr4 ();
 	asm_vmwrite (VMCS_GUEST_CR4, vt_paging_apply_fixed_cr4 (tmp));
 	current->u.vt.handle_pagefault = use_spt;
 	vt_update_exception_bmp ();

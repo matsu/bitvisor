@@ -385,8 +385,8 @@ vt__vmcs_init (void)
 	/* 32-Bit Host-State Field */
 	asm_vmwrite (VMCS_HOST_IA32_SYSENTER_CS, sysenter_cs);
 	/* Natural-Width Control Fields */
-	asm_vmwrite (VMCS_CR0_GUESTHOST_MASK, 0xFFFFFFFF);
-	asm_vmwrite (VMCS_CR4_GUESTHOST_MASK, 0xFFFFFFFF);
+	asm_vmwrite (VMCS_CR0_GUESTHOST_MASK, VT_CR0_GUESTHOST_MASK);
+	asm_vmwrite (VMCS_CR4_GUESTHOST_MASK, VT_CR4_GUESTHOST_MASK);
 	asm_vmwrite (VMCS_CR0_READ_SHADOW, guest_riv.cr0);
 	asm_vmwrite (VMCS_CR4_READ_SHADOW, guest_riv.cr4);
 	asm_vmwrite (VMCS_CR3_TARGET_VALUE_0, 0);

@@ -35,6 +35,12 @@
 #include "vt_msr.h"
 #include "vt_vmcs.h"
 
+#define VT_CR0_GUESTHOST_MASK \
+	(~0U ^ CR0_MP_BIT ^ CR0_EM_BIT ^ CR0_TS_BIT ^ CR0_NE_BIT ^ CR0_AM_BIT)
+#define VT_CR4_GUESTHOST_MASK \
+	(~0U ^ CR4_VME_BIT ^ CR4_PVI_BIT ^ CR4_TSD_BIT ^ CR4_DE_BIT ^ \
+	 CR4_MCE_BIT ^ CR4_PCE_BIT ^ CR4_OSFXSR_BIT ^ CR4_OSXMMEXCPT_BIT)
+
 struct vt_realmode_data {
 	struct descreg idtr;
 	ulong tr_limit, tr_acr, tr_base;

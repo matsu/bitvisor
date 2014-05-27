@@ -54,6 +54,30 @@ struct regs_in_vmcs {
 	ulong dr7, rflags;
 };
 
+static inline ulong
+vt_read_cr (ulong mask, ulong index_1, ulong index_0)
+{
+	ulong ret_1, ret_0;
+
+	asm_vmread (index_1, &ret_1);
+	asm_vmread (index_0, &ret_0);
+	return (ret_1 & mask) | (ret_0 & ~mask);
+}
+
+static inline ulong
+vt_read_cr0 (void)
+{
+	return vt_read_cr (VT_CR0_GUESTHOST_MASK, VMCS_CR0_READ_SHADOW,
+			   VMCS_GUEST_CR0);
+}
+
+static inline ulong
+vt_read_cr4 (void)
+{
+	return vt_read_cr (VT_CR4_GUESTHOST_MASK, VMCS_CR4_READ_SHADOW,
+			   VMCS_GUEST_CR4);
+}
+
 void vt_get_current_regs_in_vmcs (struct regs_in_vmcs *p);
 void vt_get_vmcs_regs_in_vmcs (struct regs_in_vmcs *p);
 void vt_read_general_reg (enum general_reg reg, ulong *val);
