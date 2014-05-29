@@ -150,18 +150,27 @@ vt_paging_npf (bool write, u64 gphys)
 		panic ("EPT violation while ept disabled");
 }
 
+static void
+vt_update_vmcs_guest_cr3 (void)
+{
+	struct vt *p = &current->u.vt;
+
+	if (!p->cr3exit_off)
+		asm_vmwrite (VMCS_GUEST_CR3, p->vr.cr3);
+}
+
 void
 vt_paging_updatecr3 (void)
 {
 #ifdef CPU_MMU_SPT_DISABLE
 	if (current->u.vt.vr.pg) {
-		asm_vmwrite (VMCS_GUEST_CR3, current->u.vt.vr.cr3);
+		vt_update_vmcs_guest_cr3 ();
 		vt_paging_flush_guest_tlb ();
 		return;
 	}
 #endif
 	if (ept_enabled ()) {
-		asm_vmwrite (VMCS_GUEST_CR3, current->u.vt.vr.cr3);
+		vt_update_vmcs_guest_cr3 ();
 		vt_ept_updatecr3 ();
 	} else {
 		cpu_mmu_spt_updatecr3 ();
@@ -259,6 +268,7 @@ vt_paging_pg_change (void)
 	ulong tmp;
 	u64 tmp64;
 	bool ept_enable, use_spt;
+	ulong cr3;
 
 	ept_enable = ept_enabled ();
 	use_spt = !ept_enable;
@@ -325,11 +335,28 @@ vt_paging_pg_change (void)
 		tmp |= VMCS_PROC_BASED_VMEXEC_CTL_INVLPGEXIT_BIT;
 	else
 		tmp &= ~VMCS_PROC_BASED_VMEXEC_CTL_INVLPGEXIT_BIT;
+	if (current->u.vt.cr3exit_controllable) {
+		if (use_spt && current->u.vt.cr3exit_off) {
+			cr3 = vt_read_cr3 ();
+			tmp |= VMCS_PROC_BASED_VMEXEC_CTL_CR3LOADEXIT_BIT;
+			tmp |= VMCS_PROC_BASED_VMEXEC_CTL_CR3STOREEXIT_BIT;
+			current->u.vt.cr3exit_off = false;
+			vt_write_cr3 (cr3);
+		} else if (!use_spt && !current->u.vt.cr3exit_off) {
+			cr3 = vt_read_cr3 ();
+			tmp &= ~VMCS_PROC_BASED_VMEXEC_CTL_CR3LOADEXIT_BIT;
+			tmp &= ~VMCS_PROC_BASED_VMEXEC_CTL_CR3STOREEXIT_BIT;
+			current->u.vt.cr3exit_off = true;
+			vt_write_cr3 (cr3);
+		}
+	}
 	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, tmp);
 	tmp = vt_read_cr0 ();
 	asm_vmwrite (VMCS_GUEST_CR0, vt_paging_apply_fixed_cr0 (tmp));
-	tmp = use_spt ? current->u.vt.spt_cr3 : current->u.vt.vr.cr3;
-	asm_vmwrite (VMCS_GUEST_CR3, tmp);
+	if (use_spt)
+		asm_vmwrite (VMCS_GUEST_CR3, current->u.vt.spt_cr3);
+	else
+		vt_update_vmcs_guest_cr3 ();
 	tmp = vt_read_cr4 ();
 	asm_vmwrite (VMCS_GUEST_CR4, vt_paging_apply_fixed_cr4 (tmp));
 	current->u.vt.handle_pagefault = use_spt;

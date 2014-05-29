@@ -82,6 +82,7 @@ struct vt {
 	bool unrestricted_guest_available, unrestricted_guest;
 	bool save_load_efer_enable;
 	bool exint_pass, exint_pending, exint_update, exint_re_pending;
+	bool cr3exit_controllable, cr3exit_off;
 };
 
 struct vt_pcpu_data {

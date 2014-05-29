@@ -78,6 +78,30 @@ vt_read_cr4 (void)
 			   VMCS_GUEST_CR4);
 }
 
+static inline ulong
+vt_read_cr3 (void)
+{
+	struct vt *p = &current->u.vt;
+	ulong ret;
+
+	if (p->cr3exit_off)
+		asm_vmread (VMCS_GUEST_CR3, &ret);
+	else
+		ret = p->vr.cr3;
+	return ret;
+}
+
+static inline void
+vt_write_cr3 (ulong val)
+{
+	struct vt *p = &current->u.vt;
+
+	if (p->cr3exit_off)
+		asm_vmwrite (VMCS_GUEST_CR3, val);
+	else
+		p->vr.cr3 = val;
+}
+
 void vt_get_current_regs_in_vmcs (struct regs_in_vmcs *p);
 void vt_get_vmcs_regs_in_vmcs (struct regs_in_vmcs *p);
 void vt_read_general_reg (enum general_reg reg, ulong *val);

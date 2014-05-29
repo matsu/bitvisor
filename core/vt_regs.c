@@ -178,7 +178,7 @@ vt_read_control_reg (enum control_reg reg, ulong *val)
 		*val = current->u.vt.vr.cr2;
 		break;
 	case CONTROL_REG_CR3:
-		*val = current->u.vt.vr.cr3;
+		*val = vt_read_cr3 ();
 		break;
 	case CONTROL_REG_CR4:
 		*val = vt_read_cr4 ();
@@ -375,7 +375,7 @@ vt_write_control_reg (enum control_reg reg, ulong val)
 		current->u.vt.vr.cr2 = val;
 		break;
 	case CONTROL_REG_CR3:
-		current->u.vt.vr.cr3 = val;
+		vt_write_cr3 (val);
 		vt_paging_updatecr3 ();
 		vt_paging_flush_guest_tlb ();
 		break;
@@ -783,7 +783,7 @@ vt_reset (void)
 	asm_vmwrite (VMCS_CR0_READ_SHADOW, CR0_ET_BIT);
 	asm_vmwrite (VMCS_GUEST_CR0, vt_paging_apply_fixed_cr0 (CR0_ET_BIT));
 	current->u.vt.vr.cr2 = 0;
-	current->u.vt.vr.cr3 = 0;
+	vt_write_cr3 (0);
 	asm_vmwrite (VMCS_CR4_READ_SHADOW, 0);
 	asm_vmwrite (VMCS_GUEST_CR4, vt_paging_apply_fixed_cr4 (0));
 	vt_write_msr (MSR_IA32_EFER, 0);

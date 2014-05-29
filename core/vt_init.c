@@ -177,6 +177,26 @@ ept_init (void)
 	current->u.vt.invept_available = true;
 }
 
+static bool
+vt_cr3exit_controllable (void)
+{
+	u64 vmx_basic;
+	u32 true_procbased_ctls_or, true_procbased_ctls_and;
+
+	asm_rdmsr64 (MSR_IA32_VMX_BASIC, &vmx_basic);
+	if (!(vmx_basic & MSR_IA32_VMX_BASIC_TRUE_CTLS_BIT))
+		return false;
+	asm_rdmsr32 (MSR_IA32_VMX_TRUE_PROCBASED_CTLS,
+		     &true_procbased_ctls_or, &true_procbased_ctls_and);
+	if (true_procbased_ctls_or &
+	    VMCS_PROC_BASED_VMEXEC_CTL_CR3LOADEXIT_BIT)
+		return false;
+	if (true_procbased_ctls_or &
+	    VMCS_PROC_BASED_VMEXEC_CTL_CR3STOREEXIT_BIT)
+		return false;
+	return true;
+}
+
 /* Initialize VMCS region
    INPUT:
    vmcs_revision_identifier: VMCS revision identifier
@@ -234,6 +254,8 @@ vt__vmcs_init (void)
 	current->u.vt.save_load_efer_enable = false;
 	current->u.vt.exint_pass = true;
 	current->u.vt.exint_pending = false;
+	current->u.vt.cr3exit_controllable = vt_cr3exit_controllable ();
+	current->u.vt.cr3exit_off = false;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
