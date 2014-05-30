@@ -39,6 +39,7 @@
 #define PROCESS_NAMELEN		32
 #define MAXNUM_OF_MSGBUF	32
 
+bool own_process64_msrs (void (*func) (void *data), void *data);
 void process_kill (bool (*func) (void *data), void *data);
 ulong sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong si, ulong di);
 ulong sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di);

@@ -992,6 +992,7 @@ vt_mainloop (void)
 		if (current->u.vt.vr.sw.enable) {
 			vt__nmi ();
 			vt__event_delivery_setup ();
+			vt_msr_own_process_msrs ();
 			vt__vm_run_with_tf ();
 			vt_paging_tlbflush ();
 			vt__event_delivery_check ();
@@ -999,6 +1000,7 @@ vt_mainloop (void)
 		} else {	/* not switching */
 			vt__nmi ();
 			vt__event_delivery_setup ();
+			vt_msr_own_process_msrs ();
 			vt__vm_run ();
 			vt_paging_tlbflush ();
 			vt__event_delivery_check ();

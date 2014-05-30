@@ -73,6 +73,8 @@ struct pcpu {
 	phys_t cr3;
 	bool pass_vm_created;
 	bool use_invariant_tsc;
+	void (*release_process64_msrs) (void *release_process64_msrs_data);
+	void *release_process64_msrs_data;
 };
 
 struct pcpu_gs {

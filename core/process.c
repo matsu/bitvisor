@@ -134,18 +134,26 @@ sysenter_available (void)
 #endif
 
 static void
-setup_syscallentry (void)
+set_process64_msrs (void)
 {
 #ifdef __x86_64__
-	ulong efer;
-
-	asm_wrmsr (MSR_IA32_SYSENTER_CS, 0);	/* Disable SYSENTER/SYSEXIT */
 	asm_wrmsr32 (MSR_IA32_STAR, (u32) (ulong)syscall_entry_sysret64,
 		     (SEG_SEL_CODE32U << 16) | SEG_SEL_CODE64);
 	asm_wrmsr (MSR_IA32_LSTAR, (ulong)syscall_entry_sysret64);
 	asm_wrmsr (MSR_AMD_CSTAR, (ulong)syscall_entry_sysret64);
 	asm_wrmsr (MSR_IA32_FMASK,
 		   RFLAGS_VM_BIT | RFLAGS_IF_BIT | RFLAGS_RF_BIT);
+#endif
+}
+
+static void
+setup_syscallentry (void)
+{
+#ifdef __x86_64__
+	ulong efer;
+
+	asm_wrmsr (MSR_IA32_SYSENTER_CS, 0);	/* Disable SYSENTER/SYSEXIT */
+	set_process64_msrs ();
 	asm_rdmsr (MSR_IA32_EFER, &efer);
 	efer |= MSR_IA32_EFER_SCE_BIT;
 	asm_wrmsr (MSR_IA32_EFER, efer);
@@ -336,6 +344,26 @@ cleanup (int pid, phys_t mm_phys)
 	process[pid].valid = false;
 }
 
+static void
+release_process64_msrs (void *data)
+{
+}
+
+bool
+own_process64_msrs (void (*func) (void *data), void *data)
+{
+	struct pcpu *cpu = currentcpu;
+
+	if (cpu->release_process64_msrs == func &&
+	    cpu->release_process64_msrs_data == data)
+		return false;
+	if (cpu->release_process64_msrs)
+		cpu->release_process64_msrs (cpu->release_process64_msrs_data);
+	cpu->release_process64_msrs = func;
+	cpu->release_process64_msrs_data = data;
+	return true;
+}
+
 /* pid, func=pointer to the function of the process,
    sp=stack pointer of the process */
 /* process_lock must be locked */
@@ -355,6 +383,8 @@ call_msgfunc0 (int pid, void *func, ulong sp)
 	currentcpu->pid = pid;
 	process[pid].running++;
 	spinlock_unlock (&process_lock);
+	if (own_process64_msrs (release_process64_msrs, NULL))
+		set_process64_msrs ();
 	asm volatile (
 #ifdef __x86_64__
 		" pushq %%rbp \n"
@@ -961,6 +991,8 @@ process_syscall (struct syscall_regs *regs)
 		regs->rax = syscall_table[regs->rbx] (regs->rdx, regs->rcx,
 						      regs->rbx, regs->rsi,
 						      regs->rdi);
+		if (own_process64_msrs (release_process64_msrs, NULL))
+			set_process64_msrs ();
 		return;
 	}
 	printf ("Bad system call.\n");

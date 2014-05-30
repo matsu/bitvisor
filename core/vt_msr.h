@@ -42,7 +42,7 @@ struct vt_msr {
 	struct vt_msr_entry *vmm;
 	struct vt_msr_entry *guest;
 	int count;
-	int efer, star, lstar, cstar, fmask, kerngs;
+	u64 efer, star, lstar, cstar, fmask, kerngs;
 };
 
 struct vt_msrbmp {
@@ -50,6 +50,7 @@ struct vt_msrbmp {
 	u64 msrbmp_phys;
 };
 
+void vt_msr_own_process_msrs (void);
 void vt_msr_update_lma (void);
 int vt_add_guest_msr (ulong index);
 bool vt_read_guest_msr (int i, u64 *data);

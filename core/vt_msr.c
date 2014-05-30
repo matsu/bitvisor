@@ -35,6 +35,7 @@
 #include "mm.h"
 #include "panic.h"
 #include "printf.h"
+#include "process.h"
 #include "vt_msr.h"
 #include "vt_paging.h"
 
@@ -114,6 +115,67 @@ do_read_msr_sub (void *arg)
 	asm_rdmsr64 (p->msrindex, p->msrdata);
 }
 
+static asmlinkage void
+do_write_msr_sub (void *arg)
+{
+	struct msrarg *p;
+
+	p = arg;
+	asm_wrmsr64 (p->msrindex, *p->msrdata);
+}
+
+static void
+vt_msr_store_process64_msrs (void *data)
+{
+	struct vcpu *p = data;
+	struct msrarg m;
+
+	m.msrindex = MSR_IA32_STAR;
+	m.msrdata = &p->u.vt.msr.star;
+	callfunc_and_getint (do_read_msr_sub, &m);
+	m.msrindex = MSR_IA32_LSTAR,
+	m.msrdata = &p->u.vt.msr.lstar;
+	callfunc_and_getint (do_read_msr_sub, &m);
+	m.msrindex = MSR_AMD_CSTAR,
+	m.msrdata = &p->u.vt.msr.cstar;
+	callfunc_and_getint (do_read_msr_sub, &m);
+	m.msrindex = MSR_IA32_FMASK,
+	m.msrdata = &p->u.vt.msr.fmask;
+	callfunc_and_getint (do_read_msr_sub, &m);
+	m.msrindex = MSR_IA32_KERNEL_GS_BASE,
+	m.msrdata = &p->u.vt.msr.kerngs;
+	callfunc_and_getint (do_read_msr_sub, &m);
+}
+
+void
+vt_msr_load_process64_msrs (struct vcpu *p)
+{
+	struct msrarg m;
+
+	m.msrindex = MSR_IA32_STAR;
+	m.msrdata = &p->u.vt.msr.star;
+	callfunc_and_getint (do_write_msr_sub, &m);
+	m.msrindex = MSR_IA32_LSTAR,
+	m.msrdata = &p->u.vt.msr.lstar;
+	callfunc_and_getint (do_write_msr_sub, &m);
+	m.msrindex = MSR_AMD_CSTAR,
+	m.msrdata = &p->u.vt.msr.cstar;
+	callfunc_and_getint (do_write_msr_sub, &m);
+	m.msrindex = MSR_IA32_FMASK,
+	m.msrdata = &p->u.vt.msr.fmask;
+	callfunc_and_getint (do_write_msr_sub, &m);
+	m.msrindex = MSR_IA32_KERNEL_GS_BASE,
+	m.msrdata = &p->u.vt.msr.kerngs;
+	callfunc_and_getint (do_write_msr_sub, &m);
+}
+
+void
+vt_msr_own_process_msrs (void)
+{
+	if (own_process64_msrs (vt_msr_store_process64_msrs, current))
+		vt_msr_load_process64_msrs (current);
+}
+
 int
 vt_add_guest_msr (ulong index)
 {
@@ -169,9 +231,11 @@ vt_write_guest_msr (int i, u64 data)
 bool
 vt_read_msr (u32 msrindex, u64 *msrdata)
 {
+	int num;
 	ulong a;
 	u64 data;
 	bool r = false;
+	struct msrarg m;
 	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
 
 	switch (msrindex) {
@@ -198,18 +262,6 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 			data |= MSR_IA32_EFER_LMA_BIT;
 		*msrdata = data;
 		break;
-	case MSR_IA32_STAR:
-		r = vt_read_guest_msr (current->u.vt.msr.star, msrdata);
-		break;
-	case MSR_IA32_LSTAR:
-		r = vt_read_guest_msr (current->u.vt.msr.lstar, msrdata);
-		break;
-	case MSR_AMD_CSTAR:
-		r = vt_read_guest_msr (current->u.vt.msr.cstar, msrdata);
-		break;
-	case MSR_IA32_FMASK:
-		r = vt_read_guest_msr (current->u.vt.msr.fmask, msrdata);
-		break;
 	case MSR_IA32_FS_BASE:
 		asm_vmread (VMCS_GUEST_FS_BASE, &a);
 		*msrdata = a;
@@ -218,8 +270,23 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 		asm_vmread (VMCS_GUEST_GS_BASE, &a);
 		*msrdata = a;
 		break;
+	case MSR_IA32_STAR:
+	case MSR_IA32_LSTAR:
+	case MSR_AMD_CSTAR:
+	case MSR_IA32_FMASK:
 	case MSR_IA32_KERNEL_GS_BASE:
-		r = vt_read_guest_msr (current->u.vt.msr.kerngs, msrdata);
+		vt_msr_own_process_msrs ();
+		m.msrindex = msrindex;
+		m.msrdata = msrdata;
+		num = callfunc_and_getint (do_read_msr_sub, &m);
+		switch (num) {
+		case -1:
+			break;
+		case EXCEPTION_GP:
+			r = true;
+		default:
+			panic ("vt_read_msr: exception %d", num);
+		}
 		break;
 	case MSR_IA32_MTRR_FIX4K_C0000:
 	case MSR_IA32_MTRR_FIX4K_C8000:
@@ -270,8 +337,10 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 bool
 vt_write_msr (u32 msrindex, u64 msrdata)
 {
+	int num;
 	u64 data;
 	bool r = false;
+	struct msrarg m;
 	static const u64 mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
 
 	switch (msrindex) {
@@ -297,26 +366,29 @@ vt_write_msr (u32 msrindex, u64 msrdata)
 		vt_paging_updatecr3 ();
 		vt_paging_flush_guest_tlb ();
 		break;
-	case MSR_IA32_STAR:
-		r = vt_write_guest_msr (current->u.vt.msr.star, msrdata);
-		break;
-	case MSR_IA32_LSTAR:
-		r = vt_write_guest_msr (current->u.vt.msr.lstar, msrdata);
-		break;
-	case MSR_AMD_CSTAR:
-		r = vt_write_guest_msr (current->u.vt.msr.cstar, msrdata);
-		break;
-	case MSR_IA32_FMASK:
-		r = vt_write_guest_msr (current->u.vt.msr.fmask, msrdata);
-		break;
 	case MSR_IA32_FS_BASE:
 		asm_vmwrite (VMCS_GUEST_FS_BASE, (ulong)msrdata);
 		break;
 	case MSR_IA32_GS_BASE:
 		asm_vmwrite (VMCS_GUEST_GS_BASE, (ulong)msrdata);
 		break;
+	case MSR_IA32_STAR:
+	case MSR_IA32_LSTAR:
+	case MSR_AMD_CSTAR:
+	case MSR_IA32_FMASK:
 	case MSR_IA32_KERNEL_GS_BASE:
-		r = vt_write_guest_msr (current->u.vt.msr.kerngs, msrdata);
+		vt_msr_own_process_msrs ();
+		m.msrindex = msrindex;
+		m.msrdata = &msrdata;
+		num = callfunc_and_getint (do_write_msr_sub, &m);
+		switch (num) {
+		case -1:
+			break;
+		case EXCEPTION_GP:
+			r = true;
+		default:
+			panic ("vt_write_msr: exception %d", num);
+		}
 		break;
 	case MSR_IA32_MTRR_FIX4K_C0000:
 	case MSR_IA32_MTRR_FIX4K_C8000:
@@ -462,15 +534,10 @@ vt_msr_init (void)
 	asm_vmwrite64 (VMCS_VMENTRY_MSRLOAD_ADDR, msr_guest_phys);
 	if (!current->u.vt.save_load_efer_enable)
 		current->u.vt.msr.efer = vt_add_guest_msr (MSR_IA32_EFER);
-	current->u.vt.msr.star = vt_add_guest_msr (MSR_IA32_STAR);
-	current->u.vt.msr.lstar = vt_add_guest_msr (MSR_IA32_LSTAR);
-	current->u.vt.msr.cstar = vt_add_guest_msr (MSR_AMD_CSTAR);
-	current->u.vt.msr.fmask = vt_add_guest_msr (MSR_IA32_FMASK);
-	current->u.vt.msr.kerngs = vt_add_guest_msr (MSR_IA32_KERNEL_GS_BASE);
 	write_guest_efer (0);
-	vt_write_guest_msr (current->u.vt.msr.star, 0);
-	vt_write_guest_msr (current->u.vt.msr.lstar, 0);
-	vt_write_guest_msr (current->u.vt.msr.cstar, 0);
-	vt_write_guest_msr (current->u.vt.msr.fmask, 0);
-	vt_write_guest_msr (current->u.vt.msr.kerngs, 0);
+	current->u.vt.msr.star = 0;
+	current->u.vt.msr.lstar = 0;
+	current->u.vt.msr.cstar = 0;
+	current->u.vt.msr.fmask = 0;
+	current->u.vt.msr.kerngs = 0;
 }
