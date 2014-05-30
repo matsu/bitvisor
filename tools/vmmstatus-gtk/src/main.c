@@ -91,6 +91,7 @@ timer_callback (gpointer data)
 	getstatus (&st1, &st2);
 	gtk_label_set_text (label2, st1);
 	gtk_label_set_text (label3, st2);
+	return 1;
 }
 
 int
