@@ -31,13 +31,18 @@
 #define __CORE_ASSERT_H
 
 #ifdef ENABLE_ASSERT
-#define ASSERT(x) if (!(x)) \
-	assertion_failed (#x, __FUNCTION__, __FILE__, __LINE__)
+#define ASSERT(x) do { \
+	if (!(x)) \
+		assertion_failed (#x, __FUNCTION__, __FILE__, __LINE__); \
+} while (0)
 
 void assertion_failed (char *x, const char *funcname, char *filename,
 		       int linenum);
 #else
-#define ASSERT(x)
+#define ASSERT(x) do { \
+	if (!(x)) \
+		; \
+} while (0)
 #endif
 
 #endif
