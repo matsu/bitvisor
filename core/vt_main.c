@@ -57,6 +57,7 @@
 #include "vt_vmcs.h"
 
 #define EPT_VIOLATION_EXIT_QUAL_WRITE_BIT 0x2
+#define STAT_EXIT_REASON_MAX EXIT_REASON_XSETBV
 
 enum vt__status {
 	VT__VMENTRY_SUCCESS,
@@ -70,6 +71,7 @@ static u32 stat_swexcnt = 0;
 static u32 stat_pfcnt = 0;
 static u32 stat_iocnt = 0;
 static u32 stat_hltcnt = 0;
+static u32 stat_exit_reason[STAT_EXIT_REASON_MAX + 1];
 
 static void
 do_mov_cr (void)
@@ -826,6 +828,11 @@ vt__exit_reason (void)
 		printexitreason (exit_reason);
 		panic ("Fatal error: handler not implemented.");
 	}
+	STATUS_UPDATE (asm_lock_incl
+		       (&stat_exit_reason
+			[(exit_reason & EXIT_REASON_MASK) >
+			 STAT_EXIT_REASON_MAX ? STAT_EXIT_REASON_MAX :
+			 (exit_reason & EXIT_REASON_MASK)]));
 }
 
 static void
@@ -1003,9 +1010,32 @@ vt_mainloop (void)
 static char *
 vt_status (void)
 {
-	static char buf[1024];
+	static char buf[4096];
+	int i, n;
 
-	snprintf (buf, 1024,
+	n = snprintf (buf, 4096, "Exit Reason:\n");
+	for (i = 0; i + 7 <= STAT_EXIT_REASON_MAX; i += 8) {
+		n += snprintf
+			(buf + n, 4096 - n,
+			 " %02X: %04X %04X %04X %04X %04X %04X %04X %04X\n",
+			 i, stat_exit_reason[i + 0] & 0xFFFF,
+			 stat_exit_reason[i + 1] & 0xFFFF,
+			 stat_exit_reason[i + 2] & 0xFFFF,
+			 stat_exit_reason[i + 3] & 0xFFFF,
+			 stat_exit_reason[i + 4] & 0xFFFF,
+			 stat_exit_reason[i + 5] & 0xFFFF,
+			 stat_exit_reason[i + 6] & 0xFFFF,
+			 stat_exit_reason[i + 7] & 0xFFFF);
+	}
+	if (i <= STAT_EXIT_REASON_MAX) {
+		n += snprintf (buf + n, 4096 - n, " %02X:", i);
+		for (; i < STAT_EXIT_REASON_MAX; i++)
+			n += snprintf (buf + n, 4096 - n, " %04X",
+				       stat_exit_reason[i] & 0xFFFF);
+		n += snprintf (buf + n, 4096 - n, " %04X\n",
+			       stat_exit_reason[i] & 0xFFFF);
+	}
+	snprintf (buf + n, 4096 - n,
 		  "Interrupts: %u\n"
 		  "Hardware exceptions: %u\n"
 		  " Page fault: %u\n"
