@@ -894,17 +894,6 @@ x540_mmhandler (void *data, phys_t gphys, bool write, void *buf, uint len,
 }
 
 /******** MMIO hook/unhook functions ********/
-static u32
-x540_size_iospace (u32 baseaddr)
-{
-	u32 size;
-
-	for (size = 1; !(baseaddr & 1); baseaddr >>= 1)
-		size <<= 1;
-
-	return size;
-}
-
 static void
 x540_unreghook (struct x540_hook_context *context)
 {
@@ -920,40 +909,31 @@ x540_unreghook (struct x540_hook_context *context)
 }
 
 static void
-x540_reghook (struct x540_hook_context *context, u32 baseaddr,
-	      u32 baseaddr_mask)
+x540_reghook (struct x540_hook_context *context, struct pci_bar_info *bar)
 {
-	u32 size;
-
-	if (!baseaddr)
+	if (bar->type == PCI_BAR_INFO_TYPE_NONE)
 		return;
 
-	LOG ("X540: Hook %08X (%08X)\n", baseaddr, baseaddr_mask);
-	if ((baseaddr & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) ==
-	    PCI_CONFIG_BASE_ADDRESS_IOSPACE) {
+	LOG ("X540: Hook [%d] %08llX (%08X)\n", bar->type, bar->base,
+	     bar->len);
+	if (bar->type == PCI_BAR_INFO_TYPE_IO) {
 		/* hooking ioio */
-		baseaddr &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-		baseaddr_mask &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-		size = x540_size_iospace (baseaddr_mask);
 		context->isio = 1;
 		context->iohandle =
-			core_io_register_handler (baseaddr, size,
+			core_io_register_handler (bar->base, bar->len,
 						  x540_iohandler, context,
 						  CORE_IO_PRIO_EXCLUSIVE,
 						  driver_name);
 	} else {
 		/* hooking mmio */
-		baseaddr &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-		baseaddr_mask &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-		size = x540_size_iospace (baseaddr_mask);
-		context->baseaddr = baseaddr;
-		context->mapsize = size;
-		context->mappedaddr = mapmem_gphys (baseaddr, size,
+		context->baseaddr = bar->base;
+		context->mapsize = bar->len;
+		context->mappedaddr = mapmem_gphys (bar->base, bar->len,
 						    MAPMEM_WRITE);
 		if (!context->mappedaddr)
 			panic ("mapmem failed");
 		context->isio = 0;
-		context->mmhandle = mmio_register (baseaddr, size,
+		context->mmhandle = mmio_register (bar->base, bar->len,
 						   x540_mmhandler, context);
 		if (!context->mmhandle)
 			panic ("mmio_register failed");
@@ -1024,32 +1004,20 @@ x540_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 {
 	struct x540 *x540 = pci_device->host;
 	struct x540_hook_context *context;
-	u32 baseaddr, baseaddr_mask;
 	int barindex;
+	struct pci_bar_info bar_info;
 
 	if (x540->config.ishidden)
 		return CORE_IO_RET_DONE;
 
-	if (offset + iosize - 1 >= 0x10 && offset <= 0x24) {
-		ASSERT (!(offset & 3));
-		ASSERT (iosize == 4);
-
-		barindex = (offset - 0x10) >> 2;
-		ASSERT (barindex >= 0 && barindex < 6);
-
-		baseaddr_mask = pci_device->base_address_mask[barindex];
-		if ((baseaddr_mask & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) ==
-		    PCI_CONFIG_BASE_ADDRESS_IOSPACE)
-			baseaddr = baseaddr_mask & (data->dword | 3);
-		else
-			baseaddr = baseaddr_mask & (data->dword | 0xf);
-
+	barindex = pci_get_modifying_bar_info (pci_device, &bar_info, iosize,
+					       offset, data);
+	if (barindex >= 0) {
 		/* re-hook iospace */
 		context = x540->context + barindex;
 		if (context->ishooked)
 			x540_unreghook (context);
-		x540_reghook (context, baseaddr,
-			      pci_device->base_address_mask[barindex]);
+		x540_reghook (context, &bar_info);
 	}
 
 	return CORE_IO_RET_DEFAULT;
@@ -1061,6 +1029,7 @@ x540_new (struct pci_device *pci_device)
 	int i;
 	struct x540 *x540;
 	struct x540_hook_context *context;
+	struct pci_bar_info bar_info;
 
 	LOG ("X540: Initializing...\n");
 
@@ -1081,9 +1050,8 @@ x540_new (struct pci_device *pci_device)
 		context->ishooked = false;
 
 		/* hook io registers */
-		x540_reghook (context,
-			      pci_device->config_space.base_address[i],
-			      pci_device->base_address_mask[i]);
+		pci_get_bar_info (pci_device, i, &bar_info);
+		x540_reghook (context, &bar_info);
 	}
 
 	if (x540->config.iscontroled) {

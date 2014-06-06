@@ -1188,47 +1188,28 @@ unreghook (struct data *d)
 	}
 }
 
-static u32
-getnum (u32 b)
-{
-	u32 r;
-
-	for (r = 1; !(b & 1); b >>= 1)
-		r <<= 1;
-	return r;
-}
-
 static void
-reghook (struct data *d, int i, u32 a, u32 b)
+reghook (struct data *d, int i, struct pci_bar_info *bar)
 {
-	u32 num;
-
+	if (bar->type == PCI_BAR_INFO_TYPE_NONE)
+		return;
 	unreghook (d);
 	d->i = i;
 	d->e = 0;
-	printf ("%08X, %08X\n", a, b);
-	if (a == 0)		/* FIXME: is ignoring zero correct? */
-		return;
-	if ((a & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) ==
-	    PCI_CONFIG_BASE_ADDRESS_IOSPACE) {
-		a &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-		b &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-		num = getnum (b);
+	if (bar->type == PCI_BAR_INFO_TYPE_IO) {
 		d->io = 1;
-		d->hd = core_io_register_handler (a, num, iohandler, d,
+		d->hd = core_io_register_handler (bar->base, bar->len,
+						  iohandler, d,
 						  CORE_IO_PRIO_EXCLUSIVE,
 						  driver_name);
 	} else {
-		a &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-		b &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-		num = getnum (b);
-		d->mapaddr = a;
-		d->maplen = num;
-		d->map = mapmem_gphys (a, num, MAPMEM_WRITE);
+		d->mapaddr = bar->base;
+		d->maplen = bar->len;
+		d->map = mapmem_gphys (bar->base, bar->len, MAPMEM_WRITE);
 		if (!d->map)
 			panic ("mapmem failed");
 		d->io = 0;
-		d->h = mmio_register (a, num, mmhandler, d);
+		d->h = mmio_register (bar->base, bar->len, mmhandler, d);
 		if (!d->h)
 			panic ("mmio_register failed");
 	}
@@ -1378,6 +1359,7 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	struct data2 *d2;
 	struct data *d;
 	void *tmp;
+	struct pci_bar_info bar_info;
 
 	if ((pci_device->config_space.base_address[0] &
 	     PCI_CONFIG_BASE_ADDRESS_SPACEMASK) !=
@@ -1410,8 +1392,8 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	for (i = 0; i < 6; i++) {
 		d[i].d = d2;
 		d[i].e = 0;
-		reghook (&d[i], i, pci_device->config_space.base_address[i],
-			 pci_device->base_address_mask[i]);
+		pci_get_bar_info (pci_device, i, &bar_info);
+		reghook (&d[i], i, &bar_info);
 	}
 	d->disable = false;
 	d2->d1 = d;
@@ -1438,7 +1420,7 @@ vpn_pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 			  u16 offset, union mem *data)
 {
 	struct data *d = pci_device->host;
-	u32 tmp;
+	struct pci_bar_info bar_info;
 	int i;
 
 	/* check PCI command enable or disable. */
@@ -1449,20 +1431,10 @@ vpn_pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 	else
 		d->disable = false;
 
-	if (offset + iosize - 1 >= 0x10 && offset <= 0x24) {
-		if ((offset & 3) || iosize != 4)
-			panic ("%s: iosize:%02x, offset=%02x, data:%08x\n",
-			       __func__, iosize, offset, data->dword);
-		i = (offset - 0x10) >> 2;
-		ASSERT (i >= 0 && i < 6);
-		tmp = pci_device->base_address_mask[i];
-		if ((tmp & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) ==
-		    PCI_CONFIG_BASE_ADDRESS_IOSPACE)
-			tmp &= data->dword | 3;
-		else
-			tmp &= data->dword | 0xF;
-		reghook (&d[i], i, tmp, pci_device->base_address_mask[i]);
-	}
+	i = pci_get_modifying_bar_info (pci_device, &bar_info, iosize, offset,
+					data);
+	if (i >= 0)
+		reghook (&d[i], i, &bar_info);
 	return CORE_IO_RET_DEFAULT;
 }
 #endif /* VPN_PRO1000 */

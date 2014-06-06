@@ -489,3 +489,91 @@ def:
 						buf);
 	return 1;
 }
+
+static u64
+pci_get_bar_info_internal (struct pci_device *pci_device, int n,
+			   struct pci_bar_info *bar_info, u16 offset,
+			   union mem *data)
+{
+	enum pci_bar_info_type type;
+	u32 low, high, mask, and;
+	u32 match_offset;
+	u64 newbase;
+
+	if (n < 0 || n >= PCI_CONFIG_BASE_ADDRESS_NUMS)
+		goto err;
+	if (!(pci_device->base_address_mask_valid & (1 << n)))
+		goto err;
+	low = pci_device->config_space.base_address[n];
+	high = 0;
+	mask = pci_device->base_address_mask[n];
+	match_offset = 0x10 + 4 * n;
+	if ((mask & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) ==
+	    PCI_CONFIG_BASE_ADDRESS_MEMSPACE) {
+		if ((mask & PCI_CONFIG_BASE_ADDRESS_TYPEMASK) ==
+		    PCI_CONFIG_BASE_ADDRESS_TYPE64 &&
+		    n + 1 < PCI_CONFIG_BASE_ADDRESS_NUMS)
+			high = pci_device->config_space.base_address[n + 1];
+		and = PCI_CONFIG_BASE_ADDRESS_MEMMASK;
+		type = PCI_BAR_INFO_TYPE_MEM;
+	} else {
+		and = PCI_CONFIG_BASE_ADDRESS_IOMASK;
+		type = PCI_BAR_INFO_TYPE_IO;
+	}
+	if (!(mask & and))
+		goto err;
+	bar_info->base = newbase = (low & and) | (u64)high << 32;
+	if (offset == match_offset)
+		newbase = (data->dword & and) | (u64)high << 32;
+	else if (offset == match_offset + 4)
+		newbase = (low & and) | (u64)data->dword << 32;
+	bar_info->len = (mask & and) & (~(mask & and) + 1);
+	bar_info->type = type;
+	return newbase;
+err:
+	bar_info->type = PCI_BAR_INFO_TYPE_NONE;
+	return 0;
+}
+
+void
+pci_get_bar_info (struct pci_device *pci_device, int n,
+		  struct pci_bar_info *bar_info)
+{
+	pci_get_bar_info_internal (pci_device, n, bar_info, 0, NULL);
+}
+
+int
+pci_get_modifying_bar_info (struct pci_device *pci_device,
+			    struct pci_bar_info *bar_info, u8 iosize,
+			    u16 offset, union mem *data)
+{
+	int n = -1;
+	u64 newbase;
+
+	if (offset + iosize - 1 >= 0x10 &&
+	    offset < 0x10 + 4 * PCI_CONFIG_BASE_ADDRESS_NUMS) {
+		n = (offset - 0x10) >> 2;
+		if ((offset & 3) || iosize != 4 || n < 0 ||
+		    n >= PCI_CONFIG_BASE_ADDRESS_NUMS)
+			panic ("%s: invalid BAR access"
+			       "  iosize=%X offset=0x%02X data=0x%08X",
+			       __FUNCTION__, iosize, offset, data->dword);
+		if (!(pci_device->base_address_mask_valid & (1 << n)) &&
+		    n > 0 &&
+		    (pci_device->base_address_mask_valid & (1 << (n - 1))) &&
+		    (pci_device->base_address_mask[n - 1] &
+		     (PCI_CONFIG_BASE_ADDRESS_SPACEMASK |
+		      PCI_CONFIG_BASE_ADDRESS_TYPEMASK)) ==
+		    (PCI_CONFIG_BASE_ADDRESS_MEMSPACE |
+		     PCI_CONFIG_BASE_ADDRESS_TYPE64))
+			n--;
+		newbase = pci_get_bar_info_internal (pci_device, n, bar_info,
+						     offset, data);
+		if (bar_info->type == PCI_BAR_INFO_TYPE_NONE ||
+		    bar_info->base == newbase)
+			n = -1;
+		else
+			bar_info->base = newbase;
+	}
+	return n;
+}

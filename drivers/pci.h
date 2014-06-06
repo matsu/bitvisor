@@ -106,6 +106,8 @@ struct pci_config_space {
 #define PCI_CONFIG_BASE_ADDRESS_IOSPACE		1
 #define PCI_CONFIG_BASE_ADDRESS_IOMASK		0x0000FFFC
 #define PCI_CONFIG_BASE_ADDRESS_MEMMASK		0xFFFFFFF0
+#define PCI_CONFIG_BASE_ADDRESS_TYPEMASK	0x00000006
+#define PCI_CONFIG_BASE_ADDRESS_TYPE64		0x00000004
 
 #define PCI_CONFIG_SPACE_GET_OFFSET(regname) offsetof(struct pci_config_space, regname)
 #define PCI_CONFIG_ADDRESS_GET_REG_NO(regname) (offsetof(struct pci_config_space, regname) / sizeof(u32))
@@ -133,6 +135,7 @@ struct pci_device {
 	struct pci_config_space config_space;
 	u32 base_address_mask[PCI_CONFIG_BASE_ADDRESS_NUMS+1];
 	u8 in_base_address_mask_emulation;
+	u8 base_address_mask_valid;
 	bool conceal;
 	struct pci_config_mmio_data *config_mmio;
 };
@@ -150,6 +153,18 @@ struct pci_driver {
 		unsigned int use_base_address_mask_emulation: 1;
 	} options;
 	const char *name, *longname;
+};
+
+enum pci_bar_info_type {
+	PCI_BAR_INFO_TYPE_NONE,
+	PCI_BAR_INFO_TYPE_MEM,
+	PCI_BAR_INFO_TYPE_IO,
+};
+
+struct pci_bar_info {
+	enum pci_bar_info_type type;
+	u64 base;
+	u32 len;
 };
 
 // exported functions
@@ -180,5 +195,10 @@ void pci_read_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
 void pci_write_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
 			    uint device_no, uint func_no, uint offset,
 			    uint iosize, void *data);
+void pci_get_bar_info (struct pci_device *pci_device, int n,
+		       struct pci_bar_info *bar_info);
+int pci_get_modifying_bar_info (struct pci_device *pci_device,
+				struct pci_bar_info *bar_info, u8 iosize,
+				u16 offset, union mem *data);
 
 #endif

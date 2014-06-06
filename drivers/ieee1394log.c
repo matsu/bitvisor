@@ -66,7 +66,6 @@ enum ieee1394_regs {
 };
 
 struct ieee1394 {
-	pci_config_address_t config_addr;
 	phys_t base;
 	u32 len;
 	void *regs;
@@ -244,28 +243,33 @@ static void
 ieee1394log_new (struct pci_device *pci_device)
 {
 	struct ieee1394 *ctx;
-	u32 bar, base, len, i;
+	u32 len;
+	struct pci_bar_info bar;
+
+	pci_get_bar_info (pci_device, 0, &bar);
+	if (bar.type != PCI_BAR_INFO_TYPE_MEM) {
+		printf ("%s: Invalid BAR0\n", __FUNCTION__);
+		return;
+	}
+	if (bar.len < 2048) {	/* At least, 2KB. */
+		printf ("%s: Invalid BAR0 size\n", __FUNCTION__);
+		return;
+	}
 
 	printf ("IEEE1394 found. Occupy it for debug.\n");
 
 	ctx = alloc (sizeof *ctx);
 	ASSERT (ctx);
 
-	ctx->config_addr = pci_device->address;
-	ctx->config_addr.reg_no = 0x10 >> 2;
-	bar = pci_read_config_data32 (ctx->config_addr, 0);
-	base = bar & PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-	for (i = base, len = 1; !(i & 1); i >>= 1)
-		len <<= 1;
-	len = (len > 2048) ? len : 2048; /* At least, 2KB. */
+	len = bar.len;
 	len = (len < 65536) ? len : 65536; /* At most, 64KB. */
-	printf ("IEEE1394: BAR0: %08x (Base: %08x, Length: %04x)\n",
-		bar, base, len);
+	printf ("IEEE1394: BAR0: Base: %08llx, Length: %04x\n",
+		bar.base, len);
 
-	ctx->base = base;
+	ctx->base = bar.base;
 	ctx->len = len;
-	ctx->regs = mapmem_gphys (base, len, MAPMEM_WRITE);
-	ctx->hook = mmio_register (base, len, ieee1394log_mmhandler, ctx);
+	ctx->regs = mapmem_gphys (bar.base, len, MAPMEM_WRITE);
+	ctx->hook = mmio_register (bar.base, len, ieee1394log_mmhandler, ctx);
 	ASSERT (ctx->regs);
 	ASSERT (ctx->hook);
 

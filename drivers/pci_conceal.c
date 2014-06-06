@@ -144,16 +144,6 @@ pci_conceal (struct pci_device *dev, char *p)
 	return false;
 }
 
-static u32
-getnum (u32 b)
-{
-	u32 r;
-
-	for (r = 1; !(b & 1); b >>= 1)
-		r <<= 1;
-	return r;
-}
-
 static int
 iohandler (core_io_t io, union mem *data, void *arg)
 {
@@ -175,29 +165,19 @@ pci_conceal_new_device (struct pci_device *dev)
 {
 	int i;
 	bool r;
-	u32 a, b, num;
+	struct pci_bar_info bar;
 
 	r = pci_conceal (dev, config.vmm.driver.pci_conceal);
 	if (!r)
 		return false;
 	for (i = 0; i < 6; i++) {
-		a = dev->config_space.base_address[i];
-		b = dev->base_address_mask[i];
-		if (a == 0)
-			continue;
-		if ((a & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) ==
-		    PCI_CONFIG_BASE_ADDRESS_IOSPACE) {
-			a &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-			b &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-			num = getnum (b);
+		pci_get_bar_info (dev, i, &bar);
+		if (bar.type == PCI_BAR_INFO_TYPE_IO) {
 			core_io_register_handler
-				(a, num, iohandler, NULL,
+				(bar.base, bar.len, iohandler, NULL,
 				 CORE_IO_PRIO_EXCLUSIVE, "pci_conceal");
-		} else {
-			a &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-			b &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-			num = getnum (b);
-			mmio_register (a, num, mmhandler, NULL);
+		} else if (bar.type == PCI_BAR_INFO_TYPE_MEM) {
+			mmio_register (bar.base, bar.len, mmhandler, NULL);
 		}
 	}
 	return true;

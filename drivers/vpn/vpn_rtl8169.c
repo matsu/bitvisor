@@ -509,17 +509,6 @@ rtl8169_get_macaddr (struct RTL8169_SUB_CTX *sctx, void *buf)
 	return bret;
 }
 
-static u32
-getnum (u32 b)
-{
-	u32 ret;
-
-	for (ret = 1; !(b & 1); b >>= 1)
-		ret <<= 1;
-
-	return ret;
-}
-
 static void
 unreghook (struct RTL8169_SUB_CTX *sctx)
 {
@@ -569,9 +558,10 @@ unreghook (struct RTL8169_SUB_CTX *sctx)
 }
 
 static void
-reghook (struct RTL8169_SUB_CTX *sctx, int i, u32 a, u32 b)
+reghook (struct RTL8169_SUB_CTX *sctx, int i, struct pci_bar_info *bar)
 {
-	u32 num;
+	if (bar->type == PCI_BAR_INFO_TYPE_NONE)
+		return;
 
 #ifdef _DEBUG
 	time = get_cpu_time(); 
@@ -592,28 +582,25 @@ reghook (struct RTL8169_SUB_CTX *sctx, int i, u32 a, u32 b)
 		unreghook (sctx);
 		sctx->i = i;
 		sctx->e = 0;
-		if (a == 0)		/* FIXME: is ignoring zero correct? */
-			return;
-		if ((a & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) == PCI_CONFIG_BASE_ADDRESS_IOSPACE) {
-			a &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-			b &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-			num = getnum (b);
+		if (bar->type == PCI_BAR_INFO_TYPE_IO) {
 			sctx->io = 1;
-			sctx->ioaddr = a;
-			sctx->hd = core_io_register_handler (a, num, rtl8169_io_handler, sctx, CORE_IO_PRIO_EXCLUSIVE, driver_name);
+			sctx->ioaddr = bar->base;
+			sctx->hd = core_io_register_handler
+				(bar->base, bar->len, rtl8169_io_handler,
+				 sctx, CORE_IO_PRIO_EXCLUSIVE, driver_name);
 		}
 		else 
 		{
-			a &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-			b &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-			num = getnum (b);
-			sctx->mapaddr = a;
-			sctx->maplen = num;
-			sctx->map = mapmem_gphys (a, num, MAPMEM_WRITE | MAPMEM_PCD | MAPMEM_PWT);
+			sctx->mapaddr = bar->base;
+			sctx->maplen = bar->len;
+			sctx->map = mapmem_gphys (bar->base, bar->len,
+						  MAPMEM_WRITE | MAPMEM_PCD |
+						  MAPMEM_PWT);
 			if (!sctx->map)
 				panic ("mapmem failed");
 			sctx->io = 0;
-			sctx->h = mmio_register (a, num, rtl8169_mm_handler, sctx);
+			sctx->h = mmio_register (bar->base, bar->len,
+						 rtl8169_mm_handler, sctx);
 			if (!sctx->h)
 				panic ("mmio_register failed");
 			if (i == 1 || i == 2) {
@@ -636,8 +623,8 @@ rtl8169_offset_check (struct pci_device *dev, u8 iosize,
 {
 	int 		  ret = CORE_IO_RET_DONE;
 	int 		  i;
-	u32		  tmp;
 	RTL8169_SUB_CTX *sctx;
+	struct pci_bar_info bar_info;
 
 #ifdef _DEBUG
 	time = get_cpu_time(); 
@@ -658,20 +645,10 @@ rtl8169_offset_check (struct pci_device *dev, u8 iosize,
 	{
 		sctx = (RTL8169_SUB_CTX *)dev->host;
 
-		if (offset + iosize - 1 >= 0x10 && offset <= 0x24) {
-			if ((offset & 3) || iosize != 4)
-				panic ("%s: iosize:%02x, offset=%02x,"
-				       " data:%08x\n",
-				       __func__, iosize, offset, data->dword);
-			i = (offset - 0x10) >> 2;
-			ASSERT (i >= 0 && i < 6);
-			tmp = dev->base_address_mask[i];
-			if ((tmp & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) == PCI_CONFIG_BASE_ADDRESS_IOSPACE)
-				tmp &= data->dword | 3;
-			else
-				tmp &= data->dword | 0xF;
-			reghook (&sctx[i], i, tmp, dev->base_address_mask[i]);
-		}
+		i = pci_get_modifying_bar_info (dev, &bar_info, iosize, offset,
+						data);
+		if (i >= 0)
+			reghook (&sctx[i], i, &bar_info);
 		ret = CORE_IO_RET_DEFAULT;
 #ifdef _DEBUG
 		time = get_cpu_time(); 
@@ -1654,6 +1631,7 @@ rtl8169_new_sub (struct pci_device *dev)
 	int			i;
 	struct desc *rdsar;
 	struct desc *tdesc;
+	struct pci_bar_info bar_info;
 
 #ifdef _DEBUG
 	time = get_cpu_time(); 
@@ -1708,7 +1686,8 @@ rtl8169_new_sub (struct pci_device *dev)
 			printf ("&sctx[%d] = %p\n", i, &sctx[i]);
 			sctx[i].ctx = ctx;
 			sctx[i].e   = 0;
-			reghook (&sctx[i], i, dev->config_space.base_address[i], dev->base_address_mask[i]);
+			pci_get_bar_info (dev, i, &bar_info);
+			reghook (&sctx[i], i, &bar_info);
 		}
 		ctx->sctx = sctx;
 		dev->host = sctx;

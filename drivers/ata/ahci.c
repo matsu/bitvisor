@@ -174,7 +174,6 @@ struct ahci_hook {
 	void *map;
 	uint maplen;
 	phys_t mapaddr;
-	u32 a, b;
 	u32 iobase;
 	struct ahci_data *ad;
 };
@@ -1534,60 +1533,39 @@ unreghook (struct ahci_hook *d)
 	}
 }
 
-static u32
-getnum (u32 b)
-{
-	u32 r;
-
-	for (r = 1; !(b & 1); b >>= 1)
-		r <<= 1;
-	return r;
-}
-
 static void
-reghook (struct ahci_hook *d, int i, int off, u32 a, u32 b, enum hooktype ht)
+reghook (struct ahci_hook *d, int i, int off, struct pci_bar_info *bar,
+	 enum hooktype ht)
 {
-	u32 num;
-
-	if (d->e && d->mapaddr == (a & PCI_CONFIG_BASE_ADDRESS_MEMMASK))
+	if (bar->type == PCI_BAR_INFO_TYPE_NONE)
 		return;
 	unreghook (d);
 	d->i = i;
 	d->e = 0;
-	d->a = a;
-	d->b = b;
-	if (a == 0)		/* FIXME: is ignoring zero correct? */
-		return;
-	if ((a & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) ==
-	    PCI_CONFIG_BASE_ADDRESS_IOSPACE) {
+	if (bar->type == PCI_BAR_INFO_TYPE_IO) {
 		if (ht == HOOK_MEMSPACE)
 			return;
-		a &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-		b &= PCI_CONFIG_BASE_ADDRESS_IOMASK;
-		num = getnum (b);
-		if (num < off + 8)
+		if (bar->len < off + 8)
 			return;
 		d->io = 1;
-		d->iobase = a + off;
-		d->hd = core_io_register_handler (a + off, 8, iohandler, d,
+		d->iobase = bar->base + off;
+		d->hd = core_io_register_handler (bar->base + off, 8,
+						  iohandler, d,
 						  CORE_IO_PRIO_EXCLUSIVE,
 						  driver_name);
 	} else {
 		if (ht == HOOK_IOSPACE)
 			return;
-		a &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-		b &= PCI_CONFIG_BASE_ADDRESS_MEMMASK;
-		num = getnum (b);
-		if (num < 0x180)
+		if (bar->len < 0x180)
 			/* The memory space is too small for AHCI */
 			return;
-		d->mapaddr = a;
-		d->maplen = num;
-		d->map = mapmem_gphys (a, num, MAPMEM_WRITE);
+		d->mapaddr = bar->base;
+		d->maplen = bar->len;
+		d->map = mapmem_gphys (bar->base, bar->len, MAPMEM_WRITE);
 		if (!d->map)
 			panic ("mapmem failed");
 		d->io = 0;
-		d->h = mmio_register (a, num, mmhandler, d);
+		d->h = mmio_register (bar->base, bar->len, mmhandler, d);
 		if (!d->h)
 			panic ("mmio_register failed");
 	}
@@ -1622,6 +1600,7 @@ read_satacap (struct ahci_data *ad, struct pci_device *pci_device)
 		} f;
 	} satacr1;
 	pci_config_address_t addr;
+	struct pci_bar_info bar_info;
 
 	addr = pci_device->address;
 	addr.reg_no = 0x34 >> 2; /* CAP - Capabilities Pointer */
@@ -1650,9 +1629,9 @@ found:
 		i = satacr1.f.barloc - 0x4;
 		ad->idp_offset = satacr1.f.barofst << 2;
 		ad->idp_config = 0x10 + (i << 2);
-		reghook (&ad->ahci_io, i, ad->idp_offset,
-			 pci_device->config_space.base_address[i],
-			 pci_device->base_address_mask[i], HOOK_IOSPACE);
+		pci_get_bar_info (pci_device, i, &bar_info);
+		reghook (&ad->ahci_io, i, ad->idp_offset, &bar_info,
+			 HOOK_IOSPACE);
 		break;
 	case 0xF:
 		ad->idp_config = cap + 8;
@@ -1668,6 +1647,7 @@ ahci_new (struct pci_device *pci_device)
 {
 	int i;
 	struct ahci_data *ad;
+	struct pci_bar_info bar_info;
 
 	ad = alloc (sizeof *ad);
 	memset (ad, 0, sizeof *ad);
@@ -1677,8 +1657,8 @@ ahci_new (struct pci_device *pci_device)
 	STORAGE_HC_ADDR_PCI (ad->hc_addr.addr, pci_device);
 	ad->hc_addr.type = STORAGE_HC_TYPE_AHCI;
 	LIST2_HEAD_INIT (ad->ahci_cmd_list, list);
-	reghook (&ad->ahci_mem, 5, 0, pci_device->config_space.base_address[5],
-		 pci_device->base_address_mask[5], HOOK_MEMSPACE);
+	pci_get_bar_info (pci_device, 5, &bar_info);
+	reghook (&ad->ahci_mem, 5, 0, &bar_info, HOOK_MEMSPACE);
 	if (!ahci_probe (ad, false, 0)) {
 		unreghook (&ad->ahci_mem);
 		free (ad);
@@ -1719,7 +1699,7 @@ ahci_config_write (void *ahci_data, struct pci_device *pci_device,
 		   u8 iosize, u16 offset, union mem *data)
 {
 	struct ahci_data *ad = ahci_data;
-	u32 tmp;
+	struct pci_bar_info bar_info;
 	int i;
 
 	if (!ahci_data)
@@ -1730,26 +1710,16 @@ ahci_config_write (void *ahci_data, struct pci_device *pci_device,
 		idphandler (ad, offset - ad->idp_config, true, &data->dword,
 			    iosize);
 		return true;
-	} else if (offset + iosize - 1 >= 0x10 && offset < 0x28) {
-		if ((offset & 3) || iosize != 4)
-			panic ("%s: iosize:%02x, offset=%02x, data:%08x\n",
-			       __func__, iosize, offset, data->dword);
-		i = (offset - 0x10) >> 2;
-		ASSERT (i >= 0 && i < 6);
-		tmp = pci_device->base_address_mask[i];
-		if ((tmp & PCI_CONFIG_BASE_ADDRESS_SPACEMASK) ==
-		    PCI_CONFIG_BASE_ADDRESS_IOSPACE)
-			tmp &= data->dword | 3;
-		else
-			tmp &= data->dword | 0xF;
-		if (offset == ad->idp_config)
-			reghook (&ad->ahci_io, i, ad->idp_offset, tmp,
-				 pci_device->base_address_mask[i],
-				 HOOK_IOSPACE);
+	}
+	i = pci_get_modifying_bar_info (pci_device, &bar_info, iosize, offset,
+					data);
+	if (i >= 0) {
 		if (i == 5)
-			reghook (&ad->ahci_mem, i, 0, tmp,
-				 pci_device->base_address_mask[i],
+			reghook (&ad->ahci_mem, 5, 0, &bar_info,
 				 HOOK_MEMSPACE);
+		if (offset == ad->idp_config)
+			reghook (&ad->ahci_io, i, ad->idp_offset, &bar_info,
+				 HOOK_IOSPACE);
 	}
 	return false;
 }

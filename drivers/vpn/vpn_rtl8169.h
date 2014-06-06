@@ -246,10 +246,9 @@ static void rtl8169_send_virt_nic(SE_HANDLE nic_handle, phys_t rxdescphys, void 
 
 static int  rtl8169_offset_check (struct pci_device *dev, u8 iosize,
 				  u16 offset, union mem *data);
-static void reghook(struct RTL8169_SUB_CTX *sctx, int i, u32 a, u32 b);
+static void reghook(struct RTL8169_SUB_CTX *sctx, int i,
+		    struct pci_bar_info *bar);
 static void unreghook(struct RTL8169_SUB_CTX *sctx);
-
-static u32 getnum (u32 b);
 
 #endif	// _CORE_VPN_RTL8169_H
 

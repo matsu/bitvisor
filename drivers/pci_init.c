@@ -71,11 +71,29 @@ static u32 pci_get_base_address_mask(pci_config_address_t addr)
 static void pci_save_base_address_masks(struct pci_device *dev)
 {
 	int i;
+	bool flag64;
 	pci_config_address_t addr = dev->address;
 
+	dev->base_address_mask_valid = 0;
+	if (dev->config_space.type != 0)
+		return;
+	flag64 = false;
 	for (i = 0; i < PCI_CONFIG_BASE_ADDRESS_NUMS; i++) {
 		addr.reg_no = PCI_CONFIG_ADDRESS_GET_REG_NO(base_address) + i;
 		dev->base_address_mask[i] = pci_get_base_address_mask(addr);
+		if (flag64) {
+			/* The mask should be ~0. The mask will not be
+			 * used. */
+			flag64 = false;
+			continue;
+		}
+		dev->base_address_mask_valid |= 1 << i;
+		if ((dev->base_address_mask[i] &
+		     (PCI_CONFIG_BASE_ADDRESS_SPACEMASK |
+		      PCI_CONFIG_BASE_ADDRESS_TYPEMASK)) ==
+		    (PCI_CONFIG_BASE_ADDRESS_MEMSPACE |
+		     PCI_CONFIG_BASE_ADDRESS_TYPE64))
+			flag64 = true;
 	}
 	addr.reg_no = PCI_CONFIG_ADDRESS_GET_REG_NO(ext_rom_base);
 	dev->base_address_mask[6] = pci_get_base_address_mask(addr);
