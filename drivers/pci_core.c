@@ -201,13 +201,13 @@ ret:
 	spinlock_unlock (&config_data_lock);
 	if (func)
 		ioret = func (dev, io.size, offset, data);
-	if (ioret == CORE_IO_RET_DEFAULT && dev && dev->config_mmio) {
-		pci_readwrite_config_mmio (dev->config_mmio,
-					   io.dir == CORE_IO_DIR_OUT,
-					   dev->address.bus_no,
-					   dev->address.device_no,
-					   dev->address.func_no,
-					   offset, io.size, data);
+	if (ioret == CORE_IO_RET_DEFAULT && dev) {
+		if (io.dir == CORE_IO_DIR_OUT)
+			pci_handle_default_config_write (dev, io.size, offset,
+							 data);
+		else
+			pci_handle_default_config_read (dev, io.size, offset,
+							data);
 		ioret = CORE_IO_RET_DONE;
 	}
 	return ioret;
@@ -367,7 +367,7 @@ pci_handle_default_config_write (struct pci_device *pci_device, u8 iosize,
 				       pci_device->address.device_no,
 				       pci_device->address.func_no,
 				       offset, iosize, data);
-		if (offset >= 256)
+		if (offset >= 0x40) /* size that pci_read_config_space saves */
 			return;
 		pci_read_config_mmio (pci_device->config_mmio,
 				      pci_device->address.bus_no,
@@ -384,6 +384,8 @@ pci_handle_default_config_write (struct pci_device *pci_device, u8 iosize,
 	io.dir = CORE_IO_DIR_OUT;
 	io.size = iosize;
 	core_io_handle_default(io, data);
+	if (offset >= 0x40) /* size that pci_read_config_space saves */
+		return;
 	reg = pci_read_config_data_port();
 	pci_device->config_space.regs32[offset >> 2] = reg;
 }
@@ -465,17 +467,25 @@ found:
 		return 1;
 	}
 	if (dev->driver == NULL)
-		return 0;
+		goto def;
 	if (dev->driver->options.use_base_address_mask_emulation) {
 		if (pci_config_mmio_emulate_base_address_mask (dev, addr.s.
 							       reg_offset, wr,
 							       buf, len))
-		    return 1;
+			return 1;
 	}
 	func = wr ? dev->driver->config_write : dev->driver->config_read;
 	if (func) {
 		ioret = func (dev, len, addr.s.reg_offset, buf);
-		return ioret == CORE_IO_RET_DONE;
+		if (ioret == CORE_IO_RET_DONE)
+			return 1;
 	}
-	return 0;
+def:
+	if (wr)
+		pci_handle_default_config_write (dev, len, addr.s.reg_offset,
+						 buf);
+	else
+		pci_handle_default_config_read (dev, len, addr.s.reg_offset,
+						buf);
+	return 1;
 }
