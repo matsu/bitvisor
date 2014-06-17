@@ -1137,7 +1137,7 @@ mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
 		if (d2->rdesc[0].initialized)
 			receive_physnic (&d2->rdesc[0], d2, 0x2800);
 		if (d2->rdesc[1].initialized)
-			receive_physnic (&d2->rdesc[0], d2, 0x2900);
+			receive_physnic (&d2->rdesc[1], d2, 0x2900);
 	}
 skip:
 	q = (union mem *)(void *)((u8 *)d1->map + (gphys - d1->mapaddr));
