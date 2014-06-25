@@ -35,7 +35,7 @@
 #include <core.h>
 #include "pci.h"
 
-static const char driver_name[] = "ieee1394_generic_driver";
+static const char driver_name[] = "ieee1394";
 static const char driver_longname[] = 
 	"Generic IEEE1394 para pass-through driver 0.1";
 static bool ieee1394_disable;

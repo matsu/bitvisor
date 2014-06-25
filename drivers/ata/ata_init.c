@@ -45,11 +45,11 @@ u32 vmm_start_inf() ; // test
 u32 vmm_term_inf() ;  // test
 #endif // of VTD_TRANS
 
-static const char ata_driver_name[] = "ata_generic_driver";
+static const char ata_driver_name[] = "ata";
 static const char ata_driver_longname[] = "Generic ATA/ATAPI para pass-through driver 0.4";
-static const char ahci_driver_name[] = "ahci_generic_driver";
+static const char ahci_driver_name[] = "ahci";
 static const char ahci_driver_longname[] = "Generic AHCI para pass-through driver";
-static const char raid_driver_name[] = "raid_generic_driver";
+static const char raid_driver_name[] = "raid";
 static const char raid_driver_longname[] = "Generic RAID para pass-through driver";
 
 static unsigned int host_id = 0;

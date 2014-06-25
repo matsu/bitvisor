@@ -61,7 +61,7 @@ u32 vmm_term_inf() ;
 
 static PRO100_CTX *pro100_ctx = NULL;
 
-static const char driver_name[] = "vpn_pro100_driver";
+static const char driver_name[] = "pro100";
 static const char driver_longname[] = "VPN for Intel PRO/100";
 
 static void

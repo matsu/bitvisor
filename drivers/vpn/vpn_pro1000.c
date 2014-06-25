@@ -34,7 +34,7 @@
 #include <core/tty.h>
 #include "pci.h"
 
-static const char driver_name[] = "vpn_pro1000_driver";
+static const char driver_name[] = "pro1000";
 static const char driver_longname[] = "Intel PRO/1000 driver";
 
 #ifdef VPN

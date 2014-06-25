@@ -69,7 +69,7 @@ static int vga_intel_get_screen_size (struct vga_func_data *data,
 				      unsigned int *height);
 
 static struct pci_driver vga_intel_driver = {
-	.name		= "vga_intel_driver",
+	.name		= "vga_intel",
 	.longname	= "Intel VGA controller driver",
 	.id		= { 0x00008086, 0x0000FFFF },
 	.class		= { 0x030000, 0xFFFFFF },

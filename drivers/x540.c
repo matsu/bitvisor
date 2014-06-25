@@ -74,7 +74,7 @@ static const struct x540_config x540_default_config = {
 #define DBGS(X...)
 #endif
 
-static const char driver_name[] = "x540_driver";
+static const char driver_name[] = "x540";
 static const char driver_longname[] =
 	"Intel Corporation Ethernet Controller 10 Gigabit X540 Driver";
 

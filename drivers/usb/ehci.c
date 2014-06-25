@@ -41,7 +41,7 @@
 #include "ehci.h"
 #include "ehci_debug.h"
 
-static const char driver_name[] = "ehci_generic_driver";
+static const char driver_name[] = "ehci";
 static const char driver_longname[] = 
 	"Generic EHCI para pass-through driver 0.9";
 static const char virtual_model[40] = 

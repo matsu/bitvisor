@@ -47,7 +47,7 @@ u32 vmm_start_inf() ;
 u32 vmm_term_inf() ;
 #endif // of VTD_TRANS
 
-static const char driver_name[] = "uhci_generic_driver";
+static const char driver_name[] = "uhci";
 static const char driver_longname[] = 
 	"Generic UHCI para pass-through driver 1.0";
 static const char virtual_model[40] = 

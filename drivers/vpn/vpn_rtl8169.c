@@ -47,7 +47,7 @@
 
 u16 ipchecksum (void *buf, u32 len);
 
-static const char driver_name[]     = "vpn_rtl8169_driver";
+static const char driver_name[]     = "rtl8169";
 static const char driver_longname[] = "VPN for RealTek RTL8169";
 
 static struct pci_driver vpn_rtl8169_driver = {
