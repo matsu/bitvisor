@@ -160,8 +160,9 @@ static void pci_find_devices()
 	struct pci_device *dev;
 	pci_config_address_t addr;
 	u16 data;
+	struct pci_driver *driver;
 
-	printf("PCI: finding devices ");
+	printf ("PCI: finding devices...\n");
 	pci_save_config_addr();
 	for (bn = 0; bn < PCI_MAX_BUSES; bn++)
 	  for (dn = 0; dn < PCI_MAX_DEVICES; dn++)
@@ -174,13 +175,21 @@ static void pci_find_devices()
 		dev = pci_new_device(addr);
 		if (dev == NULL)
 			goto oom;
-		printf("."); num++; 
+		num++;
+
+		if (!dev->conceal) {
+			driver = pci_find_driver_for_device (dev);
+			if (driver) {
+				dev->driver = driver;
+				driver->new (dev);
+			}
+		}
 
 		if (fn == 0 && dev->config_space.multi_function == 0)
 			break;
 	    }
 	pci_restore_config_addr();
-	printf(" %d devices found\n", num);
+	printf ("PCI: %d devices found\n", num);
 	return;
 
 oom:
@@ -235,4 +244,5 @@ static void pci_init()
 	pci_mcfg_register_handler ();
 	return;
 }
-DRIVER_INIT(pci_init);
+
+INITFUNC ("driver90", pci_init);

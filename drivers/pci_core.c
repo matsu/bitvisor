@@ -127,6 +127,17 @@ pci_config_mmio_emulate_base_address_mask (struct pci_device *dev,
 	return false;
 }
 
+struct pci_driver *
+pci_find_driver_for_device (struct pci_device *device)
+{
+	struct pci_driver *driver;
+
+	LIST_FOREACH (pci_driver_list, driver)
+		if (pci_match (device, driver))
+			return driver;
+	return NULL;
+}
+
 int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 {
 	int ioret = CORE_IO_RET_DEFAULT;
@@ -171,12 +182,11 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 
 		printf ("[%02X:%02X.%X] New PCI device found.\n",
 			caddr.bus_no, caddr.device_no, caddr.func_no);
-		LIST_FOREACH (pci_driver_list, driver) {
-			if (pci_match (dev, driver)) {
-				dev->driver = driver;
-				driver->new (dev);
-				goto found;
-			}
+		driver = pci_find_driver_for_device (dev);
+		if (driver) {
+			dev->driver = driver;
+			driver->new (dev);
+			goto found;
 		}
 	}
 	goto ret;
@@ -236,17 +246,7 @@ int pci_config_addr_handler(core_io_t io, union mem *data, void *arg)
  */
 void pci_register_driver(struct pci_driver *driver)
 {
-	struct pci_device *dev;
-
 	LIST_APPEND(pci_driver_list, driver);
-	LIST_FOREACH (pci_device_list, dev) {
-		if (dev->conceal)
-			continue;
-		if (pci_match (dev, driver)) {
-			dev->driver = driver;
-			driver->new(dev);
-		}
-	}
 	if (driver->longname)
 		printf ("%s registered\n", driver->longname);
 	return;

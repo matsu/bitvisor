@@ -193,5 +193,6 @@ void pci_get_bar_info (struct pci_device *pci_device, int n,
 int pci_get_modifying_bar_info (struct pci_device *pci_device,
 				struct pci_bar_info *bar_info, u8 iosize,
 				u16 offset, union mem *data);
+struct pci_driver *pci_find_driver_for_device (struct pci_device *device);
 
 #endif
