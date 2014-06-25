@@ -250,8 +250,8 @@ ata_new_ahci (struct pci_device *pci_device)
 static struct pci_driver ata_driver = {
 	.name		= ata_driver_name,
 	.longname	= ata_driver_longname,
-	.id		= { PCI_ID_ANY, PCI_ID_ANY_MASK },	/* match with any VendorID:DeviceID */
-	.class		= { 0x010100, 0xFFFF00 },		/* class = Mass Storage, subclass = IDE */
+	.device		= "class=0101",
+				/* class = Mass Storage, subclass = IDE */
 	.new		= ata_new_ata,		/* called when a new PCI ATA device is found */
 	.config_read	= ata_config_read,	/* called when a config register is read */
 	.config_write	= ata_config_write,	/* called when a config register is written */
@@ -260,8 +260,7 @@ static struct pci_driver ata_driver = {
 static struct pci_driver ahci_driver = {
 	.name		= ahci_driver_name,
 	.longname	= ahci_driver_longname,
-	.id		= { PCI_ID_ANY, PCI_ID_ANY_MASK },	/* match with any VendorID:DeviceID */
-	.class		= { 0x010601, 0xFFFFFF },
+	.device		= "class_code=010601",
 				/* class = Mass Storage, subclass = SATA, */
 				/* programming interface = AHCI 1.0 */
 	.new		= ata_new_ahci,		/* called when a new PCI ATA device is found */
@@ -272,8 +271,8 @@ static struct pci_driver ahci_driver = {
 static struct pci_driver raid_driver = {
 	.name		= raid_driver_name,
 	.longname	= raid_driver_longname,
-	.id		= { PCI_ID_ANY, PCI_ID_ANY_MASK },	/* match with any VendorID:DeviceID */
-	.class		= { 0x010400, 0xFFFF00 },		/* class = Mass Storage, subclass = RAID */
+	.device		= "class=0104",
+				/* class = Mass Storage, subclass = RAID */
 	.new		= ata_new_ahci,		/* called when a new PCI ATA device is found */
 	.config_read	= ata_config_read,	/* called when a config register is read */
 	.config_write	= ata_config_write,	/* called when a config register is written */

@@ -38,6 +38,7 @@
 #include "pci.h"
 #include "pci_internal.h"
 #include "pci_conceal.h"
+#include "pci_match.h"
 
 static spinlock_t pci_config_lock = SPINLOCK_INITIALIZER;
 static pci_config_address_t current_config_addr;
@@ -166,15 +167,12 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 	if (dev && dev->conceal)
 		goto found;
 	if (dev) {
-		u32 id = dev->config_space.regs32[0];
-		u32 class = dev->config_space.class_code;
 		struct pci_driver *driver;
 
 		printf ("[%02X:%02X.%X] New PCI device found.\n",
 			caddr.bus_no, caddr.device_no, caddr.func_no);
 		LIST_FOREACH (pci_driver_list, driver) {
-			if (idmask_match (id, driver->id) &&
-			    idmask_match (class, driver->class)) {
+			if (pci_match (dev, driver)) {
 				dev->driver = driver;
 				driver->new (dev);
 				goto found;
@@ -242,12 +240,9 @@ void pci_register_driver(struct pci_driver *driver)
 
 	LIST_APPEND(pci_driver_list, driver);
 	LIST_FOREACH (pci_device_list, dev) {
-		u32 id = dev->config_space.regs32[0];
-		u32 class = dev->config_space.class_code;
-
 		if (dev->conceal)
 			continue;
-		if (idmask_match(id, driver->id) && idmask_match(class, driver->class)) {
+		if (pci_match (dev, driver)) {
 			dev->driver = driver;
 			driver->new(dev);
 		}

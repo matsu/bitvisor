@@ -31,12 +31,6 @@
 #define _PCI_H
 #include <core.h>
 
-struct idmask { u32 id, mask; };
-#define idmask_match(a, b) ((a & b.mask) == b.id)
-
-#define PCI_ID_ANY	0
-#define PCI_ID_ANY_MASK	0
-
 #define PCI_CONFIG_REGS8_NUM	256
 #define PCI_CONFIG_REGS32_NUM	(PCI_CONFIG_REGS8_NUM / sizeof(u32))
 
@@ -142,8 +136,7 @@ struct pci_device {
 
 struct pci_driver {
 	LIST_DEFINE(pci_driver_list);
-	struct idmask id;
-	struct idmask class;
+	char *device;
 	void (*new)(struct pci_device *dev);
 	int (*config_read) (struct pci_device *dev, u8 iosize, u16 offset,
 			    union mem *data);

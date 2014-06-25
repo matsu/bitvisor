@@ -53,8 +53,7 @@ static const char driver_longname[] = "VPN for RealTek RTL8169";
 static struct pci_driver vpn_rtl8169_driver = {
 	.name         = driver_name,
 	.longname     = driver_longname,
-	.id           = {0x816810EC,0xFFFEFFFF},
-	.class        = {0, 0},
+	.device       = "id=10ec:8168|10ec:8169",
 	.new          = rtl8169_new,
 	.config_read  = rtl8169_config_read,
 	.config_write = rtl8169_config_write,

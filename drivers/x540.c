@@ -1082,8 +1082,7 @@ x540_new (struct pci_device *pci_device)
 static struct pci_driver x540_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
-	.id		= { 0x15288086, 0xFFFFFFFF },
-	.class		= { 0x020000, 0xFFFFFF },
+	.device		= "id=8086:1528,class_code=020000",
 	.new		= x540_new,
 	.config_read	= x540_config_read,
 	.config_write	= x540_config_write,

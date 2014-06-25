@@ -349,10 +349,8 @@ notset_iobase:
 static struct pci_driver uhci_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
-	/* match with any VendorID:DeviceID */
-	.id		= { PCI_ID_ANY, PCI_ID_ANY_MASK },
 	/* class = UHCI, subclass = UHCI (not EHCI) */
-	.class		= { 0x0C0300, 0xFFFFFF },
+	.device		= "class_code=0c0300",
 	/* called when a new PCI ATA device is found */
 	.new		= uhci_new,		
 	/* called when a config register is read */

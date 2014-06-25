@@ -1821,8 +1821,7 @@ static struct pci_driver vpn_pro100_driver =
 {
 	.name		= driver_name,
 	.longname	= driver_longname,
-	.id			= { 0x12298086, 0xffffffff },
-	.class		= { 0, 0 },
+	.device		= "id=8086:1229",
 	.new		= pro100_new,
 	.config_read	= pro100_config_read,
 	.config_write	= pro100_config_write,

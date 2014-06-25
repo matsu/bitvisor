@@ -280,8 +280,7 @@ ieee1394log_new (struct pci_device *pci_device)
 static struct pci_driver ieee1394log_driver = {
 	.name		= "ieee1394log",
 	.longname	= NULL,
-	.id		= { PCI_ID_ANY, PCI_ID_ANY_MASK },
-	.class		= { 0x0C0010, 0xFFFFFF },
+	.device		= "class_code=0c0010",
 	.new		= ieee1394log_new,
 	.config_read	= ieee1394log_config_read,
 	.config_write	= ieee1394log_config_write,
@@ -360,18 +359,13 @@ thunderbolt_config_write (struct pci_device *pci_device, u8 iosize,
 	return CORE_IO_RET_DONE;
 }
 
-static u32 idlist[] = {
-	0x15138086,		/* Thunderbolt (Unused Bridge ?) */
-	0x15478086,		/* Thunderbolt Port */
-	0x15498086,		/* Thunderbolt Controller */
-	0,
-};
-
 static struct pci_driver thunderbolt_conceal_driver = {
 	.name		= "tbconceal",
 	.longname	= NULL,
-	.id		= { 0x15498086, 0xFFFFFFFF },
-	.class		= { 0x060400, 0xFFFFFF },
+	.device		= "class_code=060400,id="
+			  "8086:1513|" /* Thunderbolt (Unused Bridge ?) */
+			  "8086:1547|" /* Thunderbolt Port */
+			  "8086:1549", /* Thunderbolt Controller */
 	.new		= thunderbolt_new,
 	.config_read	= thunderbolt_config_read,
 	.config_write	= thunderbolt_config_write,
@@ -380,14 +374,9 @@ static struct pci_driver thunderbolt_conceal_driver = {
 static void
 ieee1394_thunderbolt_conceal (void)
 {
-	u32 *id;
-
 	if (!config.vmm.tty_ieee1394)
 		return;
-	for (id = idlist; *id; id++) {
-		thunderbolt_conceal_driver.id.id = *id;
-		pci_register_driver (&thunderbolt_conceal_driver);
-	}
+	pci_register_driver (&thunderbolt_conceal_driver);
 }
 
 PCI_DRIVER_INIT (ieee1394_thunderbolt_conceal);
