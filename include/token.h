@@ -83,7 +83,7 @@ get_token2 (char *p, struct token *t)
 }
 
 static char
-get_token (char *p, struct token *t)
+get_token1 (char *p, struct token *t)
 {
 	struct token tmp;
 	char c;
@@ -102,6 +102,12 @@ get_token (char *p, struct token *t)
 	if (!tmp.start)
 		t->start = NULL;
 	return c;
+}
+
+static inline char
+get_token (char *p, struct token *t)
+{
+	return get_token1 (p, t);
 }
 
 static int
@@ -151,7 +157,7 @@ match_token2 (char *str, char *p, char *end)
 }
 
 static int
-match_token (char *str, struct token *t)
+match_token1 (char *str, struct token *t)
 {
 	struct token tmp;
 	int len;
@@ -169,6 +175,12 @@ match_token (char *str, struct token *t)
 			break;
 	}
 	return 0;
+}
+
+static inline int
+match_token (char *str, struct token *t)
+{
+	return match_token1 (str, t);
 }
 
 #endif

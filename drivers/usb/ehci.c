@@ -585,7 +585,7 @@ ehci_conceal_new(struct pci_device *pci_device)
 }
 
 static struct pci_driver ehci_conceal_driver = {
-	.name		= driver_name,
+	.name		= "ehci_conceal",
 	.longname	= driver_longname,
 	.device		= "class_code=0c0320",
 	.new		= ehci_conceal_new,	
@@ -599,10 +599,8 @@ static struct pci_driver ehci_conceal_driver = {
 void 
 ehci_init(void) __initcode__
 {
-	if (config.vmm.driver.concealEHCI)
-		pci_register_driver(&ehci_conceal_driver);
-	else if (config.vmm.driver.usb.ehci)
-		pci_register_driver(&ehci_driver);
+	pci_register_driver(&ehci_conceal_driver);
+	pci_register_driver(&ehci_driver);
 	return;
 }
 PCI_DRIVER_INIT(ehci_init);

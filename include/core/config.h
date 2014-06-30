@@ -197,6 +197,7 @@ struct config_data_vmm_driver {
 	int vga_intel;
 	struct config_data_vmm_driver_vpn vpn;
 	char pci_conceal[1024];
+	char pci[2048];
 };
 
 struct config_data_vmm_iccard {

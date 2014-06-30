@@ -1091,8 +1091,7 @@ static struct pci_driver x540_driver = {
 static void
 x540_init (void)
 {
-	if (config.vmm.tty_x540)
-		pci_register_driver (&x540_driver);
+	pci_register_driver (&x540_driver);
 }
 
 PCI_DRIVER_INIT (x540_init);

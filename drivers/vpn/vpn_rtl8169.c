@@ -53,6 +53,7 @@ static const char driver_longname[] = "VPN for RealTek RTL8169";
 static struct pci_driver vpn_rtl8169_driver = {
 	.name         = driver_name,
 	.longname     = driver_longname,
+	.driver_options = "conceal,tty",
 	.device       = "id=10ec:8168|10ec:8169",
 	.new          = rtl8169_new,
 	.config_read  = rtl8169_config_read,
@@ -63,8 +64,7 @@ static bool
 sendenabled (RTL8169_CTX *ctx)
 {
 #ifdef TTY_RTL8169
-	if (!config.vmm.driver.vpn.RTL8169 &&
-	    config.vmm.tty_rtl8169) /* tty only */
+	if (ctx->conceal)	/* tty only */
 		return !!(ctx->enableflag & 1);
 #endif	/* TTY_RTL8169 */
 	return ctx->enableflag == 3;
@@ -74,8 +74,7 @@ static bool
 recvenabled (RTL8169_CTX *ctx)
 {
 #ifdef TTY_RTL8169
-	if (!config.vmm.driver.vpn.RTL8169 &&
-	    config.vmm.tty_rtl8169) /* tty only */
+	if (ctx->conceal)	/* tty only */
 		return !!(ctx->enableflag & 2);
 #endif	/* TTY_RTL8169 */
 	return ctx->enableflag == 3;
@@ -1689,6 +1688,10 @@ rtl8169_new_sub (struct pci_device *dev)
 			reghook (&sctx[i], i, &bar_info);
 		}
 		ctx->sctx = sctx;
+		ctx->conceal = false;
+		if (dev->driver_options[0] &&
+		    pci_driver_option_get_bool (dev->driver_options[0], NULL))
+			ctx->conceal = true;
 		dev->host = sctx;
 		dev->driver->options.use_base_address_mask_emulation = 1;
 #ifdef _DEBUG
@@ -1768,7 +1771,7 @@ rtl8169_tty_init (struct pci_device *dev)
 	if (!sctx)
 		panic ("mmio not found");
 
-	if (config.vmm.driver.vpn.RTL8169) /* vpn enabled */
+	if (!sctx->ctx->conceal) /* vpn enabled */
 		tty_udp_register (rtl8169_tty_send,
 				  sctx->ctx); /* don't reset */
 	else
@@ -1780,7 +1783,10 @@ static int
 rtl8169_config_read (struct pci_device *dev, u8 iosize, u16 offset,
 		     union mem *data)
 {
-	if (config.vmm.driver.vpn.RTL8169) /* vpn enabled */
+	RTL8169_SUB_CTX *sctx;
+
+	sctx = (RTL8169_SUB_CTX *)dev->host;
+	if (!sctx->ctx->conceal) /* vpn enabled */
 		return rtl8169_config_read_sub (dev, iosize, offset, data);
 	memset (data, 0, iosize);
 	return CORE_IO_RET_DONE;
@@ -1790,7 +1796,10 @@ static int
 rtl8169_config_write (struct pci_device *dev, u8 iosize, u16 offset,
 		      union mem *data)
 {
-	if (config.vmm.driver.vpn.RTL8169) /* vpn enabled */
+	RTL8169_SUB_CTX *sctx;
+
+	sctx = (RTL8169_SUB_CTX *)dev->host;
+	if (!sctx->ctx->conceal) /* vpn enabled */
 		return rtl8169_config_write_sub (dev, iosize, offset, data);
 	return CORE_IO_RET_DONE;
 }
@@ -1800,7 +1809,9 @@ rtl8169_new (struct pci_device *dev)
 {
 	rtl8169_new_sub (dev);
 #ifdef TTY_RTL8169
-	if (config.vmm.tty_rtl8169) /* tty enabled */
+	if (dev->driver_options[1] &&
+	    pci_driver_option_get_bool (dev->driver_options[1],
+					NULL)) /* tty enabled */
 		rtl8169_tty_init (dev);
 #endif	/* TTY_RTL8169 */
 }
@@ -1811,9 +1822,6 @@ rtl8169_new (struct pci_device *dev)
 static void
 rtl8169_init()
 {
-	if (!config.vmm.driver.vpn.RTL8169 &&
-	    !config.vmm.tty_rtl8169) /* disabled all of them */
-		return;
 #ifdef _DEBUG
 	time = get_cpu_time(); 
 	printf("(%llu) ", time);

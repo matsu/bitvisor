@@ -73,6 +73,8 @@ struct ieee1394 {
 	void *hook;
 };
 
+static bool ieee1394log_loaded = false;
+
 static void
 ieee1394_usleep (u32 usec)
 {
@@ -276,6 +278,7 @@ ieee1394log_new (struct pci_device *pci_device)
 
 	/* Do initialization. */
 	ieee1394_reset (ctx);
+	ieee1394log_loaded = true;
 }
 
 static struct pci_driver ieee1394log_driver = {
@@ -290,8 +293,6 @@ static struct pci_driver ieee1394log_driver = {
 static void
 ieee1394log_init (void)
 {
-	if (!config.vmm.tty_ieee1394)
-		return;
 	pci_register_driver (&ieee1394log_driver);
 }
 
@@ -309,7 +310,7 @@ ieee1394_hint (void)
 	int i;
 	uint size;
 
-	if (!config.vmm.tty_ieee1394)
+	if (!ieee1394log_loaded)
 		return;
 	tty_get_logbuf_info (&virt, &phys, &size);
 	printf ("==================================================\n");
@@ -335,7 +336,7 @@ INITFUNC ("driver99", ieee1394_hint);
  */
 
 static struct pci_driver thunderbolt_conceal_driver = {
-	.name		= "tbconceal",
+	.name		= "thunderbolt_conceal",
 	.longname	= NULL,
 	.device		= "class_code=060400,id="
 			  "8086:1513|" /* Thunderbolt (Unused Bridge ?) */
@@ -349,8 +350,6 @@ static struct pci_driver thunderbolt_conceal_driver = {
 static void
 ieee1394_thunderbolt_conceal (void)
 {
-	if (!config.vmm.tty_ieee1394)
-		return;
 	pci_register_driver (&thunderbolt_conceal_driver);
 }
 

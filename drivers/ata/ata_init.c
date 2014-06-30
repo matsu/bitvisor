@@ -280,8 +280,6 @@ static struct pci_driver raid_driver = {
 
 static void ata_init(void)
 {
-	if (!config.vmm.driver.ata)
-		return;
 	ASSERT((int)CORE_IO_DIR_IN == (int)STORAGE_READ);
 	pci_register_driver(&ata_driver);
 	pci_register_driver(&ahci_driver);

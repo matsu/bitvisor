@@ -119,6 +119,7 @@ struct pci_config_space {
 #define PCI_CONFIG_COMMAND_MEMENABLE	0x2
 
 struct pci_config_mmio_data;
+struct token;
 
 // data structures
 struct pci_device {
@@ -126,6 +127,7 @@ struct pci_device {
 	pci_config_address_t address;
 	void *host;
 	struct pci_driver *driver;
+	char **driver_options;
 	struct pci_config_space config_space;
 	u32 base_address_mask[PCI_CONFIG_BASE_ADDRESS_NUMS+1];
 	u8 in_base_address_mask_emulation;
@@ -145,6 +147,7 @@ struct pci_driver {
 		unsigned int use_base_address_mask_emulation: 1;
 	} options;
 	const char *name, *longname;
+	char *driver_options;
 };
 
 enum pci_bar_info_type {
@@ -193,5 +196,8 @@ int pci_get_modifying_bar_info (struct pci_device *pci_device,
 				struct pci_bar_info *bar_info, u8 iosize,
 				u16 offset, union mem *data);
 struct pci_driver *pci_find_driver_for_device (struct pci_device *device);
+struct pci_driver *pci_find_driver_by_token (struct token *name);
+int pci_driver_option_get_int (char *option, char **e, int base);
+bool pci_driver_option_get_bool (char *option, char **e);
 
 #endif

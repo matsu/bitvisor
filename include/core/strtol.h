@@ -27,63 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/**
- * @file	drivers/ieee1394.c
- * @brief	generic IEEE1394 para pass-through driver based on ehci.c
- * @author	K. Matsubara, H. Eiraku
- */
-#include <core.h>
-#include "pci.h"
+#ifndef __CORE_STRTOL_H
+#define __CORE_STRTOL_H
 
-static const char driver_name[] = "ieee1394";
-static const char driver_longname[] = 
-	"Generic IEEE1394 para pass-through driver 0.1";
+long int strtol (char *s, char **e, int base);
 
-static void 
-ieee1394_new(struct pci_device *pci_device)
-{
-	printf("An IEEE1394 host controller found. Disable it.\n");
-	return;
-}
-
-static int
-ieee1394_config_read (struct pci_device *pci_device, u8 iosize,
-		      u16 offset, union mem *data)
-{
-	ulong zero = 0UL;
-
-	/* provide fake values 
-	   for reading the PCI configration space. */
-	memcpy (data, &zero, iosize);
-	return CORE_IO_RET_DONE;
-}
-
-static int
-ieee1394_config_write (struct pci_device *pci_device, u8 iosize,
-		       u16 offset, union mem *data)
-{
-	/* do nothing, ignore any writing. */
-	return CORE_IO_RET_DONE;
-}
-
-static struct pci_driver ieee1394_driver = {
-	.name		= driver_name,
-	.longname	= driver_longname,
-	.device		= "class_code=0c0010",
-	.new		= ieee1394_new,	
-	.config_read	= ieee1394_config_read,
-	.config_write	= ieee1394_config_write,
-};
-
-/**
- * @brief	driver init function automatically called at boot time
- */
-void 
-ieee1394_init(void) __initcode__
-{
-#if defined(IEEE1394_CONCEALER)
-	pci_register_driver(&ieee1394_driver);
 #endif
-	return;
-}
-PCI_DRIVER_INIT(ieee1394_init);

@@ -30,119 +30,8 @@
 
 #include <core.h>
 #include <core/mmio.h>
-#include <token.h>
 #include "pci.h"
 #include "pci_conceal.h"
-
-/*
-   slot=%02x:%02x.%u           (bus_no, device_no, func_no)
-   class=%04x                  (class_code >> 8)
-   id=%04x:%04x                (vendor_id, device_id)
-   subsystem=%04x:%04x         (sub_vendor_id, sub_device_id)
-   revision=%02x               (revision_id)
-   rev=%02x                    (revision_id)
-   programming_interface=%02x  (programming_interface)
-   if=%02x                     (programming_interface)
-   class_code=%06x             (class_code)
-   header_type=%02x            (header_type)
-
-   example:
-   - hide all vendor_id=0x1234 devices, except slot 11:22.3
-     vmm.driver.pci_conceal=slot=11:22.3, action=allow, id=1234:*, action=deny
-   - hide all network controllers
-     vmm.driver.pci_conceal=class=02*, action=deny
-   - hide all network controllers except vendor_id=0x1234 devices
-     vmm.driver.pci_conceal=class=02*, id=1234:*, action=allow,
-     class=02*, action=deny
-*/
-static bool
-get_value (char *buf, int bufsize, struct token *tname, struct pci_device *dev)
-{
-	if (match_token ("slot", tname)) {
-		snprintf (buf, bufsize, "%02x:%02x.%u", dev->address.bus_no,
-			  dev->address.device_no, dev->address.func_no);
-		return true;
-	}
-	if (match_token ("class", tname)) {
-		snprintf (buf, bufsize, "%04x",
-			  dev->config_space.class_code >> 8);
-		return true;
-	}
-	if (match_token ("id", tname)) {
-		snprintf (buf, bufsize, "%04x:%04x",
-			  dev->config_space.vendor_id,
-			  dev->config_space.device_id);
-		return true;
-	}
-	if (match_token ("subsystem", tname)) {
-		snprintf (buf, bufsize, "%04x:%04x",
-			  dev->config_space.sub_vendor_id,
-			  dev->config_space.sub_device_id);
-		return true;
-	}
-	if (match_token ("revision", tname) || match_token ("rev", tname)) {
-		snprintf (buf, bufsize, "%02x", dev->config_space.revision_id);
-		return true;
-	}
-	if (match_token ("programming_interface", tname) ||
-	    match_token ("if", tname)) {
-		snprintf (buf, bufsize, "%02x",
-			  dev->config_space.programming_interface);
-		return true;
-	}
-	if (match_token ("class_code", tname)) {
-		snprintf (buf, bufsize, "%06x", dev->config_space.class_code);
-		return true;
-	}
-	if (match_token ("header_type", tname)) {
-		snprintf (buf, bufsize, "%02x", dev->config_space.header_type);
-		return true;
-	}
-	return false;
-}
-
-static bool
-pci_conceal (struct pci_device *dev, char *p)
-{
-	char c;
-	struct token tname, tvalue;
-	char buf[32];
-	bool ac, skip;
-
-	skip = false;
-	for (;;) {
-		c = get_token (p, &tname);
-		if (tname.start == tname.end)
-			break;
-		if (!tname.start)
-			panic ("pci_conceal: syntax error 1 %s", p);
-		if (c != '=')
-			panic ("pci_conceal: syntax error 2 %s", p);
-		c = get_token (tname.next, &tvalue);
-		if (!tvalue.start)
-			panic ("pci_conceal: syntax error 3 %s", p);
-		if (c != ',' && c != '\0')
-			panic ("pci_conceal: syntax error 4 %s", p);
-		if (match_token ("action", &tname)) {
-			if (match_token ("allow", &tvalue))
-				ac = false;
-			else if (match_token ("deny", &tvalue))
-				ac = true;
-			else
-				panic ("pci_conceal: invalid action %s", p);
-			if (skip)
-				skip = false;
-			else
-				return ac;
-		} else if (!get_value (buf, sizeof buf, &tname, dev)) {
-			panic ("pci_conceal: invalid name %s", p);
-		} else if (!skip && !match_token (buf, &tvalue)) {
-			skip = true;
-		}
-		p = tvalue.next;
-	}
-	return false;
-}
 
 static int
 iohandler (core_io_t io, union mem *data, void *arg)
@@ -208,15 +97,6 @@ static struct pci_driver pci_conceal_driver = {
 	.config_read	= pci_conceal_config_read,
 	.config_write	= pci_conceal_config_write,
 };
-
-struct pci_driver *
-pci_conceal_new_device (struct pci_device *dev)
-{
-	if (pci_conceal (dev, config.vmm.driver.pci_conceal))
-		return &pci_conceal_driver;
-	else
-		return NULL;
-}
 
 static void
 pci_conceal_init (void)

@@ -35,9 +35,10 @@
 
 #include <common.h>
 #include <core.h>
+#include <core/strtol.h>
+#include <token.h>
 #include "pci.h"
 #include "pci_internal.h"
-#include "pci_conceal.h"
 #include "pci_match.h"
 
 static spinlock_t pci_config_lock = SPINLOCK_INITIALIZER;
@@ -130,14 +131,24 @@ pci_config_mmio_emulate_base_address_mask (struct pci_device *dev,
 struct pci_driver *
 pci_find_driver_for_device (struct pci_device *device)
 {
-	struct pci_driver *driver;
+	return pci_match_find_driver (device);
+}
 
-	driver = pci_conceal_new_device (device);
-	if (driver)
-		return driver;
-	LIST_FOREACH (pci_driver_list, driver)
-		if (pci_match (device, driver))
+struct pci_driver *
+pci_find_driver_by_token (struct token *name)
+{
+	struct pci_driver *driver;
+	int i;
+
+	LIST_FOREACH (pci_driver_list, driver) {
+		if (!driver->name || driver->name[0] == '\0')
+			continue;
+		for (i = 0; &name->start[i] != name->end; i++)
+			if (driver->name[i] != name->start[i])
+				break;
+		if (&name->start[i] == name->end && driver->name[i] == '\0')
 			return driver;
+	}
 	return NULL;
 }
 
@@ -566,4 +577,71 @@ pci_get_modifying_bar_info (struct pci_device *pci_device,
 			bar_info->base = newbase;
 	}
 	return n;
+}
+
+int
+pci_driver_option_get_int (char *option, char **e, int base)
+{
+	char *p;
+	long int ret;
+
+	ret = strtol (option, &p, base);
+	if (p == option)
+		panic ("pci_driver_option_get_int: invalid value %s",
+		       option);
+	if (ret < -0x80000000)
+		ret = -0x80000000;
+	if (ret > 0x7FFFFFFF)
+		ret = 0x7FFFFFFF;
+	if (e)
+		*e = p;
+	else if (*p != '\0')
+		panic ("pci_driver_option_get_int: invalid value %s",
+		       option);
+	return ret;
+}
+
+bool
+pci_driver_option_get_bool (char *option, char **e)
+{
+	long int value;
+	int i, j;
+	char *p;
+	static const char *k[][2] = {
+		{ "YES", "yes1" },
+		{ "NO", "no0" },
+		{ "ON", "on1" },
+		{ "OFF", "off0" },
+		{ "TRUE", "true1" },
+		{ "FALSE", "false0" },
+		{ "Y", "y1" },
+		{ "N", "n0" },
+		{ "T", "t1" },
+		{ "F", "f0" },
+		{ NULL, NULL }
+	};
+
+	value = strtol (option, &p, 0);
+	if (option != p) {
+		if (e)
+			*e = p;
+		else if (*p != '\0')
+			goto error;
+		return !!value;
+	}
+	for (i = 0; k[i][0]; i++) {
+		for (j = 0;; j++) {
+			if (k[i][0][j] == '\0') {
+				if (e)
+					*e = &option[j];
+				else if (option[j] != '\0')
+					break;
+				return k[i][1][j] == '1';
+			}
+			if (option[j] != k[i][0][j] && option[j] != k[i][1][j])
+				break;
+		}
+	}
+error:
+	panic ("pci_driver_option_get_bool: invalid value %s", option);
 }

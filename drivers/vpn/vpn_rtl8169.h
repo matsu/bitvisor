@@ -198,6 +198,7 @@ typedef struct RTL8169_CTX{
 	phys_t  tnbufphys[256],  thbufphys[256],  rdbufphys[256];
 	int sendindex;
 	int enableflag;
+	bool conceal;
 }RTL8169_CTX;
 
 typedef struct RTL8169_SUB_CTX{

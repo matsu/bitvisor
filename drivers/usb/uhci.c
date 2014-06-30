@@ -365,8 +365,6 @@ static struct pci_driver uhci_driver = {
 void 
 uhci_init(void) __initcode__
 {
-	if (!config.vmm.driver.usb.uhci)
-		return;
 	pci_register_driver(&uhci_driver);
 	return;
 }

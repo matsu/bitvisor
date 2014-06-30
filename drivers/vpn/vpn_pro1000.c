@@ -218,6 +218,7 @@ struct data2 {
 	u32 regs_at_init[PCI_CONFIG_REGS32_NUM];
 	bool seize;
 #endif
+	bool conceal;
 	LIST1_DEFINE (struct data2);
 };
 
@@ -234,9 +235,6 @@ struct data {
 	struct data2 *d;
 };
 
-#ifdef TTY_PRO1000
-static struct data2 *putchar_d2;
-#endif /* TTY_PRO1000 */
 static LIST1_DEFINE_HEAD (struct data2, d2list);
 
 static int
@@ -1334,17 +1332,11 @@ seize_pro1000 (struct data2 *d2)
 }
 
 static void
-tty_pro1000_init (struct data2 *d2)
+tty_pro1000_init (struct data2 *d2, bool seize)
 {
 	d2->seize = false;
-	if (!config.vmm.tty_pro1000)
-		return;
-	if (putchar_d2 && putchar_d2 != d2)
-		return;
-	if (!putchar_d2)
-		tty_udp_register (pro1000_tty_send, d2);
-	putchar_d2 = d2;
-	if (config.vmm.driver.vpn.PRO1000 && !config.vmm.driver.concealPRO1000)
+	tty_udp_register (pro1000_tty_send, d2);
+	if (!seize)
 		return;
 	seize_pro1000 (d2);
 	{
@@ -1361,7 +1353,8 @@ tty_pro1000_init (struct data2 *d2)
 #endif /* TTY_PRO1000 */
 
 static void 
-vpn_pro1000_new (struct pci_device *pci_device)
+vpn_pro1000_new (struct pci_device *pci_device, bool option_conceal,
+		 bool option_tty)
 {
 	int i;
 	struct data2 *d2;
@@ -1391,6 +1384,7 @@ vpn_pro1000_new (struct pci_device *pci_device)
 
 	d2 = alloc (sizeof *d2);
 	memset (d2, 0, sizeof *d2);
+	d2->conceal = option_conceal;
 	alloc_pages (&tmp, NULL, (BUFSIZE + PAGESIZE - 1) / PAGESIZE);
 	memset (tmp, 0, (BUFSIZE + PAGESIZE - 1) / PAGESIZE * PAGESIZE);
 	d2->buf = tmp;
@@ -1410,7 +1404,8 @@ vpn_pro1000_new (struct pci_device *pci_device)
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
 #ifdef TTY_PRO1000
 	d2->pci_device = pci_device;
-	tty_pro1000_init (d2);
+	if (option_tty)
+		tty_pro1000_init (d2, option_conceal);
 #endif /* TTY_PRO1000 */
 	LIST1_PUSH (d2list, d2);
 	return;
@@ -1474,9 +1469,19 @@ pro1000_new (struct pci_device *pci_device)
 {
 #ifdef VPN
 #ifdef VPN_PRO1000
-	if ((!config.vmm.driver.concealPRO1000 &&
-	     config.vmm.driver.vpn.PRO1000) || config.vmm.tty_pro1000) {
-		vpn_pro1000_new (pci_device);
+	bool option_conceal = false, option_tty = false;
+
+	if (pci_device->driver_options[0] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[0], NULL))
+		option_conceal = true;
+	if (pci_device->driver_options[1] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[1], NULL)) {
+#ifdef TTY_PRO1000
+		option_tty = true;
+#endif /* TTY_PRO1000 */
+	}
+	if (!option_conceal || option_tty) {
+		vpn_pro1000_new (pci_device, option_conceal, option_tty);
 		return;
 	}
 #endif /* VPN_PRO1000 */
@@ -1492,8 +1497,10 @@ pro1000_config_read (struct pci_device *pci_device, u8 iosize,
 {
 #ifdef VPN
 #ifdef VPN_PRO1000
-	if (!config.vmm.driver.concealPRO1000 &&
-	    config.vmm.driver.vpn.PRO1000)
+	struct data *d1 = pci_device->host;
+	struct data2 *d2 = d1[0].d;
+
+	if (!d2->conceal)
 		return vpn_pro1000_config_read (pci_device, iosize, offset,
 						data);
 #endif /* VPN_PRO1000 */
@@ -1511,8 +1518,10 @@ pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 {
 #ifdef VPN
 #ifdef VPN_PRO1000
-	if (!config.vmm.driver.concealPRO1000 &&
-	    config.vmm.driver.vpn.PRO1000)
+	struct data *d1 = pci_device->host;
+	struct data2 *d2 = d1[0].d;
+
+	if (!d2->conceal)
 		return vpn_pro1000_config_write (pci_device, iosize, offset,
 						 data);
 #endif /* VPN_PRO1000 */
@@ -1525,6 +1534,7 @@ pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 static struct pci_driver pro1000_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
+	.driver_options	= "conceal,tty",
 	.device		= "class_code=020000,id="
 			/* 31608004.pdf */
 			  "8086:105e|" /* Dual port */
@@ -1674,20 +1684,6 @@ static struct pci_driver pro1000_driver = {
 static void 
 vpn_pro1000_init (void)
 {
-	bool regist = false;
-
-	if (config.vmm.driver.concealPRO1000)
-		regist = true;
-#ifdef VPN
-#ifdef VPN_PRO1000
-	if (config.vmm.driver.vpn.PRO1000)
-		regist = true;
-	if (config.vmm.tty_pro1000)
-		regist = true;
-#endif /* VPN_PRO1000 */
-#endif /* VPN */
-	if (!regist)
-		return;
 	LIST1_HEAD_INIT (d2list);
 	pci_register_driver (&pro1000_driver);
 	return;

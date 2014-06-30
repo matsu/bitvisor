@@ -1830,8 +1830,6 @@ static struct pci_driver vpn_pro100_driver =
 // 初期化
 void pro100_init()
 {
-	if (!config.vmm.driver.vpn.PRO100)
-		return;
 	debugprint("pro100_init() start.\n");
 
 	pci_register_driver(&vpn_pro100_driver);

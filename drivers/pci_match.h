@@ -31,5 +31,7 @@
 #define _PCI_MATCH_H
 
 bool pci_match (struct pci_device *device, struct pci_driver *driver);
+void pci_match_add_compat (char *str);
+struct pci_driver *pci_match_find_driver (struct pci_device *device);
 
 #endif

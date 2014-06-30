@@ -27,63 +27,96 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/**
- * @file	drivers/ieee1394.c
- * @brief	generic IEEE1394 para pass-through driver based on ehci.c
- * @author	K. Matsubara, H. Eiraku
- */
-#include <core.h>
-#include "pci.h"
+#include "strtol.h"
 
-static const char driver_name[] = "ieee1394";
-static const char driver_longname[] = 
-	"Generic IEEE1394 para pass-through driver 0.1";
+#define ULONG_MAX (~0UL)
+#define LONG_MAX ((long int)(ULONG_MAX >> 1))
 
-static void 
-ieee1394_new(struct pci_device *pci_device)
+static int
+isblank (int c)
 {
-	printf("An IEEE1394 host controller found. Disable it.\n");
-	return;
+	return c == ' ' || c == '\t';
 }
 
 static int
-ieee1394_config_read (struct pci_device *pci_device, u8 iosize,
-		      u16 offset, union mem *data)
+isspace (int c)
 {
-	ulong zero = 0UL;
-
-	/* provide fake values 
-	   for reading the PCI configration space. */
-	memcpy (data, &zero, iosize);
-	return CORE_IO_RET_DONE;
+	return isblank (c) || c == '\f' || c == '\n' || c == '\r' || c == '\v';
 }
 
-static int
-ieee1394_config_write (struct pci_device *pci_device, u8 iosize,
-		       u16 offset, union mem *data)
+static unsigned int
+digit_to_num (char c, int base)
 {
-	/* do nothing, ignore any writing. */
-	return CORE_IO_RET_DONE;
+	unsigned int n;
+
+	if (c >= '0' && c <= '9')
+		n = c - '0';
+	else if (c >= 'A' && c <= 'Z')
+		n = c - 'A' + 10;
+	else if (c >= 'a' && c <= 'z')
+		n = c - 'a' + 10;
+	else
+		n = base;
+	if (n >= base)
+		n = base;
+	if (base < 2 || base > 36)
+		n = base;
+	return n;
 }
 
-static struct pci_driver ieee1394_driver = {
-	.name		= driver_name,
-	.longname	= driver_longname,
-	.device		= "class_code=0c0010",
-	.new		= ieee1394_new,	
-	.config_read	= ieee1394_config_read,
-	.config_write	= ieee1394_config_write,
-};
-
-/**
- * @brief	driver init function automatically called at boot time
- */
-void 
-ieee1394_init(void) __initcode__
+long int
+strtol (char *s, char **e, int base)
 {
-#if defined(IEEE1394_CONCEALER)
-	pci_register_driver(&ieee1394_driver);
-#endif
-	return;
+	int b;
+	enum { SIGN_NONE, SIGN_PLUS, SIGN_MINUS } sign;
+	unsigned long int val = 0, valmax, c;
+
+	while (isspace (*s))
+		s++;
+	if (*s == '+') {
+		sign = SIGN_PLUS;
+		s++;
+		valmax = LONG_MAX;
+	} else if (*s == '-') {
+		sign = SIGN_MINUS;
+		s++;
+		valmax = (unsigned long int)LONG_MAX + 1;
+	} else {
+		sign = SIGN_NONE;
+		valmax = ULONG_MAX;
+	}
+	if (s[0] == '0') {
+		if (s[1] == 'X' || s[1] == 'x')
+			b = 16;
+		else
+			b = 8;
+	} else {
+		b = 10;
+	}
+	if (base == 0)
+		base = b;
+	if (base == 16 && b == 16)
+		s += 2;
+	for (;;) {
+		if (e)
+			*e = s;
+		c = digit_to_num (*s, base);
+		if (c == base)
+			break;
+		if (val > valmax / base)
+			goto overflow_or_underflow;
+		val = val * base + c;
+		if (val > valmax)
+			goto overflow_or_underflow;
+		s++;
+	}
+	if (sign == SIGN_MINUS)
+		return -val;
+	else
+		return val;
+overflow_or_underflow:
+	if (sign == SIGN_MINUS)
+		return -valmax;
+	else
+		return valmax;
 }
-PCI_DRIVER_INIT(ieee1394_init);
