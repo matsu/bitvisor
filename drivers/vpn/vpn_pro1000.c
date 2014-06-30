@@ -215,6 +215,8 @@ struct data2 {
 	u8 macaddr[6];
 #ifdef TTY_PRO1000
 	struct pci_device *pci_device;
+	u32 regs_at_init[PCI_CONFIG_REGS32_NUM];
+	bool seize;
 #endif
 	LIST1_DEFINE (struct data2);
 };
@@ -233,7 +235,6 @@ struct data {
 };
 
 #ifdef TTY_PRO1000
-static u32 regs_at_init[PCI_CONFIG_REGS32_NUM];
 static struct data2 *putchar_d2;
 #endif /* TTY_PRO1000 */
 static LIST1_DEFINE_HEAD (struct data2, d2list);
@@ -1233,18 +1234,8 @@ pro1000_tty_send (void *handle, void *packet, unsigned int packet_size)
 }
 
 static void
-tty_pro1000_init (struct data2 *d2)
+seize_pro1000 (struct data2 *d2)
 {
-	if (!config.vmm.tty_pro1000)
-		return;
-	if (putchar_d2 && putchar_d2 != d2)
-		return;
-	if (!putchar_d2)
-		tty_udp_register (pro1000_tty_send, d2);
-	putchar_d2 = d2;
-	if (config.vmm.driver.vpn.PRO1000 && !config.vmm.driver.concealPRO1000)
-		return;
-
 	/* Disable interrupts */
 	{
 		/* Interrupt Mask Clear Register */
@@ -1340,15 +1331,32 @@ tty_pro1000_init (struct data2 *d2)
 		*tipg = 0x00702008;
 	}
 	d2->tdesc[0].initialized = true;
+}
+
+static void
+tty_pro1000_init (struct data2 *d2)
+{
+	d2->seize = false;
+	if (!config.vmm.tty_pro1000)
+		return;
+	if (putchar_d2 && putchar_d2 != d2)
+		return;
+	if (!putchar_d2)
+		tty_udp_register (pro1000_tty_send, d2);
+	putchar_d2 = d2;
+	if (config.vmm.driver.vpn.PRO1000 && !config.vmm.driver.concealPRO1000)
+		return;
+	seize_pro1000 (d2);
 	{
 		int i;
 		pci_config_address_t addr = d2->pci_device->address;
 
 		for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
 			addr.reg_no = i;
-			regs_at_init[i] = pci_read_config_data32 (addr, 0);
+			d2->regs_at_init[i] = pci_read_config_data32 (addr, 0);
 		}
 	}
+	d2->seize = true;
 }
 #endif /* TTY_PRO1000 */
 
@@ -1686,16 +1694,6 @@ vpn_pro1000_init (void)
 }
 
 static void
-suspend_pro1000 (void)
-{
-#ifdef TTY_PRO1000
-	if (!putchar_d2)
-		return;
-	putchar_d2->tdesc[0].initialized = false;
-#endif /* TTY_PRO1000 */
-}
-
-static void
 resume_pro1000 (void)
 {
 	struct data2 *d2;
@@ -1711,19 +1709,19 @@ resume_pro1000 (void)
 		d2->tdesc[1].initialized = false;
 		d2->rdesc[0].initialized = false;
 		d2->rdesc[1].initialized = false;
-	}
 #ifdef TTY_PRO1000
-	if (!putchar_d2)
-		return;
-	addr = putchar_d2->pci_device->address;
-	for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
-		addr.reg_no = i;
-		pci_write_config_data32 (addr, 0, regs_at_init[i]);
-	}
-	tty_pro1000_init (putchar_d2);
+		if (d2->seize) {
+			addr = d2->pci_device->address;
+			for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
+				addr.reg_no = i;
+				pci_write_config_data32 (addr, 0,
+							 d2->regs_at_init[i]);
+			}
+			seize_pro1000 (d2);
+		}
 #endif /* TTY_PRO1000 */
+	}
 }
 
 PCI_DRIVER_INIT (vpn_pro1000_init);
 INITFUNC ("resume1", resume_pro1000);
-INITFUNC ("suspend1", suspend_pro1000);
