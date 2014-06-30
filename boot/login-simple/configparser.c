@@ -400,6 +400,8 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "vmm.driver.conceal1394");
 	ss (uintnum, &name, &src, &len, "vmm.driver.concealPRO1000",
 	    "vmm.driver.concealPRO1000");
+	ss (uintnum, &name, &src, &len, "vmm.driver.vga_intel",
+	    "vmm.driver.vga_intel");
 	ss (uintnum, &name, &src, &len, "vmm.driver.vpn.PRO100",
 	    "vmm.driver.vpn.PRO100");
 	ss (uintnum, &name, &src, &len, "vmm.driver.vpn.PRO1000",
@@ -550,6 +552,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.driver.concealEHCI);
 	CONF (vmm.driver.conceal1394);
 	CONF (vmm.driver.concealPRO1000);
+	CONF (vmm.driver.vga_intel);
 	CONF (vmm.driver.vpn.PRO100);
 	CONF (vmm.driver.vpn.PRO1000);
 	CONF (vmm.driver.vpn.RTL8169);

@@ -461,7 +461,8 @@ vga_intel_get_screen_size (struct vga_func_data *data, unsigned int *width,
 static void
 vga_intel_init (void)
 {
-	pci_register_driver (&vga_intel_driver);
+	if (config.vmm.driver.vga_intel)
+		pci_register_driver (&vga_intel_driver);
 }
 
 PCI_DRIVER_INIT (vga_intel_init);

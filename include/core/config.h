@@ -194,6 +194,7 @@ struct config_data_vmm_driver {
 	int concealEHCI;
 	int conceal1394;
 	int concealPRO1000;
+	int vga_intel;
 	struct config_data_vmm_driver_vpn vpn;
 	char pci_conceal[1024];
 };
