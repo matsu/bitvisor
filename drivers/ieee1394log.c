@@ -33,6 +33,7 @@
 #include <core/time.h>
 #include <core/tty.h>
 #include "pci.h"
+#include "pci_conceal.h"
 
 #define RETRY_COUNT 30
 
@@ -332,32 +333,6 @@ INITFUNC ("driver99", ieee1394_hint);
 /* Logic to hide thunderbolt PCI bridge
  * to complete conceal IEEE1394 Controller
  */
-static void
-thunderbolt_new (struct pci_device *pci_device)
-{
-	printf ("[%02x:%02x.%0x/%04x:%04x] "
-		"Thunderbolt PCI Bridge found. Conceal it.\n",
-		pci_device->address.bus_no,
-		pci_device->address.device_no,
-		pci_device->address.func_no,
-		pci_device->config_space.vendor_id,
-		pci_device->config_space.device_id);
-}
-
-static int
-thunderbolt_config_read (struct pci_device *pci_device, u8 iosize,
-			 u16 offset, union mem *data)
-{
-	memset (data, 0, iosize);
-	return CORE_IO_RET_DONE;
-}
-
-static int
-thunderbolt_config_write (struct pci_device *pci_device, u8 iosize,
-			  u16 offset, union mem *data)
-{
-	return CORE_IO_RET_DONE;
-}
 
 static struct pci_driver thunderbolt_conceal_driver = {
 	.name		= "tbconceal",
@@ -366,9 +341,9 @@ static struct pci_driver thunderbolt_conceal_driver = {
 			  "8086:1513|" /* Thunderbolt (Unused Bridge ?) */
 			  "8086:1547|" /* Thunderbolt Port */
 			  "8086:1549", /* Thunderbolt Controller */
-	.new		= thunderbolt_new,
-	.config_read	= thunderbolt_config_read,
-	.config_write	= thunderbolt_config_write,
+	.new		= pci_conceal_new,
+	.config_read	= pci_conceal_config_read,
+	.config_write	= pci_conceal_config_write,
 };
 
 static void

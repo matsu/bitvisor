@@ -160,7 +160,7 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 	return 1;
 }
 
-static int
+int
 pci_conceal_config_read (struct pci_device *pci_device, u8 iosize, u16 offset,
 			 union mem *data)
 {
@@ -169,7 +169,7 @@ pci_conceal_config_read (struct pci_device *pci_device, u8 iosize, u16 offset,
 	return CORE_IO_RET_DONE;
 }
 
-static int
+int
 pci_conceal_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 			  union mem *data)
 {
@@ -177,12 +177,17 @@ pci_conceal_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 	return CORE_IO_RET_DONE;
 }
 
-static void
+void
 pci_conceal_new (struct pci_device *pci_device)
 {
 	int i;
 	struct pci_bar_info bar;
 
+	printf ("[%02X:%02X.%u/%04X:%04X] concealed\n",
+		pci_device->address.bus_no, pci_device->address.device_no,
+		pci_device->address.func_no,
+		pci_device->config_space.vendor_id,
+		pci_device->config_space.device_id);
 	for (i = 0; i < PCI_CONFIG_BASE_ADDRESS_NUMS; i++) {
 		pci_get_bar_info (pci_device, i, &bar);
 		if (bar.type == PCI_BAR_INFO_TYPE_IO) {

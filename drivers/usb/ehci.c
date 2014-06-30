@@ -36,6 +36,7 @@
 #include <core/mmio.h>
 #include <core/timer.h>
 #include "pci.h"
+#include "pci_conceal.h"
 #include "usb.h"
 #include "usb_device.h"
 #include "ehci.h"
@@ -554,6 +555,7 @@ ehci_conceal_new(struct pci_device *pci_device)
 	void *handle;
 
 	printf("An EHCI host controller found. Disable it.\n");
+	pci_conceal_new (pci_device);
 	iobase = pci_device->config_space.base_address[0];
 	if ((iobase == 0) || (iobase >= 0xffffffdeU))
 		return;
@@ -582,33 +584,13 @@ ehci_conceal_new(struct pci_device *pci_device)
 	return;
 }
 
-static int
-ehci_conceal_config_read (struct pci_device *pci_device, u8 iosize,
-			  u16 offset, union mem *data)
-{
-	ulong zero = 0UL;
-
-	/* provide fake values 
-	   for reading the PCI configration space. */
-	memcpy (data, &zero, iosize);
-	return CORE_IO_RET_DONE;
-}
-
-static int
-ehci_conceal_config_write (struct pci_device *pci_device, u8 iosize,
-			   u16 offset, union mem *data)
-{
-	/* do nothing, ignore any writing. */
-	return CORE_IO_RET_DONE;
-}
-
 static struct pci_driver ehci_conceal_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
 	.device		= "class_code=0c0320",
 	.new		= ehci_conceal_new,	
-	.config_read	= ehci_conceal_config_read,
-	.config_write	= ehci_conceal_config_write,
+	.config_read	= pci_conceal_config_read,
+	.config_write	= pci_conceal_config_write,
 };
 
 /**
