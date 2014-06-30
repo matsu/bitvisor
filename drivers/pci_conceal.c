@@ -160,18 +160,31 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 	return 1;
 }
 
-bool
-pci_conceal_new_device (struct pci_device *dev)
+static int
+pci_conceal_config_read (struct pci_device *pci_device, u8 iosize, u16 offset,
+			 union mem *data)
+{
+	/* Provide fake values for reading the PCI configration space. */
+	memset (data, 0xFF, iosize);
+	return CORE_IO_RET_DONE;
+}
+
+static int
+pci_conceal_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
+			  union mem *data)
+{
+	/* Do nothing, ignore any writing. */
+	return CORE_IO_RET_DONE;
+}
+
+static void
+pci_conceal_new (struct pci_device *pci_device)
 {
 	int i;
-	bool r;
 	struct pci_bar_info bar;
 
-	r = pci_conceal (dev, config.vmm.driver.pci_conceal);
-	if (!r)
-		return false;
-	for (i = 0; i < 6; i++) {
-		pci_get_bar_info (dev, i, &bar);
+	for (i = 0; i < PCI_CONFIG_BASE_ADDRESS_NUMS; i++) {
+		pci_get_bar_info (pci_device, i, &bar);
 		if (bar.type == PCI_BAR_INFO_TYPE_IO) {
 			core_io_register_handler
 				(bar.base, bar.len, iohandler, NULL,
@@ -180,11 +193,30 @@ pci_conceal_new_device (struct pci_device *dev)
 			mmio_register (bar.base, bar.len, mmhandler, NULL);
 		}
 	}
-	return true;
 }
 
-int
-pci_conceal_config_data_handler (core_io_t io, union mem *data, void *arg)
+static struct pci_driver pci_conceal_driver = {
+	.name		= "conceal",
+	.longname	= "PCI device concealer",
+	.device		= "id=:", /* this matches no devices */
+	.new		= pci_conceal_new,
+	.config_read	= pci_conceal_config_read,
+	.config_write	= pci_conceal_config_write,
+};
+
+struct pci_driver *
+pci_conceal_new_device (struct pci_device *dev)
 {
-	return iohandler (io, data, arg);
+	if (pci_conceal (dev, config.vmm.driver.pci_conceal))
+		return &pci_conceal_driver;
+	else
+		return NULL;
 }
+
+static void
+pci_conceal_init (void)
+{
+	pci_register_driver (&pci_conceal_driver);
+}
+
+PCI_DRIVER_INIT (pci_conceal_init);

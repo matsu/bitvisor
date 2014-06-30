@@ -35,7 +35,6 @@
 #include "pci.h"
 #include "pci_internal.h"
 #include "pci_init.h"
-#include "pci_conceal.h"
 #include <core/acpi.h>
 #include <core/mmio.h>
 
@@ -135,7 +134,6 @@ static struct pci_device *pci_new_device(pci_config_address_t addr)
 		dev->address = addr;
 		pci_read_config_space(dev);
 		pci_save_base_address_masks(dev);
-		dev->conceal = pci_conceal_new_device (dev);
 		dev->config_mmio = pci_search_config_mmio (0, addr.bus_no);
 		pci_append_device(dev);
 	}
@@ -177,12 +175,10 @@ static void pci_find_devices()
 			goto oom;
 		num++;
 
-		if (!dev->conceal) {
-			driver = pci_find_driver_for_device (dev);
-			if (driver) {
-				dev->driver = driver;
-				driver->new (dev);
-			}
+		driver = pci_find_driver_for_device (dev);
+		if (driver) {
+			dev->driver = driver;
+			driver->new (dev);
 		}
 
 		if (fn == 0 && dev->config_space.multi_function == 0)

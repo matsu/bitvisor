@@ -30,7 +30,6 @@
 #ifndef _PCI_CONCEAL_H
 #define _PCI_CONCEAL_H
 
-bool pci_conceal_new_device (struct pci_device *dev);
-int pci_conceal_config_data_handler (core_io_t io, union mem *data, void *arg);
+struct pci_driver *pci_conceal_new_device (struct pci_device *dev);
 
 #endif

@@ -130,7 +130,6 @@ struct pci_device {
 	u32 base_address_mask[PCI_CONFIG_BASE_ADDRESS_NUMS+1];
 	u8 in_base_address_mask_emulation;
 	u8 base_address_mask_valid;
-	bool conceal;
 	struct pci_config_mmio_data *config_mmio;
 };
 

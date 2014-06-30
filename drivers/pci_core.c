@@ -132,6 +132,9 @@ pci_find_driver_for_device (struct pci_device *device)
 {
 	struct pci_driver *driver;
 
+	driver = pci_conceal_new_device (device);
+	if (driver)
+		return driver;
 	LIST_FOREACH (pci_driver_list, driver)
 		if (pci_match (device, driver))
 			return driver;
@@ -169,14 +172,15 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 			   device with function number 1 to 7. The
 			   access will be concealed. */
 			spinlock_unlock (&pci_config_lock);
-			goto conceal;
+			if (io.dir == CORE_IO_DIR_IN)
+				memset (data, 0xFF, io.size);
+			ioret = CORE_IO_RET_DONE;
+			goto ret;
 		}
 	}
 	dev = pci_possible_new_device (caddr);
 	pci_restore_config_addr ();
 	spinlock_unlock (&pci_config_lock);
-	if (dev && dev->conceal)
-		goto found;
 	if (dev) {
 		struct pci_driver *driver;
 
@@ -191,11 +195,6 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 	}
 	goto ret;
 found:
-	if (dev->conceal) {
-	conceal:
-		ioret = pci_conceal_config_data_handler (io, data, arg);
-		goto ret;
-	}
 	if (dev->driver == NULL)
 		goto ret;
 	if (dev->driver->options.use_base_address_mask_emulation) {
@@ -446,7 +445,9 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 			   device with function number 1 to 7. The
 			   access will be concealed. */
 			spinlock_unlock (&pci_config_lock);
-			goto conceal;
+			if (!wr)
+				memset (buf, 0xFF, len);
+			return 1;
 		}
 	}
 	/* TODO: possible new device */
@@ -455,12 +456,6 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 		memset (buf, 0xFF, len);
 	return 1;
 found:
-	if (dev->conceal) {
-	conceal:
-		if (!wr)
-			memset (buf, 0xFF, len);
-		return 1;
-	}
 	if (dev->driver == NULL)
 		goto def;
 	if (dev->driver->options.use_base_address_mask_emulation) {
