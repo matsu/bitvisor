@@ -4,6 +4,6 @@ CONSTANTS-$(CONFIG_VTD_TRANS) += -DVTD_TRANS
 
 CFLAGS += -Idrivers -Ivpn/lib
 
-objs-$(CONFIG_VPN_PRO100) += vpn_pro100.o
-objs-$(CONFIG_VPN_PRO1000) += vpn_pro1000.o
-objs-$(CONFIG_VPN_RTL8169) += vpn_rtl8169.o
+objs-$(CONFIG_VPN_PRO100) += pro100.o
+objs-$(CONFIG_VPN_PRO1000) += pro1000.o
+objs-$(CONFIG_VPN_RTL8169) += rtl8169.o

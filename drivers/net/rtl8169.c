@@ -40,7 +40,7 @@
 #include <Se/SeKernel.h>
 #include <Se/SeSec.h>
 #include <core/time.h>
-#include "vpn_rtl8169.h"
+#include "rtl8169.h"
 
 u16 ipchecksum (void *buf, u32 len);
 

@@ -35,7 +35,7 @@
 #include <core/time.h>
 #include <net/netapi.h>
 #include <Se/Se.h>
-#include "vpn_pro100.h"
+#include "pro100.h"
 #include "../../core/beep.h"	/* DEBUG */
 
 #define SeCopy			memcpy
