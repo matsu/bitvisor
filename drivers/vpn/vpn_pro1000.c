@@ -39,9 +39,6 @@ typedef unsigned int UINT;
 static const char driver_name[] = "pro1000";
 static const char driver_longname[] = "Intel PRO/1000 driver";
 
-#ifdef VPN
-#ifdef VPN_PRO1000
-
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
 int add_remap() ;
@@ -1416,8 +1413,6 @@ vpn_pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 		reghook (&d[i], i, &bar_info);
 	return CORE_IO_RET_DEFAULT;
 }
-#endif /* VPN_PRO1000 */
-#endif /* VPN */
 
 /* [1] defined (VPN) && defined (VPN_PRO1000)
    [2] config.vmm.driver.vpn.PRO1000
@@ -1443,8 +1438,6 @@ vpn_pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 static void 
 pro1000_new (struct pci_device *pci_device)
 {
-#ifdef VPN
-#ifdef VPN_PRO1000
 	bool option_tty = false;
 	char *option_net;
 
@@ -1454,29 +1447,18 @@ pro1000_new (struct pci_device *pci_device)
 	}
 	option_net = pci_device->driver_options[1];
 	vpn_pro1000_new (pci_device, option_tty, option_net);
-	return;
-#endif /* VPN_PRO1000 */
-#endif /* VPN */
-
-	printf ("A PRO/1000 device found. Disable it.\n");
-	return;
 }
 
 static int
 pro1000_config_read (struct pci_device *pci_device, u8 iosize,
 		     u16 offset, union mem *data)
 {
-#ifdef VPN
-#ifdef VPN_PRO1000
 	struct data *d1 = pci_device->host;
 	struct data2 *d2 = d1[0].d;
 
 	if (!d2->seize)
 		return vpn_pro1000_config_read (pci_device, iosize, offset,
 						data);
-#endif /* VPN_PRO1000 */
-#endif /* VPN */
-
 	/* provide fake values 
 	   for reading the PCI configration space. */
 	memset (data, 0, iosize);
@@ -1487,17 +1469,12 @@ static int
 pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 		      u16 offset, union mem *data)
 {
-#ifdef VPN
-#ifdef VPN_PRO1000
 	struct data *d1 = pci_device->host;
 	struct data2 *d2 = d1[0].d;
 
 	if (!d2->seize)
 		return vpn_pro1000_config_write (pci_device, iosize, offset,
 						 data);
-#endif /* VPN_PRO1000 */
-#endif /* VPN */
-
 	/* do nothing, ignore any writing. */
 	return CORE_IO_RET_DONE;
 }

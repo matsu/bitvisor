@@ -29,8 +29,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef VPN
-#ifdef VPN_PRO100
 #include "pci.h"
 #include <core.h>
 #include <core/mmio.h>
@@ -1842,5 +1840,3 @@ void pro100_init()
 
 
 PCI_DRIVER_INIT(pro100_init);
-#endif /* VPN_PRO100 */
-#endif /* VPN */

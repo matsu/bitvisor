@@ -30,9 +30,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef VPN
-#ifdef VPN_RTL8169
-
 #include "pci.h"
 #include "../../crypto/chelp.h"
 #include <core/mmio.h>
@@ -1810,6 +1807,3 @@ rtl8169_init()
 }
 
 PCI_DRIVER_INIT(rtl8169_init);
-
-#endif /* VPN_RTL8169 */
-#endif /* VPN */
