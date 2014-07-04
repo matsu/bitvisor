@@ -1801,7 +1801,7 @@ void pro100_new(struct pci_device *dev)
 #endif // of VTD_TRANS
 
 	ctx->dev = dev;
-	ctx->net_handle = net_new_nic ("vpn");
+	ctx->net_handle = net_new_nic (dev->driver_options[0]);
 	spinlock_init (&ctx->lock);
 	dev->host = ctx;
 	dev->driver->options.use_base_address_mask_emulation = 1;
@@ -1823,6 +1823,7 @@ static struct pci_driver vpn_pro100_driver =
 {
 	.name		= driver_name,
 	.longname	= driver_longname,
+	.driver_options	= "net",
 	.device		= "id=8086:1229",
 	.new		= pro100_new,
 	.config_read	= pro100_config_read,

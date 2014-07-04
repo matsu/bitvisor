@@ -1352,7 +1352,7 @@ tty_pro1000_init (struct data2 *d2, bool seize)
 
 static void 
 vpn_pro1000_new (struct pci_device *pci_device, bool option_conceal,
-		 bool option_tty)
+		 bool option_tty, char *option_net)
 {
 	int i;
 	struct data2 *d2;
@@ -1383,7 +1383,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_conceal,
 	d2 = alloc (sizeof *d2);
 	memset (d2, 0, sizeof *d2);
 	d2->conceal = option_conceal;
-	d2->nethandle = net_new_nic ("vpn");
+	d2->nethandle = net_new_nic (option_net);
 	alloc_pages (&tmp, NULL, (BUFSIZE + PAGESIZE - 1) / PAGESIZE);
 	memset (tmp, 0, (BUFSIZE + PAGESIZE - 1) / PAGESIZE * PAGESIZE);
 	d2->buf = tmp;
@@ -1469,6 +1469,7 @@ pro1000_new (struct pci_device *pci_device)
 #ifdef VPN
 #ifdef VPN_PRO1000
 	bool option_conceal = false, option_tty = false;
+	char *option_net;
 
 	if (pci_device->driver_options[0] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[0], NULL))
@@ -1479,8 +1480,10 @@ pro1000_new (struct pci_device *pci_device)
 		option_tty = true;
 #endif /* TTY_PRO1000 */
 	}
+	option_net = pci_device->driver_options[2];
 	if (!option_conceal || option_tty) {
-		vpn_pro1000_new (pci_device, option_conceal, option_tty);
+		vpn_pro1000_new (pci_device, option_conceal, option_tty,
+				 option_net);
 		return;
 	}
 #endif /* VPN_PRO1000 */
@@ -1533,7 +1536,7 @@ pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 static struct pci_driver pro1000_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
-	.driver_options	= "conceal,tty",
+	.driver_options	= "conceal,tty,net",
 	.device		= "class_code=020000,id="
 			/* 31608004.pdf */
 			  "8086:105e|" /* Dual port */

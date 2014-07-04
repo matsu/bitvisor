@@ -127,7 +127,7 @@ pci_match_compat_init_pro1000 (void)
 #ifdef VPN_PRO1000
 #ifdef TTY_PRO1000
 	else if (config.vmm.driver.vpn.PRO1000)
-		snprintf (buf, sizeof buf, "driver=pro1000%s",
+		snprintf (buf, sizeof buf, "driver=pro1000,net=vpn%s",
 			  config.vmm.tty_pro1000 ? ",tty=1" : "");
 	else if (config.vmm.tty_pro1000)
 		snprintf (buf, sizeof buf, "driver=pro1000,conceal=1,tty=1");
@@ -147,7 +147,8 @@ pci_match_compat_init_rtl8169 (void)
 
 	if (config.vmm.driver.vpn.RTL8169 || config.vmm.tty_rtl8169) {
 		snprintf (buf, sizeof buf, "driver=rtl8169%s%s",
-			  config.vmm.driver.vpn.RTL8169 ? "" : ",conceal=1",
+			  config.vmm.driver.vpn.RTL8169 ?
+			  ",net=vpn" : ",conceal=1",
 #ifdef TTY_RTL8169
 			  config.vmm.tty_rtl8169 ? ",tty=1" :
 #endif
@@ -177,7 +178,7 @@ pci_match_compat_init (void)
 				      "driver=raid");
 	pci_match_compat_init_pro1000 ();
 	if (config.vmm.driver.vpn.PRO100)
-		pci_match_add_compat ("driver=pro100");
+		pci_match_add_compat ("driver=pro100,net=vpn");
 	pci_match_compat_init_rtl8169 ();
 	if (config.vmm.tty_ieee1394)
 		pci_match_add_compat ("driver=ieee1394log,and,"

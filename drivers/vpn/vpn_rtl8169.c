@@ -54,7 +54,7 @@ static const char driver_longname[] = "VPN for RealTek RTL8169";
 static struct pci_driver vpn_rtl8169_driver = {
 	.name         = driver_name,
 	.longname     = driver_longname,
-	.driver_options = "conceal,tty",
+	.driver_options = "conceal,tty,net",
 	.device       = "id=10ec:8168|10ec:8169",
 	.new          = rtl8169_new,
 	.config_read  = rtl8169_config_read,
@@ -1698,7 +1698,7 @@ rtl8169_new_sub (struct pci_device *dev)
 		if (dev->driver_options[0] &&
 		    pci_driver_option_get_bool (dev->driver_options[0], NULL))
 			ctx->conceal = true;
-		ctx->net_handle = net_new_nic ("vpn");
+		ctx->net_handle = net_new_nic (dev->driver_options[2]);
 		dev->host = sctx;
 		dev->driver->options.use_base_address_mask_emulation = 1;
 #ifdef _DEBUG
