@@ -37,7 +37,8 @@
 #include "../../crypto/chelp.h"
 #include <core/mmio.h>
 #include <core/tty.h>
-#include <core/vpnsys.h>
+#include <net/netapi.h>
+#include <Se/Se.h>
 #include <core.h>
 #include <Se/SeVpn.h>
 #include <Se/SeKernel.h>
@@ -81,7 +82,7 @@ recvenabled (RTL8169_CTX *ctx)
 }
 
 static void
-GetPhysicalNicInfo (SE_HANDLE nic_handle, SE_NICINFO *info)
+GetPhysicalNicInfo (void *handle, struct nicinfo *info)
 {
 	RTL8169_CTX *ctx;
 
@@ -101,13 +102,12 @@ GetPhysicalNicInfo (SE_HANDLE nic_handle, SE_NICINFO *info)
 	}
 	else
 	{
-		ctx = (RTL8169_CTX *)nic_handle;
+		ctx = handle;
 
-		info->MediaType  = SE_MEDIA_TYPE_ETHERNET;
-		info->Mtu        = 1500;
-		info->MediaSpeed = 1000000000;
+		info->mtu         = 1500;
+		info->media_speed = 1000000000;
 
-		memcpy (info->MacAddress, ctx->macaddr, RTL8169_MAC_LEN);
+		memcpy (info->mac_address, ctx->macaddr, RTL8169_MAC_LEN);
 
 #ifdef _DEBUG
 		time = get_cpu_time(); 
@@ -119,7 +119,8 @@ GetPhysicalNicInfo (SE_HANDLE nic_handle, SE_NICINFO *info)
 
 
 static void
-SendPhysicalNic (SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes)
+SendPhysicalNic (void *handle, unsigned int num_packets, void **packets,
+		 unsigned int *packet_sizes, bool print_ok)
 {
 	UINT		       i, ii;
 	void		       *data;
@@ -127,7 +128,7 @@ SendPhysicalNic (SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *p
 	struct desc	  	*TNPDSVirtAddr;
 	struct desc	  	*TargetDesc;
 	u8	  		npq;
-	RTL8169_CTX		*ctx  = (RTL8169_CTX *)nic_handle;
+	RTL8169_CTX		*ctx  = handle;
 	RTL8169_SUB_CTX	*sctx = ctx->sctx_mmio;
 
 #ifdef _DEBUG
@@ -191,7 +192,8 @@ SendPhysicalNic (SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *p
 // ※本関数は、VPNクライアントからコールバックで呼び出される
 //
 static void
-SetPhysicalNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param)
+SetPhysicalNicRecvCallback (void *handle, net_recv_callback_t *callback,
+			    void *param)
 {
 	RTL8169_CTX *ctx;
 
@@ -211,7 +213,7 @@ SetPhysicalNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *call
 		return;	
 	}
 
-	ctx				 = (RTL8169_CTX *)nic_handle;
+	ctx				 = handle;
 	ctx->CallbackRecvPhyNic      = callback;
 	ctx->CallbackRecvPhyNicParam = param;
 
@@ -228,7 +230,7 @@ SetPhysicalNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *call
 }
 
 static void
-GetVirtualNicInfo (SE_HANDLE nic_handle, SE_NICINFO *info)
+GetVirtualNicInfo (void *handle, struct nicinfo *info)
 {
 	RTL8169_CTX *ctx;
 
@@ -248,13 +250,12 @@ GetVirtualNicInfo (SE_HANDLE nic_handle, SE_NICINFO *info)
 	}
 	else
 	{
-		ctx = (RTL8169_CTX *)nic_handle;
+		ctx = handle;
 
-		info->MediaType  = SE_MEDIA_TYPE_ETHERNET;
-		info->Mtu        = 1500;
-		info->MediaSpeed = 1000000000;
+		info->mtu         = 1500;
+		info->media_speed = 1000000000;
 
-		memcpy (info->MacAddress, ctx->macaddr, RTL8169_MAC_LEN);
+		memcpy (info->mac_address, ctx->macaddr, RTL8169_MAC_LEN);
 
 #ifdef _DEBUG
 		time = get_cpu_time(); 
@@ -279,12 +280,13 @@ makeintr (RTL8169_SUB_CTX *sctx)
 // ※本関数は、VPNクライアントからコールバックで呼び出される
 //
 static void
-SendVirtualNic (SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes)
+SendVirtualNic (void *handle, unsigned int num_packets, void **packets,
+		unsigned int *packet_sizes, bool print_ok)
 {
 	UINT			i;
 	void			*data;
 	UINT			size;
-	RTL8169_CTX		*ctx     = (RTL8169_CTX *)nic_handle;
+	RTL8169_CTX		*ctx     = handle;
 	RTL8169_SUB_CTX	*sctx    = ctx->sctx_mmio;
 
 #ifdef _DEBUG
@@ -310,7 +312,7 @@ SendVirtualNic (SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *pa
 	{
 		data = packets[i];
 		size = packet_sizes[i];
-		rtl8169_send_virt_nic(nic_handle, ctx->RDSARreg, data, size);
+		rtl8169_send_virt_nic (handle, ctx->RDSARreg, data, size);
 	}
 
 	if (num_packets >= 1)
@@ -411,7 +413,8 @@ rtl8169_send_virt_nic(SE_HANDLE nic_handle, phys_t rxdescphys, void *data, UINT 
 // ※本関数は、VPNクライアントからコールバックで呼び出される
 //
 static void
-SetVirtualNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param)
+SetVirtualNicRecvCallback (void *handle, net_recv_callback_t *callback,
+			   void *param)
 {
 	RTL8169_CTX *ctx;
 
@@ -431,7 +434,7 @@ SetVirtualNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callb
 		return;
 	}
 	
-	ctx                           = (RTL8169_CTX *)nic_handle;
+	ctx                           = handle;
 	ctx->CallbackRecvVirtNic      = callback;
 	ctx->CallbackRecvVirtNicParam = param;
 	
@@ -443,13 +446,14 @@ SetVirtualNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callb
 	return;
 }
 
-static struct nicfunc func = {
-	.GetPhysicalNicInfo         = GetPhysicalNicInfo,
-	.SendPhysicalNic            = SendPhysicalNic,
-	.SetPhysicalNicRecvCallback = SetPhysicalNicRecvCallback,
-	.GetVirtualNicInfo          = GetVirtualNicInfo,
-	.SendVirtualNic             = SendVirtualNic,
-	.SetVirtualNicRecvCallback  = SetVirtualNicRecvCallback,
+static struct nicfunc phys_func = {
+	.get_nic_info      = GetPhysicalNicInfo,
+	.send              = SendPhysicalNic,
+	.set_recv_callback = SetPhysicalNicRecvCallback,
+}, virt_func = {
+	.get_nic_info      = GetVirtualNicInfo,
+	.send              = SendVirtualNic,
+	.set_recv_callback = SetVirtualNicRecvCallback,
 };
 
 //
@@ -977,7 +981,7 @@ rtl8169_get_rxdesc_data(RTL8169_CTX *ctx, int *ArrayNum, struct desc *TargetDesc
 				/* TargetDesc->opts1 |= OPT_OWN; */
 				ctx->rxtmpdesc[0]   = TargetDesc;
 				bret = true;
-				ctx->CallbackRecvPhyNic(ctx, 1, ctx->RxBufAddr, ctx->RxBufSize, ctx->CallbackRecvPhyNicParam);
+				ctx->CallbackRecvPhyNic(ctx, 1, ctx->RxBufAddr, ctx->RxBufSize, ctx->CallbackRecvPhyNicParam, NULL);
 				TargetDesc->opts &= OPT_EOR;
 				TargetDesc->opts |= OPT_OWN | 0xFFF;
 			}
@@ -1289,7 +1293,7 @@ rtl8169_get_txdata_to_vpn(RTL8169_CTX *ctx, RTL8169_SUB_CTX *sctx, int Desckind)
 					free (ctx->TxBufAddr[0]);
 				ctx->TxBufAddr[0] = TxBuf;
 				ctx->TxBufSize[0] = BufSize;
-				ctx->CallbackRecvVirtNic(ctx, 1, ctx->TxBufAddr, ctx->TxBufSize, ctx->CallbackRecvVirtNicParam);
+				ctx->CallbackRecvVirtNic(ctx, 1, ctx->TxBufAddr, ctx->TxBufSize, ctx->CallbackRecvVirtNicParam, NULL);
 				ctx->TxBufAddr[0] = NULL;
 			} else {
 				if (optsl & OPT_FS) {
@@ -1322,7 +1326,7 @@ rtl8169_get_txdata_to_vpn(RTL8169_CTX *ctx, RTL8169_SUB_CTX *sctx, int Desckind)
 					if (optsl & OPT_IPCS)
 						ipcs (ctx->TxBufAddr[0],
 						      ctx->TxBufSize[0]);
-					ctx->CallbackRecvVirtNic(ctx, 1, ctx->TxBufAddr, ctx->TxBufSize, ctx->CallbackRecvVirtNicParam);
+					ctx->CallbackRecvVirtNic(ctx, 1, ctx->TxBufAddr, ctx->TxBufSize, ctx->CallbackRecvVirtNicParam, NULL);
 					free (ctx->TxBufAddr[0]);
 					ctx->TxBufAddr[0] = NULL;
 				}
@@ -1397,8 +1401,10 @@ rtl8169_init_vpn_client(RTL8169_CTX *ctx, RTL8169_SUB_CTX *sctx)
 			}
 			else
 			{
-			 	ctx->vpn_handle = vpn_new_nic((SE_HANDLE)ctx, (SE_HANDLE)ctx, &func);
-				if(ctx->vpn_handle == NULL)
+				net_init (ctx->net_handle, ctx, &phys_func,
+					  ctx, &virt_func);
+				net_start (ctx->net_handle);
+				if (ctx->net_handle == NULL)
 				{	
 					bret = false;
 #ifdef _DEBUG
@@ -1692,6 +1698,7 @@ rtl8169_new_sub (struct pci_device *dev)
 		if (dev->driver_options[0] &&
 		    pci_driver_option_get_bool (dev->driver_options[0], NULL))
 			ctx->conceal = true;
+		ctx->net_handle = net_new_nic ("vpn");
 		dev->host = sctx;
 		dev->driver->options.use_base_address_mask_emulation = 1;
 #ifdef _DEBUG

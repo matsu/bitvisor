@@ -35,7 +35,8 @@
 #include <core.h>
 #include <core/mmio.h>
 #include <core/time.h>
-#include <core/vpnsys.h>
+#include <net/netapi.h>
+#include <Se/Se.h>
 #include "vpn_pro100.h"
 #include "../../core/beep.h"	/* DEBUG */
 
@@ -65,17 +66,16 @@ static const char driver_name[] = "pro100";
 static const char driver_longname[] = "VPN for Intel PRO/100";
 
 static void
-GetPhysicalNicInfo (SE_HANDLE nic_handle, SE_NICINFO *info)
+GetPhysicalNicInfo (void *handle, struct nicinfo *info)
 {
-	info->MediaType = SE_MEDIA_TYPE_ETHERNET;
-	info->Mtu = 1500;
-	info->MediaSpeed = 1000000000;
-	SeCopy(info->MacAddress, pro100_get_ctx()->mac_address, 6);
+	info->mtu = 1500;
+	info->media_speed = 1000000000;
+	SeCopy (info->mac_address, pro100_get_ctx()->mac_address, 6);
 }
 
 static void
-SendPhysicalNic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
-		 UINT *packet_sizes)
+SendPhysicalNic (void *handle, unsigned int num_packets, void **packets,
+		 unsigned int *packet_sizes, bool print_ok)
 {
 	if (true)
 	{
@@ -85,18 +85,18 @@ SendPhysicalNic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
 			void *data = packets[i];
 			UINT size = packet_sizes[i];
 
-			pro100_send_packet_to_line((PRO100_CTX *)nic_handle, data, size);
+			pro100_send_packet_to_line (handle, data, size);
 		}
 	}
 }
 
 static void
-SetPhysicalNicRecvCallback (SE_HANDLE nic_handle,
-			    SE_SYS_CALLBACK_RECV_NIC *callback, void *param)
+SetPhysicalNicRecvCallback (void *handle, net_recv_callback_t *callback,
+			    void *param)
 {
 	if (true)
 	{
-		PRO100_CTX *ctx = (PRO100_CTX *)nic_handle;
+		PRO100_CTX *ctx = handle;
 
 		ctx->CallbackRecvPhyNic = callback;
 		ctx->CallbackRecvPhyNicParam = param;
@@ -104,17 +104,16 @@ SetPhysicalNicRecvCallback (SE_HANDLE nic_handle,
 }
 
 static void
-GetVirtualNicInfo (SE_HANDLE nic_handle, SE_NICINFO *info)
+GetVirtualNicInfo (void *handle, struct nicinfo *info)
 {
-	info->MediaType = SE_MEDIA_TYPE_ETHERNET;
-	info->Mtu = 1500;
-	info->MediaSpeed = 1000000000;
-	SeCopy(info->MacAddress, pro100_get_ctx()->mac_address, 6);
+	info->mtu = 1500;
+	info->media_speed = 1000000000;
+	SeCopy(info->mac_address, pro100_get_ctx()->mac_address, 6);
 }
 
 static void
-SendVirtualNic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
-		UINT *packet_sizes)
+SendVirtualNic (void *handle, unsigned int num_packets, void **packets,
+		unsigned int *packet_sizes, bool print_ok)
 {
 	if (true)
 	{
@@ -124,31 +123,32 @@ SendVirtualNic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
 			void *data = packets[i];
 			UINT size = packet_sizes[i];
 
-			pro100_write_recv_packet((PRO100_CTX *)nic_handle, data, size);
+			pro100_write_recv_packet (handle, data, size);
 		}
 	}
 }
 
 static void
-SetVirtualNicRecvCallback (SE_HANDLE nic_handle,
-			   SE_SYS_CALLBACK_RECV_NIC *callback, void *param)
+SetVirtualNicRecvCallback (void *handle, net_recv_callback_t *callback,
+			   void *param)
 {
 	if (true)
 	{
-		PRO100_CTX *ctx = (PRO100_CTX *)nic_handle;
+		PRO100_CTX *ctx = handle;
 
 		ctx->CallbackRecvVirtNic = callback;
 		ctx->CallbackRecvVirtNicParam = param;
 	}
 }
 
-static struct nicfunc func = {
-	.GetPhysicalNicInfo = GetPhysicalNicInfo,
-	.SendPhysicalNic = SendPhysicalNic,
-	.SetPhysicalNicRecvCallback = SetPhysicalNicRecvCallback,
-	.GetVirtualNicInfo = GetVirtualNicInfo,
-	.SendVirtualNic = SendVirtualNic,
-	.SetVirtualNicRecvCallback = SetVirtualNicRecvCallback,
+static struct nicfunc phys_func = {
+	.get_nic_info = GetPhysicalNicInfo,
+	.send = SendPhysicalNic,
+	.set_recv_callback = SetPhysicalNicRecvCallback,
+}, virt_func = {
+	.get_nic_info = GetVirtualNicInfo,
+	.send = SendVirtualNic,
+	.set_recv_callback = SetVirtualNicRecvCallback,
 };
 
 PRO100_CTX *pro100_get_ctx()
@@ -212,7 +212,8 @@ void pro100_init_vpn_client(PRO100_CTX *ctx)
 
 	// VPN Client の初期化
 	//ctx->vpn_handle = VPN_IPsec_Client_Start((SE_HANDLE)ctx, (SE_HANDLE)ctx, "config.txt");
-	ctx->vpn_handle = vpn_new_nic ((SE_HANDLE)ctx, (SE_HANDLE)ctx, &func);
+	net_init (ctx->net_handle, ctx, &phys_func, ctx, &virt_func);
+	net_start (ctx->net_handle);
 
 	ctx->vpn_inited = true;
 }
@@ -434,7 +435,7 @@ LABEL_LOOP:
 
 					packet_data[0] = data;
 					packet_size[0] = size;
-					ctx->CallbackRecvPhyNic(ctx, 1, packet_data, packet_size, ctx->CallbackRecvPhyNicParam);
+					ctx->CallbackRecvPhyNic(ctx, 1, packet_data, packet_size, ctx->CallbackRecvPhyNicParam, NULL);
 				}
 #endif	// PRO100_PASS_MODE
 			}
@@ -861,7 +862,7 @@ void pro100_proc_guest_op(PRO100_CTX *ctx)
 
 					packet_data[0] = buf;
 					packet_sizes[0] = packet_size;
-					ctx->CallbackRecvVirtNic(ctx, 1, packet_data, packet_sizes, ctx->CallbackRecvVirtNicParam);
+					ctx->CallbackRecvVirtNic(ctx, 1, packet_data, packet_sizes, ctx->CallbackRecvVirtNicParam, NULL);
 				}
 #endif	// PRO100_PASS_MODE
 			}
@@ -1800,6 +1801,7 @@ void pro100_new(struct pci_device *dev)
 #endif // of VTD_TRANS
 
 	ctx->dev = dev;
+	ctx->net_handle = net_new_nic ("vpn");
 	spinlock_init (&ctx->lock);
 	dev->host = ctx;
 	dev->driver->options.use_base_address_mask_emulation = 1;

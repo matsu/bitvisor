@@ -175,11 +175,11 @@ typedef struct RTL8169_CTX{
 	struct				pci_device *dev;
 	spinlock_t			lock;
 	bool				vpn_inited;
-	SE_HANDLE			vpn_handle;
+	struct netdata			*net_handle;
 	u8				macaddr[6];
-	SE_SYS_CALLBACK_RECV_NIC	*CallbackRecvPhyNic;
+	net_recv_callback_t		*CallbackRecvPhyNic;
 	void				*CallbackRecvPhyNicParam;
-	SE_SYS_CALLBACK_RECV_NIC	*CallbackRecvVirtNic;
+	net_recv_callback_t		*CallbackRecvVirtNic;
 	void                 	*CallbackRecvVirtNicParam;
 	void				*TxBufAddr[RTL8169_ARRY_MAX_NUM];	// 送信バッファ（ディスクリプタで指定されているもの）
 	void				*RxBufAddr[RTL8169_ARRY_MAX_NUM];	// 受信バッファ（ディスクリプタで指定されているもの）
@@ -237,12 +237,16 @@ static bool rtl8169_get_txdata_to_vpn(struct RTL8169_CTX *ctx, struct RTL8169_SU
 static bool rtl8169_hook_read(RTL8169_SUB_CTX *sctx, phys_t offset, UINT *data, UINT len);
 static void rtl8169_get_rxdata_to_vpn(struct RTL8169_CTX *ctx, struct RTL8169_SUB_CTX *sctx);
 static void rtl8169_get_rxdesc_data(struct RTL8169_CTX *ctx, int *ArrayNum, struct desc *TargetDesc, UINT BufSize, void *);
-static void GetPhysicalNicInfo(SE_HANDLE nic_handle, SE_NICINFO *info);
-static void SendPhysicalNic(SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes);
-static void SetPhysicalNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param);
-static void GetVirtualNicInfo (SE_HANDLE nic_handle, SE_NICINFO *info);
-static void SendVirtualNic (SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes);
-static void SetVirtualNicRecvCallback (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param);
+static void GetPhysicalNicInfo (void *handle, struct nicinfo *info);
+static void SendPhysicalNic(SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes, bool print_ok);
+static void SetPhysicalNicRecvCallback (void *handle,
+					net_recv_callback_t *callback,
+					void *param);
+static void GetVirtualNicInfo (void *handle, struct nicinfo *info);
+static void SendVirtualNic (SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes, bool print_ok);
+static void SetVirtualNicRecvCallback (void *handle,
+				       net_recv_callback_t *callback,
+				       void *param);
 static void rtl8169_send_virt_nic(SE_HANDLE nic_handle, phys_t rxdescphys, void *data, UINT size);
 
 static int  rtl8169_offset_check (struct pci_device *dev, u8 iosize,

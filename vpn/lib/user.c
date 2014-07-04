@@ -30,7 +30,6 @@
 #include <core.h>
 #include <core/config.h>
 #include <core/process.h>
-#include <core/vpnsys.h>
 #include "crypt.h"
 #include "vpn_msg.h"
 

@@ -152,10 +152,10 @@ typedef struct
 	phys_t guest_rfd_current;			// 現在注目している受信バッファ
 	bool guest_ru_suspended;			// ゲスト OS によって RU がサスペンドされたかどうか
 	bool vpn_inited;					// VPN Client が初期化されているかどうか
-	SE_HANDLE vpn_handle;				// VPN Client のハンドル
-	SE_SYS_CALLBACK_RECV_NIC *CallbackRecvPhyNic;	// 物理 NIC からパケットを受信した際のコールバック
+	struct netdata *net_handle;			// VPN Client のハンドル
+	net_recv_callback_t *CallbackRecvPhyNic;	// 物理 NIC からパケットを受信した際のコールバック
 	void *CallbackRecvPhyNicParam;			// 物理 NIC からパケットを受信した際のコールバックのパラメータ
-	SE_SYS_CALLBACK_RECV_NIC *CallbackRecvVirtNic;	// ゲスト OS がパケットを送信しようとした際のコールバック
+	net_recv_callback_t *CallbackRecvVirtNic;	// ゲスト OS がパケットを送信しようとした際のコールバック
 	void *CallbackRecvVirtNicParam;			// ゲスト OS がパケットを送信しようとした際のコールバックのパラメータ
 } PRO100_CTX;
 

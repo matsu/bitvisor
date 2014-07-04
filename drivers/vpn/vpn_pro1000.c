@@ -32,14 +32,16 @@
 #include <core/list.h>
 #include <core/mmio.h>
 #include <core/tty.h>
+#include <net/netapi.h>
 #include "pci.h"
+
+typedef unsigned int UINT;
 
 static const char driver_name[] = "pro1000";
 static const char driver_longname[] = "Intel PRO/1000 driver";
 
 #ifdef VPN
 #ifdef VPN_PRO1000
-#include <core/vpnsys.h>
 
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
@@ -207,9 +209,9 @@ struct data2 {
 	u16 tse_iplen, tse_ipchecksum, tse_tcpchecksum;
 	struct desc_shadow tdesc[2], rdesc[2];
 	struct data *d1;
-	SE_HANDLE vpnhandle;
+	struct netdata *nethandle;
 	bool initialized;
-	SE_SYS_CALLBACK_RECV_NIC *recvphys_func, *recvvirt_func;
+	net_recv_callback_t *recvphys_func, *recvvirt_func;
 	void *recvphys_param, *recvvirt_param;
 	u32 rctl, rfctl, tctl;
 	u8 macaddr[6];
@@ -261,14 +263,13 @@ get_macaddr (struct data2 *d2, void *buf)
 }
 
 static void
-getinfo_physnic (SE_HANDLE nic_handle, SE_NICINFO *info)
+getinfo_physnic (void *handle, struct nicinfo *info)
 {
-	struct data2 *d2 = nic_handle;
+	struct data2 *d2 = handle;
 
-	info->MediaType = SE_MEDIA_TYPE_ETHERNET;
-	info->Mtu = 1500;
-	info->MediaSpeed = 1000000000;
-	memcpy (info->MacAddress, d2->macaddr, sizeof d2->macaddr);
+	info->mtu = 1500;
+	info->media_speed = 1000000000;
+	memcpy (info->mac_address, d2->macaddr, sizeof d2->macaddr);
 }
 
 static void
@@ -364,32 +365,30 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 }
 
 static void
-send_physnic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
-	      UINT *packet_sizes)
+send_physnic (void *handle, unsigned int num_packets, void **packets,
+	      unsigned int *packet_sizes, bool print_ok)
 {
-	send_physnic_sub (nic_handle, num_packets, packets, packet_sizes,
-			  true);
+	send_physnic_sub (handle, num_packets, packets, packet_sizes,
+			  print_ok);
 }
 
 static void
-setrecv_physnic (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback,
-		 void *param)
+setrecv_physnic (void *handle, net_recv_callback_t *callback, void *param)
 {
-	struct data2 *d2 = nic_handle;
+	struct data2 *d2 = handle;
 
 	d2->recvphys_func = callback;
 	d2->recvphys_param = param;
 }
 
 static void
-getinfo_virtnic (SE_HANDLE nic_handle, SE_NICINFO *info)
+getinfo_virtnic (void *handle, struct nicinfo *info)
 {
-	struct data2 *d2 = nic_handle;
+	struct data2 *d2 = handle;
 
-	info->MediaType = SE_MEDIA_TYPE_ETHERNET;
-	info->Mtu = 1500;
-	info->MediaSpeed = 1000000000;
-	memcpy (info->MacAddress, d2->macaddr, sizeof d2->macaddr);
+	info->mtu = 1500;
+	info->media_speed = 1000000000;
+	memcpy (info->mac_address, d2->macaddr, sizeof d2->macaddr);
 }
 
 static void
@@ -522,10 +521,10 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 }
 
 static void
-send_virtnic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
-	      UINT *packet_sizes)
+send_virtnic (void *handle, unsigned int num_packets, void **packets,
+	      unsigned int *packet_sizes, bool print_ok)
 {
-	struct data2 *d2 = nic_handle;
+	struct data2 *d2 = handle;
 	struct desc_shadow *s;
 	uint i;
 
@@ -535,22 +534,22 @@ send_virtnic (SE_HANDLE nic_handle, UINT num_packets, void **packets,
 }
 
 static void
-setrecv_virtnic (SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback,
-		 void *param)
+setrecv_virtnic (void *handle, net_recv_callback_t *callback, void *param)
 {
-	struct data2 *d2 = nic_handle;
+	struct data2 *d2 = handle;
 
 	d2->recvvirt_func = callback;
 	d2->recvvirt_param = param;
 }
 
-static struct nicfunc func = {
-	.GetPhysicalNicInfo = getinfo_physnic,
-	.SendPhysicalNic = send_physnic,
-	.SetPhysicalNicRecvCallback = setrecv_physnic,
-	.GetVirtualNicInfo = getinfo_virtnic,
-	.SendVirtualNic = send_virtnic,
-	.SetVirtualNicRecvCallback = setrecv_virtnic,
+static struct nicfunc phys_func = {
+	.get_nic_info = getinfo_physnic,
+	.send = send_physnic,
+	.set_recv_callback = setrecv_physnic,
+}, virt_func = {
+	.get_nic_info = getinfo_virtnic,
+	.send = send_virtnic,
+	.set_recv_callback = setrecv_virtnic,
 };
 
 static bool
@@ -606,7 +605,9 @@ init_desc_receive (struct desc_shadow *s, struct data2 *d2, uint off2)
 			alloc_page (&tmp1, &tmp2);
 			memset (tmp1, 0, PAGESIZE);
 			s->u.r.rbuf[i] = tmp1;
-			s->u.r.rbuf_premap[i] = vpn_premap_recvbuf (tmp1,
+			s->u.r.rbuf_premap[i] = net_premap_recvbuf (d2->
+								    nethandle,
+								    tmp1,
 								    PAGESIZE);
 			s->u.r.rd[i].addr = tmp2;
 		}
@@ -627,8 +628,9 @@ init_desc (struct desc_shadow *s, struct data2 *d2, uint off2, bool transmit)
 	}
 	s->initialized = true;
 	if (transmit && !d2->initialized) {
-		d2->vpnhandle = vpn_new_nic (d2, d2, &func);
+		net_init (d2->nethandle, d2, &phys_func, d2, &virt_func);
 		d2->initialized = true;
+		net_start (d2->nethandle);
 	}
 }
 
@@ -857,11 +859,10 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 							  (dextsize -
 							   d2->dext0_tucss) :
 							  0);
-					vpn_premap_VirtualNicRecv
-						(d2->recvvirt_func, d2, 1,
-						 packet_data, packet_sizes,
-						 d2->recvvirt_param,
-						 packet_premap);
+					d2->recvvirt_func (d2, 1, packet_data,
+							   packet_sizes,
+							   d2->recvvirt_param,
+							   packet_premap);
 					if (td1->dcmd_tse && !dextlast) {
 						memcpy (d2->buf +
 							d2->dext0_hdrlen,
@@ -919,11 +920,10 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 				packet_data[0] = d2->buf;
 				packet_sizes[0] = d2->len;
 				packet_premap[0] = d2->buf_premap;
-				vpn_premap_VirtualNicRecv (d2->recvvirt_func,
-							   d2, 1, packet_data,
-							   packet_sizes,
-							   d2->recvvirt_param,
-							   packet_premap);
+				d2->recvvirt_func (d2, 1, packet_data,
+						   packet_sizes,
+						   d2->recvvirt_param,
+						   packet_premap);
 			}
 
 			if (td->cmd_rs)
@@ -987,11 +987,9 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 			nt = 0;
 		if (h == nt || i == num) {
 			if (d2->recvphys_func)
-				vpn_premap_PhysicalNicRecv (d2->recvphys_func,
-							    d2, i, pkt,
-							    pktsize,
-							    d2->recvphys_param,
-							    pkt_premap);
+				d2->recvphys_func (d2, i, pkt, pktsize,
+						   d2->recvphys_param,
+						   pkt_premap);
 			if (h == nt)
 				break;
 			i = 0;
@@ -1385,10 +1383,11 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_conceal,
 	d2 = alloc (sizeof *d2);
 	memset (d2, 0, sizeof *d2);
 	d2->conceal = option_conceal;
+	d2->nethandle = net_new_nic ("vpn");
 	alloc_pages (&tmp, NULL, (BUFSIZE + PAGESIZE - 1) / PAGESIZE);
 	memset (tmp, 0, (BUFSIZE + PAGESIZE - 1) / PAGESIZE * PAGESIZE);
 	d2->buf = tmp;
-	d2->buf_premap = vpn_premap_recvbuf (tmp, BUFSIZE);
+	d2->buf_premap = net_premap_recvbuf (d2->nethandle, tmp, BUFSIZE);
 	spinlock_init (&d2->lock);
 	d = alloc (sizeof *d * 6);
 	for (i = 0; i < 6; i++) {

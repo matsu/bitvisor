@@ -43,7 +43,7 @@
 #include "time.h"
 #include "vmmcall.h"
 #include "vpn_ve.h"
-#include "vpnsys.h"
+#include <net/netapi.h>
 
 struct pqueue_list {
 	LIST1_DEFINE (struct pqueue_list);
@@ -139,7 +139,7 @@ struct VPN_NIC
 {
 	VPN_CTX *VpnCtx;					// コンテキスト
 	SE_NICINFO NicInfo;					// NIC 情報
-	SE_SYS_CALLBACK_RECV_NIC *RecvCallback;	// パケット受信時のコールバック
+	net_recv_callback_t *RecvCallback;	// パケット受信時のコールバック
 	void *RecvCallbackParam;			// コールバックパラメータ
 	SE_QUEUE *SendPacketQueue;			// 送信パケットキュー
 	SE_QUEUE *RecvPacketQueue;			// 受信パケットキュー
@@ -161,10 +161,10 @@ struct VPN_CTX
 void crypt_sys_log(char *type, char *message);
 void crypt_sys_get_physical_nic_info(SE_HANDLE nic_handle, SE_NICINFO *info);
 void crypt_sys_send_physical_nic(SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes);
-void crypt_sys_set_physical_nic_recv_callback(SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param);
+void crypt_sys_set_physical_nic_recv_callback(SE_HANDLE nic_handle, net_recv_callback_t *callback, void *param);
 void crypt_sys_get_virtual_nic_info(SE_HANDLE nic_handle, SE_NICINFO *info);
 void crypt_sys_send_virtual_nic(SE_HANDLE nic_handle, UINT num_packets, void **packets, UINT *packet_sizes);
-void crypt_sys_set_virtual_nic_recv_callback(SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param);
+void crypt_sys_set_virtual_nic_recv_callback(SE_HANDLE nic_handle, net_recv_callback_t *callback, void *param);
 void crypt_nic_recv_packet(VPN_NIC *n, UINT num_packets, void **packets, UINT *packet_sizes);
 VPN_NIC *crypt_init_physical_nic(VPN_CTX *ctx);
 VPN_NIC *crypt_init_virtual_nic(VPN_CTX *ctx);
@@ -458,13 +458,70 @@ VPN_NIC *crypt_init_virtual_nic(VPN_CTX *ctx)
 	return n;
 }
 
-static struct nicfunc vefunc = {
-	.GetPhysicalNicInfo = crypt_sys_get_physical_nic_info,
-	.SendPhysicalNic = crypt_sys_send_physical_nic,
-	.SetPhysicalNicRecvCallback = crypt_sys_set_physical_nic_recv_callback,
-	.GetVirtualNicInfo = crypt_sys_get_virtual_nic_info,
-	.SendVirtualNic = crypt_sys_send_virtual_nic,
-	.SetVirtualNicRecvCallback = crypt_sys_set_virtual_nic_recv_callback,
+static void
+ve_phys_get_nic_info (void *handle, struct nicinfo *info)
+{
+	SE_NICINFO nic;
+	int i;
+
+	crypt_sys_get_physical_nic_info (handle, &nic);
+	for (i = 0; i < 6; i++)
+		info->mac_address[i] = nic.MacAddress[i];
+	info->mtu = nic.Mtu;
+	info->media_speed = nic.MediaSpeed;
+}
+
+static void
+ve_phys_send (void *handle, unsigned int num_packets, void **packets,
+	      unsigned int *packet_sizes, bool print_ok)
+{
+	crypt_sys_send_physical_nic (handle, num_packets, packets,
+				     packet_sizes);
+}
+
+static void
+ve_phys_set_recv_callback (void *handle, net_recv_callback_t *callback,
+			   void *param)
+{
+	crypt_sys_set_physical_nic_recv_callback (handle, callback, param);
+}
+
+static void
+ve_virt_get_nic_info (void *handle, struct nicinfo *info)
+{
+	SE_NICINFO nic;
+	int i;
+
+	crypt_sys_get_virtual_nic_info (handle, &nic);
+	for (i = 0; i < 6; i++)
+		info->mac_address[i] = nic.MacAddress[i];
+	info->mtu = nic.Mtu;
+	info->media_speed = nic.MediaSpeed;
+}
+
+static void
+ve_virt_send (void *handle, unsigned int num_packets, void **packets,
+	      unsigned int *packet_sizes, bool print_ok)
+{
+	crypt_sys_send_virtual_nic (handle, num_packets, packets,
+				    packet_sizes);
+}
+
+static void
+ve_virt_set_recv_callback (void *handle, net_recv_callback_t *callback,
+			   void *param)
+{
+	crypt_sys_set_virtual_nic_recv_callback (handle, callback, param);
+}
+
+static struct nicfunc vefunc_p = {
+	.get_nic_info = ve_phys_get_nic_info,
+	.send = ve_phys_send,
+	.set_recv_callback = ve_phys_set_recv_callback,
+}, vefunc_v = {
+	.get_nic_info = ve_virt_get_nic_info,
+	.send = ve_virt_send,
+	.set_recv_callback = ve_virt_set_recv_callback,
 };
 
 // VPN クライアントの初期化
@@ -486,9 +543,10 @@ void crypt_init_vpn()
 
 	// VPN Client の作成
 	//vpn_ctx->VpnClientHandle = VPN_IPsec_Client_Start(vpn_ctx->PhysicalNicHandle, vpn_ctx->VirtualNicHandle, "config.txt");
-	vpn_ctx->VpnClientHandle = vpn_new_nic (vpn_ctx->PhysicalNicHandle,
-						vpn_ctx->VirtualNicHandle,
-						&vefunc);
+	vpn_ctx->VpnClientHandle = net_new_nic ("vpn");
+	net_init (vpn_ctx->VpnClientHandle, vpn_ctx->PhysicalNicHandle,
+		  &vefunc_p, vpn_ctx->VirtualNicHandle, &vefunc_v);
+	net_start (vpn_ctx->VpnClientHandle);
 }
 
 // 提供システムコール: ログの出力 (画面に表示)
@@ -647,7 +705,7 @@ void crypt_sys_send_physical_nic(SE_HANDLE nic_handle, UINT num_packets, void **
 }
 
 // 提供システムコール: 物理 NIC からパケットを受信した際のコールバックを設定
-void crypt_sys_set_physical_nic_recv_callback(SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param)
+void crypt_sys_set_physical_nic_recv_callback(SE_HANDLE nic_handle, net_recv_callback_t *callback, void *param)
 {
 	VPN_NIC	*n = (VPN_NIC *)nic_handle;
 	// 引数チェック
@@ -701,7 +759,7 @@ void crypt_sys_send_virtual_nic(SE_HANDLE nic_handle, UINT num_packets, void **p
 }
 
 // 提供システムコール: 仮想 NIC からパケットを受信した際のコールバックを設定
-void crypt_sys_set_virtual_nic_recv_callback(SE_HANDLE nic_handle, SE_SYS_CALLBACK_RECV_NIC *callback, void *param)
+void crypt_sys_set_virtual_nic_recv_callback(SE_HANDLE nic_handle, net_recv_callback_t *callback, void *param)
 {
 	VPN_NIC	*n = (VPN_NIC *)nic_handle;
 	// 引数チェック
@@ -723,7 +781,7 @@ void crypt_nic_recv_packet(VPN_NIC *n, UINT num_packets, void **packets, UINT *p
 		return;
 	}
 
-	n->RecvCallback((SE_HANDLE)n, num_packets, packets, packet_sizes, n->RecvCallbackParam);
+	n->RecvCallback((SE_HANDLE)n, num_packets, packets, packet_sizes, n->RecvCallbackParam, NULL);
 }
 
 static void

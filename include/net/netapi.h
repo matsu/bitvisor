@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2014 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,9 +28,45 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_VPNSYS_H
-#define _CORE_VPNSYS_H
+#ifndef __NET_NETAPI_H
+#define __NET_NETAPI_H
 
-#include <core/vpnsys.h>
+typedef void net_recv_callback_t (void *handle, unsigned int num_packets,
+				  void **packets, unsigned int *packet_sizes,
+				  void *param, long *premap);
+
+struct nicinfo {
+	unsigned char mac_address[6];
+	unsigned int mtu;
+	unsigned long long int media_speed;
+};
+
+struct nicfunc {
+	void (*get_nic_info) (void *handle, struct nicinfo *info);
+	void (*send) (void *handle, unsigned int num_packets, void **packets,
+		      unsigned int *packet_sizes, bool print_ok);
+	void (*set_recv_callback) (void *handle, net_recv_callback_t *callback,
+				   void *param);
+};
+
+struct netfunc {
+	void *(*new_nic) (char *arg, void *param);
+	bool (*init) (void *handle, void *phys_handle,
+		      struct nicfunc *phys_func, void *virt_handle,
+		      struct nicfunc *virt_func);
+	void (*start) (void *handle);
+	long (*premap_recvbuf) (void *handle, void *buf,
+				unsigned int len); /* optional */
+};
+
+struct netdata;
+
+struct netdata *net_new_nic (char *arg_net);
+bool net_init (struct netdata *handle, void *phys_handle,
+	       struct nicfunc *phys_func, void *virt_handle,
+	       struct nicfunc *virt_func);
+void net_start (struct netdata *handle);
+long net_premap_recvbuf (struct netdata *handle, void *buf, unsigned int len);
+void net_register (char *netname, struct netfunc *func, void *param);
 
 #endif
