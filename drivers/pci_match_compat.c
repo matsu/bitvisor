@@ -115,11 +115,11 @@ pci_match_compat_init_pro1000 (void)
 	buf[0] = '\0';
 	if (config.vmm.driver.concealPRO1000)
 		snprintf (buf, sizeof buf, "%s",
-#ifdef VPN_PRO1000
+#ifdef NET_PRO1000
 			  config.vmm.tty_pro1000 ? "driver=pro1000,tty=1" :
 #endif
 			  "device=pro1000,driver=conceal");
-#ifdef VPN_PRO1000
+#ifdef NET_PRO1000
 	else if (config.vmm.driver.vpn.PRO1000)
 		snprintf (buf, sizeof buf, "driver=pro1000,net=vpn%s",
 			  config.vmm.tty_pro1000 ? ",tty=1" : "");
@@ -133,7 +133,7 @@ pci_match_compat_init_pro1000 (void)
 static void
 pci_match_compat_init_rtl8169 (void)
 {
-#ifdef VPN_RTL8169
+#ifdef NET_RTL8169
 	static char buf[256];
 
 	if (config.vmm.driver.vpn.RTL8169 || config.vmm.tty_rtl8169) {
