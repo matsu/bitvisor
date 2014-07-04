@@ -1224,7 +1224,7 @@ pro1000_tty_send (void *handle, void *packet, unsigned int packet_size)
 	if (!d2->tdesc[0].initialized)
 		return;
 	pkt = packet;
-	memcpy (pkt + 0, config.vmm.tty_pro1000_mac_address, 6);
+	memcpy (pkt + 0, config.vmm.tty_mac_address, 6);
 	memcpy (pkt + 6, d2->macaddr, 6);
 	send_physnic_sub (d2, 1, &packet, &packet_size, false);
 }

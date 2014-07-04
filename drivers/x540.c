@@ -832,7 +832,7 @@ x540_tty_send (void *handle, void *packet, unsigned int packet_size)
 	void *frames[1];
 	int frame_sizes[1];
 
-	memcpy (packet, config.vmm.tty_x540_mac_address, 6);
+	memcpy (packet, config.vmm.tty_mac_address, 6);
 	memcpy (packet + 6, x540->macaddr, 6);
 	frames[0] = packet;
 	frame_sizes[0] = packet_size;

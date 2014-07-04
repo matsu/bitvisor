@@ -1723,7 +1723,7 @@ rtl8169_tty_send (void *handle, void *packet, unsigned int packet_size)
 	if (!sendenabled (ctx))
 		return;
 	pkt = packet;
-	memcpy (pkt + 0, config.vmm.tty_rtl8169_mac_address, 6);
+	memcpy (pkt + 0, config.vmm.tty_mac_address, 6);
 	memcpy (pkt + 6, ctx->macaddr, 6);
 	SendPhysicalNic ((SE_HANDLE)ctx, 1, &packet, &packet_size);
 }

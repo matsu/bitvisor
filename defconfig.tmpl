@@ -129,18 +129,12 @@ struct config_data config = {
 		.dbgsh = 1,
 		.no_intr_intercept = 0,
 		.ignore_tsc_invariant = 0,
+		.tty_mac_address = {
+			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+		},
 		.tty_pro1000 = 0,
-		.tty_pro1000_mac_address = {
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
-		},
 		.tty_rtl8169 = 0,
-		.tty_rtl8169_mac_address = {
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
-		},
 		.tty_x540 = 0,
-		.tty_x540_mac_address = {
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
-		},
 		.tty_ieee1394 = 0,
 		.driver = {
 			.pci = "",
