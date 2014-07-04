@@ -36,7 +36,6 @@
 #include "pci.h"
 #include "../../crypto/chelp.h"
 #include <core/mmio.h>
-#include <core/tty.h>
 #include <net/netapi.h>
 #include <Se/Se.h>
 #include <core.h>
@@ -54,7 +53,7 @@ static const char driver_longname[] = "VPN for RealTek RTL8169";
 static struct pci_driver vpn_rtl8169_driver = {
 	.name         = driver_name,
 	.longname     = driver_longname,
-	.driver_options = "conceal,tty,net",
+	.driver_options = "tty,net",
 	.device       = "id=10ec:8168|10ec:8169",
 	.new          = rtl8169_new,
 	.config_read  = rtl8169_config_read,
@@ -64,20 +63,16 @@ static struct pci_driver vpn_rtl8169_driver = {
 static bool
 sendenabled (RTL8169_CTX *ctx)
 {
-#ifdef TTY_RTL8169
 	if (ctx->conceal)	/* tty only */
 		return !!(ctx->enableflag & 1);
-#endif	/* TTY_RTL8169 */
 	return ctx->enableflag == 3;
 }
 
 static bool
 recvenabled (RTL8169_CTX *ctx)
 {
-#ifdef TTY_RTL8169
 	if (ctx->conceal)	/* tty only */
 		return !!(ctx->enableflag & 2);
-#endif	/* TTY_RTL8169 */
 	return ctx->enableflag == 3;
 }
 
@@ -1624,11 +1619,63 @@ rtl8169_config_write_sub (struct pci_device *dev, u8 iosize,
 	return ret;	
 }
 
+/* reset RTL8169 controller */
+static void
+rtl8169_reset (RTL8169_SUB_CTX *sctx, RTL8169_CTX *ctx)
+{
+	int i;
+
+#define printd(X...) do { if (0) printf (X); } while (0)
+	printf ("Resetting RTL8169 controller...");
+	rtl8169_write (sctx, RTL8169_REG_CR, 0x10, 1);
+	do {
+		printf (".");
+	} while (rtl8169_read (sctx, RTL8169_REG_CR, 1) & 0x10);
+	printf ("done.\n");
+
+	printd ("Get MAC addr.\n");
+	if (!rtl8169_get_macaddr (sctx, ctx->macaddr))
+		panic ("failed to get mac addr");
+	printf ("MacAddr: %02x", ctx->macaddr[0]);
+	for (i = 1; i < 6; i++)
+		printf (":%02x", ctx->macaddr[i]);
+	printf ("\n");
+
+	printd ("Disable interrupt.\n");
+	rtl8169_write (sctx, RTL8169_REG_ISR,
+		       0xffff, 2); /* clear pending interrupts */
+	rtl8169_write (sctx, RTL8169_REG_IMR,
+		       0, 2);	/* disable all interrupts */
+
+	printd ("Enable transmit.\n");
+	/* set descriptors */
+	rtl8169_write (sctx, RTL8169_REG_TNPDS, ctx->TNPDSphys,
+		       4); /* normal */
+	rtl8169_write (sctx, RTL8169_REG_CR, 1 << 2, 1); /* transmit enabled */
+	ctx->sendindex = 0;
+	ctx->enableflag |= 1;
+#undef printd
+}
+
+static void
+rtl8169_seize_init (struct pci_device *dev)
+{
+	RTL8169_SUB_CTX *sctx;
+
+	/* get sub context */
+	sctx = (RTL8169_SUB_CTX *) dev->host;
+	sctx = sctx->ctx->sctx_mmio;	/* get sctx with mmio */
+	if (!sctx)
+		panic ("mmio not found");
+
+	rtl8169_reset (sctx, sctx->ctx);
+}
+
 //
 // 新しいデバイスの検出
 //
 static void
-rtl8169_new_sub (struct pci_device *dev)
+rtl8169_new (struct pci_device *dev)
 {
 	RTL8169_CTX		*ctx;
 	RTL8169_SUB_CTX	*sctx;
@@ -1636,6 +1683,7 @@ rtl8169_new_sub (struct pci_device *dev)
 	struct desc *rdsar;
 	struct desc *tdesc;
 	struct pci_bar_info bar_info;
+	bool option_tty;
 
 #ifdef _DEBUG
 	time = get_cpu_time(); 
@@ -1695,10 +1743,13 @@ rtl8169_new_sub (struct pci_device *dev)
 		}
 		ctx->sctx = sctx;
 		ctx->conceal = false;
+		option_tty = false;
 		if (dev->driver_options[0] &&
-		    pci_driver_option_get_bool (dev->driver_options[0], NULL))
-			ctx->conceal = true;
-		ctx->net_handle = net_new_nic (dev->driver_options[2]);
+		    pci_driver_option_get_bool (dev->driver_options[0],
+						NULL)) /* tty enabled */
+			option_tty = true;
+		ctx->net_handle = net_new_nic (dev->driver_options[1],
+					       option_tty);
 		dev->host = sctx;
 		dev->driver->options.use_base_address_mask_emulation = 1;
 #ifdef _DEBUG
@@ -1706,85 +1757,13 @@ rtl8169_new_sub (struct pci_device *dev)
 		printf("(%llu) ", time);
 		printf("rtl8169_new:end!\n");
 #endif
+		if (net_init (ctx->net_handle, ctx, &phys_func, NULL, NULL)) {
+			rtl8169_seize_init (dev);
+			ctx->conceal = true;
+		}
 		return;
 	}
 }
-
-#ifdef TTY_RTL8169
-#define printd(X...) do { if (0) printf (X); } while (0)
-
-static void
-rtl8169_tty_send (void *handle, void *packet, unsigned int packet_size)
-{
-	char *pkt;
-	RTL8169_CTX *ctx;
-
-	ctx = handle;
-	if (!sendenabled (ctx))
-		return;
-	pkt = packet;
-	memcpy (pkt + 0, config.vmm.tty_mac_address, 6);
-	memcpy (pkt + 6, ctx->macaddr, 6);
-	SendPhysicalNic ((SE_HANDLE)ctx, 1, &packet, &packet_size);
-}
-
-/* reset RTL8169 controller */
-static void
-rtl8169_reset (RTL8169_SUB_CTX *sctx, RTL8169_CTX *ctx)
-{
-	int i;
-
-	printf ("Resetting RTL8169 controller...");
-	rtl8169_write (sctx, RTL8169_REG_CR, 0x10, 1);
-	do {
-		printf (".");
-	} while (rtl8169_read (sctx, RTL8169_REG_CR, 1) & 0x10);
-	printf ("done.\n");
-
-	printd ("Get MAC addr.\n");
-	if (!rtl8169_get_macaddr (sctx, ctx->macaddr))
-		panic ("failed to get mac addr");
-	printf ("MacAddr: %02x", ctx->macaddr[0]);
-	for (i = 1; i < 6; i++)
-		printf (":%02x", ctx->macaddr[i]);
-	printf ("\n");
-
-	printd ("Disable interrupt.\n");
-	rtl8169_write (sctx, RTL8169_REG_ISR,
-		       0xffff, 2); /* clear pending interrupts */
-	rtl8169_write (sctx, RTL8169_REG_IMR,
-		       0, 2);	/* disable all interrupts */
-
-	printd ("Enable transmit.\n");
-	/* set descriptors */
-	rtl8169_write (sctx, RTL8169_REG_TNPDS, ctx->TNPDSphys,
-		       4); /* normal */
-	rtl8169_write (sctx, RTL8169_REG_CR, 1 << 2, 1); /* transmit enabled */
-	ctx->sendindex = 0;
-	ctx->enableflag |= 1;
-
-	printd ("Start tty via RTL8169.\n");
-	tty_udp_register (rtl8169_tty_send, ctx);
-}
-
-static void
-rtl8169_tty_init (struct pci_device *dev)
-{
-	RTL8169_SUB_CTX *sctx;
-
-	/* get sub context */
-	sctx = (RTL8169_SUB_CTX *) dev->host;
-	sctx = sctx->ctx->sctx_mmio;	/* get sctx with mmio */
-	if (!sctx)
-		panic ("mmio not found");
-
-	if (!sctx->ctx->conceal) /* vpn enabled */
-		tty_udp_register (rtl8169_tty_send,
-				  sctx->ctx); /* don't reset */
-	else
-		rtl8169_reset (sctx, sctx->ctx); /* do reset */
-}
-#endif	/* TTY_RTL8169 */
 
 static int
 rtl8169_config_read (struct pci_device *dev, u8 iosize, u16 offset,
@@ -1809,18 +1788,6 @@ rtl8169_config_write (struct pci_device *dev, u8 iosize, u16 offset,
 	if (!sctx->ctx->conceal) /* vpn enabled */
 		return rtl8169_config_write_sub (dev, iosize, offset, data);
 	return CORE_IO_RET_DONE;
-}
-
-static void
-rtl8169_new (struct pci_device *dev)
-{
-	rtl8169_new_sub (dev);
-#ifdef TTY_RTL8169
-	if (dev->driver_options[1] &&
-	    pci_driver_option_get_bool (dev->driver_options[1],
-					NULL)) /* tty enabled */
-		rtl8169_tty_init (dev);
-#endif	/* TTY_RTL8169 */
 }
 
 //

@@ -543,7 +543,7 @@ void crypt_init_vpn()
 
 	// VPN Client の作成
 	//vpn_ctx->VpnClientHandle = VPN_IPsec_Client_Start(vpn_ctx->PhysicalNicHandle, vpn_ctx->VirtualNicHandle, "config.txt");
-	vpn_ctx->VpnClientHandle = net_new_nic ("vpn");
+	vpn_ctx->VpnClientHandle = net_new_nic ("vpn", false);
 	net_init (vpn_ctx->VpnClientHandle, vpn_ctx->PhysicalNicHandle,
 		  &vefunc_p, vpn_ctx->VirtualNicHandle, &vefunc_v);
 	net_start (vpn_ctx->VpnClientHandle);

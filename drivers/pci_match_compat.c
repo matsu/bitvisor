@@ -117,21 +117,17 @@ pci_match_compat_init_pro1000 (void)
 		snprintf (buf, sizeof buf, "driver=pro1000,conceal=1%s",
 #ifdef VPN
 #ifdef VPN_PRO1000
-#ifdef TTY_PRO1000
 			  config.vmm.tty_pro1000 ? ",tty=1" :
-#endif
 #endif
 #endif
 			  "");
 #ifdef VPN
 #ifdef VPN_PRO1000
-#ifdef TTY_PRO1000
 	else if (config.vmm.driver.vpn.PRO1000)
 		snprintf (buf, sizeof buf, "driver=pro1000,net=vpn%s",
 			  config.vmm.tty_pro1000 ? ",tty=1" : "");
 	else if (config.vmm.tty_pro1000)
 		snprintf (buf, sizeof buf, "driver=pro1000,conceal=1,tty=1");
-#endif
 #endif
 #endif
 	if (buf[0] != '\0')
@@ -148,10 +144,8 @@ pci_match_compat_init_rtl8169 (void)
 	if (config.vmm.driver.vpn.RTL8169 || config.vmm.tty_rtl8169) {
 		snprintf (buf, sizeof buf, "driver=rtl8169%s%s",
 			  config.vmm.driver.vpn.RTL8169 ?
-			  ",net=vpn" : ",conceal=1",
-#ifdef TTY_RTL8169
+			  ",net=vpn" : "",
 			  config.vmm.tty_rtl8169 ? ",tty=1" :
-#endif
 			  "");
 		pci_match_add_compat (buf);
 	}

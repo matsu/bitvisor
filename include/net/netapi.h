@@ -61,7 +61,7 @@ struct netfunc {
 
 struct netdata;
 
-struct netdata *net_new_nic (char *arg_net);
+struct netdata *net_new_nic (char *arg_net, bool tty);
 bool net_init (struct netdata *handle, void *phys_handle,
 	       struct nicfunc *phys_func, void *virt_handle,
 	       struct nicfunc *virt_func);

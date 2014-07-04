@@ -28,13 +28,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/mm.h>
 #include <core/panic.h>
+#include <core/string.h>
+#include <core/tty.h>
 #include <net/netapi.h>
 
 struct netdata {
 	struct netfunc *func;
 	void *handle;
+	bool tty;
+	void *tty_phys_handle;
+	struct nicfunc *tty_phys_func;
+	unsigned char mac_address[6];
 };
 
 struct netlist {
@@ -111,7 +118,7 @@ net_register (char *netname, struct netfunc *func, void *param)
 }
 
 struct netdata *
-net_new_nic (char *arg_net)
+net_new_nic (char *arg_net, bool tty)
 {
 	int i;
 	char *arg = NULL;
@@ -149,21 +156,51 @@ net_new_nic (char *arg_net)
 	}
 	handle = alloc (sizeof *handle);
 	handle->func = func;
+	handle->tty = tty;
+	handle->tty_phys_func = NULL;
 	handle->handle = handle->func->new_nic (arg, param);
 	return handle;
+}
+
+static void
+net_tty_send (void *tty_handle, void *packet, unsigned int packet_size)
+{
+	struct netdata *handle = tty_handle;
+	char *pkt;
+
+	pkt = packet;
+	memcpy (pkt + 0, config.vmm.tty_mac_address, 6);
+	memcpy (pkt + 6, handle->mac_address, 6);
+	handle->tty_phys_func->send (handle->tty_phys_handle, 1, &packet,
+				     &packet_size, false);
 }
 
 bool
 net_init (struct netdata *handle, void *phys_handle, struct nicfunc *phys_func,
 	  void *virt_handle, struct nicfunc *virt_func)
 {
-	return handle->func->init (handle->handle, phys_handle, phys_func,
-				   virt_handle, virt_func);
+	if (!handle->func->init (handle->handle, phys_handle, phys_func,
+				 virt_handle, virt_func))
+		return false;
+	if (handle->tty) {
+		handle->tty_phys_handle = phys_handle;
+		handle->tty_phys_func = phys_func;
+	}
+	return true;
 }
 
 void
 net_start (struct netdata *handle)
 {
+	struct nicinfo info;
+
+	if (handle->tty) {
+		handle->tty_phys_func->get_nic_info (handle->tty_phys_handle,
+						     &info);
+		memcpy (handle->mac_address, info.mac_address,
+			sizeof handle->mac_address);
+		tty_udp_register (net_tty_send, handle);
+	}
 	handle->func->start (handle->handle);
 }
 

@@ -1801,7 +1801,7 @@ void pro100_new(struct pci_device *dev)
 #endif // of VTD_TRANS
 
 	ctx->dev = dev;
-	ctx->net_handle = net_new_nic (dev->driver_options[0]);
+	ctx->net_handle = net_new_nic (dev->driver_options[0], false);
 	spinlock_init (&ctx->lock);
 	dev->host = ctx;
 	dev->driver->options.use_base_address_mask_emulation = 1;

@@ -31,7 +31,6 @@
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mmio.h>
-#include <core/tty.h>
 #include <net/netapi.h>
 #include "pci.h"
 
@@ -215,11 +214,9 @@ struct data2 {
 	void *recvphys_param, *recvvirt_param;
 	u32 rctl, rfctl, tctl;
 	u8 macaddr[6];
-#ifdef TTY_PRO1000
 	struct pci_device *pci_device;
 	u32 regs_at_init[PCI_CONFIG_REGS32_NUM];
 	bool seize;
-#endif
 	bool conceal;
 	LIST1_DEFINE (struct data2);
 };
@@ -368,8 +365,11 @@ static void
 send_physnic (void *handle, unsigned int num_packets, void **packets,
 	      unsigned int *packet_sizes, bool print_ok)
 {
-	send_physnic_sub (handle, num_packets, packets, packet_sizes,
-			  print_ok);
+	struct data2 *d2 = handle;
+
+	if (!print_ok && !d2->tdesc[0].initialized)
+		return;
+	send_physnic_sub (d2, num_packets, packets, packet_sizes, print_ok);
 }
 
 static void
@@ -1165,6 +1165,11 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 	struct data *d1 = data;
 	struct data2 *d2 = d1->d;
 
+	if (d2->conceal) {
+		if (!wr)
+			memset (buf, 0, len);
+		return 1;
+	}
 	spinlock_lock (&d2->lock);
 	mmhandler2 (d1, d2, gphys, wr, buf, len, flags);
 	spinlock_unlock (&d2->lock);
@@ -1211,22 +1216,6 @@ reghook (struct data *d, int i, struct pci_bar_info *bar)
 			panic ("mmio_register failed");
 	}
 	d->e = 1;
-}
-
-#ifdef TTY_PRO1000
-static void
-pro1000_tty_send (void *handle, void *packet, unsigned int packet_size)
-{
-	char *pkt;
-	struct data2 *d2;
-
-	d2 = handle;
-	if (!d2->tdesc[0].initialized)
-		return;
-	pkt = packet;
-	memcpy (pkt + 0, config.vmm.tty_mac_address, 6);
-	memcpy (pkt + 6, d2->macaddr, 6);
-	send_physnic_sub (d2, 1, &packet, &packet_size, false);
 }
 
 static void
@@ -1327,16 +1316,6 @@ seize_pro1000 (struct data2 *d2)
 		*tipg = 0x00702008;
 	}
 	d2->tdesc[0].initialized = true;
-}
-
-static void
-tty_pro1000_init (struct data2 *d2, bool seize)
-{
-	d2->seize = false;
-	tty_udp_register (pro1000_tty_send, d2);
-	if (!seize)
-		return;
-	seize_pro1000 (d2);
 	{
 		int i;
 		pci_config_address_t addr = d2->pci_device->address;
@@ -1346,9 +1325,7 @@ tty_pro1000_init (struct data2 *d2, bool seize)
 			d2->regs_at_init[i] = pci_read_config_data32 (addr, 0);
 		}
 	}
-	d2->seize = true;
 }
-#endif /* TTY_PRO1000 */
 
 static void 
 vpn_pro1000_new (struct pci_device *pci_device, bool option_conceal,
@@ -1383,7 +1360,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_conceal,
 	d2 = alloc (sizeof *d2);
 	memset (d2, 0, sizeof *d2);
 	d2->conceal = option_conceal;
-	d2->nethandle = net_new_nic (option_net);
+	d2->nethandle = net_new_nic (option_net, option_tty);
 	alloc_pages (&tmp, NULL, (BUFSIZE + PAGESIZE - 1) / PAGESIZE);
 	memset (tmp, 0, (BUFSIZE + PAGESIZE - 1) / PAGESIZE * PAGESIZE);
 	d2->buf = tmp;
@@ -1401,11 +1378,13 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_conceal,
 	get_macaddr (d2, d2->macaddr);
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
-#ifdef TTY_PRO1000
 	d2->pci_device = pci_device;
-	if (option_tty)
-		tty_pro1000_init (d2, option_conceal);
-#endif /* TTY_PRO1000 */
+	d2->seize = net_init (d2->nethandle, d2, &phys_func, NULL, NULL);
+	if (d2->seize) {
+		seize_pro1000 (d2);
+		d2->conceal = true;
+		net_start (d2->nethandle);
+	}
 	LIST1_PUSH (d2list, d2);
 	return;
 }
@@ -1476,9 +1455,7 @@ pro1000_new (struct pci_device *pci_device)
 		option_conceal = true;
 	if (pci_device->driver_options[1] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[1], NULL)) {
-#ifdef TTY_PRO1000
 		option_tty = true;
-#endif /* TTY_PRO1000 */
 	}
 	option_net = pci_device->driver_options[2];
 	if (!option_conceal || option_tty) {
@@ -1695,10 +1672,8 @@ static void
 resume_pro1000 (void)
 {
 	struct data2 *d2;
-#ifdef TTY_PRO1000
 	int i;
 	pci_config_address_t addr;
-#endif
 
 	/* All descriptors should be reinitialized before
 	 * receiving/transmitting enabled by the guest OS. */
@@ -1707,7 +1682,6 @@ resume_pro1000 (void)
 		d2->tdesc[1].initialized = false;
 		d2->rdesc[0].initialized = false;
 		d2->rdesc[1].initialized = false;
-#ifdef TTY_PRO1000
 		if (d2->seize) {
 			addr = d2->pci_device->address;
 			for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
@@ -1717,7 +1691,6 @@ resume_pro1000 (void)
 			}
 			seize_pro1000 (d2);
 		}
-#endif /* TTY_PRO1000 */
 	}
 }
 
