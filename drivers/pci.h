@@ -199,5 +199,6 @@ struct pci_driver *pci_find_driver_for_device (struct pci_device *device);
 struct pci_driver *pci_find_driver_by_token (struct token *name);
 int pci_driver_option_get_int (char *option, char **e, int base);
 bool pci_driver_option_get_bool (char *option, char **e);
+void pci_dump_pci_dev_list (void);
 
 #endif

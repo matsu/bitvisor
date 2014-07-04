@@ -35,6 +35,7 @@
 
 #include <common.h>
 #include <core.h>
+#include <core/process.h>
 #include <core/strtol.h>
 #include <token.h>
 #include "pci.h"
@@ -126,6 +127,86 @@ pci_config_mmio_emulate_base_address_mask (struct pci_device *dev,
 		}
 	}
 	return false;
+}
+
+void
+pci_dump_pci_dev_list (void)
+{
+#ifdef DUMP_PCI_DEV_LIST
+	struct pci_device *device;
+	struct pci_driver *driver;
+	int c, d, n;
+	char *msg, *p;
+
+	d = msgopen ("ttyin");
+begin:
+	msg = "-- more --  q:continue  g:go to 1st line  r:reboot"
+		"  SPC:next page  CR:next line";
+	printf ("\nDUMP_PCI_DEV_LIST:\n");
+	n = 1;
+	LIST_FOREACH (pci_device_list, device) {
+		if (!--n && d >= 0) {
+		wait:
+			printf ("%s", msg);
+			for (;;) {
+				c = msgsendint (d, 0);
+				if (device) {
+					if (c == ' ') {
+						n = 23;
+						break;
+					}
+					if (c == '\r' || c == '\n') {
+						n = 1;
+						break;
+					}
+				}
+				if (c == 'q') {
+					n = -1;
+					break;
+				}
+				if (c == 'g') {
+					n = 0;
+					break;
+				}
+				if (c == 'r') {
+					c = msgopen ("reboot");
+					if (c >= 0) {
+						msgsendint (c, 0);
+						msgclose (c);
+					}
+				}
+			}
+			for (p = msg; *p; p++)
+				printf ("\b");
+			for (p = msg; *p; p++)
+				printf (" ");
+			for (p = msg; *p; p++)
+				printf ("\b");
+			if (n < 0)
+				goto end;
+			if (!n)
+				goto begin;
+		}
+		printf ("[%02X:%02X.%X] %06X: %04X:%04X",
+			device->address.bus_no,
+			device->address.device_no,
+			device->address.func_no,
+			device->config_space.class_code,
+			device->config_space.vendor_id,
+			device->config_space.device_id);
+		LIST_FOREACH (pci_driver_list, driver)
+			if (pci_match (device, driver))
+				printf (" (%s)", driver->name);
+		if (device->driver)
+			printf (" %s", device->driver->name);
+		printf ("\n");
+	}
+	msg = "-- end --   q:continue  g:go to 1st line  r:reboot";
+	if (d >= 0)
+		goto wait;
+end:
+	msgclose (d);
+#endif
 }
 
 struct pci_driver *

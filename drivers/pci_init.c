@@ -186,6 +186,7 @@ static void pci_find_devices()
 	    }
 	pci_restore_config_addr();
 	printf ("PCI: %d devices found\n", num);
+	pci_dump_pci_dev_list ();
 	return;
 
 oom:
