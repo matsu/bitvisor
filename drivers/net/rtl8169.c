@@ -1757,6 +1757,7 @@ rtl8169_new (struct pci_device *dev)
 		if (net_init (ctx->net_handle, ctx, &phys_func, NULL, NULL)) {
 			rtl8169_seize_init (dev);
 			ctx->conceal = true;
+			net_start (ctx->net_handle);
 		}
 		return;
 	}
