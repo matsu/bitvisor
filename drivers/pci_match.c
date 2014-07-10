@@ -58,7 +58,7 @@
      vmm.driver.pci=device=ehci, driver=ehci_conceal, and,
      device=pro1000, driver=conceal
    - use first pro1000 for tty
-     vmm.driver.pci=device=pro1000, number=0, driver=pro1000, conceal=1, tty=1
+     vmm.driver.pci=device=pro1000, number=0, driver=pro1000, tty=1
    - hide all vendor_id=0x1234 devices, except slot 11:22.3
      vmm.driver.pci=slot=11:22.3, driver=none, and, id=1234:*, driver=conceal
 */
