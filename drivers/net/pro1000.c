@@ -233,6 +233,9 @@ struct data {
 
 static LIST1_DEFINE_HEAD (struct data2, d2list);
 
+static void receive_physnic (struct desc_shadow *s, struct data2 *d2,
+			     uint off2);
+
 static int
 iohandler (core_io_t io, union mem *data, void *arg)
 {
@@ -376,6 +379,19 @@ setrecv_physnic (void *handle, net_recv_callback_t *callback, void *param)
 
 	d2->recvphys_func = callback;
 	d2->recvphys_param = param;
+}
+
+static void
+poll_physnic (void *handle)
+{
+	struct data2 *d2 = handle;
+
+	spinlock_lock (&d2->lock);
+	if (d2->rdesc[0].initialized)
+		receive_physnic (&d2->rdesc[0], d2, 0x2800);
+	if (d2->rdesc[1].initialized)
+		receive_physnic (&d2->rdesc[1], d2, 0x2900);
+	spinlock_unlock (&d2->lock);
 }
 
 static void
@@ -543,6 +559,7 @@ static struct nicfunc phys_func = {
 	.get_nic_info = getinfo_physnic,
 	.send = send_physnic,
 	.set_recv_callback = setrecv_physnic,
+	.poll = poll_physnic,
 }, virt_func = {
 	.get_nic_info = getinfo_virtnic,
 	.send = send_virtnic,
@@ -1288,11 +1305,13 @@ seize_pro1000 (struct data2 *d2)
 	/* Receive Initialization */
 	{
 		init_desc_receive (&d2->rdesc[0], d2, 0x2800);
+		d2->rdesc[0].initialized = true;
 	}
 	{
 		/* Receive Control Register */
 		volatile u32 *rctl = (void *)(u8 *)d2->d1[0].map + 0x100;
-		*rctl = 0 |	/* receiver disabled */
+		*rctl = 2 |	/* receiver enabled */
+			1 << 15 | /* accept broadcast */
 			((RBUF_SIZE & 0x3300) ? 0x20000 : 0) |
 			((RBUF_SIZE & 0x5500) ? 0x10000 : 0) |
 			((RBUF_SIZE & 0x7000) ? 0x2000000 : 0);

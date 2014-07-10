@@ -270,6 +270,45 @@ mac_addr (char **name, void **val, int *len)
 	*len = sizeof mac_address;
 }
 
+static int
+conv_ipv4addr (char *str)
+{
+	char *p;
+	int ret = 0, shift = 32, tmp;
+
+	tmp = (int)strtol (str, &p, 0);
+	while (*p == '.' && shift) {
+		ret |= (tmp & 255) << (shift -= 8);
+		tmp = (int)strtol (p + 1, &p, 0) & ((1 << shift) - 1);
+	}
+	if (*p != '\0' || !shift) {
+		fprintf (stderr, "invalid IPv4 address\n");
+		exit (EXIT_FAILURE);
+	}
+	return ret | tmp;
+}
+
+static void
+ipv4_addr (char **name, void **val, int *len)
+{
+	u8 ipv4_address[4];
+	int addr;
+
+	addr = conv_ipv4addr (*val);
+	ipv4_address[0] = addr >> 24;
+	ipv4_address[1] = addr >> 16;
+	ipv4_address[2] = addr >> 8;
+	ipv4_address[3] = addr;
+	free (*val);
+	*val = malloc (sizeof ipv4_address);
+	if (!*val) {
+		perror ("malloc");
+		exit (EXIT_FAILURE);
+	}
+	memcpy (*val, &ipv4_address, sizeof ipv4_address);
+	*len = sizeof ipv4_address;
+}
+
 static void
 noconv (char **name, void **val, int *len)
 {
@@ -343,6 +382,11 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (file, &name, &src, &len, "vpn.vpnCertFileV6", "vpn.vpnCertV6");
 	ss (file, &name, &src, &len, "vpn.vpnCaCertFileV6", "vpn.vpnCaCertV6");
 	ss (file, &name, &src, &len, "vpn.vpnRsaKeyFileV6", "vpn.vpnRsaKeyV6");
+	/* TCP/IP */
+	ss (ipv4_addr, &name, &src, &len, "ip.ipaddr", "ip.ipaddr");
+	ss (ipv4_addr, &name, &src, &len, "ip.netmask", "ip.netmask");
+	ss (ipv4_addr, &name, &src, &len, "ip.gateway", "ip.gateway");
+	ss (uintnum, &name, &src, &len, "ip.use_dhcp", "ip.use_dhcp");
 	/* storage */
 	for (i = 0; i < NUM_OF_STORAGE_KEYS; i++)
 		ssi (keyplace, &name, &src, &len,
@@ -500,6 +544,11 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vpn.vpnPingTargetV6);
 	CONF (vpn.vpnPingIntervalV6);
 	CONF (vpn.vpnPingMsgSizeV6);
+	/* TCP/IP */
+	CONF (ip.ipaddr);
+	CONF (ip.netmask);
+	CONF (ip.gateway);
+	CONF (ip.use_dhcp);
 	/* storage */
 	for (i = 0; i < NUM_OF_STORAGE_KEYS; i++)
 		CONF1 ("storage.keys[%d]", i, cfg->storage.keys[i]);

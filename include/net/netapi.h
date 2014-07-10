@@ -47,6 +47,7 @@ struct nicfunc {
 		      unsigned int *packet_sizes, bool print_ok);
 	void (*set_recv_callback) (void *handle, net_recv_callback_t *callback,
 				   void *param);
+	void (*poll) (void *handle); /* optional */
 };
 
 struct netfunc {

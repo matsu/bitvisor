@@ -205,6 +205,13 @@ struct config_data_vmm_iccard {
 	int status;
 };
 
+struct config_data_ip {
+	u8 ipaddr[4];
+	u8 netmask[4];
+	u8 gateway[4];
+	int use_dhcp;
+};
+
 struct config_data_vmm {
 	char randomSeed[1024];
 	int f11panic;
@@ -229,6 +236,7 @@ struct config_data {
 	int len;
 	struct config_data_idman idman;
 	struct config_data_vpn vpn;
+	struct config_data_ip ip;
 	struct config_data_storage storage;
 	struct config_data_vmm vmm;
 } __attribute__ ((packed));

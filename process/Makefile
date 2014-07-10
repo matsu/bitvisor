@@ -6,6 +6,7 @@ bins-$(CONFIG_IDMAN) += idman
 bins-$(CONFIG_STORAGE) += storage
 bins-$(CONFIG_VPN) += vpn
 asubdirs-1 += lib
+bins-$(CONFIG_IP) += echoctl
 
 debug-objs = debug.o
 help-objs = help.o
@@ -23,3 +24,4 @@ storage-objs = storage.o
 storage-libs = storage/lib/$(outa) crypto/$(outa)
 vpn-objs = vpn.o
 vpn-libs = vpn/lib/$(outa) crypto/$(outa)
+echoctl-objs = echoctl.o
