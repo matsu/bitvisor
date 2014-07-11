@@ -136,6 +136,8 @@ net_new_nic (char *arg_net, bool tty)
 		for (p = netlist_head; p; p = p->next) {
 			for (i = 0;; i++) {
 				if (arg_net[i] == ':') {
+					if (p->name[i] != '\0')
+						break;
 					arg = &arg_net[i + 1];
 					goto matched;
 				}
