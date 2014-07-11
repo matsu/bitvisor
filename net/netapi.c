@@ -59,6 +59,15 @@ struct net_null_data {
 	struct nicfunc *virt_func;
 };
 
+struct net_pass_data2 {
+	void *handle;
+	struct nicfunc *func;
+};
+
+struct net_pass_data {
+	struct net_pass_data2 phys, virt;
+};
+
 static struct netlist *netlist_head = NULL;
 
 static void
@@ -103,6 +112,54 @@ netapi_net_null_start (void *handle)
 		p->virt_func->set_recv_callback (p->virt_handle,
 						 netapi_net_null_recv_callback,
 						 NULL);
+}
+
+static void
+netapi_net_pass_recv_callback (void *handle, unsigned int num_packets,
+			       void **packets, unsigned int *packet_sizes,
+			       void *param, long *premap)
+{
+	struct net_pass_data2 *p = param;
+
+	p->func->send (p->handle, num_packets, packets, packet_sizes, true);
+}
+
+static void *
+netapi_net_pass_new_nic (char *arg, void *param)
+{
+	struct net_pass_data *p;
+
+	p = alloc (sizeof *p);
+	return p;
+}
+
+static bool
+netapi_net_pass_init (void *handle, void *phys_handle,
+		      struct nicfunc *phys_func, void *virt_handle,
+		      struct nicfunc *virt_func)
+{
+	struct net_pass_data *p = handle;
+
+	if (!virt_func)
+		return false;
+	p->phys.handle = phys_handle;
+	p->phys.func = phys_func;
+	p->virt.handle = virt_handle;
+	p->virt.func = virt_func;
+	return true;
+}
+
+static void
+netapi_net_pass_start (void *handle)
+{
+	struct net_pass_data *p = handle;
+
+	p->phys.func->set_recv_callback (p->phys.handle,
+					 netapi_net_pass_recv_callback,
+					 &p->virt);
+	p->virt.func->set_recv_callback (p->virt.handle,
+					 netapi_net_pass_recv_callback,
+					 &p->phys);
 }
 
 void
@@ -215,8 +272,14 @@ netapi_init (void)
 		.init = netapi_net_null_init,
 		.start = netapi_net_null_start,
 	};
+	static struct netfunc net_pass = {
+		.new_nic = netapi_net_pass_new_nic,
+		.init = netapi_net_pass_init,
+		.start = netapi_net_pass_start,
+	};
 
 	net_register ("", &net_null, NULL);
+	net_register ("pass", &net_pass, NULL);
 }
 
 INITFUNC ("driver0", netapi_init);
