@@ -29,6 +29,7 @@
  */
 
 #include <core/config.h>
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/string.h>
@@ -122,40 +123,32 @@ net_new_nic (char *arg_net, bool tty)
 {
 	int i;
 	char *arg = NULL;
-	void *param = NULL;
+	void *param;
 	struct netlist *p;
 	struct netfunc *func;
 	struct netdata *handle;
-	static struct netfunc net_null = {
-		.new_nic = netapi_net_null_new_nic,
-		.init = netapi_net_null_init,
-		.start = netapi_net_null_start,
-	};
 
-	if (arg_net && arg_net[0] != '\0' && arg_net[0] != ':') {
-		for (p = netlist_head; p; p = p->next) {
-			for (i = 0;; i++) {
+	if (!arg_net)
+		arg_net = "";
+	for (p = netlist_head; p; p = p->next) {
+		for (i = 0;; i++) {
+			if (p->name[i] == '\0') {
 				if (arg_net[i] == ':') {
-					if (p->name[i] != '\0')
-						break;
 					arg = &arg_net[i + 1];
 					goto matched;
 				}
-				if (arg_net[i] != p->name[i])
-					break;
 				if (arg_net[i] == '\0')
 					goto matched;
+				break;
 			}
+			if (arg_net[i] != p->name[i])
+				break;
 		}
-		panic ("net_new_nic: invalid name net=%s", arg_net);
-	matched:
-		func = p->func;
-		param = p->param;
-	} else {
-		func = &net_null;
-		if (arg_net && arg_net[0] == ':')
-			arg = &arg_net[1];
 	}
+	panic ("net_new_nic: invalid name net=%s", arg_net);
+matched:
+	func = p->func;
+	param = p->param;
 	handle = alloc (sizeof *handle);
 	handle->func = func;
 	handle->tty = tty;
@@ -213,3 +206,17 @@ net_premap_recvbuf (struct netdata *handle, void *buf, unsigned int len)
 		return 0;
 	return handle->func->premap_recvbuf (handle->handle, buf, len);
 }
+
+static void
+netapi_init (void)
+{
+	static struct netfunc net_null = {
+		.new_nic = netapi_net_null_new_nic,
+		.init = netapi_net_null_init,
+		.start = netapi_net_null_start,
+	};
+
+	net_register ("", &net_null, NULL);
+}
+
+INITFUNC ("driver0", netapi_init);
