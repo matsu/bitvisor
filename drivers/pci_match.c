@@ -265,18 +265,9 @@ pci_match_find_driver_sub (struct pci_device *device, char *p)
 			state = 2;
 			continue;
 		}
-		if (!state)
-			state = 1;
-		if (match_token ("device", &tname)) {
-			driver = pci_find_driver_by_token (&tvalue);
-			if (!driver)
-				panic ("%s: invalid device name %s",
-				       __func__, p);
-			if (state > 0 && !pci_match (device, driver))
-				state = -1;
-			continue;
-		}
-		if (state > 0 && match_token ("number", &tname)) {
+		if (state && match_token ("number", &tname)) {
+			if (state < 0)
+				continue;
 			for (np = number_list; np; np = np->next)
 				if (np->p == p)
 					break;
@@ -289,6 +280,17 @@ pci_match_find_driver_sub (struct pci_device *device, char *p)
 			}
 			snprintf (buf, sizeof buf, "%d", np->number++);
 			if (!match_token (buf, &tvalue))
+				state = -1;
+			continue;
+		}
+		if (!state)
+			state = 1;
+		if (match_token ("device", &tname)) {
+			driver = pci_find_driver_by_token (&tvalue);
+			if (!driver)
+				panic ("%s: invalid device name %s",
+				       __func__, p);
+			if (state > 0 && !pci_match (device, driver))
 				state = -1;
 			continue;
 		}
