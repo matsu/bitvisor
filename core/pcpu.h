@@ -63,10 +63,10 @@ struct pcpu {
 	struct svm_pcpu_data svm;
 	struct cache_pcpu_data cache;
 	struct panic_pcpu_data panic;
+	struct thread_pcpu_data thread;
 	enum fullvirtualize_type fullvirtualize;
 	int cpunum;
 	int pid;
-	tid_t tid;
 	void *stackaddr;
 	u64 tsc, hz, timediff;
 	spinlock_t suspend_lock;

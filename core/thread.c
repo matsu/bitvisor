@@ -104,7 +104,7 @@ thread_data_save_and_load (struct thread_data *old, struct thread_data *new)
 tid_t
 thread_gettid (void)
 {
-	return currentcpu->tid;
+	return currentcpu->thread.tid;
 }
 
 static void
@@ -133,9 +133,9 @@ schedule (void)
 	return;
 found:
 	LIST1_DEL (td_runnable, d);
-	oldtid = currentcpu->tid;
+	oldtid = currentcpu->thread.tid;
 	newtid = d->tid;
-	currentcpu->tid = newtid;
+	currentcpu->thread.tid = newtid;
 	thread_data_save_and_load (&td[oldtid], d);
 	switch (td[oldtid].state) {
 	case THREAD_EXIT:
@@ -235,39 +235,41 @@ thread_wakeup (tid_t tid)
 void
 thread_will_stop (void)
 {
-	switch (thread_set_state (currentcpu->tid, THREAD_WILL_STOP)) {
+	switch (thread_set_state (currentcpu->thread.tid, THREAD_WILL_STOP)) {
 	case THREAD_RUN:
 		break;
 	case THREAD_WILL_STOP:
 		printf ("WARNING: thread_will_stop called twice tid=%d\n",
-			currentcpu->tid);
+			currentcpu->thread.tid);
 		break;
 	case THREAD_STOP:
 	case THREAD_EXIT:
 	default:
 		panic ("thread_will_stop: bad state tid=%d state=%d",
-		       currentcpu->tid, td[currentcpu->tid].state);
+		       currentcpu->thread.tid,
+		       td[currentcpu->thread.tid].state);
 	}
 }
 
 void
 thread_exit (void)
 {
-	switch (thread_set_state (currentcpu->tid, THREAD_EXIT)) {
+	switch (thread_set_state (currentcpu->thread.tid, THREAD_EXIT)) {
 	case THREAD_EXIT:
 		printf ("WARNING: thread already exited tid=%d\n",
-			currentcpu->tid);
+			currentcpu->thread.tid);
 		break;
 	case THREAD_RUN:
 		break;
 	case THREAD_WILL_STOP:
 		printf ("thread_exit called after thread_will_stop tid=%d\n",
-			currentcpu->tid);
+			currentcpu->thread.tid);
 		break;
 	case THREAD_STOP:
 	default:
 		panic ("thread_exit: bad state tid=%d state=%d",
-		       currentcpu->tid, td[currentcpu->tid].state);
+		       currentcpu->thread.tid,
+		       td[currentcpu->thread.tid].state);
 	}
 	schedule ();
 }
@@ -298,7 +300,7 @@ thread_init_pcpu (void)
 	ASSERT (d);
 	thread_data_init (d, NULL, NULL, currentcpu->cpunum);
 	d->boot = true;
-	currentcpu->tid = d->tid;
+	currentcpu->thread.tid = d->tid;
 	spinlock_unlock (&thread_lock);
 }
 
