@@ -863,6 +863,19 @@ asm_lock_cmpxchgq (u64 *dest, u64 *cmp, u64 eq)
 }
 
 /* old = *mem; *mem = newval; return old; */
+static inline u32
+asm_lock_xchgl (u32 *mem, u32 newval)
+{
+	u32 oldval;
+
+	asm volatile ("xchg %0,%1"
+		      : "=r" (oldval)
+		      , "+m" (*mem)
+		      : "0" (newval));
+	return oldval;
+}
+
+/* old = *mem; *mem = newval; return old; */
 static inline ulong
 asm_lock_ulong_swap (ulong *mem, ulong newval)
 {

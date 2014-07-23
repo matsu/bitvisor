@@ -42,6 +42,7 @@
 
 #define MAXNUM_OF_THREADS	256
 #define CPUNUM_ANY		-1
+#define RUNNABLE_ARRAYSIZE	(MAXNUM_OF_THREADS * 4)
 
 extern ulong volatile syscallstack asm ("%gs:gs_syscallstack");
 
@@ -60,9 +61,10 @@ struct thread_data {
 	LIST1_DEFINE (struct thread_data);
 	struct thread_context *context;
 	tid_t tid;
-	enum thread_state state;
+	u32 state;
 	int cpunum;
 	bool boot;
+	u32 boot_runnable;
 	void *stack;
 	int pid;
 	ulong syscallstack;
@@ -71,9 +73,123 @@ struct thread_data {
 
 static struct thread_data td[MAXNUM_OF_THREADS];
 static LIST1_DEFINE_HEAD (struct thread_data, td_free);
-static LIST1_DEFINE_HEAD (struct thread_data, td_runnable);
 static spinlock_t thread_lock;
-static void *old_stack;
+static u32 td_runnable[RUNNABLE_ARRAYSIZE];
+static u32 td_runnable_head, td_runnable_tail;
+
+static void
+td_runnable_init (void)
+{
+	int i;
+
+	for (i = 0; i < RUNNABLE_ARRAYSIZE; i++)
+		td_runnable[i] = MAXNUM_OF_THREADS;
+	td_runnable_head = 0;
+	td_runnable_tail = 0;
+}
+
+static void
+td_runnable_put (u32 tid)
+{
+	u32 tail = tail, tmp;
+
+	do {
+		asm_lock_cmpxchgl (&td_runnable_tail, &tail, tail);
+		tmp = MAXNUM_OF_THREADS;
+	} while (asm_lock_cmpxchgl (&td_runnable[tail], &tmp, tid));
+	tmp = (tail + 1) % RUNNABLE_ARRAYSIZE;
+	ASSERT (tmp != td_runnable_head);
+	if (asm_lock_cmpxchgl (&td_runnable_tail, &tail, tmp))
+		panic ("tail=%u tmp=%u", tail, tmp);
+}
+
+static u32
+td_runnable_get (u32 head, u32 tail)
+{
+	u32 real_head = real_head, tmp = MAXNUM_OF_THREADS;
+
+	if (head == tail)
+		return MAXNUM_OF_THREADS;
+	/* Read the td_runnable_head */
+	asm_lock_cmpxchgl (&td_runnable_head, &real_head, real_head);
+	/* Check the td_runnable_head is between head and tail */
+	if (head < tail) {
+		if (!(head <= real_head && real_head < tail))
+			return MAXNUM_OF_THREADS;
+	} else {
+		if (!(head <= real_head || real_head < tail))
+			return MAXNUM_OF_THREADS;
+	}
+	head = real_head;
+	while (head != tail) {
+		tmp = asm_lock_xchgl (&td_runnable[head], MAXNUM_OF_THREADS);
+		head = (head + 1) % RUNNABLE_ARRAYSIZE;
+		if (tmp != MAXNUM_OF_THREADS)
+			break;
+	}
+	/* Update the td_runnable_head if it is equal to real_head */
+	asm_lock_cmpxchgl (&td_runnable_head, &real_head, head);
+	return tmp;
+}
+
+static void
+thread_runnable_put (tid_t tid)
+{
+	if (td[tid].boot)
+		asm_lock_xchgl (&td[tid].boot_runnable, 1);
+	else
+		td_runnable_put (tid);
+}
+
+static u32
+thread_runnable_get_sub (u32 boottid, u32 oldtid)
+{
+	u32 newtid;
+
+	if (boottid != oldtid) {
+		newtid = td_runnable_get (currentcpu->thread.head,
+					  currentcpu->thread.tail);
+		if (newtid == MAXNUM_OF_THREADS) {
+			/* Switch to boottid if it is runnable */
+			if (asm_lock_xchgl (&td[boottid].boot_runnable, 0))
+				return boottid;
+		} else {
+			return newtid;
+		}
+		/* Runnable thread not found */
+	}
+	asm_lock_cmpxchgl (&td_runnable_head, &currentcpu->thread.head,
+			   currentcpu->thread.head);
+	asm_lock_cmpxchgl (&td_runnable_tail, &currentcpu->thread.tail,
+			   currentcpu->thread.tail);
+	newtid = td_runnable_get (currentcpu->thread.head,
+				  currentcpu->thread.tail);
+	return newtid;
+}
+
+static void
+thread_runnable_get (tid_t *old_tid, tid_t *new_tid)
+{
+	u32 oldtid, newtid, boottid, state = state;
+
+	boottid = currentcpu->thread.boot_tid;
+	oldtid = currentcpu->thread.tid;
+	for (;;) {
+		newtid = thread_runnable_get_sub (boottid, oldtid);
+		if (newtid != MAXNUM_OF_THREADS) {
+			ASSERT (newtid != oldtid);
+			break;
+		}
+		asm_lock_cmpxchgl (&td[oldtid].state, &state, state);
+		if (state == THREAD_RUN) {
+			newtid = oldtid;
+			break;
+		}
+		asm_pause ();
+	}
+	*old_tid = oldtid;
+	*new_tid = newtid;
+}
 
 static void
 thread_data_init (struct thread_data *d, struct thread_context *c, void *stack,
@@ -82,6 +198,7 @@ thread_data_init (struct thread_data *d, struct thread_context *c, void *stack,
 	d->context = c;
 	d->cpunum = cpunum;
 	d->boot = false;
+	d->boot_runnable = 0;
 	d->stack = stack;
 	d->pid = 0;
 	d->syscallstack = 0;
@@ -110,7 +227,34 @@ thread_gettid (void)
 static void
 switched (void)
 {
-	spinlock_unlock (&thread_lock);
+	u32 oldtid, state = state;
+
+	oldtid = currentcpu->thread.old_tid;
+	if (oldtid == MAXNUM_OF_THREADS)
+		return;
+	currentcpu->thread.old_tid = MAXNUM_OF_THREADS;
+	asm_lock_cmpxchgl (&td[oldtid].state, &state, state);
+switch_again:
+	switch (state) {
+	case THREAD_EXIT:
+		free (td[oldtid].stack);
+		spinlock_lock (&thread_lock);
+		LIST1_ADD (td_free, &td[oldtid]);
+		spinlock_unlock (&thread_lock);
+		break;
+	case THREAD_RUN:
+		thread_runnable_put (oldtid);
+		break;
+	case THREAD_WILL_STOP:
+		/* The state could be modified by thread_wakeup() */
+		if (asm_lock_cmpxchgl (&td[oldtid].state, &state, THREAD_STOP))
+			goto switch_again;
+		break;
+	case THREAD_STOP:
+	default:
+		panic ("schedule: bad state tid=%d state=%d",
+		       oldtid, td[oldtid].state);
+	}
 }
 
 void
@@ -119,40 +263,13 @@ schedule (void)
 	struct thread_data *d;
 	tid_t oldtid, newtid;
 
-	spinlock_lock (&thread_lock);
-	if (old_stack) {
-		free (old_stack);
-		old_stack = NULL;
-	}
-	LIST1_FOREACH (td_runnable, d) {
-		if (d->cpunum == CPUNUM_ANY ||
-		    d->cpunum == currentcpu->cpunum)
-			goto found;
-	}
-	spinlock_unlock (&thread_lock);
-	return;
-found:
-	LIST1_DEL (td_runnable, d);
-	oldtid = currentcpu->thread.tid;
-	newtid = d->tid;
+	thread_runnable_get (&oldtid, &newtid);
+	if (oldtid == newtid)
+		return;
+	d = &td[newtid];
 	currentcpu->thread.tid = newtid;
+	currentcpu->thread.old_tid = oldtid;
 	thread_data_save_and_load (&td[oldtid], d);
-	switch (td[oldtid].state) {
-	case THREAD_EXIT:
-		old_stack = td[oldtid].stack;
-		LIST1_ADD (td_free, &td[oldtid]);
-		break;
-	case THREAD_RUN:
-		LIST1_ADD (td_runnable, &td[oldtid]);
-		break;
-	case THREAD_WILL_STOP:
-		td[oldtid].state = THREAD_STOP;
-		break;
-	case THREAD_STOP:
-	default:
-		panic ("schedule: bad state tid=%d state=%d",
-		       oldtid, td[oldtid].state);
-	}
 	thread_switch (&td[oldtid].context, d->context, 0);
 	switched ();
 }
@@ -175,9 +292,9 @@ thread_new0 (struct thread_context *c, void *stack)
 	d = LIST1_POP (td_free);
 	ASSERT (d);
 	thread_data_init (d, c, stack, CPUNUM_ANY);
-	LIST1_ADD (td_runnable, d);
 	r = d->tid;
 	spinlock_unlock (&thread_lock);
+	thread_runnable_put (r);
 	return r;
 }
 
@@ -204,10 +321,7 @@ thread_set_state (tid_t tid, enum thread_state state)
 {
 	enum thread_state oldstate;
 
-	spinlock_lock (&thread_lock);
-	oldstate = td[tid].state;
-	td[tid].state = state;
-	spinlock_unlock (&thread_lock);
+	oldstate = asm_lock_xchgl (&td[tid].state, state);
 	return oldstate;
 }
 
@@ -221,9 +335,7 @@ thread_wakeup (tid_t tid)
 	case THREAD_WILL_STOP:
 		break;
 	case THREAD_STOP:
-		spinlock_lock (&thread_lock);
-		LIST1_ADD (td_runnable, &td[tid]);
-		spinlock_unlock (&thread_lock);
+		thread_runnable_put (tid);
 		break;
 	case THREAD_EXIT:
 	default:
@@ -280,14 +392,13 @@ thread_init_global (void)
 	int i;
 
 	LIST1_HEAD_INIT (td_free);
-	LIST1_HEAD_INIT (td_runnable);
 	spinlock_init (&thread_lock);
-	old_stack = NULL;
 	for (i = 0; i < MAXNUM_OF_THREADS; i++) {
 		td[i].tid = i;
 		td[i].state = THREAD_EXIT;
 		LIST1_ADD (td_free, &td[i]);
 	}
+	td_runnable_init ();
 }
 
 static void
@@ -302,6 +413,8 @@ thread_init_pcpu (void)
 	d->boot = true;
 	currentcpu->thread.tid = d->tid;
 	spinlock_unlock (&thread_lock);
+	currentcpu->thread.boot_tid = d->tid;
+	currentcpu->thread.old_tid = MAXNUM_OF_THREADS;
 }
 
 INITFUNC ("global3", thread_init_global);
