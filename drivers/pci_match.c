@@ -152,16 +152,39 @@ pci_match (struct pci_device *device, struct pci_driver *driver)
 }
 
 static void
-save_driver_options (struct pci_device *device, struct pci_driver *driver,
-		     struct token *name, struct token *value)
+alloc_driver_options (struct pci_device *device, struct pci_driver *driver)
 {
-	int i, j, n;
+	int i, n = 0;
 	struct token t;
 	char c, *p = driver->driver_options;
 
-	n = 0;
-	i = -1;
+	if (!p)
+		return;
 	for (;; p = t.next, n++) {
+		c = get_token (p, &t);
+		if (t.start == t.end)
+			break;
+		if (!t.start)
+			panic ("%s: driver_options syntax error 1 %s",
+			       __func__, p);
+		if (c != ',' && c != '\0')
+			panic ("%s: driver_options syntax error 2 %s",
+			       __func__, p);
+	}
+	device->driver_options = alloc (sizeof *device->driver_options * n);
+	for (i = 0; i < n; i++)
+		device->driver_options[i] = NULL;
+}
+
+static void
+save_driver_options (struct pci_device *device, struct pci_driver *driver,
+		     struct token *name, struct token *value)
+{
+	int i = 0;
+	struct token t;
+	char c, *p = driver->driver_options;
+
+	for (;; p = t.next, i++) {
 		c = get_token (p, &t);
 		if (t.start == t.end)
 			break;
@@ -175,16 +198,10 @@ save_driver_options (struct pci_device *device, struct pci_driver *driver,
 			continue;
 		if (memcmp (t.start, name->start, t.end - t.start))
 			continue;
-		i = n;
+		goto found;
 	}
-	if (i < 0)
-		panic ("%s: invalid option name %s", __func__, name->start);
-	if (!device->driver_options) {
-		device->driver_options = alloc (sizeof *device->driver_options
-						* n);
-		for (j = 0; j < n; j++)
-			device->driver_options[j] = NULL;
-	}
+	panic ("%s: invalid option name %s", __func__, name->start);
+found:
 	if (device->driver_options[i])
 		free (device->driver_options[i]);
 	device->driver_options[i] = alloc (value->end - value->start + 1);
@@ -241,6 +258,8 @@ pci_match_find_driver_sub (struct pci_device *device, char *p)
 		if (state == -2)
 			continue;
 		if (state == 2) {
+			if (!driver)
+				panic ("%s: syntax error 5 %s", __func__, p);
 			save_driver_options (device, driver, &tname, &tvalue);
 			continue;
 		}
@@ -262,6 +281,8 @@ pci_match_find_driver_sub (struct pci_device *device, char *p)
 				state = -2;
 				continue;
 			}
+			if (driver)
+				alloc_driver_options (device, driver);
 			state = 2;
 			continue;
 		}
