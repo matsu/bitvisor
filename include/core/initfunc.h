@@ -31,20 +31,17 @@
 #define __CORE_INITFUNC_H
 
 #define INITFUNC(id, func) struct initfunc_data __initfunc_##func \
-	__attribute__ ((__section__ (".initfunc"), aligned (1))) = { id, func }
+	__attribute__ ((__section__ (".initfunc"), aligned (1))) = { \
+		__FILE__, \
+		id, \
+		func \
+	}
 
-#ifdef __x86_64__
 struct initfunc_data {
-	char id[8];
+	char *filename;
+	char *id;
 	void (*func) (void);
 } __attribute__ ((packed));
-#else
-struct initfunc_data {
-	char id[8];
-	void (*func) (void);
-	void *padding;
-} __attribute__ ((packed));
-#endif
 
 void call_initfunc (char *id);
 

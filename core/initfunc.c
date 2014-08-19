@@ -37,11 +37,8 @@ extern struct initfunc_data __initfunc_start[], __initfunc_end[];
 static void
 debug_print1 (struct initfunc_data *p)
 {
-	char tmp[9];
-
-	memcpy (tmp, p->id, sizeof p->id);
-	tmp[8] = '\0';
-	printf ("initfunc_data@%p: %s %p\n", p, tmp, p->func);
+	printf ("initfunc_data@%p: %s %s:%p\n", p, p->id, p->filename,
+		p->func);
 }
 
 static void
@@ -75,6 +72,22 @@ call_initfunc (char *id)
 			p->func ();
 }
 
+static int
+initfunc_sort_cmp (struct initfunc_data *p, struct initfunc_data *q)
+{
+	int diff;
+
+	diff = strcmp (p->id, q->id);
+	if (diff > 0)
+		return 1;
+	if (diff < 0)
+		return 0;
+	diff = strcmp (p->filename, q->filename);
+	if (diff > 0)
+		return 1;
+	return 0;
+}
+
 void
 initfunc_init (void)
 {
@@ -83,7 +96,7 @@ initfunc_init (void)
 	/* sort initfunc data */
 	for (p = __initfunc_start; p != __initfunc_end; p++)
 		for (q = p + 1; q != __initfunc_end; q++)
-			if (memcmp (p->id, q->id, sizeof (p->id)) > 0)
+			if (initfunc_sort_cmp (p, q))
 				swap_initfunc_data (p, q);
 	if (false)
 		debug_print ();
