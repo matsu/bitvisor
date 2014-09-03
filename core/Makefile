@@ -37,9 +37,21 @@ CFLAGS += -Ivpn/lib
 CFLAGS += -Iedk/Foundation/Efi/Include/ -Iedk/Foundation/Framework/Include/
 CFLAGS += -Iedk/Foundation/Include/ -Iedk/Foundation/Efi/
 
-c!=echo $(dir)*.c
-c += $(wildcard $(dir)*.c)
-s!=echo $(dir)*.s
-s += $(wildcard $(dir)*.s)
-
-objs-1 += $(c:$(dir)%.c=%.o) $(s:$(dir)%.s=%.o)
+objs-1 += acpi.o acpi_dsdt.o ap.o assert.o beep.o cache.o callrealmode.o
+objs-1 += calluefi.o config.o cpu.o cpu_emul.o cpu_interpreter.o cpu_mmu.o
+objs-1 += cpu_mmu_spt.o cpu_seg.o cpu_stack.o cpuid.o cpuid_pass.o current.o
+objs-1 += debug.o exint_pass.o gmm_access.o gmm_pass.o i386-stub.o iccard.o
+objs-1 += initfunc.o int.o io_io.o io_iohook.o io_iopass.o keyboard.o
+objs-1 += loadbootsector.o localapic.o main.o mm.o mmio.o msg.o msr.o
+objs-1 += msr_pass.o nmi_pass.o osloader.o panic.o pcpu.o printf.o process.o
+objs-1 += putchar.o random.o reboot.o savemsr.o seg.o serial.o sleep.o
+objs-1 += strtol.o svm.o svm_exitcode.o svm_init.o svm_io.o svm_main.o
+objs-1 += svm_msr.o svm_np.o svm_paging.o svm_panic.o svm_regs.o
+objs-1 += sx_init_pass.o tcg.o thread.o time.o timer.o tty.o uefi.o vcpu.o
+objs-1 += vga.o vmmcall.o vmmcall_boot.o vmmcall_dbgsh.o vmmcall_iccard.o
+objs-1 += vmmcall_log.o vmmcall_status.o vpn_ve.o vramwrite.o vt.o vt_ept.o
+objs-1 += vt_exitreason.o vt_init.o vt_io.o vt_main.o vt_msr.o vt_paging.o
+objs-1 += vt_panic.o vt_regs.o wakeup.o xsetbv.o xsetbv_pass.o
+objs-1 += arith.o asm.o callrealmode_asm.o calluefi_asm.o entry.o
+objs-1 += guest_bioshook.o int_handler.o process_sysenter.o string.o
+objs-1 += sx_handler.o thread_switch.o wakeup_entry.o

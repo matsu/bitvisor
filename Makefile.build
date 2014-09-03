@@ -29,8 +29,10 @@ suboutp := $(psubdirs-1:%=$(dir)%/$(outp))
 subouto_p := $(subdirs-1:%=$(dir)%/$(outo_p))
 subouta_p := $(asubdirs-1:%=$(dir)%/$(outa_p))
 suboutp_p := $(psubdirs-1:%=$(dir)%/$(outp_p))
-m!=echo b
-m ?= g
+make-detect := b$(shell echo g)
+m-b := b
+m-bg := g
+m := $(m-$(make-detect))
 bins-1 ?=
 bobjs-1-name := $(bins-1:%=%-objs)
 bobjs-1-b := $(bobjs-1-name:%=$(%))
