@@ -166,8 +166,8 @@ write_gphys_q (u64 phys, u64 data, u32 attr)
 	bool fakerom;
 
 	if ((phys & 0xFFF) >= 0xFF9) {
-		write_gphys_w (phys + 0, *(((u32 *)&data) + 0), attr);
-		write_gphys_w (phys + 4, *(((u32 *)&data) + 1), attr);
+		write_gphys_l (phys + 0, *(((u32 *)&data) + 0), attr);
+		write_gphys_l (phys + 4, *(((u32 *)&data) + 1), attr);
 		return;
 	}
 	attr = cache_get_attr (phys, attr);
