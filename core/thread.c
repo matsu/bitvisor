@@ -93,42 +93,47 @@ td_runnable_put (u32 tid)
 {
 	u32 tail = tail, tmp;
 
-	do {
-		asm_lock_cmpxchgl (&td_runnable_tail, &tail, tail);
-		tmp = MAXNUM_OF_THREADS;
-	} while (asm_lock_cmpxchgl (&td_runnable[tail], &tmp, tid));
-	tmp = (tail + 1) % RUNNABLE_ARRAYSIZE;
-	ASSERT (tmp != td_runnable_head);
-	if (asm_lock_cmpxchgl (&td_runnable_tail, &tail, tmp))
-		panic ("tail=%u tmp=%u", tail, tmp);
+	/* Read the td_runnable_tail */
+	asm_lock_cmpxchgl (&td_runnable_tail, &tail, tail);
+	for (;;) {
+		/* Update the td_runnable_tail if it is equal to tail */
+		if (!asm_lock_cmpxchgl (&td_runnable_tail, &tail, tail + 1))
+			break;
+		/* Try again if other td_runnable_put() is running */
+		asm_pause ();
+	}
+	tmp = asm_lock_xchgl (&td_runnable[tail % RUNNABLE_ARRAYSIZE], tid);
+	if (tmp != MAXNUM_OF_THREADS)
+		/* The td_runnable[] array is full! */
+		panic ("thread: td_runnable_put failure %u %u", tmp, tid);
 }
 
 static u32
-td_runnable_get (u32 head, u32 tail)
+td_runnable_get (u32 tail)
 {
-	u32 real_head = real_head, tmp = MAXNUM_OF_THREADS;
+	u32 head = head, tmp;
 
-	if (head == tail)
-		return MAXNUM_OF_THREADS;
 	/* Read the td_runnable_head */
-	asm_lock_cmpxchgl (&td_runnable_head, &real_head, real_head);
-	/* Check the td_runnable_head is between head and tail */
-	if (head < tail) {
-		if (!(head <= real_head && real_head < tail))
+	asm_lock_cmpxchgl (&td_runnable_head, &head, head);
+	for (;;) {
+		/* Check the head is before tail */
+		tmp = tail - (head + 1);
+		if (tmp >= RUNNABLE_ARRAYSIZE)
 			return MAXNUM_OF_THREADS;
-	} else {
-		if (!(head <= real_head || real_head < tail))
-			return MAXNUM_OF_THREADS;
+		/* Update the td_runnable_head if it is equal to head */
+		if (!asm_lock_cmpxchgl (&td_runnable_head, &head, head + 1))
+			break;
+		/* Try again if other td_runnable_get() is running */
+		asm_pause ();
 	}
-	head = real_head;
-	while (head != tail) {
-		tmp = asm_lock_xchgl (&td_runnable[head], MAXNUM_OF_THREADS);
-		head = (head + 1) % RUNNABLE_ARRAYSIZE;
+	for (;;) {
+		tmp = asm_lock_xchgl (&td_runnable[head % RUNNABLE_ARRAYSIZE],
+				      MAXNUM_OF_THREADS);
 		if (tmp != MAXNUM_OF_THREADS)
 			break;
+		/* Wait for the asm_lock_xchgl() in td_runnable_put() */
+		asm_pause ();
 	}
-	/* Update the td_runnable_head if it is equal to real_head */
-	asm_lock_cmpxchgl (&td_runnable_head, &real_head, head);
 	return tmp;
 }
 
@@ -144,11 +149,10 @@ thread_runnable_put (tid_t tid)
 static u32
 thread_runnable_get_sub (u32 boottid, u32 oldtid)
 {
-	u32 newtid;
+	u32 newtid, tail = tail;
 
 	if (boottid != oldtid) {
-		newtid = td_runnable_get (currentcpu->thread.head,
-					  currentcpu->thread.tail);
+		newtid = td_runnable_get (currentcpu->thread.tail);
 		if (newtid == MAXNUM_OF_THREADS) {
 			/* Switch to boottid if it is runnable */
 			if (asm_lock_xchgl (&td[boottid].boot_runnable, 0))
@@ -158,12 +162,9 @@ thread_runnable_get_sub (u32 boottid, u32 oldtid)
 		}
 		/* Runnable thread not found */
 	}
-	asm_lock_cmpxchgl (&td_runnable_head, &currentcpu->thread.head,
-			   currentcpu->thread.head);
-	asm_lock_cmpxchgl (&td_runnable_tail, &currentcpu->thread.tail,
-			   currentcpu->thread.tail);
-	newtid = td_runnable_get (currentcpu->thread.head,
-				  currentcpu->thread.tail);
+	asm_lock_cmpxchgl (&td_runnable_tail, &tail, tail);
+	newtid = td_runnable_get (tail);
+	currentcpu->thread.tail = tail;
 	return newtid;
 }
 
