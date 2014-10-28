@@ -1283,7 +1283,7 @@ found:
 
 static bool
 ahci_command_completion (struct ahci_data *ad, struct ahci_command_list *p,
-			 struct ahci_command_data *data, u32 time)
+			 struct ahci_command_data *data, u64 time)
 {
 	struct recvfis *fis;
 	struct storage_hc_dev_atacmd *cmd;
