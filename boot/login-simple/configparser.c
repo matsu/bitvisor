@@ -427,6 +427,12 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "vmm.ignore_tsc_invariant");
 	ss (mac_addr, &name, &src, &len, "vmm.tty_mac_address",
 	    "vmm.tty_mac_address");
+	ss (uintnum, &name, &src, &len, "vmm.tty_syslog.enable",
+	    "vmm.tty_syslog.enable");
+	ss (ipv4_addr, &name, &src, &len, "vmm.tty_syslog.src_ipaddr",
+	    "vmm.tty_syslog.src_ipaddr");
+	ss (ipv4_addr, &name, &src, &len, "vmm.tty_syslog.dst_ipaddr",
+	    "vmm.tty_syslog.dst_ipaddr");
 	ss (uintnum, &name, &src, &len, "vmm.tty_pro1000", "vmm.tty_pro1000");
 	ss (uintnum, &name, &src, &len, "vmm.tty_rtl8169", "vmm.tty_rtl8169");
 	ss (uintnum, &name, &src, &len, "vmm.tty_x540", "vmm.tty_x540");
@@ -585,6 +591,9 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.no_intr_intercept);
 	CONF (vmm.ignore_tsc_invariant);
 	CONF (vmm.tty_mac_address);
+	CONF (vmm.tty_syslog.enable);
+	CONF (vmm.tty_syslog.src_ipaddr);
+	CONF (vmm.tty_syslog.dst_ipaddr);
 	CONF (vmm.tty_pro1000);
 	CONF (vmm.tty_rtl8169);
 	CONF (vmm.tty_x540);

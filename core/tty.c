@@ -29,6 +29,7 @@
 
 #include "arith.h"
 #include "calluefi.h"
+#include "config.h"
 #include "cpu.h"
 #include "initfunc.h"
 #include "list.h"
@@ -130,6 +131,35 @@ mkudp (char *buf, char *src, int sport, char *dst, int dport,
 	return datalen + 8 + 20;
 }
 
+static void
+tty_syslog_putchar (unsigned char c)
+{
+	struct tty_udp_data *p;
+	unsigned int pktsiz = 0;
+	char pkt[64 + 80 + 9];
+	static char buf[80 + 9];
+	static int len;
+
+	if ((c < ' ' && c != '\n') || c > '~')
+		return;
+	spinlock_lock (&putchar_lock);
+	if (!len)
+		len = snprintf (buf, sizeof buf, "bitvisor:");
+	buf[len++] = c;
+	if (len == sizeof buf || c == '\n') {
+		memcpy (pkt + 12, "\x08\x00", 2);
+		pktsiz = mkudp (pkt + 14,
+				(char *)config.vmm.tty_syslog.src_ipaddr, 514,
+				(char *)config.vmm.tty_syslog.dst_ipaddr, 514,
+				buf, len) + 14;
+		len = 0;
+	}
+	spinlock_unlock (&putchar_lock);
+	if (pktsiz)
+		LIST1_FOREACH (tty_udp_list, p)
+			p->tty_send (p->handle, pkt, pktsiz);
+}
+
 /* how to receive the messages:
    perl -e '$|=1;use Socket;
    socket(S, PF_INET, SOCK_DGRAM, 0);
@@ -142,6 +172,10 @@ tty_udp_putchar (unsigned char c)
 	unsigned int pktsiz;
 	char pkt[64];
 
+	if (config.vmm.tty_syslog.enable) {
+		tty_syslog_putchar (c);
+		return;
+	}
 	LIST1_FOREACH (tty_udp_list, p) {
 		memcpy (pkt + 12, "\x08\x00", 2);
 		pktsiz = mkudp (pkt + 14, "\x00\x00\x00\x00", 10,

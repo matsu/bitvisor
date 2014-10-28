@@ -205,6 +205,12 @@ struct config_data_vmm_iccard {
 	int status;
 };
 
+struct config_data_vmm_tty_syslog {
+	int enable;
+	u8 src_ipaddr[4];
+	u8 dst_ipaddr[4];
+};
+
 struct config_data_ip {
 	u8 ipaddr[4];
 	u8 netmask[4];
@@ -230,6 +236,7 @@ struct config_data_vmm {
 	int tty_ieee1394;
 	struct config_data_vmm_driver driver;
 	struct config_data_vmm_iccard iccard;
+	struct config_data_vmm_tty_syslog tty_syslog;
 };
 
 struct config_data {

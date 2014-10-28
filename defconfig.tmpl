@@ -132,6 +132,11 @@ struct config_data config = {
 		.tty_mac_address = {
 			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 		},
+		.tty_syslog = {
+			.enable = 0,
+			.src_ipaddr = { 0, 0, 0, 0 },
+			.dst_ipaddr = { 0, 0, 0, 0 },
+		},
 		.tty_pro1000 = 0,
 		.tty_rtl8169 = 0,
 		.tty_x540 = 0,
