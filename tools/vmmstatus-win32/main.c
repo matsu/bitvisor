@@ -51,7 +51,7 @@ vmcall_getstatus (char *buf, int len)
 	CALL_VMM_GET_FUNCTION ("get_status", &f);
 	if (!call_vmm_function_callable (&f))
 		return -1;
-	a.rbx = (long)buf;
+	a.rbx = (intptr_t)buf;
 	a.rcx = (long)(len - 1);
 	call_vmm_call_function (&f, &a, &r);
 	if ((int)r.rax)
@@ -77,7 +77,7 @@ getstatus (TCHAR **st1, TCHAR **st2)
 	*st2 = buf2;
 }
 
-BOOL CALLBACK
+INT_PTR CALLBACK
 status_dialog (HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
 	TCHAR *status1, *status2;
@@ -98,7 +98,7 @@ status_dialog (HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 		getstatus (&status1, &status2);
 		SetWindowText (GetDlgItem (hwnd, IDC_STATUS1), status1);
 		SetWindowText (GetDlgItem (hwnd, IDC_STATUS2), status2);
-		SetWindowLong (hwnd, DWL_MSGRESULT, 0);
+		SetWindowLongPtr (hwnd, DWLP_MSGRESULT, 0);
 		return TRUE;
 	case WM_SIZE:
 		rect.left = 16;
@@ -121,7 +121,7 @@ status_dialog (HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 	return FALSE;
 }
 
-int STDCALL
+int WINAPI
 WinMain (HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
 {
 	HWND hwndp;

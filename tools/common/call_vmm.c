@@ -9,7 +9,7 @@
 #define VMMCALL_TYPE_VMMCALL 2
 
 struct call_vmm_get_function_sub_data {
-	unsigned long addr, arg;
+	intptr_t addr, arg;
 	int ret;
 };
 
@@ -56,7 +56,7 @@ static void
 call_vmm_get_function_sub (void *data)
 {
 	struct call_vmm_get_function_sub_data *p;
-	unsigned long tmp;
+	intptr_t tmp;
 
 	p = data;
 	asm volatile ("mov $1f,%1\n"
@@ -67,7 +67,7 @@ call_vmm_get_function_sub (void *data)
 }
 
 void
-call_vmm_get_function (unsigned long addr0, unsigned long addr1, int aoff,
+call_vmm_get_function (intptr_t addr0, intptr_t addr1, int aoff,
 		       int off, call_vmm_function_t *function)
 {
 	struct call_vmm_get_function_sub_data data;

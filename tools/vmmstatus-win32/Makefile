@@ -1,4 +1,5 @@
 MINGW_PREFIX_DEBIAN	= i586-mingw32msvc-
+#MINGW_PREFIX_DEBIAN	= amd64-mingw32msvc-
 MINGW_PREFIX		= $(MINGW_PREFIX_DEBIAN)
 OUT_EXE			= vmmstatus.exe
 OBJS			= main.o resource.o
