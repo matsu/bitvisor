@@ -32,6 +32,7 @@
 #include <linux/miscdevice.h>
 #include <linux/workqueue.h>
 #include <linux/io.h>
+#include <linux/slab.h>
 
 struct log_buf {
 	u32 n;
@@ -165,7 +166,7 @@ logget_linux_exit (void)
 		asm volatile ("vmmcall"
 			      :
 			      : "a" (callnum), "b" (0));
-	init_MUTEX_LOCKED (&exit_logget_linux_sem);
+	sema_init (&exit_logget_linux_sem, 0);
 	atomic_set (&exit_logget_linux_flag, 1);
 	printk ("exit_logget_linux: waiting for logget_linux_polling\n");
 	down (&exit_logget_linux_sem);

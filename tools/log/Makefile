@@ -4,7 +4,8 @@ CurrentKernel :
 	make -C /lib/modules/`uname -r`/build SUBDIRS=`pwd` modules
 
 clean :
-	-rm -f Module.symvers *.o *.ko *.mod.c .*.cmd *~ .tmp_versions/''*
+	-rm -f Module.symvers *.o *.ko *.mod.c .*.cmd *~ .tmp_versions/''* \
+		modules.order
 	-rmdir .tmp_versions
 
 load :
