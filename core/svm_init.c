@@ -255,6 +255,10 @@ svm_init (void)
 		currentcpu->svm.flush_by_asid = true;
 	else
 		currentcpu->svm.flush_by_asid = false;
+	if (d & CPUID_EXT_A_EDX_NRIP_SAVE_BIT)
+		currentcpu->svm.nrip_save = true;
+	else
+		currentcpu->svm.nrip_save = false;
 }
 
 void

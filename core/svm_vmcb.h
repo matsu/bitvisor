@@ -153,7 +153,8 @@ struct vmcb {
 	unsigned int lbr_virtualization_enable : 1; /* 0 */
 	u64 reserved0b8 : 63;	/* 63-1 */
 	/* 0x0C0 */
-	u32 reserved0c[4];	/* 0x0C0 */
+	u32 reserved0c[2];	/* 0x0C0 */
+	u64 nrip;		/* 0x0C8 */
 	u32 reserved0d[4];	/* 0x0D0 */
 	u32 reserved0e[4];	/* 0x0E0 */
 	u32 reserved0f[4];	/* 0x0F0 */

@@ -338,21 +338,38 @@ do_invlpg (void)
 static void
 do_readwrite_msr (void)
 {
+	enum vmmerr err;
 	struct svm *svm;
 	struct vmcb *vmcb;
 	bool gp_fault;
 
 	svm = &current->u.svm;
 	vmcb = svm->vi.vmcb;
-	switch (vmcb->exitinfo1) {
-	case 0:
-		gp_fault = cpu_emul_rdmsr ();
-		break;
-	case 1:
-		gp_fault = cpu_emul_wrmsr ();
-		break;
-	default:
-		panic ("Invalid EXITINFO1 0x%llX", vmcb->exitinfo1);
+	if (currentcpu->svm.nrip_save) {
+		switch (vmcb->exitinfo1) {
+		case 0:
+			gp_fault = cpu_emul_rdmsr ();
+			break;
+		case 1:
+			gp_fault = cpu_emul_wrmsr ();
+			break;
+		default:
+			panic ("Invalid EXITINFO1 0x%llX", vmcb->exitinfo1);
+		}
+		if (!gp_fault)
+			vmcb->rip = vmcb->nrip;
+	} else {
+		err = cpu_interpreter ();
+		switch (err) {
+		case VMMERR_SUCCESS:
+			gp_fault = false;
+			break;
+		case VMMERR_MSR_FAULT:
+			gp_fault = true;
+			break;
+		default:
+			panic ("ERR %d", err);
+		}
 	}
 	if (gp_fault) {
 		svm->intr.vmcb_intr_info.v = 0;
@@ -361,8 +378,6 @@ do_readwrite_msr (void)
 		svm->intr.vmcb_intr_info.s.ev = 1;
 		svm->intr.vmcb_intr_info.s.v = 1;
 		svm->intr.vmcb_intr_info.s.errorcode = 0;
-	} else {
-		vmcb->rip += 2;
 	}
 }
 

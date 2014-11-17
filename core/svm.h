@@ -67,6 +67,7 @@ struct svm_pcpu_data {
 	struct vmcb *vmcbhost;
 	u64 vmcbhost_phys;
 	bool flush_by_asid;
+	bool nrip_save;
 };
 
 void vmctl_svm_init (void);
