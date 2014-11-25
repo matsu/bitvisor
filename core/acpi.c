@@ -389,8 +389,10 @@ save_mcfg (void)
 	struct mcfg *d;
 
 	d = find_entry (MCFG_SIGNATURE);
-	saved_mcfg = alloc (d->header.length);
-	memcpy (saved_mcfg, d, d->header.length);
+	if (d) {
+		saved_mcfg = alloc (d->header.length);
+		memcpy (saved_mcfg, d, d->header.length);
+	}
 }
 
 static void
@@ -849,8 +851,12 @@ acpi_init_global (void)
 	if (0)
 		printf ("PM1a control port is 0x%X\n", pm1a_cnt_ioaddr);
 	q = find_entry_in_rsdt (FACP_SIGNATURE);
-	get_facs_addr (&facs_addr[2], q);
-	remove_dup_facs_addr (facs_addr, 4);
+	if (q) {
+		get_facs_addr (&facs_addr[2], q);
+		remove_dup_facs_addr (facs_addr, 4);
+	} else {
+		remove_dup_facs_addr (facs_addr, 2);
+	}
 	pm1a_cnt_found = true;
 	save_mcfg ();
 }
