@@ -56,6 +56,7 @@ asm_vmlaunch_regs_32:
 	push	%edi
 	mov	20(%esp),%edi	# arg1
 	push	%edi
+	sub	$4,%esp
 	mov	$VMCS_HOST_RSP,%eax
 	mov	%esp,%edx
 	vmwrite	%edx,%eax
@@ -74,11 +75,13 @@ asm_vmlaunch_regs_32:
 	vmlaunch
 	xor	%eax,%eax
 	dec	%eax
+	add	$4,%esp
 	pop	%edi
 	jmp	2f
 	.align	16
 1:
-	xchg	(%esp),%edi
+	mov	%edi,(%esp)
+	mov	4(%esp),%edi
 	mov	%eax,4*RAX(%edi)
 	mov	%ecx,4*RCX(%edi)
 	mov	%edx,4*RDX(%edi)
@@ -86,6 +89,7 @@ asm_vmlaunch_regs_32:
 	mov	%ebp,4*RBP(%edi)
 	mov	%esi,4*RSI(%edi)
 	popl	4*RDI(%edi)
+	add	$4,%esp
 	mov	%cr2,%eax
 	mov	%eax,4*CR2(%edi)
 	xor	%eax,%eax
@@ -104,6 +108,7 @@ asm_vmresume_regs_32:
 	push	%edi
 	mov	20(%esp),%edi	# arg1
 	push	%edi
+	sub	$4,%esp
 	mov	$VMCS_HOST_RSP,%eax
 	mov	%esp,%edx
 	vmwrite	%edx,%eax
@@ -122,11 +127,13 @@ asm_vmresume_regs_32:
 	vmresume
 	xor	%eax,%eax
 	dec	%eax
+	add	$4,%esp
 	pop	%edi
 	jmp	2f
 	.align	16
 1:
-	xchg	(%esp),%edi
+	mov	%edi,(%esp)
+	mov	4(%esp),%edi
 	mov	%eax,4*RAX(%edi)
 	mov	%ecx,4*RCX(%edi)
 	mov	%edx,4*RDX(%edi)
@@ -134,6 +141,7 @@ asm_vmresume_regs_32:
 	mov	%ebp,4*RBP(%edi)
 	mov	%esi,4*RSI(%edi)
 	popl	4*RDI(%edi)
+	add	$4,%esp
 	mov	%cr2,%eax
 	mov	%eax,4*CR2(%edi)
 	xor	%eax,%eax
@@ -190,6 +198,7 @@ asm_vmlaunch_regs_64:
 	push	%r14
 	push	%r15
 	push	%rdi		# arg1
+	sub	$8,%rsp
 	mov	$VMCS_HOST_RSP,%rax
 	mov	%rsp,%rdx
 	vmwrite	%rdx,%rax
@@ -216,11 +225,13 @@ asm_vmlaunch_regs_64:
 	vmlaunch
 	xor	%rax,%rax
 	dec	%rax
+	add	$8,%rsp
 	pop	%rdi
 	jmp	2f
 	.align	16
 1:
-	xchg	(%rsp),%rdi
+	mov	%rdi,(%rsp)
+	mov	8(%rsp),%rdi
 	mov	%rax,8*RAX(%rdi)
 	mov	%rcx,8*RCX(%rdi)
 	mov	%rdx,8*RDX(%rdi)
@@ -228,6 +239,7 @@ asm_vmlaunch_regs_64:
 	mov	%rbp,8*RBP(%rdi)
 	mov	%rsi,8*RSI(%rdi)
 	popq	8*RDI(%rdi)
+	add	$8,%rsp
 	mov	%cr2,%rax
 	mov	%rax,8*CR2(%rdi)
 	mov	%r8,8*R8(%rdi)
@@ -257,6 +269,7 @@ asm_vmresume_regs_64:
 	push	%r14
 	push	%r15
 	push	%rdi		# arg1
+	sub	$8,%rsp
 	mov	$VMCS_HOST_RSP,%rax
 	mov	%rsp,%rdx
 	vmwrite	%rdx,%rax
@@ -283,11 +296,13 @@ asm_vmresume_regs_64:
 	vmresume
 	xor	%rax,%rax
 	dec	%rax
+	add	$8,%rsp
 	pop	%rdi
 	jmp	2f
 	.align	16
 1:
-	xchg	(%rsp),%rdi
+	mov	%rdi,(%rsp)
+	mov	8(%rsp),%rdi
 	mov	%rax,8*RAX(%rdi)
 	mov	%rcx,8*RCX(%rdi)
 	mov	%rdx,8*RDX(%rdi)
@@ -295,6 +310,7 @@ asm_vmresume_regs_64:
 	mov	%rbp,8*RBP(%rdi)
 	mov	%rsi,8*RSI(%rdi)
 	popq	8*RDI(%rdi)
+	add	$8,%rsp
 	mov	%cr2,%rax
 	mov	%rax,8*CR2(%rdi)
 	mov	%r8,8*R8(%rdi)
