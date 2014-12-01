@@ -378,7 +378,7 @@ uefi_entry_ret:
 	pop	%rbx
 	ret
 .else
-	or	$-1,%eax
+	xor	%eax,%eax
 	ret
 .endif
 

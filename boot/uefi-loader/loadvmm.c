@@ -110,6 +110,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	void *tmp;
 	uint32_t entry;
 	UINTN readsize;
+	int boot_error;
 	EFI_STATUS status;
 	entry_func_t *entry_func;
 	EFI_FILE_HANDLE file, file2;
@@ -160,7 +161,10 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	}
 	entry = *(uint32_t *)(paddr + 0x18);
 	entry_func = (entry_func_t *)(paddr + (entry & 0xFFFF));
-	entry_func (paddr, readsize, systab, image, file2);
+	boot_error = entry_func (paddr, readsize, systab, image, file2);
+	if (!boot_error)
+		systab->ConOut->OutputString (systab->ConOut,
+					      L"Boot failed\r\n");
 	status = systab->BootServices->FreePages (paddr, 0x10);
 	if (EFI_ERROR (status)) {
 		print (systab, L"FreePages ", status);
@@ -168,5 +172,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	}
 	file2->Close (file2);
 	file->Close (file);
+	if (!boot_error)
+		return EFI_LOAD_ERROR;
 	return EFI_SUCCESS;
 }
