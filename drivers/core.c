@@ -124,6 +124,7 @@ static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
 	core_io_t io;
 	core_io_handler_t handler;
 	void *arg;
+	bool hooked = false;
 
 	io.port = port;
 	io.size = iotype_get_size(iotype);
@@ -148,9 +149,14 @@ static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
 		ret = handler(io, data, arg);
 		spinlock_lock(&handler_descriptor_lock);
 
+		hooked = true;
+
 		if (ret != CORE_IO_RET_NEXT)
 			break;
 	}
+	if (!hooked)
+		for (i = 0; i < io.size; i++)
+			set_iofunc (port + i, do_iopass_default);
 	spinlock_unlock(&handler_descriptor_lock);
 
 	switch (ret) {
@@ -216,13 +222,12 @@ int core_io_register_handler(ioport_t start, size_t num, core_io_handler_t handl
 		hd_num++;
 		break;
 	}
+	if (hd < MAX_HD && handler_descriptor[hd]->enabled)
+		for (i = 0; i < num; i++)
+			set_iofunc (start + i, core_iofunc);
 	spinlock_unlock(&handler_descriptor_lock);
 	if (hd >= MAX_HD)
 		goto oom;
-
-	if (handler_descriptor[hd]->enabled)
-		for (i = 0; i < num; i++)
-			set_iofunc(start + i, core_iofunc);
 
 	// printf("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start, end);
 	return hd;
@@ -249,11 +254,10 @@ int core_io_modify_handler(int hd, ioport_t start, size_t num)
 		handler_descriptor[hd]->end = end;
 		handler_descriptor[hd]->enabled = end >= start ? true : false;
 	}
-	spinlock_unlock(&handler_descriptor_lock);
-
 	if (handler_descriptor[hd]->enabled)
 		for (i = 0; i < num; i++)
 			set_iofunc(start + i, core_iofunc);
+	spinlock_unlock(&handler_descriptor_lock);
 
 //	printf("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start, end);
 	return hd;
