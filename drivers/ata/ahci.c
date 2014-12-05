@@ -41,6 +41,7 @@
 
 #define NUM_OF_AHCI_PORTS	32
 #define PxCMD_ST_BIT		1
+#define PxCMD_CR_BIT		0x8000
 #define PxSSTS_DET_MASK		0xF
 #define PxSSTS_DET_MASK_NODEV	0x0
 #define NUM_OF_COMMAND_HEADER	32
@@ -572,6 +573,7 @@ static void
 ahci_port_data_init (struct ahci_data *ad, int port_num)
 {
 	int i;
+	u32 pxcmd;
 	void *virt;
 	phys_t phys;
 	struct ahci_port *port;
@@ -591,10 +593,27 @@ ahci_port_data_init (struct ahci_data *ad, int port_num)
 	port->storage_device = storage_new (STORAGE_TYPE_AHCI, ad->host_id,
 					    port_num, NULL, NULL);
 	port->atapi = false;
+	/* PxCMD.ST should be cleared when PxCLB and PxCLBU are
+	 * changed.  PxCLB and PxCLBU are written in mmhandler2() when
+	 * PxCMD.ST is changed from 0 to 1. */
 	port->clb = ahci_port_read (ad, port_num, PxCLB);
 	port->clbu = ahci_port_read (ad, port_num, PxCLBU);
-	ahci_port_write (ad, port_num, PxCLB, port->myclb);
-	ahci_port_write (ad, port_num, PxCLBU, port->myclbu);
+	pxcmd = ahci_port_read (ad, port_num, PxCMD);
+	if (pxcmd & PxCMD_ST_BIT) {
+		ahci_port_write (ad, port_num, PxCMD, pxcmd & ~PxCMD_ST_BIT);
+		/* PxCMD.CR should be cleared by hardware after
+		 * clearing PxCMD.ST. */
+		for (i = 1500000; i > 0; i--)
+			if (!(ahci_port_read (ad, port_num, PxCMD) &
+			      PxCMD_CR_BIT))
+				break;
+		if (!i)
+			printf ("AHCI %d:%d warning: PxCMD.CR=1\n",
+				ad->host_id, port_num);
+		ahci_port_write (ad, port_num, PxCLB, port->myclb);
+		ahci_port_write (ad, port_num, PxCLBU, port->myclbu);
+		ahci_port_write (ad, port_num, PxCMD, pxcmd);
+	}
 	printf ("AHCI %d:%d initialized\n", ad->host_id, port_num);
 }
 
@@ -1050,7 +1069,22 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 				pxcmd = ahci_port_read (ad, port_num, PxCMD);
 				if (pxcmd & PxCMD_ST_BIT)
 					ahci_cmd_cancel (port);
+			} else if (*buf32 & PxCMD_ST_BIT) {
+				pxcmd = ahci_port_read (ad, port_num, PxCMD);
+				if (!(pxcmd & PxCMD_ST_BIT)) {
+					ahci_port_write (ad, port_num, PxCLB,
+							 port->myclb);
+					ahci_port_write (ad, port_num, PxCLBU,
+							 port->myclbu);
+				}
 			}
+		}
+		if (port && ahci_port_eq (port_off, len, PxSACT)) {
+			/* Handling PxSACT is necessary because PxSACT
+			 * is cleared when PxCMD.ST is cleared in the
+			 * ahci_port_data_init(). */
+			if (!port->storage_device)
+				ahci_port_data_init (ad, port_num);
 		}
 		if (port && ahci_port_eq (port_off, len, PxCI)) {
 			if (!port->storage_device)
@@ -1068,10 +1102,18 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 	} else {
 		/* Read */
 		if (port && ahci_port_eq (port_off, len, PxCLB)) {
+			/* port->clb is initialized in the
+			 * ahci_port_data_init(). */
+			if (!port->storage_device)
+				ahci_port_data_init (ad, port_num);
 			*buf32 = port->clb;
 			return;
 		}
 		if (port && ahci_port_eq (port_off, len, PxCLBU)) {
+			/* port->clbu is initialized in the
+			 * ahci_port_data_init(). */
+			if (!port->storage_device)
+				ahci_port_data_init (ad, port_num);
 			*buf32 = port->clbu;
 			return;
 		}
