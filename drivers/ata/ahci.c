@@ -41,6 +41,8 @@
 
 #define NUM_OF_AHCI_PORTS	32
 #define PxCMD_ST_BIT		1
+#define PxCMD_FRE_BIT		0x10
+#define PxCMD_FR_BIT		0x4000
 #define PxCMD_CR_BIT		0x8000
 #define PxSSTS_DET_MASK		0xF
 #define PxSSTS_DET_MASK_NODEV	0x0
@@ -265,6 +267,7 @@ struct ahci_command_data {
 		u32 pxci, pxci2;
 		u32 pxis, pxie;
 		u32 queued;
+		u32 pxcmd;
 		void *fis;
 	} port[NUM_OF_AHCI_PORTS];
 };
@@ -566,6 +569,17 @@ ahci_unlock (struct ahci_data *ad)
 	spinlock_unlock (&ad->locked_lock);
 }
 
+static int
+wait_for_pxcmd (struct ahci_data *ad, int port_num, u32 mask, u32 value)
+{
+	int i;
+
+	for (i = 1500000; i > 0; i--)
+		if ((ahci_port_read (ad, port_num, PxCMD) & mask) == value)
+			break;
+	return i;
+}
+
 /************************************************************/
 /* Initialize */
 
@@ -603,11 +617,7 @@ ahci_port_data_init (struct ahci_data *ad, int port_num)
 		ahci_port_write (ad, port_num, PxCMD, pxcmd & ~PxCMD_ST_BIT);
 		/* PxCMD.CR should be cleared by hardware after
 		 * clearing PxCMD.ST. */
-		for (i = 1500000; i > 0; i--)
-			if (!(ahci_port_read (ad, port_num, PxCMD) &
-			      PxCMD_CR_BIT))
-				break;
-		if (!i)
+		if (!wait_for_pxcmd (ad, port_num, PxCMD_CR_BIT, 0))
 			printf ("AHCI %d:%d warning: PxCMD.CR=1\n",
 				ad->host_id, port_num);
 		ahci_port_write (ad, port_num, PxCLB, port->myclb);
@@ -1299,6 +1309,21 @@ found:
 			data->port[pno].fis = NULL;
 			goto mix_with_guest;
 		}
+		data->port[pno].pxcmd = ahci_port_read (ad, pno, PxCMD);
+		if (data->port[pno].pxcmd & PxCMD_ST_BIT) {
+			ahci_port_write (ad, pno, PxCMD, data->port[pno].pxcmd
+					 & ~PxCMD_ST_BIT);
+			if (!wait_for_pxcmd (ad, pno, PxCMD_CR_BIT, 0))
+				printf ("AHCI %d:%d warning: PxCMD.CR=1\n",
+					ad->host_id, pno);
+		}
+		if (data->port[pno].pxcmd & PxCMD_FRE_BIT) {
+			ahci_port_write (ad, pno, PxCMD, data->port[pno].pxcmd
+					 & ~PxCMD_ST_BIT & ~PxCMD_FRE_BIT);
+			if (!wait_for_pxcmd (ad, pno, PxCMD_FR_BIT, 0))
+				printf ("AHCI %d:%d warning: PxCMD.FR=1\n",
+					ad->host_id, pno);
+		}
 		data->port[pno].orig_fb = ahci_port_read (ad, pno, PxFB);
 		data->port[pno].orig_fbu = ahci_port_read (ad, pno, PxFBU);
 		alloc_page (&data->port[pno].fis, &phys);
@@ -1306,6 +1331,11 @@ found:
 		pxfbu = phys >> 32;
 		ahci_port_write (ad, pno, PxFB, pxfb);
 		ahci_port_write (ad, pno, PxFBU, pxfbu);
+		ahci_port_write (ad, pno, PxCMD, (data->port[pno].pxcmd
+						  & ~PxCMD_ST_BIT)
+				 | PxCMD_FRE_BIT);
+		ahci_port_write (ad, pno, PxCMD, data->port[pno].pxcmd
+				 | PxCMD_ST_BIT | PxCMD_FRE_BIT);
 		data->port[pno].pxis = ahci_port_read (ad, pno, PxIS);
 	mix_with_guest:
 		data->port[pno].pxie = ahci_port_read (ad, pno, PxIE);
@@ -1376,11 +1406,28 @@ ahci_command_completion (struct ahci_data *ad, struct ahci_command_list *p,
 	if (!--data->port[pno].queued) {
 		if (!data->port[pno].fis)
 			goto mix_with_guest;
+		ahci_port_write (ad, pno, PxCMD, (data->port[pno].pxcmd
+						  & ~PxCMD_ST_BIT)
+				 | PxCMD_FRE_BIT);
+		if (!wait_for_pxcmd (ad, pno, PxCMD_CR_BIT, 0))
+			printf ("AHCI %d:%d warning: PxCMD.CR=1\n",
+				ad->host_id, pno);
+		ahci_port_write (ad, pno, PxCMD, data->port[pno].pxcmd
+				 & ~PxCMD_ST_BIT & ~PxCMD_FRE_BIT);
+		if (!wait_for_pxcmd (ad, pno, PxCMD_FR_BIT, 0))
+			printf ("AHCI %d:%d warning: PxCMD.FR=1\n",
+				ad->host_id, pno);
 		pxis1 = ahci_port_read (ad, pno, PxIS) & ~data->port[pno].pxis;
 		if (pxis1)
 			ahci_port_write (ad, pno, PxIS, pxis1);
 		ahci_port_write (ad, pno, PxFB, data->port[pno].orig_fb);
 		ahci_port_write (ad, pno, PxFBU, data->port[pno].orig_fbu);
+		if (data->port[pno].pxcmd & PxCMD_FRE_BIT)
+			ahci_port_write (ad, pno, PxCMD, data->port[pno].pxcmd
+					 & ~PxCMD_ST_BIT);
+		if (data->port[pno].pxcmd & PxCMD_ST_BIT)
+			ahci_port_write (ad, pno, PxCMD,
+					 data->port[pno].pxcmd);
 		free_page (data->port[pno].fis);
 	mix_with_guest:
 		ahci_port_write (ad, pno, PxIE, data->port[pno].pxie);
