@@ -604,11 +604,13 @@ pci_get_bar_info_internal (struct pci_device *pci_device, int n,
 	}
 	if (!(mask & and))
 		goto err;
-	bar_info->base = newbase = (low & and) | (u64)high << 32;
+	bar_info->base = newbase = (low & mask & and) | (u64)high << 32;
 	if (offset == match_offset)
-		newbase = (data->dword & and) | (u64)high << 32;
+		newbase = (data->dword & mask & and) | (u64)high << 32;
 	else if (offset == match_offset + 4)
-		newbase = (low & and) | (u64)data->dword << 32;
+		newbase = (low & mask & and) | (u64)data->dword << 32;
+	if (newbase == (mask & and))
+		goto err;
 	bar_info->len = (mask & and) & (~(mask & and) + 1);
 	bar_info->type = type;
 	return newbase;
