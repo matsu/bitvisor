@@ -609,7 +609,9 @@ pci_get_bar_info_internal (struct pci_device *pci_device, int n,
 		newbase = (data->dword & mask & and) | (u64)high << 32;
 	else if (offset == match_offset + 4)
 		newbase = (low & mask & and) | (u64)data->dword << 32;
-	if (newbase == (mask & and))
+	/* The bit 63 must be cleared for CPU access.  If it is set,
+	 * the BAR access is for size detection. */
+	if (newbase == (mask & and) || (newbase & 0x8000000000000000ULL))
 		goto err;
 	bar_info->len = (mask & and) & (~(mask & and) + 1);
 	bar_info->type = type;
