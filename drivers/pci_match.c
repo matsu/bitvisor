@@ -202,6 +202,8 @@ save_driver_options (struct pci_device *device, struct pci_driver *driver,
 	}
 	panic ("%s: invalid option name %s", __func__, name->start);
 found:
+	if (!device)
+		return;
 	if (device->driver_options[i])
 		free (device->driver_options[i]);
 	device->driver_options[i] = alloc (value->end - value->start + 1);
@@ -210,116 +212,146 @@ found:
 	device->driver_options[i][value->end - value->start] = '\0';
 }
 
-static struct pci_driver *
-pci_match_find_driver_sub (struct pci_device *device, char *p)
+static void
+pci_match_device_selection (struct pci_device *device, char **p,
+			    struct token *tname, struct token *tvalue, char c,
+			    unsigned int *device_selection)
 {
-	struct pci_driver *driver = NULL;
-	struct token tname, tvalue;
-	char buf[32], c;
-	int state = 0;
 	static struct pci_match_number_list *number_list = NULL;
 	struct pci_match_number_list *np;
+	struct pci_driver *driver;
+	char buf[32];
 
-	if (device->driver_options)
-		panic ("pci_match_find_driver:"
-		       " device->driver_options != NULL");
-
-	/* state =  0: new state -> 1 or return
-	 * state =  1: matching -> 2 or -1
-	 * state =  2: creating driver options list
-	 * state = -1: not matched -> -2
-	 * state = -2: ignoring driver options -> 0 or return */
-	for (;; p = tvalue.next) {
-		c = get_token (p, &tname);
-		if (tname.start == tname.end) {
-			if (state == 0 || state == -2)
-				return NULL;
-			if (state == 2)
-				return driver;
-			panic ("%s: syntax error 0 %s", __func__, p);
-		}
-		if (!tname.start)
-			panic ("%s: syntax error 1 %s", __func__, p);
-		if ((state == -2 || state == 2) &&
-		    match_token ("and", &tname) && c == ',') {
-			if (state == 2)
-				return driver;
-			state = 0;
-			tvalue.next = tname.next;
-			continue;
-		}
+	*device_selection = 0;
+	goto start;
+	for (;;) {
+		*p = tvalue->next;
+		c = get_token (*p, tname);
+		if (tname->start == tname->end)
+			panic ("%s: syntax error 0 %s", __func__, *p);
+	start:
+		if (!tname->start)
+			panic ("%s: syntax error 1 %s", __func__, *p);
 		if (c != '=')
-			panic ("%s: syntax error 2 %s", __func__, p);
-		c = get_token (tname.next, &tvalue);
-		if (!tvalue.start)
-			panic ("%s: syntax error 3 %s", __func__, p);
+			panic ("%s: syntax error 2 %s", __func__, *p);
+		c = get_token (tname->next, tvalue);
+		if (!tvalue->start)
+			panic ("%s: syntax error 3 %s", __func__, *p);
 		if (c != ',' && c != '\0')
-			panic ("%s: syntax error 4 %s", __func__, p);
-		if (state == -2)
-			continue;
-		if (state == 2) {
-			if (!driver)
-				panic ("%s: syntax error 5 %s", __func__, p);
-			save_driver_options (device, driver, &tname, &tvalue);
-			continue;
-		}
-		if (match_token ("driver", &tname)) {
-			if (match_token ("none", &tvalue)) {
-				driver = NULL;
-			} else {
-				driver = pci_find_driver_by_token (&tvalue);
-				if (!driver)
-					panic ("%s: invalid driver name %s",
-					       __func__, p);
-			}
-			if (!state) {
-				state = 1;
-				if (!driver || !pci_match (device, driver))
-					state = -1;
-			}
-			if (state < 0) {
-				state = -2;
-				continue;
-			}
-			if (driver)
-				alloc_driver_options (device, driver);
-			state = 2;
-			continue;
-		}
-		if (state && match_token ("number", &tname)) {
-			if (state < 0)
+			panic ("%s: syntax error 4 %s", __func__, *p);
+		if (match_token ("driver", tname))
+			return;
+		if ((*device_selection & 1) && match_token ("number", tname)) {
+			if (*device_selection & 2)
 				continue;
 			for (np = number_list; np; np = np->next)
-				if (np->p == p)
+				if (np->p == *p)
 					break;
 			if (!np) {
 				np = alloc (sizeof *np);
-				np->p = p;
+				np->p = *p;
 				np->number = 0;
 				np->next = number_list;
 				number_list = np;
 			}
 			snprintf (buf, sizeof buf, "%d", np->number++);
-			if (!match_token (buf, &tvalue))
-				state = -1;
+			if (!match_token (buf, tvalue))
+				*device_selection |= 2;
 			continue;
 		}
-		if (!state)
-			state = 1;
-		if (match_token ("device", &tname)) {
-			driver = pci_find_driver_by_token (&tvalue);
+		*device_selection |= 1;
+		if (match_token ("device", tname)) {
+			driver = pci_find_driver_by_token (tvalue);
 			if (!driver)
 				panic ("%s: invalid device name %s",
-				       __func__, p);
-			if (state > 0 && !pci_match (device, driver))
-				state = -1;
+				       __func__, *p);
+			if (!pci_match (device, driver))
+				*device_selection |= 2;
 			continue;
 		}
-		if (!get_value (buf, sizeof buf, &tname, device))
-			panic ("%s: invalid name %s", __func__, p);
-		else if (state > 0 && !match_token (buf, &tvalue))
-			state = -1;
+		if (!get_value (buf, sizeof buf, tname, device))
+			panic ("%s: invalid name %s", __func__, *p);
+		if (!(*device_selection & 2) && !match_token (buf, tvalue))
+			*device_selection |= 2;
 	}
+}
+
+static void
+pci_match_driver_selection (struct pci_device *device, char **p,
+			    struct token *tname, struct token *tvalue,
+			    unsigned int device_selection,
+			    struct pci_driver **ret_drv, bool *driver_selected)
+{
+	bool match = !(device_selection & 2);
+	struct pci_driver *driver;
+	char c;
+
+	if (match_token ("none", tvalue)) {
+		driver = NULL;
+	} else {
+		driver = pci_find_driver_by_token (tvalue);
+		if (!driver)
+			panic ("%s: invalid driver name %s", __func__, *p);
+	}
+	if (!(device_selection & 1))
+		if (!driver || !pci_match (device, driver))
+			match = false;
+	if (*driver_selected)
+		match = false;
+	if (match) {
+		*ret_drv = driver;
+		*driver_selected = true;
+		if (driver)
+			alloc_driver_options (device, driver);
+	}
+	for (;;) {
+		*p = tvalue->next;
+		c = get_token (*p, tname);
+		if (tname->start == tname->end)
+			return;
+		if (!tname->start)
+			panic ("%s: syntax error 1 %s", __func__, *p);
+		if (match_token ("and", tname) && c == ',') {
+			*p = tname->next;
+			return;
+		}
+		if (c != '=')
+			panic ("%s: syntax error 2 %s", __func__, *p);
+		c = get_token (tname->next, tvalue);
+		if (!tvalue->start)
+			panic ("%s: syntax error 3 %s", __func__, *p);
+		if (c != ',' && c != '\0')
+			panic ("%s: syntax error 4 %s", __func__, *p);
+		if (!driver)
+			panic ("%s: syntax error 5 %s", __func__, *p);
+		save_driver_options (match ? device : NULL, driver, tname,
+				     tvalue);
+	}
+}
+
+static struct pci_driver *
+pci_match_find_driver_sub (struct pci_device *device, char *p)
+{
+	struct pci_driver *driver = NULL;
+	struct token tname, tvalue;
+	char c;
+	unsigned int device_selection;
+	bool driver_selected = false;
+
+	if (device->driver_options)
+		panic ("pci_match_find_driver:"
+		       " device->driver_options != NULL");
+	for (;;) {
+		c = get_token (p, &tname);
+		if (tname.start == tname.end)
+			break;
+		pci_match_device_selection (device, &p, &tname, &tvalue, c,
+					    &device_selection);
+		pci_match_driver_selection (device, &p, &tname, &tvalue,
+					    device_selection, &driver,
+					    &driver_selected);
+	}
+	return driver;
 }
 
 void
