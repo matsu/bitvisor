@@ -4,6 +4,25 @@
 #include <signal.h>
 #include "call_vmm.h"
 
+#define call_vmm_jmp_buf jmp_buf
+#define call_vmm_setjmp(env) setjmp (env)
+#define call_vmm_longjmp(env, val) longjmp (env, val)
+#ifdef __GLIBC__
+#ifdef __GLIBC_MINOR__
+#if __GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 19)
+/* glibc version >= 2.19 does not provide BSD compatible setjmp.
+   sigsetjmp should be used but it is not defined in MinGW.  These
+   macros replace them for glibc version >= 2.19. */
+#undef call_vmm_jmp_buf
+#undef call_vmm_setjmp
+#undef call_vmm_longjmp
+#define call_vmm_jmp_buf sigjmp_buf
+#define call_vmm_setjmp(env) sigsetjmp (env, 1)
+#define call_vmm_longjmp(env, val) siglongjmp (env, val)
+#endif
+#endif
+#endif
+
 #define VMMCALL_TYPE_ERROR 0
 #define VMMCALL_TYPE_VMCALL 1
 #define VMMCALL_TYPE_VMMCALL 2
@@ -19,18 +38,18 @@ struct call_vmm_call_function_sub_data {
 	call_vmm_ret_t *ret;
 };
 
-static jmp_buf jmpbuf;
+static call_vmm_jmp_buf jmpbuf;
 
 static void
 call_vmm_signalhandler (int sig)
 {
-	longjmp (jmpbuf, 1);
+	call_vmm_longjmp (jmpbuf, 1);
 }
 
 static volatile int
 call_vmm_docall_sub (void (*func) (void *data), void *data)
 {
-	if (!setjmp (jmpbuf)) {
+	if (!call_vmm_setjmp (jmpbuf)) {
 		func (data);
 		return 0;
 	} else {
