@@ -314,6 +314,16 @@ pci_monitor_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 	struct pci_bar_info bar_info;
 	int i;
 
+	if (offset >= 0x10 + 4 * PCI_CONFIG_BASE_ADDRESS_NUMS)
+		goto skip_bar_test;
+	for (i = 0; i < PCI_CONFIG_BASE_ADDRESS_NUMS; i++) {
+		if (offset + iosize - 1 < 0x10 + 4 * i)
+			goto skip_bar_test;
+		if (host->bar_opt[i] && offset < 0x10 + 4 * i + 4)
+			break;
+	}
+	if (i == PCI_CONFIG_BASE_ADDRESS_NUMS)
+		goto skip_bar_test;
 	i = pci_get_modifying_bar_info (pci_device, &bar_info, iosize, offset,
 					data);
 	if (i >= 0 && host->bar[i].base != bar_info.base) {
@@ -324,6 +334,7 @@ pci_monitor_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 		host->bar[i] = bar_info;
 		spinlock_unlock (&host->bar_lock[i]);
 	}
+skip_bar_test:
 	pci_handle_default_config_write (pci_device, iosize, offset, data);
 	for (o = host->config_opt; o; o = o->next) {
 		if (!o->w)
