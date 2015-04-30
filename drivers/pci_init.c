@@ -141,12 +141,17 @@ static struct pci_device *pci_new_device(pci_config_address_t addr)
 }
 
 struct pci_device *
-pci_possible_new_device (pci_config_address_t addr)
+pci_possible_new_device (pci_config_address_t addr,
+			 struct pci_config_mmio_data *mmio)
 {
 	u16 data;
 	struct pci_device *ret = NULL;
 
-	data = pci_read_config_data16_without_lock (addr, 0);
+	if (mmio)
+		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
+				      addr.func_no, 0, sizeof data, &data);
+	else
+		data = pci_read_config_data16_without_lock (addr, 0);
 	if (data != 0xFFFF)
 		ret = pci_new_device (addr);
 	return ret;

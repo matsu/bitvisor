@@ -270,7 +270,7 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 			goto ret;
 		}
 	}
-	dev = pci_possible_new_device (caddr);
+	dev = pci_possible_new_device (caddr, NULL);
 	pci_restore_config_addr ();
 	spinlock_unlock (&pci_config_lock);
 	if (dev) {
@@ -517,6 +517,7 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 	struct pci_device *dev;
 	int (*func) (struct pci_device *dev, u8 iosize, u16 offset,
 		     union mem *data);
+	pci_config_address_t new_dev_addr;
 
 	addr.offset = gphys - d->base;
 	spinlock_lock (&pci_config_lock);
@@ -542,8 +543,24 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 			return 1;
 		}
 	}
-	/* TODO: possible new device */
+	new_dev_addr.value = 0;
+	new_dev_addr.bus_no = addr.s.bus_no;
+	new_dev_addr.device_no = addr.s.dev_no;
+	new_dev_addr.func_no = addr.s.func_no;
+	dev = pci_possible_new_device (new_dev_addr, d);
 	spinlock_unlock (&pci_config_lock);
+	if (dev) {
+		struct pci_driver *driver;
+
+		printf ("[%02X:%02X.%X] New PCI device found.\n",
+			addr.s.bus_no, addr.s.dev_no, addr.s.func_no);
+		driver = pci_find_driver_for_device (dev);
+		if (driver) {
+			dev->driver = driver;
+			driver->new (dev);
+			goto found;
+		}
+	}
 	if (!wr)
 		memset (buf, 0xFF, len);
 	return 1;
