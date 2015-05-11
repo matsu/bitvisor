@@ -56,10 +56,27 @@ static pci_config_address_t pci_make_config_address(int bus, int dev, int fn, in
 	return addr;
 }
 
-static u32 pci_get_base_address_mask(pci_config_address_t addr)
+static u32
+pci_get_base_address_mask (struct pci_device *dev, pci_config_address_t addr)
 {
 	u32 tmp, mask;
 
+	if (dev->config_mmio) {
+		mask = 0xFFFFFFFF;
+		pci_read_config_mmio (dev->config_mmio, addr.bus_no,
+				      addr.device_no, addr.func_no,
+				      addr.reg_no * 4, sizeof tmp, &tmp);
+		pci_write_config_mmio (dev->config_mmio, addr.bus_no,
+				       addr.device_no, addr.func_no,
+				       addr.reg_no * 4, sizeof mask, &mask);
+		pci_read_config_mmio (dev->config_mmio, addr.bus_no,
+				      addr.device_no, addr.func_no,
+				      addr.reg_no * 4, sizeof mask, &mask);
+		pci_write_config_mmio (dev->config_mmio, addr.bus_no,
+				       addr.device_no, addr.func_no,
+				       addr.reg_no * 4, sizeof tmp, &tmp);
+		return mask;
+	}
 	tmp = pci_read_config_data32_without_lock(addr, 0);
 	pci_write_config_data_port_without_lock(0xFFFFFFFF);
 	mask = pci_read_config_data_port_without_lock();
@@ -79,7 +96,8 @@ static void pci_save_base_address_masks(struct pci_device *dev)
 	flag64 = false;
 	for (i = 0; i < PCI_CONFIG_BASE_ADDRESS_NUMS; i++) {
 		addr.reg_no = PCI_CONFIG_ADDRESS_GET_REG_NO(base_address) + i;
-		dev->base_address_mask[i] = pci_get_base_address_mask(addr);
+		dev->base_address_mask[i] =
+			pci_get_base_address_mask (dev, addr);
 		if (flag64) {
 			/* The mask should be ~0. The mask will not be
 			 * used. */
@@ -95,7 +113,7 @@ static void pci_save_base_address_masks(struct pci_device *dev)
 			flag64 = true;
 	}
 	addr.reg_no = PCI_CONFIG_ADDRESS_GET_REG_NO(ext_rom_base);
-	dev->base_address_mask[6] = pci_get_base_address_mask(addr);
+	dev->base_address_mask[6] = pci_get_base_address_mask (dev, addr);
 }
 
 static void pci_read_config_space(struct pci_device *dev)
@@ -104,6 +122,15 @@ static void pci_read_config_space(struct pci_device *dev)
 	pci_config_address_t addr = dev->address;
 	struct pci_config_space *cs = &dev->config_space;
 
+	if (dev->config_mmio) {
+		for (i = 0; i < 16; i++)
+			pci_read_config_mmio (dev->config_mmio, addr.bus_no,
+					      addr.device_no, addr.func_no,
+					      i * sizeof cs->regs32[0],
+					      sizeof cs->regs32[i],
+					      &cs->regs32[i]);
+		return;
+	}
 //	for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
 	for (i = 0; i < 16; i++) {
 		addr.reg_no = i;
@@ -132,9 +159,9 @@ static struct pci_device *pci_new_device(pci_config_address_t addr)
 		memset(dev, 0, sizeof(*dev));
 		dev->driver = NULL;
 		dev->address = addr;
+		dev->config_mmio = pci_search_config_mmio (0, addr.bus_no);
 		pci_read_config_space(dev);
 		pci_save_base_address_masks(dev);
-		dev->config_mmio = pci_search_config_mmio (0, addr.bus_no);
 		pci_append_device(dev);
 	}
 	return dev;
