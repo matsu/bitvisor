@@ -233,6 +233,85 @@ pci_find_driver_by_token (struct token *name)
 	return NULL;
 }
 
+static void
+device_disconnect (struct pci_device *dev)
+{
+	struct pci_device *bridge;
+
+	if (!dev->disconnect) {
+		printf ("[%02X:%02X.%X] %06X: %04X:%04X disconnect\n",
+			dev->address.bus_no,
+			dev->address.device_no,
+			dev->address.func_no,
+			dev->config_space.class_code,
+			dev->config_space.vendor_id,
+			dev->config_space.device_id);
+		dev->disconnect = 1;
+	}
+	if (!dev->bridge.yes)
+		return;
+	bridge = dev;
+	LIST_FOREACH (pci_device_list, dev) {
+		if (dev->parent_bridge != bridge)
+			continue;
+		device_disconnect (dev);
+	}
+}
+
+static void
+pci_handle_bridge_config_write (struct pci_device *bridge, u8 iosize,
+				u16 offset, union mem *data)
+{
+	struct pci_device *dev;
+	u8 old_secondary_bus_no = bridge->bridge.secondary_bus_no;
+	u8 old_subordinate_bus_no = bridge->bridge.subordinate_bus_no;
+	u8 new_secondary_bus_no = old_secondary_bus_no;
+	u8 new_subordinate_bus_no = old_subordinate_bus_no;
+
+	if (offset <= 0x19 && offset + iosize > 0x19)
+		new_secondary_bus_no = (&data->byte)[0x19 - offset];
+	if (offset <= 0x1A && offset + iosize > 0x1A)
+		new_subordinate_bus_no = (&data->byte)[0x1A - offset];
+	if (new_secondary_bus_no == old_secondary_bus_no &&
+	    new_subordinate_bus_no == old_subordinate_bus_no)
+		return;
+	printf ("[%02X:%02X.%X] bridge bus_no change %02X-%02X -> %02X-%02X\n",
+		bridge->address.bus_no,
+		bridge->address.device_no,
+		bridge->address.func_no,
+		old_secondary_bus_no, old_subordinate_bus_no,
+		new_secondary_bus_no, new_subordinate_bus_no);
+	LIST_FOREACH (pci_device_list, dev) {
+		if (dev->parent_bridge == bridge &&
+		    new_secondary_bus_no != old_secondary_bus_no) {
+			if (!dev->disconnect &&
+			    dev->address.bus_no != old_secondary_bus_no)
+				panic ("[%02X:%02X.%X] %06X: %04X:%04X"
+				       " bus_no != %02X",
+				       dev->address.bus_no,
+				       dev->address.device_no,
+				       dev->address.func_no,
+				       dev->config_space.class_code,
+				       dev->config_space.vendor_id,
+				       dev->config_space.device_id,
+				       old_secondary_bus_no);
+			device_disconnect (dev);
+			dev->address.bus_no = new_secondary_bus_no;
+		} else if (!dev->disconnect &&
+			   old_secondary_bus_no &&
+			   dev->address.bus_no > old_secondary_bus_no &&
+			   dev->address.bus_no <= old_subordinate_bus_no &&
+			   !(new_secondary_bus_no == old_secondary_bus_no &&
+			     dev->address.bus_no > new_secondary_bus_no &&
+			     dev->address.bus_no <= new_subordinate_bus_no)) {
+			device_disconnect (dev);
+		}
+	}
+	pci_set_bridge_from_bus_no (new_secondary_bus_no, bridge);
+	bridge->bridge.secondary_bus_no = new_secondary_bus_no;
+	bridge->bridge.subordinate_bus_no = new_subordinate_bus_no;
+}
+
 int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 {
 	int ioret = CORE_IO_RET_DEFAULT;
@@ -254,6 +333,13 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 	caddr0 = caddr, caddr0.func_no = 0;
 	LIST_FOREACH (pci_device_list, dev) {
 		if (dev->address.value == caddr.value) {
+			if (dev->disconnect &&
+			    pci_reconnect_device (dev, caddr, NULL))
+				goto new_device;
+			if (dev->disconnect) {
+				dev = NULL;
+				goto new_device;
+			}
 			spinlock_unlock (&pci_config_lock);
 			goto found;
 		}
@@ -271,6 +357,7 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 		}
 	}
 	dev = pci_possible_new_device (caddr, NULL);
+new_device:
 	pci_restore_config_addr ();
 	spinlock_unlock (&pci_config_lock);
 	if (dev) {
@@ -287,6 +374,8 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 	}
 	goto ret;
 found:
+	if (dev->bridge.yes && io.dir == CORE_IO_DIR_OUT)
+		pci_handle_bridge_config_write (dev, io.size, offset, data);
 	if (dev->driver == NULL)
 		goto ret;
 	if (dev->driver->options.use_base_address_mask_emulation) {
@@ -525,6 +614,13 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 		if (dev->address.bus_no == addr.s.bus_no &&
 		    dev->address.device_no == addr.s.dev_no &&
 		    dev->address.func_no == addr.s.func_no) {
+			if (dev->disconnect &&
+			    pci_reconnect_device (dev, dev->address, d))
+				goto new_device;
+			if (dev->disconnect) {
+				dev = NULL;
+				goto new_device;
+			}
 			spinlock_unlock (&pci_config_lock);
 			goto found;
 		}
@@ -548,6 +644,7 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 	new_dev_addr.device_no = addr.s.dev_no;
 	new_dev_addr.func_no = addr.s.func_no;
 	dev = pci_possible_new_device (new_dev_addr, d);
+new_device:
 	spinlock_unlock (&pci_config_lock);
 	if (dev) {
 		struct pci_driver *driver;
@@ -565,6 +662,9 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 		memset (buf, 0xFF, len);
 	return 1;
 found:
+	if (dev->bridge.yes && wr)
+		pci_handle_bridge_config_write (dev, len, addr.s.reg_offset,
+						buf);
 	if (dev->driver == NULL)
 		goto def;
 	if (dev->driver->options.use_base_address_mask_emulation) {

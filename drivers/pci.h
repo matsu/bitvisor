@@ -140,6 +140,7 @@ struct pci_device {
 		u8 secondary_bus_no, subordinate_bus_no;
 	} bridge;
 	struct pci_device *parent_bridge;
+	int disconnect;
 };
 
 struct pci_driver {
@@ -210,5 +211,7 @@ bool pci_driver_option_get_bool (char *option, char **e);
 void pci_dump_pci_dev_list (void);
 struct pci_device *pci_get_bridge_from_bus_no (u8 bus_no);
 void pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge);
+int pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
+			  struct pci_config_mmio_data *mmio);
 
 #endif

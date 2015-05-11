@@ -179,8 +179,14 @@ struct pci_device *
 pci_get_bridge_from_bus_no (u8 bus_no)
 {
 	struct pci_device **p = pci_bridge_from_bus_no (bus_no);
+	struct pci_device *ret;
 
-	return p ? *p : NULL;
+	if (!p)
+		return NULL;
+	ret = *p;
+	if (!ret || !ret->bridge.yes || ret->bridge.secondary_bus_no != bus_no)
+		return NULL;
+	return ret;
 }
 
 void
@@ -190,6 +196,76 @@ pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge)
 
 	if (p)
 		*p = bridge;
+}
+
+int
+pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
+		      struct pci_config_mmio_data *mmio)
+{
+	u32 data0, data8;
+
+	/* Read device ID, vendor ID and class code.  If the vendor ID
+	 * is 0xFFFF, the device remains disconnected. */
+	if (mmio) {
+		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
+				      addr.func_no, 0, sizeof data0, &data0);
+		if ((data0 & 0xFFFF) == 0xFFFF)
+			return 0;
+		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
+				      addr.func_no, 8, sizeof data8, &data8);
+	} else {
+		addr.reserved = 0;
+		addr.reg_no = 0;
+		addr.type = 0;
+		data0 = pci_read_config_data32_without_lock (addr, 0);
+		if ((data0 & 0xFFFF) == 0xFFFF)
+			return 0;
+		addr.reg_no = 2;
+		data8 = pci_read_config_data32_without_lock (addr, 0);
+		pci_restore_config_addr ();
+	}
+	/* Compare the read data with data stored in the dev
+	 * structure. */
+	if (dev->config_space.regs32[0] == data0 &&
+	    dev->config_space.regs32[2] == data8) {
+		printf ("[%02X:%02X.%X] %06X: %04X:%04X reconnected\n",
+			dev->address.bus_no,
+			dev->address.device_no,
+			dev->address.func_no,
+			dev->config_space.class_code,
+			dev->config_space.vendor_id,
+			dev->config_space.device_id);
+		dev->disconnect = 0;
+		return 0;
+	}
+	/* The device has been changed.  If a driver has been loaded
+	 * for the device, panic, because there is no unloading driver
+	 * function. */
+	if (dev->driver)
+		panic ("[%02X:%02X.%X] cannot handle device change"
+		       " %06X: %04X:%04X -> %06X: %04X:%04X",
+		       dev->address.bus_no,
+		       dev->address.device_no,
+		       dev->address.func_no,
+		       dev->config_space.class_code,
+		       dev->config_space.vendor_id,
+		       dev->config_space.device_id,
+		       data8 >> 8, data0 & 0xFFFF, data0 >> 16);
+	/* New device! */
+	printf ("[%02X:%02X.%X] device change"
+		" %06X: %04X:%04X -> %06X: %04X:%04X\n",
+		dev->address.bus_no,
+		dev->address.device_no,
+		dev->address.func_no,
+		dev->config_space.class_code,
+		dev->config_space.vendor_id,
+		dev->config_space.device_id,
+		data8 >> 8, data0 & 0xFFFF, data0 >> 16);
+	dev->disconnect = 0;
+	pci_read_config_space (dev);
+	pci_save_base_address_masks (dev);
+	pci_save_bridge_info (dev);
+	return 1;
 }
 
 static struct pci_device *pci_new_device(pci_config_address_t addr)
