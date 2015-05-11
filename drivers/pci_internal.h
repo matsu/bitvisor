@@ -82,5 +82,6 @@ int pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 			     uint len, u32 flags);
 
 extern struct pci_config_mmio_data *pci_config_mmio_data_head;
+extern struct list pci_device_list_head;
 
 #endif

@@ -80,7 +80,7 @@ static bool
 get_value (char *buf, int bufsize, struct token *tname, struct pci_device *dev)
 {
 	if (match_token ("slot", tname)) {
-		snprintf (buf, bufsize, "%02x:%02x.%u", dev->address.bus_no,
+		snprintf (buf, bufsize, "%02x:%02x.%u", dev->initial_bus_no,
 			  dev->address.device_no, dev->address.func_no);
 		return true;
 	}

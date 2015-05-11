@@ -133,6 +133,13 @@ struct pci_device {
 	u8 in_base_address_mask_emulation;
 	u8 base_address_mask_valid;
 	struct pci_config_mmio_data *config_mmio;
+	int initial_bus_no;
+	struct {
+		int yes;
+		int initial_secondary_bus_no;
+		u8 secondary_bus_no, subordinate_bus_no;
+	} bridge;
+	struct pci_device *parent_bridge;
 };
 
 struct pci_driver {
@@ -201,5 +208,7 @@ struct pci_driver *pci_find_driver_by_token (struct token *name);
 int pci_driver_option_get_int (char *option, char **e, int base);
 bool pci_driver_option_get_bool (char *option, char **e);
 void pci_dump_pci_dev_list (void);
+struct pci_device *pci_get_bridge_from_bus_no (u8 bus_no);
+void pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge);
 
 #endif

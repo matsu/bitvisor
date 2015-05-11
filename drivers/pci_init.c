@@ -150,6 +150,48 @@ pci_search_config_mmio (u16 seg_group, u8 bus_no)
 	return NULL;
 }
 
+static void
+pci_save_bridge_info (struct pci_device *dev)
+{
+	dev->bridge.yes = 0;
+	dev->bridge.initial_secondary_bus_no = -1;
+	if ((dev->config_space.class_code & 0xFFFF00) == 0x060400) {
+		/* The dev is a PCI bridge. */
+		dev->bridge.yes = 1;
+		dev->bridge.secondary_bus_no =
+			dev->config_space.base_address[2] >> 8;
+		dev->bridge.subordinate_bus_no =
+			dev->config_space.base_address[2] >> 16;
+	}
+}
+
+static struct pci_device **
+pci_bridge_from_bus_no (u8 bus_no)
+{
+	static struct pci_device *bridge_from_bus_no[PCI_MAX_BUSES];
+
+	if (bus_no)
+		return &bridge_from_bus_no[bus_no];
+	return NULL;
+}
+
+struct pci_device *
+pci_get_bridge_from_bus_no (u8 bus_no)
+{
+	struct pci_device **p = pci_bridge_from_bus_no (bus_no);
+
+	return p ? *p : NULL;
+}
+
+void
+pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge)
+{
+	struct pci_device **p = pci_bridge_from_bus_no (bus_no);
+
+	if (p)
+		*p = bridge;
+}
+
 static struct pci_device *pci_new_device(pci_config_address_t addr)
 {
 	struct pci_device *dev;
@@ -159,9 +201,14 @@ static struct pci_device *pci_new_device(pci_config_address_t addr)
 		memset(dev, 0, sizeof(*dev));
 		dev->driver = NULL;
 		dev->address = addr;
+		if (addr.bus_no)
+			dev->initial_bus_no = -1;
+		else
+			dev->initial_bus_no = 0;
 		dev->config_mmio = pci_search_config_mmio (0, addr.bus_no);
 		pci_read_config_space(dev);
 		pci_save_base_address_masks(dev);
+		pci_save_bridge_info (dev);
 		pci_append_device(dev);
 	}
 	return dev;
@@ -181,6 +228,13 @@ pci_possible_new_device (pci_config_address_t addr,
 		data = pci_read_config_data16_without_lock (addr, 0);
 	if (data != 0xFFFF)
 		ret = pci_new_device (addr);
+	if (ret) {
+		ret->parent_bridge =
+			pci_get_bridge_from_bus_no (ret->address.bus_no);
+		if (ret->parent_bridge)
+			ret->initial_bus_no = ret->parent_bridge->bridge.
+				initial_secondary_bus_no;
+	}
 	return ret;
 }
 
@@ -195,6 +249,8 @@ static void pci_find_devices()
 	printf ("PCI: finding devices...\n");
 	pci_save_config_addr();
 	for (bn = 0; bn < PCI_MAX_BUSES; bn++)
+		pci_set_bridge_from_bus_no (bn, NULL);
+	for (bn = 0; bn < PCI_MAX_BUSES; bn++)
 	  for (dn = 0; dn < PCI_MAX_DEVICES; dn++)
 	    for (fn = 0; fn < PCI_MAX_FUNCS; fn++) {
 		addr = pci_make_config_address(bn, dn, fn, 0);
@@ -207,15 +263,26 @@ static void pci_find_devices()
 			goto oom;
 		num++;
 
-		driver = pci_find_driver_for_device (dev);
-		if (driver) {
-			dev->driver = driver;
-			driver->new (dev);
+		dev->initial_bus_no = bn;
+		if (dev->bridge.yes) {
+			dev->bridge.initial_secondary_bus_no =
+				dev->bridge.secondary_bus_no;
+			pci_set_bridge_from_bus_no (dev->bridge.
+						    secondary_bus_no, dev);
 		}
 
 		if (fn == 0 && dev->config_space.multi_function == 0)
 			break;
 	    }
+	LIST_FOREACH (pci_device_list, dev) {
+		dev->parent_bridge =
+			pci_get_bridge_from_bus_no (dev->address.bus_no);
+		driver = pci_find_driver_for_device (dev);
+		if (driver) {
+			dev->driver = driver;
+			driver->new (dev);
+		}
+	}
 	pci_restore_config_addr();
 	printf ("PCI: %d devices found\n", num);
 	pci_dump_pci_dev_list ();
