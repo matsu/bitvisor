@@ -224,6 +224,7 @@ pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 		data8 = pci_read_config_data32_without_lock (addr, 0);
 		pci_restore_config_addr ();
 	}
+	dev->config_mmio = pci_search_config_mmio (0, dev->address.bus_no);
 	/* Compare the read data with data stored in the dev
 	 * structure. */
 	if (dev->config_space.regs32[0] == data0 &&

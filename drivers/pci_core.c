@@ -297,6 +297,11 @@ pci_handle_bridge_config_write (struct pci_device *bridge, u8 iosize,
 				       old_secondary_bus_no);
 			device_disconnect (dev);
 			dev->address.bus_no = new_secondary_bus_no;
+			/* Clear the dev->config_mmio because the new
+			 * bus number may be out of range of current
+			 * MCFG space.  It will be set again in
+			 * pci_reconnect_device() if necessary. */
+			dev->config_mmio = NULL;
 		} else if (!dev->disconnect &&
 			   old_secondary_bus_no &&
 			   dev->address.bus_no > old_secondary_bus_no &&
