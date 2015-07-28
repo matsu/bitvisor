@@ -70,6 +70,9 @@ message_exitreason (int num)
 	case EXIT_REASON_CPUID:
 		m = "CPUID";
 		break;
+	case EXIT_REASON_GETSEC:
+		m = "GETSEC";
+		break;
 	case EXIT_REASON_HLT:
 		m = "HLT";
 		break;
@@ -142,6 +145,9 @@ message_exitreason (int num)
 	case EXIT_REASON_MWAIT:
 		m = "MWAIT";
 		break;
+	case EXIT_REASON_MONITOR_TRAP_FLAG:
+		m = "Monitor trap flag";
+		break;
 	case EXIT_REASON_MONITOR:
 		m = "MONITOR";
 		break;
@@ -153,6 +159,54 @@ message_exitreason (int num)
 		break;
 	case EXIT_REASON_TPR_BELOW_THRESHOLD:
 		m = "TPR below threshold";
+		break;
+	case EXIT_REASON_APIC_ACCESS:
+		m = "APIC access";
+		break;
+	case EXIT_REASON_VIRTUALIZED_EOI:
+		m = "Virtualized EOI";
+		break;
+	case EXIT_REASON_ACCESS_GDTR_OR_IDTR:
+		m = "Access to GDTR or IDTR";
+		break;
+	case EXIT_REASON_ACCESS_LDTR_OR_TR:
+		m = "Access to LDTR or TR";
+		break;
+	case EXIT_REASON_EPT_VIOLATION:
+		m = "EPT violation";
+		break;
+	case EXIT_REASON_EPT_MISCONFIG:
+		m = "EPT misconfig";
+		break;
+	case EXIT_REASON_INVEPT:
+		m = "INVEPT";
+		break;
+	case EXIT_REASON_RDTSCP:
+		m = "RDTSCP";
+		break;
+	case EXIT_REASON_VMX_PREEMPT_TIMER:
+		m = "VMX preempt timer";
+		break;
+	case EXIT_REASON_INVVPID:
+		m = "INVVPID";
+		break;
+	case EXIT_REASON_WBINVD:
+		m = "WBINVD";
+		break;
+	case EXIT_REASON_XSETBV:
+		m = "XSETBV";
+		break;
+	case EXIT_REASON_APIC_WRITE:
+		m = "APIC write";
+		break;
+	case EXIT_REASON_RDRAND:
+		m = "RDRAND";
+		break;
+	case EXIT_REASON_INVPCID:
+		m = "INVPCID";
+		break;
+	case EXIT_REASON_VMFUNC:
+		m = "VMFUNC";
 		break;
 	default:
 		m = "unknown error";
