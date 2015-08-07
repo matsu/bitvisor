@@ -299,6 +299,10 @@ vt__vmcs_init (void)
 		if (procbased_ctls2_and &
 		    VMCS_PROC_BASED_VMEXEC_CTL2_UNRESTRICTED_GUEST_BIT)
 			current->u.vt.unrestricted_guest_available = true;
+		if (procbased_ctls2_and &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_RDTSCP_BIT)
+			procbased_ctls2 |=
+				VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_RDTSCP_BIT;
 	}
 	if ((exit_ctls_and & VMCS_VMEXIT_CTL_SAVE_IA32_EFER_BIT) &&
 	    (exit_ctls_and & VMCS_VMEXIT_CTL_LOAD_IA32_EFER_BIT) &&
