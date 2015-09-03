@@ -61,6 +61,9 @@ message_exitreason (int num)
 	case EXIT_REASON_INTERRUPT_WINDOW:
 		m = "Interrupt window";
 		break;
+	case EXIT_REASON_NMI_WINDOW:
+		m = "NMI window";
+		break;
 	case EXIT_REASON_TASK_SWITCH:
 		m = "Task switch";
 		break;

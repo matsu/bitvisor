@@ -358,6 +358,7 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_PIN_BASED_VMEXEC_CTL,
 		     (/* VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT */0 |
 		      VMCS_PIN_BASED_VMEXEC_CTL_NMIEXIT_BIT |
+		      VMCS_PIN_BASED_VMEXEC_CTL_VIRTNMIS_BIT |
 		      pinbased_ctls_or) & pinbased_ctls_and);
 	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL,
 		     (/* XXX: VMCS_PROC_BASED_VMEXEC_CTL_HLTEXIT_BIT */0 |

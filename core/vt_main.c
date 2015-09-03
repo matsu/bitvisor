@@ -163,6 +163,53 @@ vt_update_exception_bmp (void)
 }
 
 static void
+vt_generate_nmi (void)
+{
+	struct vt_intr_data *vid = &current->u.vt.intr;
+
+	if (current->u.vt.vr.re)
+		panic ("NMI in real mode");
+	vid->vmcs_intr_info.v = 0;
+	vid->vmcs_intr_info.s.vector = EXCEPTION_NMI;
+	vid->vmcs_intr_info.s.type = INTR_INFO_TYPE_NMI;
+	vid->vmcs_intr_info.s.err = INTR_INFO_ERR_INVALID;
+	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
+	vid->vmcs_instruction_len = 0;
+}
+
+/* NMI handler.  FIXME: This is currently pass-through only. */
+static void
+vt_nmi_has_come (void)
+{
+	ulong is, proc_based_vmexec_ctl;
+
+	/* If blocking by NMI bit is set, the NMI will not be
+	 * generated since an NMI handler in the guest operating
+	 * system is running. */
+	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
+	if (is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT)
+		return;
+	/* If NMI-window exiting bit is set, VM Exit reason "NMI
+	   window" will generate NMI. */
+	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &proc_based_vmexec_ctl);
+	if (proc_based_vmexec_ctl & VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT)
+		return;
+	/* If blocking by STI bit and blocking by MOV SS bit are not
+	   set, generate NMI now. */
+	if (!(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_STI_BIT) &&
+	    !(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT)) {
+		vt_generate_nmi ();
+		return;
+	}
+	/* Use NMI-window exiting to get the correct timing to inject
+	 * NMIs.  This is a workaround for a processor that makes a VM
+	 * Entry failure when NMI is injected while blocking by STI
+	 * bit is set. */
+	proc_based_vmexec_ctl |= VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT;
+	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc_based_vmexec_ctl);
+}
+
+static void
 do_exception (void)
 {
 	union {
@@ -252,10 +299,7 @@ do_exception (void)
 			current->u.vt.intr.vmcs_instruction_len = len;
 			break;
 		case INTR_INFO_TYPE_NMI:
-			vii.s.nmi = 0; /* FIXME */
-			current->u.vt.intr.vmcs_intr_info.v = vii.v;
-			asm_vmread (VMCS_VMEXIT_INSTRUCTION_LEN, &len);
-			current->u.vt.intr.vmcs_instruction_len = len;
+			vt_nmi_has_come ();
 			break;
 		case INTR_INFO_TYPE_EXTERNAL:
 		default:
@@ -285,6 +329,23 @@ do_vmcall (void)
 }
 
 static void
+do_nmi_window (void)
+{
+	struct vt_intr_data *vid = &current->u.vt.intr;
+	ulong proc_based_vmexec_ctl;
+
+	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID) {
+		/* This may be incorrect behavior... */
+		printf ("Maskable interrupt and NMI at the same time\n");
+		return;
+	}
+	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &proc_based_vmexec_ctl);
+	proc_based_vmexec_ctl &= ~VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT;
+	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc_based_vmexec_ctl);
+	vt_generate_nmi ();
+}
+
+static void
 vt__nmi (void)
 {
 	struct vt_intr_data *vid = &current->u.vt.intr;
@@ -293,13 +354,7 @@ vt__nmi (void)
 		return;
 	if (!current->nmi.get_nmi_count ())
 		return;
-	if (current->u.vt.vr.re)
-		panic ("NMI in real mode");
-	vid->vmcs_intr_info.v = 0;
-	vid->vmcs_intr_info.s.vector = EXCEPTION_NMI;
-	vid->vmcs_intr_info.s.type = INTR_INFO_TYPE_NMI;
-	vid->vmcs_intr_info.s.err = INTR_INFO_ERR_INVALID;
-	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
+	vt_nmi_has_come ();
 }
 
 static void
@@ -395,6 +450,16 @@ vt__vm_run_with_tf (void)
 }
 
 static void
+clear_blocking_by_nmi (void)
+{
+	ulong is;
+
+	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
+	is &= ~VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT;
+	asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, is);
+}
+
+static void
 vt__event_delivery_check (void)
 {
 	ulong err;
@@ -421,6 +486,11 @@ vt__event_delivery_check (void)
 		} else if (ivif.s.err == INTR_INFO_ERR_VALID) {
 			asm_vmread (VMCS_IDT_VECTORING_ERRCODE, &err);
 			vid->vmcs_exception_errcode = err;
+		} else if (ivif.s.type == INTR_INFO_TYPE_NMI) {
+			/* If EPT violation happened during injecting
+			 * NMI, blocking by NMI bit is set.  It must
+			 * be cleared before injecting NMI again. */
+			clear_blocking_by_nmi ();
 		}
 	}
 	vid->vmcs_intr_info.v = ivif.v;
@@ -828,6 +898,9 @@ vt__exit_reason (void)
 		break;
 	case EXIT_REASON_EPT_VIOLATION:
 		do_ept_violation ();
+		break;
+	case EXIT_REASON_NMI_WINDOW:
+		do_nmi_window ();
 		break;
 	default:
 		printf ("Fatal error: handler not implemented.\n");
