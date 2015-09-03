@@ -338,11 +338,14 @@ static void
 vt__vm_run_first (void)
 {
 	enum vt__status status;
+	ulong errnum;
 
 	status = call_vt__vmlaunch ();
 	if (status != VT__VMEXIT) {
+		asm_vmread (VMCS_VM_INSTRUCTION_ERR, &errnum);
 		if (status == VT__VMENTRY_FAILED)
-			panic ("Fatal error: VM entry failed.");
+			panic ("Fatal error: VM entry failed. Error %lu",
+			       errnum);
 		else
 			panic ("Fatal error: Strange status.");
 	}
@@ -352,6 +355,7 @@ static void
 vt__vm_run (void)
 {
 	enum vt__status status;
+	ulong errnum;
 
 	if (current->u.vt.first) {
 		vt__vm_run_first ();
@@ -366,8 +370,10 @@ vt__vm_run (void)
 	if (current->u.vt.saved_vmcs)
 		spinlock_lock (&currentcpu->suspend_lock);
 	if (status != VT__VMEXIT) {
+		asm_vmread (VMCS_VM_INSTRUCTION_ERR, &errnum);
 		if (status == VT__VMENTRY_FAILED)
-			panic ("Fatal error: VM entry failed.");
+			panic ("Fatal error: VM entry failed. Error %lu",
+			       errnum);
 		else
 			panic ("Fatal error: Strange status.");
 	}
