@@ -54,6 +54,12 @@ vt_panic_dump (void)
 	printf ("Exit qualification %08lX  ", tmp);
 	asm_vmread (VMCS_VMEXIT_INTR_INFO, &tmp);
 	printf ("VM exit interrupt information %08lX\n", tmp);
+	asm_vmread (VMCS_VMENTRY_INTR_INFO_FIELD, &tmp);
+	printf ("VM entry interruption-information %08lX  ", tmp);
+	asm_vmread (VMCS_VMENTRY_EXCEPTION_ERRCODE, &tmp);
+	printf ("errcode %08lX  ", tmp);
+	asm_vmread (VMCS_VMENTRY_INSTRUCTION_LEN, &tmp);
+	printf ("instlen %08lX\n", tmp);
 	asm_vmread (VMCS_VMEXIT_INTR_ERRCODE, &tmp);
 	printf ("VM exit errcode %08lX  ", tmp);
 	asm_vmread (VMCS_GUEST_IDTR_BASE, &tmp);
