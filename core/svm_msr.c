@@ -86,6 +86,8 @@ svm_read_msr (u32 msrindex, u64 *msrdata)
 			data |= MSR_IA32_EFER_LME_BIT;
 		if (current->u.svm.lma)
 			data |= MSR_IA32_EFER_LMA_BIT;
+		if (current->u.svm.svme)
+			data |= MSR_IA32_EFER_SVME_BIT;
 		*msrdata = data;
 		break;
 	case MSR_IA32_STAR:
@@ -153,6 +155,12 @@ svm_read_msr (u32 msrindex, u64 *msrdata)
 	case MSR_AMD_TOP_MEM2:
 		r = cache_get_gmsr_amd (msrindex, msrdata);
 		break;
+	case MSR_AMD_VM_CR:
+		*msrdata = current->u.svm.vm_cr;
+		break;
+	case MSR_AMD_VM_HSAVE_PA:
+		*msrdata = current->u.svm.hsave_pa;
+		break;
 	default:
 		r = current->msr.read_msr (msrindex, msrdata);
 	}
@@ -179,7 +187,13 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 		vmcb->sysenter_eip = msrdata;
 		break;
 	case MSR_IA32_EFER:
+		if ((current->u.svm.vm_cr & MSR_AMD_VM_CR_SVMDIS_BIT) &&
+		    (msrdata & MSR_IA32_EFER_SVME_BIT)) {
+			r = true;
+			break;
+		}
 		current->u.svm.lme = !!(msrdata & MSR_IA32_EFER_LME_BIT);
+		current->u.svm.svme = !!(msrdata & MSR_IA32_EFER_SVME_BIT);
 		vmcb->efer = (vmcb->efer & mask) | (msrdata & ~mask);
 		/* FIXME: Reserved bits should be checked here. */
 		svm_msr_update_lma ();
@@ -207,7 +221,14 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 		vmcb->kernel_gs_base = msrdata;
 		break;
 	case MSR_AMD_VM_CR:
+		current->u.svm.vm_cr =
+			(current->u.svm.vm_cr & (MSR_AMD_VM_CR_LOCK_BIT |
+						 MSR_AMD_VM_CR_SVMDIS_BIT)) |
+			(msrdata & ~(MSR_AMD_VM_CR_LOCK_BIT |
+				     MSR_AMD_VM_CR_SVMDIS_BIT));
+		break;
 	case MSR_AMD_VM_HSAVE_PA:
+		current->u.svm.hsave_pa = msrdata;
 		break;
 	case MSR_IA32_MTRR_FIX4K_C0000:
 	case MSR_IA32_MTRR_FIX4K_C8000:
@@ -334,8 +355,7 @@ svm_msrpass (u32 msrindex, bool wr, bool pass)
 		break;
 	case MSR_AMD_VM_CR:
 	case MSR_AMD_VM_HSAVE_PA:
-		if (wr)
-			pass = false;
+		pass = false;
 		break;
 	case 0xC0010020:	/* PATCH_LOADER MSR */
 		if (wr)

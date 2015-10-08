@@ -94,6 +94,16 @@ asmlinkage void asm_vmrun_regs_32 (struct svm_vmrun_regs *p, ulong vmcb_phys,
 				   ulong vmcbhost_phys);
 asmlinkage void asm_vmrun_regs_64 (struct svm_vmrun_regs *p, ulong vmcb_phys,
 				   ulong vmcbhost_phys);
+asmlinkage void asm_vmrun_regs_nested_32 (struct svm_vmrun_regs *p,
+					  ulong vmcb_phys,
+					  ulong vmcbhost_phys,
+					  ulong vmcbnested,
+					  ulong rflags_if_bit);
+asmlinkage void asm_vmrun_regs_nested_64 (struct svm_vmrun_regs *p,
+					  ulong vmcb_phys,
+					  ulong vmcbhost_phys,
+					  ulong vmcbnested,
+					  ulong rflags_if_bit);
 
 static inline void
 asm_cpuid (u32 num, u32 numc, u32 *a, u32 *b, u32 *c, u32 *d)
@@ -753,6 +763,12 @@ asm_invlpg (void *p)
 }
 
 static inline void
+asm_invlpga (ulong addr, u32 asid)
+{
+	asm volatile ("invlpga" : : "a" (addr), "c" (asid));
+}
+
+static inline void
 asm_cli_and_hlt (void)
 {
 	asm volatile ("cli; hlt");
@@ -897,6 +913,20 @@ asm_vmrun_regs (struct svm_vmrun_regs *p, ulong vmcb_phys, ulong vmcbhost_phys)
 	asm_vmrun_regs_64 (p, vmcb_phys, vmcbhost_phys);
 #else
 	asm_vmrun_regs_32 (p, vmcb_phys, vmcbhost_phys);
+#endif
+}
+
+static inline void
+asm_vmrun_regs_nested (struct svm_vmrun_regs *p, ulong vmcb_phys,
+		       ulong vmcbhost_phys, ulong vmcbnested,
+		       ulong rflags_if_bit)
+{
+#ifdef __x86_64__
+	asm_vmrun_regs_nested_64 (p, vmcb_phys, vmcbhost_phys, vmcbnested,
+				  rflags_if_bit);
+#else
+	asm_vmrun_regs_nested_32 (p, vmcb_phys, vmcbhost_phys, vmcbnested,
+				  rflags_if_bit);
 #endif
 }
 

@@ -29,6 +29,7 @@
 
 #include "asm.h"
 #include "assert.h"
+#include "config.h"
 #include "constants.h"
 #include "cpu.h"
 #include "current.h"
@@ -141,6 +142,12 @@ svm_reset (void)
 	*current->u.svm.cr4 = 0;
 	current->u.svm.vi.vmcb->cr4 = svm_paging_apply_fixed_cr4 (0);
 	current->u.svm.vi.vmcb->efer = MSR_IA32_EFER_SVME_BIT;
+	current->u.svm.svme = false;
+	current->u.svm.vm_cr = MSR_AMD_VM_CR_DIS_A20M_BIT |
+		MSR_AMD_VM_CR_LOCK_BIT;
+	if (!config.vmm.unsafe_nested_virtualization)
+		current->u.svm.vm_cr |= MSR_AMD_VM_CR_SVMDIS_BIT;
+	current->u.svm.hsave_pa = 0;
 	current->u.svm.lme = 0;
 	svm_msr_update_lma ();
 	svm_paging_updatecr3 ();
@@ -198,9 +205,12 @@ svm_vmcb_init (void)
 	p->intercept_vmrun = 1;
 	p->intercept_vmmcall = 1;
 	p->intercept_cpuid = 1;
+	p->intercept_clgi = 1;
+	p->intercept_stgi = 1;
 	p->iopm_base_pa = io->iobmp_phys;
 	p->msrpm_base_pa = msrbmp->msrbmp_phys;
-	p->guest_asid = 1;	/* FIXME */
+	p->guest_asid = currentcpu->svm.nasid > 2 ?
+		currentcpu->svm.nasid - 1 : 1; /* FIXME */
 	p->tlb_control = VMCB_TLB_CONTROL_FLUSH_TLB;
 	svm_seg_reset (p);
 	p->cpl = 0;
@@ -259,6 +269,7 @@ svm_init (void)
 		currentcpu->svm.nrip_save = true;
 	else
 		currentcpu->svm.nrip_save = false;
+	currentcpu->svm.nasid = b;
 }
 
 void

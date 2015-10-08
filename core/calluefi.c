@@ -147,7 +147,8 @@ copy_uefi_bootcode (void)
 	asm_rdcr4 (&cr4);
 	current->vmctl.write_control_reg (CONTROL_REG_CR4, cr4 & ~CR4_PGE_BIT);
 	asm_rdmsr (MSR_IA32_EFER, &efer);
-	current->vmctl.write_msr (MSR_IA32_EFER, efer);
+	current->vmctl.write_msr (MSR_IA32_EFER,
+				  efer & ~MSR_IA32_EFER_SVME_BIT);
 	current->vmctl.write_gdtr (calluefi_uefi_gdtr.base,
 				   calluefi_uefi_gdtr.limit);
 	current->vmctl.write_idtr (calluefi_uefi_idtr.base,

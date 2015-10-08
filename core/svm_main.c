@@ -34,6 +34,7 @@
 #include "cpu_mmu.h"
 #include "current.h"
 #include "exint_pass.h"
+#include "mm.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
@@ -54,6 +55,8 @@ svm_nmi (void)
 
 	svm = &current->u.svm;
 	if (svm->intr.vmcb_intr_info.s.v)
+		return;
+	if (svm->vi.vmcb->v_intr_masking)
 		return;
 	if (!current->nmi.get_nmi_count ())
 		return;
@@ -413,6 +416,66 @@ do_cpuid (void)
 }
 
 static void
+do_clgi (void)
+{
+	current->u.svm.vi.vmcb->v_intr_masking = 1;
+	current->u.svm.vi.vmcb->rip += 3;
+}
+
+static void
+do_stgi (void)
+{
+	current->u.svm.vi.vmcb->v_intr_masking = 0;
+	current->u.svm.vi.vmcb->rip += 3;
+}
+
+static void
+do_vmrun (void)
+{
+	ulong vmcb_phys;
+	struct vmcb *vmcb;
+	enum vmcb_tlb_control orig_tlb_control;
+	struct svm *svm = &current->u.svm;
+
+	if (current->u.svm.vm_cr & MSR_AMD_VM_CR_SVMDIS_BIT) {
+		svm->intr.vmcb_intr_info.v = 0;
+		svm->intr.vmcb_intr_info.s.vector = EXCEPTION_UD;
+		svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_EXCEPTION;
+		svm->intr.vmcb_intr_info.s.ev = 0;
+		svm->intr.vmcb_intr_info.s.v = 1;
+		return;
+	}
+	svm_read_general_reg (GENERAL_REG_RAX, &vmcb_phys);
+	vmcb = mapmem_gphys (vmcb_phys, sizeof *vmcb, MAPMEM_WRITE);
+	orig_tlb_control = vmcb->tlb_control;
+	if (vmcb->guest_asid == svm->vi.vmcb->guest_asid) {
+		svm_paging_flush_guest_tlb ();
+		if (vmcb->tlb_control != VMCB_TLB_CONTROL_FLUSH_TLB)
+			vmcb->tlb_control = svm->vi.vmcb->tlb_control;
+	}
+	asm_vmrun_regs_nested (&svm->vr, svm->vi.vmcb_phys,
+			       currentcpu->svm.vmcbhost_phys, vmcb_phys,
+			       svm->vi.vmcb->rflags & RFLAGS_IF_BIT);
+	vmcb->tlb_control = orig_tlb_control;
+	svm->vi.vmcb->rip += 3;
+	unmapmem (vmcb, sizeof *vmcb);
+}
+
+static void
+do_invlpga (void)
+{
+	ulong address, asid;
+
+	svm_read_general_reg (GENERAL_REG_RAX, &address);
+	svm_read_general_reg (GENERAL_REG_RCX, &asid);
+	if (!asid)
+		svm_paging_invalidate (address);
+	else if (asid != current->u.svm.vi.vmcb->guest_asid)
+		asm_invlpga (address, asid);
+	current->u.svm.vi.vmcb->rip += 3;
+}
+
+static void
 svm_exit_code (void)
 {
 	switch (current->u.svm.vi.vmcb->exitcode) {
@@ -455,6 +518,18 @@ svm_exit_code (void)
 		break;
 	case VMEXIT_CPUID:
 		do_cpuid ();
+		break;
+	case VMEXIT_CLGI:
+		do_clgi ();
+		break;
+	case VMEXIT_STGI:
+		do_stgi ();
+		break;
+	case VMEXIT_VMRUN:
+		do_vmrun ();
+		break;
+	case VMEXIT_INVLPGA:
+		do_invlpga ();
 		break;
 	default:
 		panic ("unsupported exitcode");

@@ -58,10 +58,12 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 			XCR0_AVX_STATE_BIT;
 		*od = 0;
 	} else if (tmpa >= CPUID_EXT_1 && ia == CPUID_EXT_1) {
-		*oc &= ~CPUID_EXT_1_ECX_SVM_BIT;
 #ifndef __x86_64__
 		*od &= ~CPUID_EXT_1_EDX_64_BIT;
 #endif
+	} else if (tmpa >= CPUID_EXT_A && ia == CPUID_EXT_A) {
+		if (*ob > 2)	/* NASID */
+			--*ob;
 	}
 }
 
