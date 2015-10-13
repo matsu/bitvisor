@@ -223,6 +223,7 @@ struct config_data_vmm {
 	int f11panic;
 	int f12msg;
 	int auto_reboot;
+	int panic_reboot;
 	int shell;
 	int dbgsh;
 	int status;

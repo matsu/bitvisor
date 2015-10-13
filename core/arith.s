@@ -34,10 +34,38 @@
 	.globl	mpumul_64_64
 	.globl	mpudiv_128_32
 	.globl	ipchecksum
+	.globl	crc32
+
+# 32bit/64bit comon routine
+# input: eax=0 esi=buf edi=len len>0
+	.align	16
+crc32_common:
+	cld
+	not	%eax
+3:
+	mov	%eax,%edx
+	lodsb
+	mov	$8,%cl
+	xor	%al,%dl
+	movzbl	%dl,%eax
+	shr	%cl,%edx
+2:
+	shr	%eax
+	jnc	1f
+	xor	$0xEDB88320,%eax
+1:
+	sub	$1,%cl
+	jne	2b
+	xor	%edx,%eax
+	sub	$1,%edi
+	jne	3b
+	not	%eax
+	ret
 
 # void mpumul_64_64 (u64 m1, u64 m2, u64 ans[2]);
 # u32 mpudiv_128_32 (u64 d1[2], u32 d2, u64 quotient[2]);
 # u16 ipchecksum (void *buf, u32 len);
+# u32 crc32 (void *buf, u32 len);
 
 .if longmode
 	.code64
@@ -120,6 +148,13 @@ ipchecksum:
 1:
 	xor	$~0,%ax
 	je	1b
+	ret
+	.align	16
+crc32:
+	xchg	%rsi,%rdi
+	xor	%eax,%eax
+	test	%edi,%edi
+	jne	crc32_common
 	ret
 .else
 	.code32
@@ -227,6 +262,20 @@ ipchecksum:
 1:
 	xor	$~0,%ax
 	je	1b
+	pop	%esi
+	pop	%edi
+	ret
+	.align	16
+crc32:
+	push	%edi
+	push	%esi
+	xor	%eax,%eax
+	mov	16(%esp),%edi	# len -> edi
+	mov	12(%esp),%esi	# buf -> esi
+	test	%edi,%edi
+	je	1f
+	call	crc32_common
+1:
 	pop	%esi
 	pop	%edi
 	ret

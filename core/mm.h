@@ -76,6 +76,8 @@ void mm_flush_wb_cache (void);
 void mm_force_unlock (void);
 void __attribute__ ((section (".entry.text")))
 uefi_init_get_vmmsize (u32 *vmmsize, u32 *align);
+void *mm_get_panicmem (int *len);
+void mm_free_panicmem (void);
 
 /* process */
 int mm_process_alloc (phys_t *phys);

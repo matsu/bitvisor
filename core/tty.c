@@ -45,11 +45,20 @@
 #include "uefi.h"
 #include "vramwrite.h"
 
+#define PANICMEM_KEY_INVERT "bitvisor panic log"
+
 struct tty_udp_data {
 	LIST1_DEFINE (struct tty_udp_data);
 	void (*tty_send) (void *handle, void *packet,
 			  unsigned int packet_size);
 	void *handle;
+};
+
+struct ttylog_in_panicmem {
+	u8 key[24];
+	u32 crc;
+	u32 len;
+	unsigned char buf[];
 };
 
 static struct {
@@ -252,6 +261,96 @@ tty_get_logbuf_info (virt_t *virt, phys_t *phys, uint *size)
 		*phys = sym_to_phys (&logbuf);
 	if (size)
 		*size = sizeof logbuf;
+}
+
+static void
+ttylog_copy_to_panicmem_one (struct ttylog_in_panicmem *mem, int memlen,
+			     int *flag)
+{
+	int i, copylen;
+	int copyoff;
+
+	copyoff = 0;
+	copylen = logbuf.loglen;
+	if (copylen > memlen - sizeof *mem) {
+		copyoff = copylen - (memlen - sizeof *mem);
+		copylen = memlen - sizeof *mem;
+	}
+	for (i = 0; i < copylen; i++)
+		mem->buf[i] = logbuf.log[(logbuf.logoffset + copyoff + i) %
+					 sizeof logbuf.log];
+	mem->len = copylen;
+	mem->crc = 0;
+	for (i = 0; i < sizeof mem->key && i < sizeof PANICMEM_KEY_INVERT; i++)
+		mem->key[i] = ~PANICMEM_KEY_INVERT[i];
+	for (; i < sizeof mem->key; i++)
+		mem->key[i] = 0xFF;
+	mem->crc = crc32 (mem, sizeof *mem + copylen);
+}
+
+static void
+ttylog_copy_from_panicmem_one (struct ttylog_in_panicmem *mem, int memlen,
+			       int *flag)
+{
+	int i, copylen;
+	u32 crc, crccalc;
+
+	if (*flag)
+		goto clear;
+	copylen = mem->len;
+	if (copylen > memlen - sizeof *mem)
+		goto clear;
+	for (i = 0; i < sizeof mem->key && i < sizeof PANICMEM_KEY_INVERT; i++)
+		if (mem->key[i] != (u8)~PANICMEM_KEY_INVERT[i])
+			goto clear;
+	for (; i < sizeof mem->key; i++)
+		if (mem->key[i] != 0xFF)
+			goto clear;
+	crc = mem->crc;
+	mem->crc = 0;
+	crccalc = crc32 (mem, sizeof *mem + copylen);
+	if (crc != crccalc)
+		goto clear;
+	printf ("Old log found in RAM\n");
+	*flag = 1;
+	for (i = 0; i < copylen && logbuf.loglen < sizeof logbuf.log; i++) {
+		logbuf.logoffset--;
+		logbuf.loglen++;
+		logbuf.log[logbuf.logoffset % sizeof logbuf.log] =
+			mem->buf[copylen - i - 1];
+	}
+clear:
+	memset (mem, 0, sizeof *mem);
+}
+
+static void
+ttylog_copy_panicmem (void (*copy_one) (struct ttylog_in_panicmem *mem,
+					int memlen, int *flag))
+{
+	struct ttylog_in_panicmem *mem;
+	int memlen;
+	int flag = 0;
+
+	mem = mm_get_panicmem (&memlen);
+	if (!mem)
+		return;
+	while (memlen > sizeof logbuf + sizeof *mem) {
+		copy_one (mem, memlen, &flag);
+		mem = (void *)((u8 *)mem + sizeof logbuf + sizeof *mem);
+		memlen -= sizeof logbuf + sizeof *mem;
+	}
+}
+
+void
+ttylog_copy_to_panicmem (void)
+{
+	ttylog_copy_panicmem (ttylog_copy_to_panicmem_one);
+}
+
+void
+ttylog_copy_from_panicmem (void)
+{
+	ttylog_copy_panicmem (ttylog_copy_from_panicmem_one);
 }
 
 static void

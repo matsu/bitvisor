@@ -417,6 +417,8 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (uintnum, &name, &src, &len, "vmm.f11panic", "vmm.f11panic");
 	ss (uintnum, &name, &src, &len, "vmm.f12msg", "vmm.f12msg");
 	ss (uintnum, &name, &src, &len, "vmm.auto_reboot", "vmm.auto_reboot");
+	ss (uintnum, &name, &src, &len, "vmm.panic_reboot",
+	    "vmm.panic_reboot");
 	ss (uintnum, &name, &src, &len, "vmm.shell", "vmm.shell");
 	ss (uintnum, &name, &src, &len, "vmm.dbgsh", "vmm.dbgsh");
 	ss (uintnum, &name, &src, &len, "vmm.status", "vmm.status");
@@ -586,6 +588,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.f11panic);
 	CONF (vmm.f12msg);
 	CONF (vmm.auto_reboot);
+	CONF (vmm.panic_reboot);
 	CONF (vmm.shell);
 	CONF (vmm.dbgsh);
 	CONF (vmm.status);

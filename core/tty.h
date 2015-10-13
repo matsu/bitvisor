@@ -35,5 +35,7 @@
 void ttylog_stop (void);
 void tty_putchar (unsigned char c);
 void tty_init_iohook (void);
+void ttylog_copy_from_panicmem (void);
+void ttylog_copy_to_panicmem (void);
 
 #endif

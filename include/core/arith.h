@@ -36,5 +36,6 @@
 asmlinkage void mpumul_64_64 (u64 m1, u64 m2, u64 ans[2]);
 asmlinkage u32 mpudiv_128_32 (u64 d1[2], u32 d2, u64 quotient[2]);
 asmlinkage u16 ipchecksum (void *buf, u32 len);
+asmlinkage u32 crc32 (void *buf, u32 len);
 
 #endif
