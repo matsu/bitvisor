@@ -418,6 +418,143 @@ int pci_config_addr_handler(core_io_t io, union mem *data, void *arg)
 	return CORE_IO_RET_NEXT;
 }
 
+/* Set port range of a PCI bridge that the pci_device is connected to.
+ * The length is 0x1000. */
+void
+pci_set_bridge_io (struct pci_device *pci_device)
+{
+	u32 tmp;
+	u16 port_list = 3;
+	struct pci_bar_info bar_info;
+	struct pci_device *dev, *bridge = NULL;
+	u8 bus_no_start, bus_no_end, port_start, port_end;
+
+	if (!pci_device->address.bus_no)
+		return;		/* No bridges are used for this
+				 * device. */
+	LIST_FOREACH (pci_device_list, dev) {
+		if ((dev->config_space.class_code & 0xFFFF00) == 0x060400) {
+			/* The dev is a PCI bridge. */
+			tmp = dev->config_space.base_address[2];
+			bus_no_start = tmp >> 8;
+			bus_no_end = tmp >> 16;
+			tmp = dev->config_space.base_address[3];
+			port_start = (tmp >> 4) & 0xF;
+			port_end = (tmp >> 12) & 0xF;
+			if (bus_no_start <= pci_device->address.bus_no &&
+			    bus_no_end >= pci_device->address.bus_no) {
+				/* The dev is the bridge that the
+				 * pci_device is connected to. */
+				bridge = dev;
+				if (port_start != 0xF) {
+					/* Port already assigned by
+					 * firmware. */
+					printf ("[%02x:%02x.%01x]"
+						" bridge [%02x:%02x.%01x]"
+						" port assigned\n",
+						pci_device->address.bus_no,
+						pci_device->address.device_no,
+						pci_device->address.func_no,
+						bridge->address.bus_no,
+						bridge->address.device_no,
+						bridge->address.func_no);
+					return;
+				}
+			}
+			printf ("[%02x:%02x.%01x] port 0x%X000-0x%XFFF\n",
+				dev->address.bus_no, dev->address.device_no,
+				dev->address.func_no, port_start, port_end);
+			port_list |= (1 << port_end) |
+				(((1 << port_end) - 1) &
+				 ~((1 << port_start) - 1));
+		} else {
+			for (tmp = 0; tmp < 6; tmp++) {
+				pci_get_bar_info (dev, tmp, &bar_info);
+				if (bar_info.type != PCI_BAR_INFO_TYPE_IO)
+					continue;
+				port_start = (bar_info.base >> 12) & 0xF;
+				port_end = ((bar_info.base +
+					     bar_info.len - 1) >> 12) & 0xF;
+				printf ("[%02x:%02x.%01x]"
+					" port 0x%X000-0x%XFFF\n",
+					dev->address.bus_no,
+					dev->address.device_no,
+					dev->address.func_no,
+					port_start, port_end);
+				port_list |= (1 << port_end) |
+					(((1 << port_end) - 1) &
+					 ~((1 << port_start) - 1));
+			}
+		}
+	}
+	if (!bridge) {
+		printf ("[%02x:%02x.%01x] bridge not found!\n",
+			pci_device->address.bus_no,
+			pci_device->address.device_no,
+			pci_device->address.func_no);
+		return;
+	}
+	for (tmp = 0; tmp <= 0xF; tmp++)
+		if (!(port_list & (1 << tmp)))
+			goto found;
+	printf ("[%02x:%02x.%01x] bridge [%02x:%02x.%01x]"
+		" port_list 0x%X no ports are available!\n",
+		pci_device->address.bus_no, pci_device->address.device_no,
+		pci_device->address.func_no,
+		bridge->address.bus_no, bridge->address.device_no,
+		bridge->address.func_no, port_list);
+	return;
+found:
+	printf ("[%02x:%02x.%01x] bridge [%02x:%02x.%01x]"
+		" port_list 0x%X use 0x%X000-0x%XFFF\n",
+		pci_device->address.bus_no, pci_device->address.device_no,
+		pci_device->address.func_no,
+		bridge->address.bus_no, bridge->address.device_no,
+		bridge->address.func_no, port_list, tmp, tmp);
+	tmp = (tmp << 4) | 1;
+	pci_write_config_mmio (bridge->config_mmio, bridge->address.bus_no,
+			       bridge->address.device_no,
+			       bridge->address.func_no, 0x1C, 1, &tmp);
+	pci_write_config_mmio (bridge->config_mmio, bridge->address.bus_no,
+			       bridge->address.device_no,
+			       bridge->address.func_no, 0x1D, 1, &tmp);
+}
+
+void
+pci_set_bridge_fake_command (struct pci_device *pci_device, u8 mask, u8 fixed)
+{
+	u32 tmp;
+	struct pci_device *dev;
+	u8 bus_no_start, bus_no_end;
+
+	if (!pci_device->address.bus_no)
+		return;		/* No bridges are used for this
+				 * device. */
+	LIST_FOREACH (pci_device_list, dev) {
+		if ((dev->config_space.class_code & 0xFFFF00) != 0x060400)
+			continue;
+		/* The dev is a PCI bridge. */
+		tmp = dev->config_space.base_address[2];
+		bus_no_start = tmp >> 8;
+		bus_no_end = tmp >> 16;
+		if (!(bus_no_start <= pci_device->address.bus_no &&
+		      bus_no_end >= pci_device->address.bus_no))
+			continue;
+		/* The dev is the bridge that the pci_device is
+		 * connected to. */
+		if (!dev->fake_command_mask)
+			dev->fake_command_virtual = dev->config_space.command;
+		dev->fake_command_fixed = (dev->fake_command_fixed & ~mask) |
+			(fixed & mask);
+		dev->fake_command_mask |= mask;
+		printf ("[%02x:%02x.%01x] fake_command"
+			" mask 0x%02X fixed 0x%02X\n",
+			dev->address.bus_no, dev->address.device_no,
+			dev->address.func_no, dev->fake_command_mask,
+			dev->fake_command_fixed);
+	}
+}
+
 /********************************************************************************
  * PCI service functions exported to PCI device drivers
  ********************************************************************************/
@@ -540,7 +677,18 @@ pci_handle_default_config_write (struct pci_device *pci_device, u8 iosize,
 {
 	u32 reg;
 	core_io_t io;
+	union mem data_fake;
 
+	if (pci_device->fake_command_mask &&
+	    offset <= 4 && offset + iosize > 4) {
+		u8 *p = &(&data_fake.byte)[4 - offset];
+
+		memcpy (&data_fake, data, iosize);
+		data = &data_fake;
+		pci_device->fake_command_virtual = *p;
+		*p = (*p & ~pci_device->fake_command_mask) |
+			pci_device->fake_command_fixed;
+	}
 	if (pci_device->config_mmio) {
 		pci_write_config_mmio (pci_device->config_mmio,
 				       pci_device->address.bus_no,
@@ -582,7 +730,7 @@ pci_handle_default_config_read (struct pci_device *pci_device, u8 iosize,
 				      pci_device->address.device_no,
 				      pci_device->address.func_no,
 				      offset, iosize, data);
-		return;
+		goto ret;
 	}
 	if (offset >= 256)
 		panic ("pci_handle_default_config_read: offset %u >= 256",
@@ -591,6 +739,14 @@ pci_handle_default_config_read (struct pci_device *pci_device, u8 iosize,
 	io.dir = CORE_IO_DIR_IN;
 	io.size = iosize;
 	core_io_handle_default (io, data);
+ret:
+	if (pci_device->fake_command_mask &&
+	    offset <= 4 && offset + iosize > 4) {
+		(&data->byte)[4 - offset] = ((&data->byte)[4 - offset] &
+					     ~pci_device->fake_command_mask) |
+			(pci_device->fake_command_virtual &
+			 pci_device->fake_command_mask);
+	}
 }
 
 int

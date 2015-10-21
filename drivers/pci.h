@@ -141,6 +141,7 @@ struct pci_device {
 	} bridge;
 	struct pci_device *parent_bridge;
 	int disconnect;
+	u8 fake_command_mask, fake_command_fixed, fake_command_virtual;
 };
 
 struct pci_driver {
@@ -213,5 +214,8 @@ struct pci_device *pci_get_bridge_from_bus_no (u8 bus_no);
 void pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge);
 int pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 			  struct pci_config_mmio_data *mmio);
+void pci_set_bridge_io (struct pci_device *pci_device);
+void pci_set_bridge_fake_command (struct pci_device *pci_device, u8 mask,
+				  u8 fixed);
 
 #endif
