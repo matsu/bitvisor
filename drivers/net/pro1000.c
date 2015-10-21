@@ -1251,8 +1251,13 @@ seize_pro1000 (struct data2 *d2)
 		/* Device Status Register */
 		volatile u32 *status = (void *)(u8 *)d2->d1[0].map + 0x8;
 
+		/* Initializing PHY via Device Control Register
+		 * apparently forces the link to 10Mbps full duplex on
+		 * 82579 and later. */
+		/*
 		*ctrl = 0x80000000;
 		usleep (1000000);
+		*/
 		*ctrl = 0x04000000;
                 usleep (1000000);
 		*ctrl = 0x40;
