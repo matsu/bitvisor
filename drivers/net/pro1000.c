@@ -33,6 +33,7 @@
 #include <core/mmio.h>
 #include <net/netapi.h>
 #include "pci.h"
+#include "virtio_net.h"
 
 typedef unsigned int UINT;
 
@@ -216,6 +217,8 @@ struct data2 {
 	bool seize;
 	bool conceal;
 	LIST1_DEFINE (struct data2);
+
+	void *virtio_net;
 };
 
 struct data {
@@ -1317,6 +1320,8 @@ seize_pro1000 (struct data2 *d2)
 		volatile u32 *rctl = (void *)(u8 *)d2->d1[0].map + 0x100;
 		*rctl = 2 |	/* receiver enabled */
 			1 << 15 | /* accept broadcast */
+			(d2->virtio_net ? 1 << 3 : 0) | /* unicast promisc */
+			(d2->virtio_net ? 1 << 4 : 0) | /* multicast promisc */
 			((RBUF_SIZE & 0x3300) ? 0x20000 : 0) |
 			((RBUF_SIZE & 0x5500) ? 0x10000 : 0) |
 			((RBUF_SIZE & 0x7000) ? 0x2000000 : 0);
@@ -1348,15 +1353,54 @@ seize_pro1000 (struct data2 *d2)
 	}
 }
 
+static void
+pro1000_intr_clear (void *param)
+{
+	struct data2 *d2 = param;
+	volatile u32 *icr = (void *)(u8 *)d2->d1[0].map + 0xC0;
+
+	*icr |= 0xFFFFFFFF;
+	poll_physnic (d2);
+}
+
+static void
+pro1000_intr_set (void *param)
+{
+	struct data2 *d2 = param;
+
+	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) |= 0x1; /* interrupt */
+}
+
+static void
+pro1000_intr_disable (void *param)
+{
+	struct data2 *d2 = param;
+	volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
+
+	*imc = 0xFFFFFFFF;
+}
+
+static void
+pro1000_intr_enable (void *param)
+{
+	struct data2 *d2 = param;
+	volatile u32 *ims = (void *)(u8 *)d2->d1[0].map + 0xD0;
+	volatile u32 *icr = (void *)(u8 *)d2->d1[0].map + 0xC0;
+
+	*ims = 1 << 7 | 1 << 4;
+	*icr |= 0xFFFFFFFF;
+}
+
 static void 
 vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
-		 char *option_net)
+		 char *option_net, bool option_virtio)
 {
 	int i;
 	struct data2 *d2;
 	struct data *d;
 	void *tmp;
 	struct pci_bar_info bar_info;
+	struct nicfunc *virtio_net_func;
 
 	if ((pci_device->config_space.base_address[0] &
 	     PCI_CONFIG_BASE_ADDRESS_SPACEMASK) !=
@@ -1399,7 +1443,25 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
 	d2->pci_device = pci_device;
-	d2->seize = net_init (d2->nethandle, d2, &phys_func, NULL, NULL);
+	d2->virtio_net = NULL;
+	if (option_virtio) {
+		d2->virtio_net = virtio_net_init (&virtio_net_func,
+						  d2->macaddr,
+						  pro1000_intr_clear,
+						  pro1000_intr_set,
+						  pro1000_intr_disable,
+						  pro1000_intr_enable, d2);
+	}
+	if (d2->virtio_net) {
+		pci_device->driver->options.use_base_address_mask_emulation =
+			0;
+		net_init (d2->nethandle, d2, &phys_func, d2->virtio_net,
+			  virtio_net_func);
+		d2->seize = true;
+	} else {
+		d2->seize = net_init (d2->nethandle, d2, &phys_func, NULL,
+				      NULL);
+	}
 	if (d2->seize) {
 		seize_pro1000 (d2);
 		net_start (d2->nethandle);
@@ -1464,13 +1526,17 @@ pro1000_new (struct pci_device *pci_device)
 {
 	bool option_tty = false;
 	char *option_net;
+	bool option_virtio = false;
 
 	if (pci_device->driver_options[0] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[0], NULL)) {
 		option_tty = true;
 	}
 	option_net = pci_device->driver_options[1];
-	vpn_pro1000_new (pci_device, option_tty, option_net);
+	if (pci_device->driver_options[2] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[2], NULL))
+		option_virtio = true;
+	vpn_pro1000_new (pci_device, option_tty, option_net, option_virtio);
 }
 
 static int
@@ -1480,6 +1546,12 @@ pro1000_config_read (struct pci_device *pci_device, u8 iosize,
 	struct data *d1 = pci_device->host;
 	struct data2 *d2 = d1[0].d;
 
+	if (d2->virtio_net) {
+		pci_handle_default_config_read (pci_device, iosize, offset,
+						data);
+		virtio_net_config_read (d2->virtio_net, iosize, offset, data);
+		return CORE_IO_RET_DONE;
+	}
 	if (!d2->seize)
 		return vpn_pro1000_config_read (pci_device, iosize, offset,
 						data);
@@ -1496,6 +1568,10 @@ pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 	struct data *d1 = pci_device->host;
 	struct data2 *d2 = d1[0].d;
 
+	if (d2->virtio_net) {
+		virtio_net_config_write (d2->virtio_net, iosize, offset, data);
+		return CORE_IO_RET_DONE;
+	}
 	if (!d2->seize)
 		return vpn_pro1000_config_write (pci_device, iosize, offset,
 						 data);
@@ -1506,7 +1582,7 @@ pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 static struct pci_driver pro1000_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
-	.driver_options	= "tty,net",
+	.driver_options	= "tty,net,virtio",
 	.device		= "class_code=020000,id="
 			/* 31608004.pdf */
 			  "8086:105e|" /* Dual port */
