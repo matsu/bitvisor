@@ -311,6 +311,7 @@ ahci_read (struct ahci_data *ad, u32 offset)
 
 	p = ad->ahci_mem.map;
 	p += offset;
+	asm ("" : : : "memory");
 	return *(u32 *)p;
 }
 
@@ -322,6 +323,7 @@ ahci_write (struct ahci_data *ad, u32 offset, u32 data)
 	p = ad->ahci_mem.map;
 	p += offset;
 	*(u32 *)p = data;
+	asm ("" : : : "memory");
 }
 
 static void
@@ -329,12 +331,14 @@ ahci_readwrite (struct ahci_data *ad, u32 offset, bool wr, void *buf, uint len)
 {
 	u8 *p;
 
+	asm ("" : : : "memory");
 	p = ad->ahci_mem.map;
 	p += offset;
 	if (wr)
 		memcpy (p, buf, len);
 	else
 		memcpy (buf, p, len);
+	asm ("" : : : "memory");
 }
 
 static u32
@@ -623,6 +627,9 @@ ahci_port_data_init (struct ahci_data *ad, int port_num)
 		ahci_port_write (ad, port_num, PxCLB, port->myclb);
 		ahci_port_write (ad, port_num, PxCLBU, port->myclbu);
 		ahci_port_write (ad, port_num, PxCMD, pxcmd);
+		if (!wait_for_pxcmd (ad, port_num, PxCMD_CR_BIT, PxCMD_CR_BIT))
+			printf ("AHCI %d:%d warning: PxCMD.CR=0\n",
+				ad->host_id, port_num);
 	}
 	printf ("AHCI %d:%d initialized\n", ad->host_id, port_num);
 }
@@ -1334,8 +1341,14 @@ found:
 		ahci_port_write (ad, pno, PxCMD, (data->port[pno].pxcmd
 						  & ~PxCMD_ST_BIT)
 				 | PxCMD_FRE_BIT);
+		if (!wait_for_pxcmd (ad, pno, PxCMD_FR_BIT, PxCMD_FR_BIT))
+			printf ("AHCI %d:%d warning: PxCMD.FR=0\n",
+				ad->host_id, pno);
 		ahci_port_write (ad, pno, PxCMD, data->port[pno].pxcmd
 				 | PxCMD_ST_BIT | PxCMD_FRE_BIT);
+		if (!wait_for_pxcmd (ad, pno, PxCMD_CR_BIT, PxCMD_CR_BIT))
+			printf ("AHCI %d:%d warning: PxCMD.CR=0\n",
+				ad->host_id, pno);
 		data->port[pno].pxis = ahci_port_read (ad, pno, PxIS);
 	mix_with_guest:
 		data->port[pno].pxie = ahci_port_read (ad, pno, PxIE);
@@ -1422,12 +1435,22 @@ ahci_command_completion (struct ahci_data *ad, struct ahci_command_list *p,
 			ahci_port_write (ad, pno, PxIS, pxis1);
 		ahci_port_write (ad, pno, PxFB, data->port[pno].orig_fb);
 		ahci_port_write (ad, pno, PxFBU, data->port[pno].orig_fbu);
-		if (data->port[pno].pxcmd & PxCMD_FRE_BIT)
+		if (data->port[pno].pxcmd & PxCMD_FRE_BIT) {
 			ahci_port_write (ad, pno, PxCMD, data->port[pno].pxcmd
 					 & ~PxCMD_ST_BIT);
-		if (data->port[pno].pxcmd & PxCMD_ST_BIT)
+			if (!wait_for_pxcmd (ad, pno, PxCMD_FR_BIT,
+					     PxCMD_FR_BIT))
+				printf ("AHCI %d:%d warning: PxCMD.FR=0\n",
+					ad->host_id, pno);
+		}
+		if (data->port[pno].pxcmd & PxCMD_ST_BIT) {
 			ahci_port_write (ad, pno, PxCMD,
 					 data->port[pno].pxcmd);
+			if (!wait_for_pxcmd (ad, pno, PxCMD_CR_BIT,
+					     PxCMD_CR_BIT))
+				printf ("AHCI %d:%d warning: PxCMD.CR=0\n",
+					ad->host_id, pno);
+		}
 		free_page (data->port[pno].fis);
 	mix_with_guest:
 		ahci_port_write (ad, pno, PxIE, data->port[pno].pxie);
