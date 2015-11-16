@@ -122,7 +122,8 @@ mkudp (char *buf, char *src, int sport, char *dst, int dport,
 {
 	u16 sum;
 
-	memcpy (buf, "\x45\x00\x00\x00\x00\x01\x00\x00\x01\x11\x00\x00", 12);
+	/* TTL=64 */
+	memcpy (buf, "\x45\x00\x00\x00\x00\x01\x00\x00\x40\x11\x00\x00", 12);
 	wshort (buf + 2,  datalen + 8 + 20);
 	memcpy (buf + 12, src, 4);
 	memcpy (buf + 16, dst, 4);
