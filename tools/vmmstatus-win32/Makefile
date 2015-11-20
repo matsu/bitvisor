@@ -1,10 +1,23 @@
-MINGW_PREFIX_DEBIAN	= i586-mingw32msvc-
-#MINGW_PREFIX_DEBIAN	= amd64-mingw32msvc-
-MINGW_PREFIX		= $(MINGW_PREFIX_DEBIAN)
+ifdef X64
+	MINGW1_PREFIX=amd64-mingw32msvc-
+	MINGW2_PREFIX=x86_64-w64-mingw32-
+else
+	MINGW1_PREFIX=i586-mingw32msvc-
+	MINGW2_PREFIX=i686-w64-mingw32-
+endif
+MINGW1=$(shell which $(MINGW1_PREFIX)cc 2> /dev/null)
+MINGW2=$(shell which $(MINGW2_PREFIX)gcc 2> /dev/null)
+ifneq ("$(MINGW1)","")
+	CC=$(MINGW1_PREFIX)cc
+	WINDRES=$(MINGW1_PREFIX)windres
+else ifneq ("$(MINGW2)","")
+	CC=$(MINGW2_PREFIX)gcc
+	WINDRES=$(MINGW2_PREFIX)windres
+else
+	$(error MinGW not found)
+endif
 OUT_EXE			= vmmstatus.exe
 OBJS			= main.o resource.o
-WINDRES			= $(MINGW_PREFIX)windres
-CC			= $(MINGW_PREFIX)cc
 RM			= rm -f
 
 .PHONY : all
