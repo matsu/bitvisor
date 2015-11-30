@@ -46,7 +46,7 @@ _start (int m, int c, struct msgbuf *buf, int bufcnt)
 	tmp = alloc (buf[0].len);
 	memcpy (tmp, buf[0].base, buf[0].len);
 	storage_init (tmp);
-	if (restrict (4096, 32 * 4096)) {
+	if (setlimit (4096, 32 * 4096)) {
 		printf ("storage restrict failed\n");
 		exitprocess (1);
 	}

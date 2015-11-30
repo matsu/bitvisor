@@ -172,7 +172,7 @@ _start (int m, int c, struct msgbuf *buf, int bufcnt)
 		printf ("idman init failed\n");
 		exitprocess (1);
 	}
-	if (restrict (16384, 8 * 16384)) {
+	if (setlimit (16384, 8 * 16384)) {
 		printf ("idman restrict failed\n");
 		exitprocess (1);
 	}
