@@ -30,5 +30,4 @@ loadvmm.dll : loadvmm.c
 		-I$(EDK_DIR)/Foundation/Framework/Include/ \
 		-I$(EDK_DIR)/Foundation/Include/ \
 		-I$(EDK_DIR)/Foundation/Efi/ \
-		-I../../include \
 		-o loadvmm.dll loadvmm.c
