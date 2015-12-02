@@ -34,9 +34,6 @@
 
 struct thread_pcpu_data {
 	tid_t tid;
-	tid_t boot_tid;
-	u32 old_tid;
-	u32 tail;
 };
 
 #endif
