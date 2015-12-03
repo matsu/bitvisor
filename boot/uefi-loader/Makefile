@@ -23,7 +23,7 @@ loadvmm.efi : loadvmm.dll
 
 loadvmm.dll : loadvmm.c
 	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
-		-mno-red-zone -mno-sse -nostdinc -s -O \
+		-mno-red-zone -mno-sse -s -O \
 		-ffreestanding -fno-builtin -fno-stack-protector \
 		-fno-strict-aliasing \
 		-I$(EDK_DIR)/Foundation/Efi/Include/ \
