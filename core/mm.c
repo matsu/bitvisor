@@ -508,6 +508,7 @@ mm_page_alloc (int n)
 	int s;
 	virt_t virt;
 	struct page *p, *q;
+	enum page_type old_type;
 
 	ASSERT (n < NUM_OF_ALLOCSIZE);
 	s = allocsize[n];
@@ -524,8 +525,16 @@ mm_page_alloc (int n)
 		LIST1_ADD (list1_freepage[n], p);
 		LIST1_ADD (list1_freepage[n], q);
 	}
-	spinlock_unlock (&mm_lock);
+	/* p->type must be set before unlock, because the
+	 * mm_page_free() function may merge blocks if the type is
+	 * PAGE_TYPE_FREE. */
+	old_type = p->type;
 	p->type = PAGE_TYPE_ALLOCATED;
+	spinlock_unlock (&mm_lock);
+	/* The old_type must be PAGE_TYPE_FREE, or the memory will be
+	 * corrupted.  The ASSERT is called after unlock to avoid
+	 * deadlocks during panic. */
+	ASSERT (old_type == PAGE_TYPE_FREE);
 	return p;
 }
 
