@@ -14,7 +14,7 @@ else ifneq ("$(MINGW2)","")
 	CC=$(MINGW2_PREFIX)gcc
 	WINDRES=$(MINGW2_PREFIX)windres
 else
-	$(error MinGW not found)
+$(error MinGW not found)
 endif
 OUT_EXE			= vmmstatus.exe
 OBJS			= main.o resource.o
