@@ -4,7 +4,7 @@ ifneq ("$(MINGW1)","")
 	EXE_CC=$(MINGW1)
 else ifneq ("$(MINGW2)","")
 	EXE_CC=$(MINGW2)
-else
+else ifndef EXE_CC
 $(error MinGW not found)
 endif
 RM			= rm -f
