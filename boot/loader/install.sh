@@ -69,7 +69,7 @@ generatembr(){
 getbsssize(){
 	bsssize=0
 	if ! dd if="$elf" bs=1 skip=0 count=4 | od |
-		grep -q '^0000000 042577 043114'
+		egrep -q '^0000000\s+042577\s+043114'
 	then
 		echo "ELF header not found in \`$elf'." >&2
 		exit 1
@@ -144,7 +144,7 @@ getbsssize
 
 case $first in
 0)	if dd if="$device" skip="$lba2" count=1 | od |
-		grep -q '^0000000 042577 043114'
+		egrep -q '^0000000\s+042577\s+043114'
 	then
 		echo "found ELF header." >&2
 	else
