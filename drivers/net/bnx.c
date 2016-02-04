@@ -110,6 +110,7 @@ struct bnx {
 	u32 tx_consumer;
 	void **tx_buf;
 	spinlock_t tx_lock, rx_lock;
+	spinlock_t reg_lock;
 	bool tx_enabled;
 
 	struct bnx_rx_desc *rx_prod_ring;
@@ -462,8 +463,10 @@ bnx_handle_link_state (struct bnx *bnx)
 {
 	u32 data;
 	printd (15, "Link status changed.\n");
+	spinlock_lock (&bnx->reg_lock);
 	bnx_mmioread32 (bnx, BNXREG_ETH_MACSTAT, &data);
 	bnx_mmiowrite32 (bnx, BNXREG_ETH_MACSTAT, data | (1<<12));
+	spinlock_unlock (&bnx->reg_lock);
 }
 
 static void
@@ -542,8 +545,10 @@ bnx_handle_recv (struct bnx *bnx)
 				 bnx->rx_prod_ring_len);
 	}
 	num = i;
+	spinlock_lock (&bnx->reg_lock);
 	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_CONS0, bnx->rx_retr_consumer);
 	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_PROD,  bnx->rx_prod_producer);
+	spinlock_unlock (&bnx->reg_lock);
 	if (num) {
 		printd (15, "Received %d packets ("
 			"Return Producer: %d, Consumer: %d / "
@@ -601,8 +606,10 @@ bnx_xmit (struct bnx *bnx, void *buf, int buflen)
 		bnx->tx_ring[bnx->tx_producer].len_flags = buflen << 16 | 0x84;
 		bnx->tx_ring[bnx->tx_producer].vlan_tag = 0;
 		bnx->tx_producer = (bnx->tx_producer + 1) % bnx->tx_ring_len;
+		spinlock_lock (&bnx->reg_lock);
 		bnx_mmiowrite32 (bnx, BNXREG_HMBOX_TX_PROD,
 				 bnx->tx_producer);
+		spinlock_unlock (&bnx->reg_lock);
 	}
 	spinlock_unlock (&bnx->tx_lock);
 }
@@ -822,7 +829,9 @@ bnx_intr_clear (void *param)
 {
 	struct bnx *bnx = param;
 
+	spinlock_lock (&bnx->reg_lock);
 	bnx_mmiowrite32 (bnx, 0x0204, 0);
+	spinlock_unlock (&bnx->reg_lock);
 	bnx_handle_status (bnx);
 }
 
@@ -838,6 +847,7 @@ bnx_intr_disable (void *param)
 	struct bnx *bnx = param;
 	u32 data;
 
+	spinlock_lock (&bnx->reg_lock);
 	bnx_mmioread32 (bnx, 0x68, &data);
 	if (!(data & 2)) {
 		data |= 2;
@@ -847,11 +857,12 @@ bnx_intr_disable (void *param)
 	bnx_mmioread32 (bnx, 0x6800, &data);
 	bnx_mmiowrite32 (bnx, 0x6800, data & ~0x6000);
 	bnx_mmioread32 (bnx, 4, &data);
+	if (!(data & 0x400))
+		bnx_mmiowrite32 (bnx, 4, data | 0x400);
+	spinlock_unlock (&bnx->reg_lock);
 	if (data & 0x400)
 		return;
 	printf ("bnx: Disable interrupt\n");
-	data |= 0x400;
-	bnx_mmiowrite32 (bnx, 4, data);
 }
 
 static void
@@ -860,6 +871,7 @@ bnx_intr_enable (void *param)
 	struct bnx *bnx = param;
 	u32 data;
 
+	spinlock_lock (&bnx->reg_lock);
 	bnx_mmioread32 (bnx, 0x68, &data);
 	if (data & 2) {
 		data &= ~2;
@@ -869,11 +881,12 @@ bnx_intr_enable (void *param)
 	bnx_mmioread32 (bnx, 0x6800, &data);
 	bnx_mmiowrite32 (bnx, 0x6800, data & ~0x6000);
 	bnx_mmioread32 (bnx, 4, &data);
+	if (data & 0x400)
+		bnx_mmiowrite32 (bnx, 4, data & ~0x400);
+	spinlock_unlock (&bnx->reg_lock);
 	if (!(data & 0x400))
 		return;
 	printf ("bnx: Enable interrupt\n");
-	data &= ~0x400;
-	bnx_mmiowrite32 (bnx, 4, data);
 }
 
 static void
@@ -923,6 +936,7 @@ bnx_new (struct pci_device *pci_device)
 	spinlock_init (&bnx->tx_lock);
 	spinlock_init (&bnx->rx_lock);
 	spinlock_init (&bnx->status_lock);
+	spinlock_init (&bnx->reg_lock);
 	bnx_pci_init (bnx);
 	bnx_mmio_init (bnx);
 	bnx_ring_alloc (bnx);
