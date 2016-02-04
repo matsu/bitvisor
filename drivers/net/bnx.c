@@ -317,11 +317,11 @@ bnx_ring_alloc (struct bnx *bnx)
 	bnx->rx_buf = alloc (sizeof (void *) * bnx->rx_prod_ring_len);
 	for (i = 0; i < bnx->rx_prod_ring_len; i++) {
 		alloc_page (&virt, &phys);
+		memset (&bnx->rx_prod_ring[i], 0, sizeof bnx->rx_prod_ring[i]);
 		bnx->rx_prod_ring[i].addr_low = phys & 0xffffffff;
 		bnx->rx_prod_ring[i].addr_high = phys >> 32;
 		bnx->rx_prod_ring[i].length = HOST_FRAME_MAXLEN;
 		bnx->rx_prod_ring[i].index = i;
-		bnx->rx_prod_ring[i].opaque = i;
 		bnx->rx_buf[i] = virt;
 	}
 	pagenum =
@@ -529,8 +529,11 @@ bnx_handle_recv (struct bnx *bnx)
 		bnx_call_recv (bnx, buf, buf_len);
 		bnx_ring_update (&bnx->rx_retr_consumer,
 				 bnx->rx_retr_ring_len);
-		desc.length = HOST_FRAME_MAXLEN;
-		bnx->rx_prod_ring[bnx->rx_prod_producer] = desc;
+		bnx->rx_prod_ring[bnx->rx_prod_producer].addr_high =
+			desc.addr_high;
+		bnx->rx_prod_ring[bnx->rx_prod_producer].addr_low =
+			desc.addr_low;
+		bnx->rx_prod_ring[bnx->rx_prod_producer].index = desc.index;
 		bnx_ring_update (&bnx->rx_prod_producer,
 				 bnx->rx_prod_ring_len);
 	}
