@@ -535,8 +535,8 @@ bnx_handle_recv (struct bnx *bnx)
 				 bnx->rx_prod_ring_len);
 	}
 	num = i;
-	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_PROD,  bnx->rx_prod_producer);
 	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_CONS0, bnx->rx_retr_consumer);
+	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_PROD,  bnx->rx_prod_producer);
 	if (num) {
 		printd (15, "Received %d packets ("
 			"Return Producer: %d, Consumer: %d / "
