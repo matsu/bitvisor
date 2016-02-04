@@ -606,25 +606,25 @@ bnx_reset (struct bnx *bnx)
 	u32 data, data2, timeout;
 
 	printf ("BNX: Global resetting...");
-	printf ("[%d]", __LINE__);
+	usleep (10000);
 	bnx_mmiowrite32 (bnx, 0x4000, 0x02); /* Enable Memory Arbiter */
-	printf ("[%d]", __LINE__);
+	usleep (10000);
 	bnx_mmiowrite32 (bnx, 0x6800, 0x34); /* Enable order swapping */
-	printf ("[%d]", __LINE__);
+	usleep (10000);
 	bnx_mmiowrite32 (bnx, 0x6804, 0x20000000); /* Don't reset PCIe */
-	printf ("[%d]", __LINE__);
+	usleep (10000);
 	bnx_mmiowrite32 (bnx, 0x6804, 0x20000001); /* Do global reset */
-	printf ("[%d]", __LINE__);
+	usleep (10000);
 	timeout = 8;
 	do {
-		printf ("[%d]", __LINE__);
+		usleep (10000);
 		bnx_mmioread32 (bnx, 0x6804, &data);
-		printf ("[%d]", __LINE__);
+		usleep (10000);
 		usleep (1000*1000);
-		printf ("[%d]", __LINE__);
+		usleep (10000);
 		printf (".");
 	} while ((data & 1) && timeout-- > 0);	/* Reset done! */
-	printf ("[%d]", __LINE__);
+	usleep (10000);
 	if (timeout > 0) {
 		printf ("done!\n");
 	} else {
