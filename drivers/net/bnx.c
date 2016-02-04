@@ -524,9 +524,13 @@ bnx_handle_recv (struct bnx *bnx)
 			break;
 
 		desc = bnx->rx_retr_ring[bnx->rx_retr_consumer];
-		buf = bnx->rx_buf[desc.index];
-		buf_len = desc.length;
-		bnx_call_recv (bnx, buf, buf_len);
+		if (!(desc.flags & (1 << 10)) && /* not error */
+		    !(desc.flags & (1 << 6)) &&	 /* not VLAN */
+		    desc.length > 0 && desc.length <= HOST_FRAME_MAXLEN) {
+			buf = bnx->rx_buf[desc.index];
+			buf_len = desc.length;
+			bnx_call_recv (bnx, buf, buf_len);
+		}
 		bnx_ring_update (&bnx->rx_retr_consumer,
 				 bnx->rx_retr_ring_len);
 		bnx->rx_prod_ring[bnx->rx_prod_producer].addr_high =
