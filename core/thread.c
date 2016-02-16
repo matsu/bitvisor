@@ -28,6 +28,7 @@
  */
 
 #include "assert.h"
+#include "cpu.h"
 #include "initfunc.h"
 #include "linkage.h"
 #include "list.h"
@@ -42,6 +43,17 @@
 
 #define MAXNUM_OF_THREADS	256
 #define CPUNUM_ANY		-1
+#ifdef THREAD_1CPU
+#define LOCK_DEFINE(l) spinlock_t l
+#define LOCK_INIT(l) spinlock_init (l)
+#define LOCK_LOCK(l) spinlock_lock (l)
+#define LOCK_UNLOCK(l) spinlock_unlock (l)
+#else
+#define LOCK_DEFINE(l) ticketlock_t l
+#define LOCK_INIT(l) ticketlock_init (l)
+#define LOCK_LOCK(l) ticketlock_lock (l)
+#define LOCK_UNLOCK(l) ticketlock_unlock (l)
+#endif
 
 extern ulong volatile syscallstack asm ("%gs:gs_syscallstack");
 
@@ -72,7 +84,7 @@ struct thread_data {
 static struct thread_data td[MAXNUM_OF_THREADS];
 static LIST1_DEFINE_HEAD (struct thread_data, td_free);
 static LIST1_DEFINE_HEAD (struct thread_data, td_runnable);
-static ticketlock_t thread_lock;
+static LOCK_DEFINE (thread_lock);
 static void *old_stack;
 
 static void
@@ -110,7 +122,25 @@ thread_gettid (void)
 static void
 switched (void)
 {
-	ticketlock_unlock (&thread_lock);
+	LOCK_UNLOCK (&thread_lock);
+}
+
+static bool
+schedule_skip (bool start)
+{
+#ifdef THREAD_1CPU
+	static u32 thread_cpu = ~0;
+	u32 value = ~0, cpu;
+
+	if (start) {
+		cpu = get_cpu_id ();
+		if (asm_lock_cmpxchgl (&thread_cpu, &value, cpu))
+			return value != cpu;
+	} else {
+		asm_lock_xchgl (&thread_cpu, value);
+	}
+#endif
+	return false;
 }
 
 void
@@ -119,7 +149,9 @@ schedule (void)
 	struct thread_data *d;
 	tid_t oldtid, newtid;
 
-	ticketlock_lock (&thread_lock);
+	if (schedule_skip (true))
+		return;
+	LOCK_LOCK (&thread_lock);
 	if (old_stack) {
 		free (old_stack);
 		old_stack = NULL;
@@ -129,7 +161,8 @@ schedule (void)
 		    d->cpunum == currentcpu->cpunum)
 			goto found;
 	}
-	ticketlock_unlock (&thread_lock);
+	LOCK_UNLOCK (&thread_lock);
+	schedule_skip (false);
 	return;
 found:
 	LIST1_DEL (td_runnable, d);
@@ -153,6 +186,8 @@ found:
 		panic ("schedule: bad state tid=%d state=%d",
 		       oldtid, td[oldtid].state);
 	}
+	if (d->cpunum != CPUNUM_ANY)
+		schedule_skip (false);
 	thread_switch (&td[oldtid].context, d->context, 0);
 	switched ();
 }
@@ -171,13 +206,13 @@ thread_new0 (struct thread_context *c, void *stack)
 	struct thread_data *d;
 	tid_t r;
 
-	ticketlock_lock (&thread_lock);
+	LOCK_LOCK (&thread_lock);
 	d = LIST1_POP (td_free);
 	ASSERT (d);
 	thread_data_init (d, c, stack, CPUNUM_ANY);
 	LIST1_ADD (td_runnable, d);
 	r = d->tid;
-	ticketlock_unlock (&thread_lock);
+	LOCK_UNLOCK (&thread_lock);
 	return r;
 }
 
@@ -204,10 +239,10 @@ thread_set_state (tid_t tid, enum thread_state state)
 {
 	enum thread_state oldstate;
 
-	ticketlock_lock (&thread_lock);
+	LOCK_LOCK (&thread_lock);
 	oldstate = td[tid].state;
 	td[tid].state = state;
-	ticketlock_unlock (&thread_lock);
+	LOCK_UNLOCK (&thread_lock);
 	return oldstate;
 }
 
@@ -221,9 +256,9 @@ thread_wakeup (tid_t tid)
 	case THREAD_WILL_STOP:
 		break;
 	case THREAD_STOP:
-		ticketlock_lock (&thread_lock);
+		LOCK_LOCK (&thread_lock);
 		LIST1_ADD (td_runnable, &td[tid]);
-		ticketlock_unlock (&thread_lock);
+		LOCK_UNLOCK (&thread_lock);
 		break;
 	case THREAD_EXIT:
 	default:
@@ -281,7 +316,7 @@ thread_init_global (void)
 
 	LIST1_HEAD_INIT (td_free);
 	LIST1_HEAD_INIT (td_runnable);
-	ticketlock_init (&thread_lock);
+	LOCK_INIT (&thread_lock);
 	old_stack = NULL;
 	for (i = 0; i < MAXNUM_OF_THREADS; i++) {
 		td[i].tid = i;
@@ -295,13 +330,13 @@ thread_init_pcpu (void)
 {
 	struct thread_data *d;
 
-	ticketlock_lock (&thread_lock);
+	LOCK_LOCK (&thread_lock);
 	d = LIST1_POP (td_free);
 	ASSERT (d);
 	thread_data_init (d, NULL, NULL, currentcpu->cpunum);
 	d->boot = true;
 	currentcpu->thread.tid = d->tid;
-	ticketlock_unlock (&thread_lock);
+	LOCK_UNLOCK (&thread_lock);
 }
 
 INITFUNC ("global3", thread_init_global);
