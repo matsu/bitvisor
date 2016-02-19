@@ -1040,8 +1040,14 @@ parsemain (struct parsedata *d)
 	r = NULL;
 loop:
 	if (r == NULL) {
-		if (getbuf (d) == NULL)
+		if (getbuf (d) == NULL) {
+#ifdef ACPI_IGNORE_ERROR
+			printf ("getbuf error\n");
+			return NULL;
+#else
 			error ("getbuf");
+#endif
+		}
 		if (d->c == d->end) {
 			r = d->cur;
 			goto loop;
@@ -2041,6 +2047,10 @@ loop2:
 		addbuf (d, AML_0x7D, OK);
 		break;
 	case AML_DefPackage:
+		/* iMac (Retina 5K, 27-inch, Late 2015) has an SSDT
+		 * "Cpu0Ist" that contains wrong value in PkgLength.
+		 * Currently no workaround is found.  Use
+		 * CONFIG_ACPI_IGNORE_ERROR to ignore errors. */
 		addbuf (d, AML_PackageOp, AML_PkgLength, 
 			AML_NumElements, AML_PackageElementList, 
 			AML_PkgEND, OK);
@@ -2552,10 +2562,12 @@ parser (unsigned char *start, unsigned char *end, bool print_progress)
 		q = parsemain (&d);
 		if (d.progress)
 			printf ("%c", d.progresschar);
-		parsefreepathlist (&q->pathhead);
-		parsefreebuflist (&q->bufhead);
-		parsefreelimitlist (&q->limithead);
-		parsefree (q);
+		if (q) {
+			parsefreepathlist (&q->pathhead);
+			parsefreebuflist (&q->bufhead);
+			parsefreelimitlist (&q->limithead);
+			parsefree (q);
+		}
 		if (d.progress) {
 			for (i = 0, j = end - start; i < j; i += d.progress)
 				printf ("\b");
@@ -2580,6 +2592,8 @@ parser (unsigned char *start, unsigned char *end, bool print_progress)
 	q = parsemain (&d);
 	if (d.progress)
 		printf ("%c\n", d.progresschar);
+	if (!q)
+		goto error;
 #ifdef DISABLE_SLEEP
 	if (q->system_state_name[2] && *q->system_state_name[2] == '_') {
 		replace_byte (&d, q->system_state_name[2], 'D');
@@ -2600,6 +2614,7 @@ parser (unsigned char *start, unsigned char *end, bool print_progress)
 	parsefreebuflist (&q->bufhead);
 	parsefreelimitlist (&q->limithead);
 	parsefree (q);
+error:
 	parsefreebreaklist (&d.breakhead);
 }
 
