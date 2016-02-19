@@ -395,6 +395,7 @@ uefi_entry_call:
 	call	uefi_entry_rip_plus_rax
 	mov	%rsp,%rsi
 	mov	uefi_entry_rsp(%rip),%rsp
+	and	$~0xF,%rsp	# Force 16-byte alignment; see calluefi
 	mov	uefi_entry_cr3(%rip),%rax
 	mov	%rax,%cr3
 	cld

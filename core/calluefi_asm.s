@@ -44,6 +44,13 @@ calluefi:
 	mov	$calluefi_stack,%rsp
 	sub	$4,%rsi
 	jbe	2f
+	# 16-byte stack alignment seems to be undocumented but
+	# sometimes required for calling UEFI services that probably
+	# use SSE2.  If the number of arguments is odd, push 8-byte
+	# something to keep 16-byte stack alignment.
+	test	$1,%rsi
+	je	1f
+	push	%rsi
 1:
 	pushq	(%rax,%rsi,8)
 	sub	$1,%rsi
@@ -178,4 +185,5 @@ calluefi_uefi_cr3:
 	# UEFI calls are allowed on processor 0 only
 	.space	128*1024	# 128KB stack space for UEFI
 	.space	PAGESIZE	# some space for arguments
+	.align	16		# Force 16-byte alignment; see above
 calluefi_stack:
