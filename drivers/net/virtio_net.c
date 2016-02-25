@@ -52,6 +52,7 @@ struct virtio_net {
 	u8 dev_status;
 	u16 selected_queue;
 	int hd;
+	int multifunction;
 };
 
 struct virtio_ring {
@@ -349,8 +350,9 @@ virtio_net_config_read (void *handle, u8 iosize, u16 offset, union mem *data)
 							   * ID */
 	replace (iosize, offset, data, 4, 2, vnet->cmd & 0x405);
 	replace (iosize, offset, data, 8, 1, 0);
-	replace (iosize, offset, data, 0xE, 1, 0); /* Single function
-						    * device */
+	if (!vnet->multifunction)
+		replace (iosize, offset, data, 0xE, 1, 0); /* Single function
+							    * device */
 	replace (iosize, offset, data, 0x10, 4,
 		 (vnet->port & ~0x1F) | PCI_CONFIG_BASE_ADDRESS_IOSPACE);
 	replace (iosize, offset, data, 0x14, 4, 0);
@@ -397,6 +399,14 @@ virtio_net_config_write (void *handle, u8 iosize, u16 offset, union mem *data)
 	}
 }
 
+void
+virtio_net_set_multifunction (void *handle, int enable)
+{
+	struct virtio_net *vnet = handle;
+
+	vnet->multifunction = enable;
+}
+
 void *
 virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		 void (*intr_clear) (void *intr_param),
@@ -430,6 +440,7 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->last_time = 0;
 	vnet->dev_status = 0;
 	vnet->selected_queue = 0;
+	vnet->multifunction = 0;
 	*func = &virtio_net_func;
 	return vnet;
 }

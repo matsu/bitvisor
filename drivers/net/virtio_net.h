@@ -37,6 +37,7 @@ void virtio_net_config_read (void *handle, u8 iosize, u16 offset,
 			     union mem *data);
 void virtio_net_config_write (void *handle, u8 iosize, u16 offset,
 			      union mem *data);
+void virtio_net_set_multifunction (void *handle, int enable);
 void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       void (*intr_clear) (void *intr_param),
 		       void (*intr_set) (void *intr_param),
@@ -51,6 +52,11 @@ virtio_net_config_read (void *handle, u8 iosize, u16 offset, union mem *data)
 
 static void
 virtio_net_config_write (void *handle, u8 iosize, u16 offset, union mem *data)
+{
+}
+
+static void
+virtio_net_set_multifunction (void *handle, int enable)
 {
 }
 

@@ -896,6 +896,7 @@ bnx_new (struct pci_device *pci_device)
 	char *option_net;
 	bool option_tty = false;
 	bool option_virtio = false;
+	bool option_multifunction = false;
 	struct nicfunc *virtio_net_func;
 
 	printi ("[%02x:%02x.%01x] A Broadcom NetXtreme GbE found.\n",
@@ -904,6 +905,9 @@ bnx_new (struct pci_device *pci_device)
 	if (pci_device->driver_options[2] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[2], NULL))
 		option_virtio = true;
+	if (pci_device->driver_options[3] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[3], NULL))
+		option_multifunction = true;
 
 	bnx = alloc (sizeof *bnx);
 	if (!bnx) {
@@ -923,6 +927,8 @@ bnx_new (struct pci_device *pci_device)
 						   bnx_intr_set,
 						   bnx_intr_disable,
 						   bnx_intr_enable, bnx);
+		if (option_multifunction)
+			virtio_net_set_multifunction (bnx->virtio_net, 1);
 	}
 	if (bnx->virtio_net) {
 		pci_set_bridge_io (pci_device);
@@ -1012,7 +1018,7 @@ bnx_config_write (struct pci_device *pci_device, u8 iosize,
 static struct pci_driver bnx_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
-	.driver_options	= "tty,net,virtio",
+	.driver_options	= "tty,net,virtio,multifunction",
 	.device		= "class_code=020000,id="
 			  "14e4:165a|" /* BCM5722 */
 			  "14e4:1682|" /* Thunderbolt - BCM57762 */
