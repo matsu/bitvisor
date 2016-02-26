@@ -131,6 +131,7 @@ struct bnx {
 	void *recvphys_param;
 
 	void *virtio_net;
+	u8 config_override[0x100];
 };
 
 #define BNXPCI_REGBASE		0x78
@@ -889,6 +890,49 @@ bnx_intr_enable (void *param)
 	printf ("bnx: Enable interrupt\n");
 }
 
+/* Prepares capabilities passthrough except MSI and MSI-X that are not
+ * supported by this bnx-virtio implementation */
+static void
+passcap_without_msi (struct bnx *bnx, struct pci_device *pci)
+{
+	u32 val;
+	u8 cap, cur;
+	pci_config_address_t addr;
+
+	addr = pci->address;
+	addr.reg_no = 0x34 >> 2; /* CAP - Capabilities Pointer */
+	cap = pci_read_config_data8 (addr, 0);
+	cur = 0x34;
+	bnx->config_override[cur] = cap;
+	while (cap >= 0x40) {
+		addr.reg_no = cap >> 2;
+		val = pci_read_config_data32 (addr, 0);
+		switch (val & 0xFF) { /* Cap ID */
+		case 0x05:	/* MSI */
+			printi ("[%02x:%02x.%01x] Capabilities [%02x] MSI\n",
+				pci->address.bus_no, pci->address.device_no,
+				pci->address.func_no, cap);
+			break;
+		case 0x11:	/* MSI-X */
+			printi ("[%02x:%02x.%01x] Capabilities [%02x] MSI-X\n",
+				pci->address.bus_no, pci->address.device_no,
+				pci->address.func_no, cap);
+			break;
+		default:
+			cur = cap + 1;
+			if (bnx->config_override[cur]) {
+				printf ("[%02x:%02x.%01x] Capability loop?\n",
+					pci->address.bus_no,
+					pci->address.device_no,
+					pci->address.func_no);
+				return;
+			}
+		}
+		cap = val >> 8; /* Next Capability */
+		bnx->config_override[cur] = cap;
+	}
+}
+
 static void
 bnx_new (struct pci_device *pci_device)
 {
@@ -929,6 +973,7 @@ bnx_new (struct pci_device *pci_device)
 						   bnx_intr_enable, bnx);
 		if (option_multifunction)
 			virtio_net_set_multifunction (bnx->virtio_net, 1);
+		passcap_without_msi (bnx, pci_device);
 	}
 	if (bnx->virtio_net) {
 		pci_set_bridge_io (pci_device);
@@ -958,6 +1003,8 @@ bnx_config_read (struct pci_device *pci_device, u8 iosize,
 		 u16 offset, union mem *buf)
 {
 	struct bnx *bnx = pci_device->host;
+	unsigned int i;
+	u8 override;
 
 	if (bnx->virtio_net) {
 		pci_handle_default_config_read (pci_device, iosize, offset,
@@ -976,6 +1023,13 @@ bnx_config_read (struct pci_device *pci_device, u8 iosize,
 							offset - 0x10, buf);
 	} else {
 		memset (buf, 0, iosize);
+	}
+	for (i = 0; i < iosize; i++) {
+		if (offset + i < sizeof bnx->config_override) {
+			override = bnx->config_override[offset + i];
+			if (override)
+				i[&buf->byte] = override;
+		}
 	}
 	return CORE_IO_RET_DONE;
 }
