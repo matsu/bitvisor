@@ -62,9 +62,14 @@ typedef struct {
 	enum pmap_type type;
 } pmap_t;
 
+struct uefi_mmio_space_struct {
+	u64 base, npages;
+};
+
 extern u16 e801_fake_ax, e801_fake_bx;
 extern bool use_pae;
 extern u64 memorysize, vmmsize;
+extern struct uefi_mmio_space_struct *uefi_mmio_space;
 
 phys_t sym_to_phys (void *sym);
 bool phys_in_vmm (u64 phys);

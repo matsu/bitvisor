@@ -41,6 +41,7 @@
 
 struct svm_np {
 	int cnt;
+	int cleared;
 	void *ncr3tbl;
 	phys_t ncr3tbl_phys;
 	void *tbl[NUM_OF_NPTBL];
@@ -61,6 +62,7 @@ svm_np_init (void)
 	np = alloc (sizeof (*np));
 	alloc_page (&np->ncr3tbl, &np->ncr3tbl_phys);
 	memset (np->ncr3tbl, 0, PAGESIZE);
+	np->cleared = 1;
 	for (i = 0; i < NUM_OF_NPTBL; i++)
 		alloc_page (&np->tbl[i], &np->tbl_phys[i]);
 	np->cnt = 0;
@@ -113,6 +115,7 @@ cur_fill (struct svm_np *np, u64 gphys, int level)
 
 	if (np->cnt + np->cur.level - level > NUM_OF_NPTBL) {
 		memset (np->ncr3tbl, 0, PAGESIZE);
+		np->cleared = 1;
 		np->cnt = 0;
 		svm_paging_flush_guest_tlb ();
 		np->cur.level = PMAP_LEVELS - 1;
@@ -131,7 +134,7 @@ cur_fill (struct svm_np *np, u64 gphys, int level)
 }
 
 static void
-svm_np_map_page (struct svm_np *np, bool write, u64 gphys)
+svm_np_map_page_sub (struct svm_np *np, bool write, u64 gphys)
 {
 	bool fakerom;
 	u64 hphys;
@@ -181,6 +184,52 @@ svm_np_level (struct svm_np *np, u64 gphys)
 	return np->cur.level;
 }
 
+static void
+svm_np_map_page_clear_cleared (struct svm_np *np)
+{
+	u32 n, nn;
+	u64 base, len, size;
+	phys_t next_phys;
+
+	np->cleared = 0;
+	n = 0;
+	for (nn = 1; nn; n = nn) {
+		nn = current->gmm.getforcemap (n, &base, &len);
+		if (!len)
+			continue;
+		len += base & PAGESIZE_MASK;
+		base &= ~PAGESIZE_MASK;
+		while (len > 0) {
+			size = PAGESIZE;
+			if (svm_np_level (np, base) > 0 &&
+			    !mmio_range (base & ~PAGESIZE2M_MASK, PAGESIZE2M)
+			    && !svm_np_map_2mpage (np, base))
+				size = (base | PAGESIZE2M_MASK) + 1 - base;
+			else if (!(next_phys = mmio_range (base, PAGESIZE)))
+				svm_np_map_page_sub (np, true, base);
+			else
+				size = (next_phys - base + PAGESIZE - 1) &
+					~PAGESIZE_MASK;
+			if (size > len)
+				size = len;
+			base += size;
+			len -= size;
+		}
+	}
+	if (np->cleared)
+		panic ("%s: error", __func__);
+}
+
+static void
+svm_np_map_page (struct svm_np *np, bool write, u64 gphys)
+{
+	if (np->cleared)
+		svm_np_map_page_clear_cleared (np);
+	svm_np_map_page_sub (np, write, gphys);
+	if (np->cleared)
+		svm_np_map_page_clear_cleared (np);
+}
+
 void
 svm_np_pagefault (bool write, u64 gphys)
 {
@@ -215,6 +264,7 @@ svm_np_clear_all (void)
 
 	np = current->u.svm.np;
 	memset (np->ncr3tbl, 0, PAGESIZE);
+	np->cleared = 1;
 	np->cnt = 0;
 	np->cur.level = PMAP_LEVELS;
 	svm_paging_flush_guest_tlb ();

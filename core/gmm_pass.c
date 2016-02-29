@@ -48,10 +48,12 @@
 static u64 phys_blank;
 
 u64 gmm_pass_gp2hp_2m (u64 gp);
+u32 gmm_pass_getforcemap (u32 n, u64 *base, u64 *len);
 
 static struct gmm_func func = {
 	gmm_pass_gp2hp,
 	gmm_pass_gp2hp_2m,
+	gmm_pass_getforcemap,
 };
 
 /* translate a guest-physical address to a host-physical address */
@@ -86,6 +88,21 @@ gmm_pass_gp2hp_2m (u64 gp)
 	if (phys_in_vmm (gp))	/* VMM is 4MiB aligned */
 		return GMM_GP2HP_2M_FAIL;
 	return gp;
+}
+
+u32
+gmm_pass_getforcemap (u32 n, u64 *base, u64 *len)
+{
+#ifdef MAP_UEFI_MMIO
+	if (uefi_mmio_space) {
+		*base = uefi_mmio_space[n].base;
+		*len = uefi_mmio_space[n].npages << PAGESIZE_SHIFT;
+		return *len > 0 ? n + 1 : 0;
+	}
+#endif
+	*base = 0;
+	*len = 0;
+	return 0;
 }
 
 static void

@@ -130,6 +130,7 @@ extern u8 end[];
 bool use_pae = USE_PAE_BOOL;
 u16 e801_fake_ax, e801_fake_bx;
 u64 memorysize = 0, vmmsize = 0;
+struct uefi_mmio_space_struct *uefi_mmio_space;
 static u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
 u32 __attribute__ ((section (".data"))) vmm_start_phys;
 static spinlock_t mm_lock, mm_lock2;
@@ -256,6 +257,38 @@ getallsysmemmap (void)
 		getallsysmemmap_uefi ();
 	else
 		getallsysmemmap_bios ();
+}
+
+static void
+get_map_uefi_mmio (void)
+{
+	u32 offset;
+	u64 *p;
+	int n = 0, i = 0;
+
+	call_uefi_get_memory_map ();
+	for (offset = 0; offset + 5 * 8 <= uefi_memory_map_size;
+	     offset += uefi_memory_map_descsize) {
+		p = (u64 *)&uefi_memory_map_data[offset];
+		if ((p[0] & 0xFFFFFFFF) == 11) /* EfiMemoryMappedIO */
+			n++;
+	}
+	if (!n)
+		return;
+	uefi_mmio_space = alloc ((n + 1) * sizeof *uefi_mmio_space);
+	for (offset = 0; offset + 5 * 8 <= uefi_memory_map_size;
+	     offset += uefi_memory_map_descsize) {
+		p = (u64 *)&uefi_memory_map_data[offset];
+		if ((p[0] & 0xFFFFFFFF) == 11) { /* EfiMemoryMappedIO */
+			uefi_mmio_space[i].base = p[1]; /* PhysicalStart */
+			uefi_mmio_space[i].npages = p[3]; /* NumberOfPages */
+			i++;
+			if (i == n)
+				break;
+		}
+	}
+	uefi_mmio_space[n].base = 0;
+	uefi_mmio_space[n].npages = 0;
 }
 
 static inline void
@@ -818,6 +851,8 @@ mm_init_global (void)
 	map_hphys ();
 	unmap_user_area ();	/* for detecting null pointer */
 	process_virt_to_phys_prepare ();
+	if (uefi_booted)
+		get_map_uefi_mmio ();
 }
 
 /* panicmem is reserved memory for panic */

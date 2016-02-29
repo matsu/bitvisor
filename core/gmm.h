@@ -37,6 +37,7 @@
 struct gmm_func {
 	u64 (*gp2hp) (u64 gp, bool *fakerom);
 	u64 (*gp2hp_2m) (u64 gp);
+	u32 (*getforcemap) (u32 n, u64 *base, u64 *len);
 };
 
 #endif
