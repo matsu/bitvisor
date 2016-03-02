@@ -54,6 +54,11 @@ struct vt_ept {
 	phys_t ncr3tbl_phys;
 	void *tbl[NUM_OF_EPTBL];
 	phys_t tbl_phys[NUM_OF_EPTBL];
+	struct {
+		int level;
+		phys_t gphys;
+		u64 *entry[EPT_LEVELS];
+	} cur;
 };
 
 void
@@ -68,9 +73,46 @@ vt_ept_init (void)
 	for (i = 0; i < NUM_OF_EPTBL; i++)
 		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
 	ept->cnt = 0;
+	ept->cur.level = EPT_LEVELS;
 	current->u.vt.ept = ept;
 	asm_vmwrite64 (VMCS_EPT_POINTER, ept->ncr3tbl_phys |
 		       VMCS_EPT_POINTER_EPT_WB | VMCS_EPT_PAGEWALK_LENGTH_4);
+}
+
+static void
+cur_move (struct vt_ept *ept, u64 gphys)
+{
+	u64 mask, *p, e;
+
+	mask = 0xFFFFFFFFFFFFF000ULL;
+	if (ept->cur.level > 0)
+		mask <<= 9 * ept->cur.level;
+	while (ept->cur.level < EPT_LEVELS &&
+	       (gphys & mask) != (ept->cur.gphys & mask)) {
+		ept->cur.level++;
+		mask <<= 9;
+	}
+	ept->cur.gphys = gphys;
+	if (!ept->cur.level)
+		return;
+	if (ept->cur.level >= EPT_LEVELS) {
+		p = ept->ncr3tbl;
+		p += (gphys >> (EPT_LEVELS * 9 + 3)) & 0x1FF;
+		ept->cur.entry[EPT_LEVELS - 1] = p;
+		ept->cur.level = EPT_LEVELS - 1;
+	} else {
+		p = ept->cur.entry[ept->cur.level];
+	}
+	while (ept->cur.level > 0) {
+		e = *p;
+		if (!(e & EPTE_READ))
+			break;
+		e &= ~PAGESIZE_MASK;
+		e |= (gphys >> (9 * ept->cur.level)) & 0xFF8;
+		p = (u64 *)phys_to_virt (e);
+		ept->cur.level--;
+		ept->cur.entry[ept->cur.level] = p;
+	}
 }
 
 static void
@@ -81,30 +123,18 @@ vt_ept_map_page (bool write, u64 gphys)
 	u64 hphys;
 	u32 hattr;
 	struct vt_ept *ept;
-	u64 *p, *q, e;
+	u64 *p;
 
 	ept = current->u.vt.ept;
-	q = ept->ncr3tbl;
-	q += (gphys >> (EPT_LEVELS * 9 + 3)) & 0x1FF;
-	p = q;
-	for (l = EPT_LEVELS - 1; l > 0; l--) {
-		e = *p;
-		if (!(e & EPTE_READ)) {
-			if (ept->cnt + l > NUM_OF_EPTBL) {
-				/* printf ("!"); */
-				memset (ept->ncr3tbl, 0, PAGESIZE);
-				ept->cnt = 0;
-				vt_paging_flush_guest_tlb ();
-				l = EPT_LEVELS - 1;
-				p = q;
-			}
-			break;
-		}
-		e &= ~PAGESIZE_MASK;
-		e |= (gphys >> (9 * l)) & 0xFF8;
-		p = (u64 *)phys_to_virt (e);
+	cur_move (ept, gphys);
+	if (ept->cnt + ept->cur.level > NUM_OF_EPTBL) {
+		memset (ept->ncr3tbl, 0, PAGESIZE);
+		ept->cnt = 0;
+		vt_paging_flush_guest_tlb ();
+		ept->cur.level = EPT_LEVELS - 1;
 	}
-	for (; l > 0; l--) {
+	l = ept->cur.level;
+	for (p = ept->cur.entry[l]; l > 0; l--) {
 		*p = ept->tbl_phys[ept->cnt] | EPTE_READEXEC | EPTE_WRITE;
 		p = ept->tbl[ept->cnt++];
 		memset (p, 0, PAGESIZE);
@@ -166,6 +196,7 @@ vt_ept_clear_all (void)
 	ept = current->u.vt.ept;
 	memset (ept->ncr3tbl, 0, PAGESIZE);
 	ept->cnt = 0;
+	ept->cur.level = EPT_LEVELS;
 	vt_paging_flush_guest_tlb ();
 }
 

@@ -45,6 +45,11 @@ struct svm_np {
 	phys_t ncr3tbl_phys;
 	void *tbl[NUM_OF_NPTBL];
 	phys_t tbl_phys[NUM_OF_NPTBL];
+	struct {
+		int level;
+		phys_t gphys;
+		u64 *entry[PMAP_LEVELS];
+	} cur;
 };
 
 void
@@ -59,8 +64,45 @@ svm_np_init (void)
 	for (i = 0; i < NUM_OF_NPTBL; i++)
 		alloc_page (&np->tbl[i], &np->tbl_phys[i]);
 	np->cnt = 0;
+	np->cur.level = PMAP_LEVELS;
 	current->u.svm.np = np;
 	current->u.svm.vi.vmcb->n_cr3 = np->ncr3tbl_phys;
+}
+
+static void
+cur_move (struct svm_np *np, u64 gphys)
+{
+	u64 mask, *p, e;
+
+	mask = 0xFFFFFFFFFFFFF000ULL;
+	if (np->cur.level > 0)
+		mask <<= 9 * np->cur.level;
+	while (np->cur.level < PMAP_LEVELS &&
+	       (gphys & mask) != (np->cur.gphys & mask)) {
+		np->cur.level++;
+		mask <<= 9;
+	}
+	np->cur.gphys = gphys;
+	if (!np->cur.level)
+		return;
+	if (np->cur.level >= PMAP_LEVELS) {
+		p = np->ncr3tbl;
+		p += (gphys >> (PMAP_LEVELS * 9 + 3)) & 0x1FF;
+		np->cur.entry[PMAP_LEVELS - 1] = p;
+		np->cur.level = PMAP_LEVELS - 1;
+	} else {
+		p = np->cur.entry[np->cur.level];
+	}
+	while (np->cur.level > 0) {
+		e = *p;
+		if (!(e & PDE_P_BIT))
+			break;
+		e &= ~PAGESIZE_MASK;
+		e |= (gphys >> (9 * np->cur.level)) & 0xFF8;
+		p = (u64 *)phys_to_virt (e);
+		np->cur.level--;
+		np->cur.entry[np->cur.level] = p;
+	}
 }
 
 static void
@@ -71,30 +113,18 @@ svm_np_map_page (bool write, u64 gphys)
 	u64 hphys;
 	u32 hattr;
 	struct svm_np *np;
-	u64 *p, *q, e;
+	u64 *p, e;
 
 	np = current->u.svm.np;
-	q = np->ncr3tbl;
-	q += (gphys >> (PMAP_LEVELS * 9 + 3)) & 0x1FF;
-	p = q;
-	for (l = PMAP_LEVELS - 1; l > 0; l--) {
-		e = *p;
-		if (!(e & PDE_P_BIT)) {
-			if (np->cnt + l > NUM_OF_NPTBL) {
-				/* printf ("!"); */
-				memset (np->ncr3tbl, 0, PAGESIZE);
-				np->cnt = 0;
-				svm_paging_flush_guest_tlb ();
-				l = PMAP_LEVELS - 1;
-				p = q;
-			}
-			break;
-		}
-		e &= ~PAGESIZE_MASK;
-		e |= (gphys >> (9 * l)) & 0xFF8;
-		p = (u64 *)phys_to_virt (e);
+	cur_move (np, gphys);
+	if (np->cnt + np->cur.level > NUM_OF_NPTBL) {
+		memset (np->ncr3tbl, 0, PAGESIZE);
+		np->cnt = 0;
+		svm_paging_flush_guest_tlb ();
+		np->cur.level = PMAP_LEVELS - 1;
 	}
-	for (; l > 0; l--) {
+	l = np->cur.level;
+	for (p = np->cur.entry[l]; l > 0; l--) {
 		e = np->tbl_phys[np->cnt] | PDE_P_BIT;
 		if (PMAP_LEVELS != 3 || l != 2)
 			e |= PDE_RW_BIT | PDE_US_BIT | PDE_A_BIT;
@@ -141,6 +171,7 @@ svm_np_clear_all (void)
 	np = current->u.svm.np;
 	memset (np->ncr3tbl, 0, PAGESIZE);
 	np->cnt = 0;
+	np->cur.level = PMAP_LEVELS;
 	svm_paging_flush_guest_tlb ();
 }
 
