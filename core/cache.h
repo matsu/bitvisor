@@ -70,5 +70,6 @@ bool cache_get_gmtrr (ulong msr_num, u64 *value);
 bool cache_set_gmtrr (ulong msr_num, u64 value);
 bool cache_get_gmsr_amd (ulong msr_num, u64 *value);
 bool cache_set_gmsr_amd (ulong msr_num, u64 value);
+bool cache_gmtrr_type_equal (u64 gphys, u64 mask);
 
 #endif

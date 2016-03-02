@@ -32,8 +32,11 @@
 
 #include "types.h"
 
+#define GMM_GP2HP_2M_FAIL 0xFFFFFFFFFFFFFFFFULL
+
 struct gmm_func {
 	u64 (*gp2hp) (u64 gp, bool *fakerom);
+	u64 (*gp2hp_2m) (u64 gp);
 };
 
 #endif

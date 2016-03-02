@@ -44,6 +44,7 @@
 #define EPTE_READ	0x1
 #define EPTE_READEXEC	0x5
 #define EPTE_WRITE	0x2
+#define EPTE_LARGE	0x80
 #define EPTE_ATTR_MASK	0xFFF
 #define EPTE_MT_SHIFT	3
 #define EPT_LEVELS	4
@@ -105,7 +106,7 @@ cur_move (struct vt_ept *ept, u64 gphys)
 	}
 	while (ept->cur.level > 0) {
 		e = *p;
-		if (!(e & EPTE_READ))
+		if (!(e & EPTE_READ) || (e & EPTE_LARGE))
 			break;
 		e &= ~PAGESIZE_MASK;
 		e |= (gphys >> (9 * ept->cur.level)) & 0xFF8;
@@ -115,31 +116,38 @@ cur_move (struct vt_ept *ept, u64 gphys)
 	}
 }
 
-static void
-vt_ept_map_page (bool write, u64 gphys)
+static u64 *
+cur_fill (struct vt_ept *ept, u64 gphys, int level)
 {
 	int l;
-	bool fakerom;
-	u64 hphys;
-	u32 hattr;
-	struct vt_ept *ept;
 	u64 *p;
 
-	ept = current->u.vt.ept;
-	cur_move (ept, gphys);
-	if (ept->cnt + ept->cur.level > NUM_OF_EPTBL) {
+	if (ept->cnt + ept->cur.level - level > NUM_OF_EPTBL) {
 		memset (ept->ncr3tbl, 0, PAGESIZE);
 		ept->cnt = 0;
 		vt_paging_flush_guest_tlb ();
 		ept->cur.level = EPT_LEVELS - 1;
 	}
 	l = ept->cur.level;
-	for (p = ept->cur.entry[l]; l > 0; l--) {
+	for (p = ept->cur.entry[l]; l > level; l--) {
 		*p = ept->tbl_phys[ept->cnt] | EPTE_READEXEC | EPTE_WRITE;
 		p = ept->tbl[ept->cnt++];
 		memset (p, 0, PAGESIZE);
 		p += (gphys >> (9 * l + 3)) & 0x1FF;
 	}
+	return p;
+}
+
+static void
+vt_ept_map_page (struct vt_ept *ept, bool write, u64 gphys)
+{
+	bool fakerom;
+	u64 hphys;
+	u32 hattr;
+	u64 *p;
+
+	cur_move (ept, gphys);
+	p = cur_fill (ept, gphys, 0);
 	hphys = current->gmm.gp2hp (gphys, &fakerom) & ~PAGESIZE_MASK;
 	if (fakerom && write)
 		panic ("EPT: Writing to VMM memory.");
@@ -150,12 +158,49 @@ vt_ept_map_page (bool write, u64 gphys)
 	*p = hphys | hattr;
 }
 
+static bool
+vt_ept_map_2mpage (struct vt_ept *ept, u64 gphys)
+{
+	u64 hphys;
+	u32 hattr;
+	u64 *p;
+
+	cur_move (ept, gphys);
+	if (!ept->cur.level)
+		return true;
+	hphys = current->gmm.gp2hp_2m (gphys & ~PAGESIZE2M_MASK);
+	if (hphys == GMM_GP2HP_2M_FAIL)
+		return true;
+	if (!cache_gmtrr_type_equal (gphys & ~PAGESIZE2M_MASK,
+				     PAGESIZE2M_MASK))
+		return true;
+	hattr = (cache_get_gmtrr_type (gphys & ~PAGESIZE2M_MASK) <<
+		 EPTE_MT_SHIFT) | EPTE_READEXEC | EPTE_WRITE | EPTE_LARGE;
+	p = cur_fill (ept, gphys, 1);
+	*p = hphys | hattr;
+	return false;
+}
+
+static int
+vt_ept_level (struct vt_ept *ept, u64 gphys)
+{
+	cur_move (ept, gphys);
+	return ept->cur.level;
+}
+
 void
 vt_ept_violation (bool write, u64 gphys)
 {
+	struct vt_ept *ept;
+
+	ept = current->u.vt.ept;
 	mmio_lock ();
-	if (!mmio_access_page (gphys, true))
-		vt_ept_map_page (write, gphys);
+	if (vt_ept_level (ept, gphys) > 0 &&
+	    !mmio_range (gphys & ~PAGESIZE2M_MASK, PAGESIZE2M) &&
+	    !vt_ept_map_2mpage (ept, gphys))
+		;
+	else if (!mmio_access_page (gphys, true))
+		vt_ept_map_page (ept, write, gphys);
 	mmio_unlock ();
 }
 
@@ -203,7 +248,7 @@ vt_ept_clear_all (void)
 bool
 vt_ept_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 {
-	u64 *e, tmp, mask = p->pte_addr_mask;
+	u64 *e, tmp1, tmp2, mask = p->pte_addr_mask;
 	unsigned int cnt, i, j, n = 512;
 	struct vt_ept *ept;
 
@@ -212,8 +257,15 @@ vt_ept_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 	for (i = 0; i < cnt; i++) {
 		e = ept->tbl[i];
 		for (j = 0; j < n; j++) {
-			tmp = e[j] & mask;
-			if ((e[j] & EPTE_READ) && start <= tmp && tmp <= end) {
+			if (!(e[j] & EPTE_READ))
+				continue;
+			tmp1 = e[j] & mask;
+			tmp2 = tmp1 | 07777;
+			if (e[j] & EPTE_LARGE) {
+				tmp1 &= ~07777777;
+				tmp2 |= 07777777;
+			}
+			if (start <= tmp2 && tmp1 <= end) {
 				if (p != current)
 					return true;
 				e[j] = 0;
@@ -227,12 +279,14 @@ void
 vt_ept_map_1mb (void)
 {
 	ulong gphys;
+	struct vt_ept *ept;
 
+	ept = current->u.vt.ept;
 	vt_ept_clear_all ();
 	for (gphys = 0; gphys < 0x100000; gphys += PAGESIZE) {
 		mmio_lock ();
 		if (!mmio_access_page (gphys, false))
-			vt_ept_map_page (false, gphys);
+			vt_ept_map_page (ept, false, gphys);
 		mmio_unlock ();
 	}
 }

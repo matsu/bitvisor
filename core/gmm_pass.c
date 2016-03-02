@@ -47,8 +47,11 @@
 
 static u64 phys_blank;
 
+u64 gmm_pass_gp2hp_2m (u64 gp);
+
 static struct gmm_func func = {
 	gmm_pass_gp2hp,
+	gmm_pass_gp2hp_2m,
 };
 
 /* translate a guest-physical address to a host-physical address */
@@ -73,6 +76,16 @@ gmm_pass_gp2hp (u64 gp, bool *fakerom)
 	if (fakerom)
 		*fakerom = f;
 	return r;
+}
+
+u64
+gmm_pass_gp2hp_2m (u64 gp)
+{
+	if (gp & PAGESIZE2M_MASK)
+		return GMM_GP2HP_2M_FAIL;
+	if (phys_in_vmm (gp))	/* VMM is 4MiB aligned */
+		return GMM_GP2HP_2M_FAIL;
+	return gp;
 }
 
 static void

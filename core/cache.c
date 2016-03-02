@@ -140,6 +140,60 @@ get_mtrr_type (phys_t phys, struct cache_regs *c, bool pass_mtrrfix)
 	return c->mtrr_def_type & MSR_IA32_MTRR_DEF_TYPE_TYPE_MASK;
 }
 
+static bool
+mtrr_type_equal (phys_t phys, struct cache_regs *c, bool pass_mtrrfix,
+		 u64 physmask)
+{
+	unsigned int i;
+	u8 type, basetype;
+	u64 mask, base, maskbase, masktarget;
+
+	if (!(c->mtrr_def_type & MSR_IA32_MTRR_DEF_TYPE_E_BIT))
+		return false;
+	if ((c->mtrr_def_type & MSR_IA32_MTRR_DEF_TYPE_FE_BIT) &&
+	    (phys <= 0xFFFFF || phys <= physmask))
+		return false;
+	type = CACHE_TYPE_UC_MINUS; /* UC_MINUS in MTRRs is invalid */
+	for (i = 0; i < GMTRR_VCNT; i++) {
+		mask = c->mtrr_physmask[i];
+		if (!(mask & MSR_IA32_MTRR_PHYSMASK0_V_BIT))
+			continue;
+		base = c->mtrr_physbase[i];
+		mask &= MSR_IA32_MTRR_PHYSMASK0_PHYSMASK_MASK;
+		maskbase = mask & base;
+		masktarget = mask & phys;
+		basetype = base & MSR_IA32_MTRR_PHYSBASE0_TYPE_MASK;
+		if (maskbase == masktarget) {
+			if (mask & physmask)
+				return false;
+			switch (basetype) {
+			case CACHE_TYPE_UC:
+				return true;
+			case CACHE_TYPE_WT:
+				/* type must be UC_MINUS or WB,
+				 * otherwise type will be undefined. */
+				type = CACHE_TYPE_WT;
+				break;
+			default:
+				if (type == CACHE_TYPE_UC_MINUS)
+					type = basetype;
+				break;
+			}
+		} else if (mask & physmask) {
+			if ((maskbase & ~physmask) == (phys & ~physmask))
+				return false;
+		}
+	}
+	if (type != CACHE_TYPE_UC_MINUS)
+		return true;
+	if (phys >= 0x100000000ULL &&
+	    (c->syscfg & MSR_AMD_SYSCFG_TOM2FORCEMEMTYPEWB_BIT) &&
+	    phys < (c->top_mem2 & MSR_AMD_TOP_MEM2_ADDR_MASK))
+		return (phys | physmask) <
+			(c->top_mem2 & MSR_AMD_TOP_MEM2_ADDR_MASK);
+	return true;
+}
+
 static void
 save_initial_mtrr (void)
 {
@@ -238,6 +292,12 @@ cache_get_gmtrr_type (u64 gphys)
 	/* Used for real-address mode when CPU_MMU_SPT_DISABLE defined */
 	/* EPT does not look at MTRRs */
 	return get_mtrr_type (gphys, &currentcpu->cache.h, false);
+}
+
+bool
+cache_gmtrr_type_equal (u64 gphys, u64 mask)
+{
+	return mtrr_type_equal (gphys, &currentcpu->cache.h, false, mask);
 }
 
 u32
@@ -723,6 +783,12 @@ u8
 cache_get_gmtrr_type (u64 gphys)
 {
 	return get_mtrr_type (gphys, &current->cache.g, false);
+}
+
+bool
+cache_gmtrr_type_equal (u64 gphys, u64 mask)
+{
+	return mtrr_type_equal (gphys, &current->cache.g, false, mask);
 }
 
 u32

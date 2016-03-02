@@ -425,6 +425,37 @@ mmio_unlock (void)
 	}
 }
 
+/* Return 0 if mmio is not registered in the gphysaddr-len range, else
+ * return the next gphysaddr of the registered mmio range. */
+phys_t
+mmio_range (phys_t gphysaddr, uint len)
+{
+	struct mmio_list *p;
+	struct mmio_handle *h;
+	int i, j;
+
+	if (!len)
+		return 0;
+	if (gphysaddr <= 0xFFFFFFFFULL)
+		i = gphysaddr >> 28;
+	else
+		i = 16;
+	if (gphysaddr + len - 1 <= 0xFFFFFFFFULL)
+		j = (gphysaddr + len - 1) >> 28;
+	else
+		j = 16;
+	for (; i <= j; i++) {
+		LIST1_FOREACH (current->vcpu0->mmio.mmio[i], p) {
+			h = p->handle;
+			if (h->gphys >= gphysaddr + len)
+				return 0;
+			if (rangecheck (h, gphysaddr, len, NULL, NULL))
+				return h->gphys + h->len;
+		}
+	}
+	return 0;
+}
+
 static int
 mmio_debug_vram (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f)
 {
