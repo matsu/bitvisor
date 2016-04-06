@@ -117,6 +117,7 @@ struct pci_config_space {
 
 #define PCI_CONFIG_COMMAND_IOENABLE	0x1
 #define PCI_CONFIG_COMMAND_MEMENABLE	0x2
+#define PCI_CONFIG_COMMAND_BUSMASTER	0x4
 
 struct pci_config_mmio_data;
 struct token;

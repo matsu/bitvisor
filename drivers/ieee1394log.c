@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2014 Yushi Omote
+ * Copyright (c) 2016 Yuto Otsuki
  * Copyright (c) 2007, 2008 University of Tsukuba
  * All rights reserved.
  *
@@ -40,6 +41,8 @@
 enum ieee1394_regs {
 	IEEE1394_REG_ASY_XMIT_RETRY = 0x8,
 	IEEE1394_REG_BUSOPT = 0x20,
+
+	IEEE1394_REG_CONF_ROM_HDR = 0x18,
 
 	IEEE1394_REG_HC_CTRL_SET = 0x50,
 	IEEE1394_REG_HC_CTRL_CLR = 0x54,
@@ -165,6 +168,9 @@ ieee1394_reset (struct ieee1394 *ctx)
 	/* Wait here to ensure reset completion. */
 	ieee1394_usleep (50 * 1000);
 
+	/* Set configuration rom header */
+	ieee1394_write (ctx, IEEE1394_REG_CONF_ROM_HDR, 0x04 << 24);
+
 	/* Enable posted write and physical layer. */
 	ieee1394_write (ctx, IEEE1394_REG_HC_CTRL_SET, 0x40000);
 	ieee1394_write (ctx, IEEE1394_REG_LINK_CTRL_SET, 0x400);
@@ -203,6 +209,9 @@ ieee1394_reset (struct ieee1394 *ctx)
 		if (status & 0x20)
 			ieee1394_write_phy (ctx, 8, status & ~1);
 	}
+
+	/* Initiate bus reset. */
+	ieee1394_write_phy (ctx, 1, 0x40);
 
 	/* Wait for bus reset to finish. */
 	for (i = 0; i < RETRY_COUNT / 3; i++) {
@@ -260,6 +269,14 @@ ieee1394log_new (struct pci_device *pci_device)
 	}
 
 	printf ("IEEE1394 found. Occupy it for debug.\n");
+
+	/* Enable device */
+	u16 command;
+	int offset = PCI_CONFIG_COMMAND;
+	pci_handle_default_config_read  (pci_device, sizeof(u16), offset, (union mem*)&command);
+	command |= PCI_CONFIG_COMMAND_MEMENABLE;
+	command |= PCI_CONFIG_COMMAND_BUSMASTER;
+	pci_handle_default_config_write (pci_device, sizeof(u16), offset, (union mem*)&command);
 
 	ctx = alloc (sizeof *ctx);
 	ASSERT (ctx);
