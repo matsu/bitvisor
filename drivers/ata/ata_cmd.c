@@ -109,6 +109,9 @@ static const ata_cmd_type_t ata_cmd_type_table[256] = {
 	[0x2F] = { ATA_CMD_THROUGH,  0, 0 },		/* READ LOG EXT */
 	[0x06] = { ATA_CMD_THROUGH,  0, 0 }, /* DATA SET MANAGEMENT (TRIM) */
 
+	/* Passthrough DMA */
+	[0x47] = { ATA_CMD_THROUGH,  0, 0 },		/* READ LOG DMA EXT */
+
 	/* Native Command Queuing */
 	[0x60] = { ATA_CMD_NCQ, STORAGE_READ, 0 }, /* READ FPDMA QUEUED */
 	[0x61] = { ATA_CMD_NCQ, STORAGE_WRITE, 0 }, /* WRITE FPDMA QUEUED */
