@@ -113,6 +113,9 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 		}
 		localapic_change_base_msr (msrdata);
 		goto pass;
+	case MSR_IA32_X2APIC_ICR:
+		localapic_x2apic_icr (msrdata);
+		goto pass;
 	default:
 	pass:
 		m.msrindex = msrindex;
@@ -128,6 +131,15 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 		}
 	}
 	return false;
+}
+
+void
+msr_pass_hook_x2apic_icr (int hook)
+{
+	if (hook)
+		current->vmctl.msrpass (MSR_IA32_X2APIC_ICR, true, false);
+	else
+		current->vmctl.msrpass (MSR_IA32_X2APIC_ICR, true, true);
 }
 
 static void

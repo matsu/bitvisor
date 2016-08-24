@@ -151,9 +151,65 @@ apic_available (void)
 	return true;
 }
 
+static bool
+is_x2apic_supported (void)
+{
+	u32 a, b, c, d;
+
+	asm_cpuid (CPUID_1, 0, &a, &b, &c, &d);
+	if (c & CPUID_1_ECX_X2APIC_BIT)
+		return true;
+	return false;
+}
+
+static bool
+is_x2apic_enabled (void)
+{
+	u64 apic_base_msr;
+
+	asm_rdmsr64 (MSR_IA32_APIC_BASE_MSR, &apic_base_msr);
+	if (!(apic_base_msr & MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT))
+		return false;
+	if (apic_base_msr & MSR_IA32_APIC_BASE_MSR_ENABLE_X2APIC_BIT)
+		return true;
+	return false;
+}
+
+static void
+write_icr (volatile u32 *apic_icr, u32 value)
+{
+	if (is_x2apic_supported () && is_x2apic_enabled ())
+		asm_wrmsr64 (MSR_IA32_X2APIC_ICR, value);
+	else
+		*apic_icr = value;
+}
+
+static u32
+read_svr (volatile u32 *apic_svr)
+{
+	u32 value, dummy;
+
+	if (is_x2apic_supported () && is_x2apic_enabled ())
+		asm_rdmsr32 (MSR_IA32_X2APIC_SIVR, &value, &dummy);
+	else
+		value = *apic_svr;
+	return value;
+}
+
+static void
+write_svr (volatile u32 *apic_svr, u32 value)
+{
+	if (is_x2apic_supported () && is_x2apic_enabled ())
+		asm_wrmsr64 (MSR_IA32_X2APIC_SIVR, value);
+	else
+		*apic_svr = value;
+}
+
 static void
 apic_wait_for_idle (volatile u32 *apic_icr)
 {
+	if (is_x2apic_supported () && is_x2apic_enabled ())
+		return;
 	while ((*apic_icr & ICR_STATUS_BIT) != ICR_STATUS_IDLE);
 }
 
@@ -161,24 +217,24 @@ static void
 apic_send_init (volatile u32 *apic_icr)
 {
 	apic_wait_for_idle (apic_icr);
-	*apic_icr = ICR_DEST_OTHER | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
-		ICR_MODE_INIT;
+	write_icr (apic_icr, ICR_DEST_OTHER | ICR_TRIGGER_EDGE |
+		   ICR_LEVEL_ASSERT | ICR_MODE_INIT);
 }
 
 static void
 apic_send_startup_ipi (volatile u32 *apic_icr, u32 addr)
 {
 	apic_wait_for_idle (apic_icr);
-	*apic_icr = ICR_DEST_OTHER | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
-		ICR_MODE_STARTUP | addr;
+	write_icr (apic_icr, ICR_DEST_OTHER | ICR_TRIGGER_EDGE |
+		   ICR_LEVEL_ASSERT | ICR_MODE_STARTUP | addr);
 }
 
 static void
 apic_send_nmi (volatile u32 *apic_icr)
 {
 	apic_wait_for_idle (apic_icr);
-	*apic_icr = ICR_DEST_OTHER | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
-		ICR_MODE_NMI;
+	write_icr (apic_icr, ICR_DEST_OTHER | ICR_TRIGGER_EDGE |
+		   ICR_LEVEL_ASSERT | ICR_MODE_NMI);
 	apic_wait_for_idle (apic_icr);
 }
 
@@ -313,7 +369,7 @@ disable_apic (void)
 			   MAPMEM_PCD, apic_svr_phys, sizeof *apic_svr);
 	if (!apic_svr)
 		return;
-	*apic_svr &= ~SVR_APIC_ENABLED;
+	write_svr (apic_svr, read_svr (apic_svr) & ~SVR_APIC_ENABLED);
 	unmapmem ((void *)apic_svr, sizeof *apic_svr);
 }
 

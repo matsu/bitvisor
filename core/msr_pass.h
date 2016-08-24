@@ -30,4 +30,6 @@
 #ifndef _CORE_MSR_PASS_H
 #define _CORE_MSR_PASS_H
 
+void msr_pass_hook_x2apic_icr (int hook);
+
 #endif
