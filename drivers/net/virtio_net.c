@@ -53,6 +53,7 @@ struct virtio_net {
 	u16 selected_queue;
 	int hd;
 	int multifunction;
+	bool intr;
 };
 
 struct virtio_ring {
@@ -160,8 +161,10 @@ loop:
 	goto loop;
 ret:
 	unmapmem (p, sizeof *p);
-	if (intr)
+	if (intr) {
+		vnet->intr = true;
 		vnet->intr_set (vnet->intr_param);
+	}
 }
 
 /* Receive from guest */
@@ -255,7 +258,12 @@ virtio_net_iohandler (core_io_t io, union mem *data, void *arg)
 			break;
 		case 0x13:
 			vnet->intr_clear (vnet->intr_param);
-			data->byte = 1;
+			if (vnet->intr) {
+				vnet->intr = false;
+				data->byte = 1;
+			} else {
+				data->byte = 0;
+			}
 			break;
 		case 0x14:
 			memcpy (data, vnet->macaddr + 0, io.size > 6 ? 6 :
@@ -441,6 +449,7 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->dev_status = 0;
 	vnet->selected_queue = 0;
 	vnet->multifunction = 0;
+	vnet->intr = false;
 	*func = &virtio_net_func;
 	return vnet;
 }
