@@ -34,6 +34,13 @@
 #include "pci.h"
 #include "virtio_net.h"
 
+struct msix_table {
+	u32 addr;
+	u32 upper;
+	u32 data;
+	u32 mask;
+};
+
 struct virtio_net {
 	u32 prev_port;
 	u32 port;
@@ -54,6 +61,16 @@ struct virtio_net {
 	int hd;
 	int multifunction;
 	bool intr;
+	bool intr2;
+	u32 msix;
+	u16 msix_cfgvec;
+	u16 msix_quevec[2];
+	bool msix_enabled;
+	bool msix_mask;
+	void (*msix_disable) (void *msix_param);
+	void (*msix_enable) (void *msix_param);
+	void *msix_param;
+	struct msix_table msix_table_entry[3];
 };
 
 struct virtio_ring {
@@ -160,6 +177,8 @@ loop:
 	intr = true;
 	goto loop;
 ret:
+	if (p->avail.flags & 1)	/* No interrupt */
+		intr = false;
 	unmapmem (p, sizeof *p);
 	if (intr) {
 		vnet->intr = true;
@@ -176,6 +195,7 @@ virtio_net_recv (struct virtio_net *vnet)
 	u32 len, desc_len;
 	u32 ring_tmp;
 	u8 buf[2048], *buf_ring;
+	bool intr = false;
 
 	p = mapmem_hphys ((u64)vnet->queue[1] << 12, sizeof *p, MAPMEM_WRITE);
 	idx_a = p->avail.idx;
@@ -210,8 +230,15 @@ virtio_net_recv (struct virtio_net *vnet)
 		p->used.ring[idx_u].len = len;
 		asm volatile ("" : : : "memory");
 		p->used.idx++;
+		intr = true;
 	}
+	if (p->avail.flags & 1)	/* No interrupt */
+		intr = false;
 	unmapmem (p, sizeof *p);
+	if (intr) {
+		vnet->intr2 = true;
+		vnet->intr_set (vnet->intr_param);
+	}
 }
 
 static void
@@ -233,9 +260,16 @@ virtio_net_iohandler (core_io_t io, union mem *data, void *arg)
 	printf ("%s: io:%08x, data:%08x\n",
 		__func__, *(int*)&io, data->dword);
 #endif
+	unsigned int port = io.port & 0x1F;
+	if (vnet->msix_enabled && port >= 0x14) {
+		if (port < 0x14 + 4)
+			port += 0x100;
+		else
+			port -= 4;
+	}
 	if (io.dir == CORE_IO_DIR_IN) {
 		memset (data, 0, io.size);
-		switch (io.port & 0x1F) {
+		switch (port) {
 		case 0x00:
 			data->byte = 0x20;	/* VIRTIO_NET_F_MAC */
 			break;
@@ -260,6 +294,9 @@ virtio_net_iohandler (core_io_t io, union mem *data, void *arg)
 			vnet->intr_clear (vnet->intr_param);
 			if (vnet->intr) {
 				vnet->intr = false;
+				data->byte = 1;
+			} else if (vnet->intr2) {
+				vnet->intr2 = false;
 				data->byte = 1;
 			} else {
 				data->byte = 0;
@@ -289,16 +326,30 @@ virtio_net_iohandler (core_io_t io, union mem *data, void *arg)
 			memcpy (data, vnet->macaddr + 5, io.size > 1 ? 1 :
 				io.size);
 			break;
+		case 0x114:
+			memcpy (data, &vnet->msix_cfgvec,
+				io.size == 1 ? 1 : 2);
+			break;
+		case 0x116:
+			if (vnet->selected_queue >= 2 ||
+			    vnet->msix_quevec[vnet->selected_queue & 1] >= 3) {
+				memset (data, 0xFF, io.size == 1 ? 1 : 2);
+				break;
+			}
+			memcpy (data,
+				&vnet->msix_quevec[vnet->selected_queue & 1],
+				io.size == 1 ? 1 : 2);
+			break;
 		}
 	} else {
-		switch (io.port & 0x1F) {
+		switch (port) {
 		case 0x08:
 			memcpy (&vnet->queue[vnet->selected_queue & 1], data,
 				io.size);
 			break;
 		case 0x10:
 			if (!data->byte) {
-				if (!(vnet->cmd & 0x400))
+				if (!(vnet->cmd & 0x400) || vnet->msix_enabled)
 					vnet->intr_enable (vnet->intr_param);
 				vnet->ready = true;
 			} else {
@@ -320,6 +371,24 @@ virtio_net_iohandler (core_io_t io, union mem *data, void *arg)
 				vnet->selected_queue = data->byte;
 			else
 				vnet->selected_queue = data->word;
+			break;
+		case 0x114:
+			if (0)
+				printf ("cfgvec[%u]=%04X\n",
+					vnet->selected_queue, io.size == 1 ?
+					data->byte : data->word);
+			memcpy (&vnet->msix_cfgvec, data,
+				io.size == 1 ? 1 : 2);
+			break;
+		case 0x116:
+			if (0)
+				printf ("quevec[%u]=%04X\n",
+					vnet->selected_queue, io.size == 1 ?
+					data->byte : data->word);
+			if (vnet->selected_queue >= 2)
+				break;
+			memcpy (&vnet->msix_quevec[vnet->selected_queue & 1],
+				data, io.size == 1 ? 1 : 2);
 			break;
 		}
 	}
@@ -378,6 +447,16 @@ virtio_net_config_read (void *handle, u8 iosize, u16 offset, union mem *data)
 						       status register
 						       should also be
 						       cleared. */
+	if (vnet->msix) {
+		replace (iosize, offset, data, 0x34, 1, 0x40); /* Cap */
+		replace (iosize, offset, data, 0x40, 1, 0x11); /* MSI-X */
+		replace (iosize, offset, data, 0x41, 1, 0);    /* No next */
+		replace (iosize, offset, data, 0x42, 2, 2 |    /* 3 intr */
+			 (vnet->msix_enabled ? 0x8000 : 0) |
+			 (vnet->msix_mask ? 0x4000 : 0));
+		replace (iosize, offset, data, 0x44, 4, vnet->msix); /* Addr */
+		replace (iosize, offset, data, 0x48, 4, vnet->msix + 0x800);
+	}
 }
 
 void
@@ -385,11 +464,29 @@ virtio_net_config_write (void *handle, u8 iosize, u16 offset, union mem *data)
 {
 	struct virtio_net *vnet = handle;
 
+	if (offset <= 0x43 && offset + iosize > 0x43 && vnet->msix) {
+		bool prev_msix_enabled = vnet->msix_enabled;
+		vnet->msix_enabled = !!((&data->byte)[0x43 - offset] & 0x80);
+		vnet->msix_mask = !!((&data->byte)[0x43 - offset] & 0x40);
+		if (1)
+			printf ("MSI-X Config [0x%04X] 0x%08X /%d,%d\n",
+				offset,
+				data->dword & ((2u << (iosize * 8 - 1)) - 1),
+				vnet->msix_enabled, vnet->msix_mask);
+		if (!vnet->msix_enabled && (vnet->cmd & 0x400))
+			vnet->intr_disable (vnet->intr_param);
+		if (prev_msix_enabled != vnet->msix_enabled) {
+			if (prev_msix_enabled)
+				vnet->msix_disable (vnet->msix_param);
+			else
+				vnet->msix_enable (vnet->msix_param);
+		}
+	}
 	if (offset == 0x10)
 		memcpy (&vnet->port, data, iosize < 4 ? iosize : 4);
 	if (offset == 4) {
 		memcpy (&vnet->cmd, data, iosize < 4 ? iosize : 4);
-		if (vnet->cmd & 0x400)
+		if (!vnet->msix_enabled && (vnet->cmd & 0x400))
 			vnet->intr_disable (vnet->intr_param);
 	}
 	if ((vnet->port | 0x1F) != 0x1F && (vnet->port | 0x1F) < 0xFFFF) {
@@ -413,6 +510,83 @@ virtio_net_set_multifunction (void *handle, int enable)
 	struct virtio_net *vnet = handle;
 
 	vnet->multifunction = enable;
+}
+
+void
+virtio_net_set_msix (void *handle, u32 msix,
+		     void (*msix_disable) (void *msix_param),
+		     void (*msix_enable) (void *msix_param), void *msix_param)
+{
+	struct virtio_net *vnet = handle;
+
+	vnet->msix_enable = msix_enable;
+	vnet->msix_disable = msix_disable;
+	vnet->msix_param = msix_param;
+	vnet->msix = msix;
+}
+
+void
+virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
+		 union mem *data)
+{
+	struct virtio_net *vnet = handle;
+
+	if (offset < sizeof vnet->msix_table_entry) {
+		void *p = vnet->msix_table_entry;
+		u32 end = offset + iosize;
+		if (end > sizeof vnet->msix_table_entry)
+			end = sizeof vnet->msix_table_entry;
+		if (wr)
+			memcpy (p + offset, data, end - offset);
+		else
+			memcpy (data, p + offset, end - offset);
+		if (0 && wr)
+			printf ("MSI-X[0x%04X] = 0x%08X\n", offset,
+				data->dword & ((2u << (iosize * 8 - 1)) - 1));
+	} else if (offset <= 0x800 && offset + iosize > 0x800) {
+		if (!wr) {
+			memset (data, 0, iosize);
+			(&data->byte)[0x800 - offset] = 0;
+		}
+	}
+}
+
+static int
+virtio_intrnum (struct virtio_net *vnet, int queue)
+{
+	u16 vec = vnet->msix_quevec[queue];
+
+	if (vec < 3 && !(vnet->msix_table_entry[vec].mask & 1) &&
+	    !vnet->msix_table_entry[vec].upper &&
+	    (vnet->msix_table_entry[vec].addr & 0xFFF00000) == 0xFEE00000) {
+		if (0)
+			printf ("virtio intr %d %08X%08X, %08X\n", queue,
+				vnet->msix_table_entry[vec].upper,
+				vnet->msix_table_entry[vec].addr,
+				vnet->msix_table_entry[vec].data);
+		return vnet->msix_table_entry[vec].data & 0xFF;
+	}
+	return -1;
+}
+
+int
+virtio_intr (void *handle)
+{
+	struct virtio_net *vnet = handle;
+
+	vnet->intr_clear (vnet->intr_param);
+	if (vnet->msix_mask)
+		return -1;
+	if (vnet->intr2) {
+		vnet->intr2 = false;
+		return virtio_intrnum (vnet, 1);
+	} else if (vnet->intr) {
+		vnet->intr = false;
+		return virtio_intrnum (vnet, 0);
+	} else {
+		/* Workaround for Windows driver... */
+		return virtio_intrnum (vnet, 0);
+	}
 }
 
 void *
@@ -450,6 +624,17 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->selected_queue = 0;
 	vnet->multifunction = 0;
 	vnet->intr = false;
+	vnet->intr2 = false;
+	vnet->msix = 0;
+	vnet->msix_cfgvec = 0xFFFF;
+	vnet->msix_quevec[0] = 0xFFFF;
+	vnet->msix_quevec[1] = 0xFFFF;
+	vnet->msix_enabled = false;
+	vnet->msix_mask = false;
+	memset (&vnet->msix_table_entry, 0, sizeof vnet->msix_table_entry);
+	vnet->msix_table_entry[0].mask = 1;
+	vnet->msix_table_entry[1].mask = 1;
+	vnet->msix_table_entry[2].mask = 1;
 	*func = &virtio_net_func;
 	return vnet;
 }

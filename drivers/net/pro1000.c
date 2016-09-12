@@ -219,6 +219,8 @@ struct data2 {
 	LIST1_DEFINE (struct data2);
 
 	void *virtio_net;
+	char virtio_net_bar_emul;
+	struct pci_msi *virtio_net_msi;
 };
 
 struct data {
@@ -1182,6 +1184,11 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 	struct data *d1 = data;
 	struct data2 *d2 = d1->d;
 
+	if (d2->virtio_net && d2->virtio_net_msi && d1 == &d2->d1[0]) {
+		virtio_net_msix (d2->virtio_net, wr, len, gphys - d1->mapaddr,
+				 buf);
+		return 1;
+	}
 	if (d2->seize) {
 		if (!wr)
 			memset (buf, 0, len);
@@ -1233,6 +1240,51 @@ reghook (struct data *d, int i, struct pci_bar_info *bar)
 			panic ("mmio_register failed");
 	}
 	d->e = 1;
+}
+
+/* If reghook() is used for changing BAR0, mmio_register() may return
+ * NULL and cause panic while d->map is changed and the real BAR0 is
+ * not changed.  This function avoids such condition. */
+static void
+change_bar0 (struct pci_device *pci_device, u8 iosize, u16 offset,
+	     union mem *data)
+{
+	struct data *d = pci_device->host;
+	struct data2 *d2 = d->d;
+	struct pci_bar_info bar_info;
+	void *old_map;
+	void *new_map;
+
+	ASSERT (offset == 0x10);
+	if (pci_get_modifying_bar_info (pci_device, &bar_info, iosize, offset,
+					data))
+		return;
+	old_map = d->map;
+	new_map = mapmem_gphys (bar_info.base, bar_info.len,
+				MAPMEM_WRITE);
+	if (!new_map)
+		panic ("mapmem failed");
+
+	spinlock_lock (&d2->lock);
+	pci_handle_default_config_write (pci_device, iosize, offset, data);
+	d->map = new_map;
+	spinlock_unlock (&d2->lock);
+
+	unmapmem (old_map, d->maplen);
+	mmio_unregister (d->h);
+	d->mapaddr = bar_info.base;
+	d->h = mmio_register (bar_info.base, bar_info.len, mmhandler,
+			      &d2->d1[0]);
+	if (!d->h)
+		panic ("mmio_register failed");
+}
+
+static int
+pro1000_msi (void *data, int num)
+{
+	struct data2 *d2 = data;
+
+	return virtio_intr (d2->virtio_net);
 }
 
 static void
@@ -1391,6 +1443,22 @@ pro1000_intr_enable (void *param)
 	*icr |= 0xFFFFFFFF;
 }
 
+static void
+pro1000_msix_disable (void *param)
+{
+	struct data2 *d2 = param;
+
+	pci_msi_disable (d2->virtio_net_msi);
+}
+
+static void
+pro1000_msix_enable (void *param)
+{
+	struct data2 *d2 = param;
+
+	pci_msi_enable (d2->virtio_net_msi);
+}
+
 static void 
 vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 		 char *option_net, bool option_virtio)
@@ -1453,6 +1521,12 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 						  pro1000_intr_enable, d2);
 	}
 	if (d2->virtio_net) {
+		d2->virtio_net_msi = pci_msi_init (pci_device, pro1000_msi,
+						   d2);
+		if (d2->virtio_net_msi)
+			virtio_net_set_msix (d2->virtio_net, 0x5,
+					     pro1000_msix_disable,
+					     pro1000_msix_enable, d2);
 		pci_device->driver->options.use_base_address_mask_emulation =
 			0;
 		net_init (d2->nethandle, d2, &phys_func, d2->virtio_net,
@@ -1549,6 +1623,14 @@ pro1000_config_read (struct pci_device *pci_device, u8 iosize,
 	if (d2->virtio_net) {
 		pci_handle_default_config_read (pci_device, iosize, offset,
 						data);
+		if (offset == 0x24) {
+			pci_handle_default_config_read (pci_device, iosize,
+							0x10, data);
+			if (d2->virtio_net_bar_emul)
+				data->dword = pci_device->
+					base_address_mask[0];
+			return CORE_IO_RET_DONE;
+		}
 		virtio_net_config_read (d2->virtio_net, iosize, offset, data);
 		return CORE_IO_RET_DONE;
 	}
@@ -1570,6 +1652,15 @@ pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 
 	if (d2->virtio_net) {
 		virtio_net_config_write (d2->virtio_net, iosize, offset, data);
+		if (offset == 0x24) {
+			if ((data->dword & PCI_CONFIG_BASE_ADDRESS_MEMMASK) ==
+			    PCI_CONFIG_BASE_ADDRESS_MEMMASK) {
+				d2->virtio_net_bar_emul = 1;
+			} else {
+				d2->virtio_net_bar_emul = 0;
+				change_bar0 (pci_device, iosize, 0x10, data);
+			}
+		}
 		return CORE_IO_RET_DONE;
 	}
 	if (!d2->seize)

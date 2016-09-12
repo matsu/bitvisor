@@ -121,6 +121,7 @@ struct pci_config_space {
 
 struct pci_config_mmio_data;
 struct token;
+struct pci_msi;
 
 // data structures
 struct pci_device {
@@ -218,5 +219,10 @@ int pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 void pci_set_bridge_io (struct pci_device *pci_device);
 void pci_set_bridge_fake_command (struct pci_device *pci_device, u8 mask,
 				  u8 fixed);
+struct pci_msi *pci_msi_init (struct pci_device *pci_device,
+			      int (*callback) (void *data, int num),
+			      void *data);
+void pci_msi_enable (struct pci_msi *msi);
+void pci_msi_disable (struct pci_msi *msi);
 
 #endif

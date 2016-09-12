@@ -35,12 +35,18 @@
 
 #include <common.h>
 #include <core.h>
+#include <core/exint_pass.h>
 #include <core/process.h>
 #include <core/strtol.h>
 #include <token.h>
 #include "pci.h"
 #include "pci_internal.h"
 #include "pci_match.h"
+
+struct pci_msi {
+	u8 cap;
+	struct pci_device *dev;
+};
 
 static spinlock_t pci_config_lock = SPINLOCK_INITIALIZER;
 static pci_config_address_t current_config_addr;
@@ -1007,4 +1013,99 @@ pci_driver_option_get_bool (char *option, char **e)
 	}
 error:
 	panic ("pci_driver_option_get_bool: invalid value %s", option);
+}
+
+struct pci_msi *
+pci_msi_init (struct pci_device *pci_device,
+	      int (*callback) (void *data, int num), void *data)
+{
+	u32 cmd;
+	u8 cap;
+	u32 capval;
+	int num;
+	struct pci_msi *msi;
+	u32 maddr, mupper;
+	u16 mdata;
+
+	if (!pci_device)
+		return NULL;
+	if (!pci_device->config_mmio)
+		return NULL;
+	pci_read_config_mmio (pci_device->config_mmio,
+			      pci_device->address.bus_no,
+			      pci_device->address.device_no,
+			      pci_device->address.func_no,
+			      0x4, sizeof cmd, &cmd);
+	if (!(cmd & 0x100000))	/* Capabilities */
+		return NULL;
+	pci_read_config_mmio (pci_device->config_mmio,
+			      pci_device->address.bus_no,
+			      pci_device->address.device_no,
+			      pci_device->address.func_no,
+			      0x34, sizeof cap, &cap); /* CAP */
+	while (cap >= 0x40) {
+		pci_read_config_mmio (pci_device->config_mmio,
+				      pci_device->address.bus_no,
+				      pci_device->address.device_no,
+				      pci_device->address.func_no,
+				      cap, sizeof capval, &capval);
+		if ((capval & 0xFF) == 0x05)
+			goto found;
+		cap = capval >> 8;
+	}
+	return NULL;
+found:
+	num = exint_pass_intr_alloc (callback, data);
+	if (num < 0 || num > 0xFF)
+		return NULL;
+	msi = alloc (sizeof *msi);
+	msi->cap = cap;
+	msi->dev = pci_device;
+	maddr = 0xFEEFF000;
+	mupper = 0;
+	mdata = 0x4100 | num;
+	pci_write_config_mmio (pci_device->config_mmio,
+			       pci_device->address.bus_no,
+			       pci_device->address.device_no,
+			       pci_device->address.func_no,
+			       cap + 4, sizeof maddr, &maddr);
+	pci_write_config_mmio (pci_device->config_mmio,
+			       pci_device->address.bus_no,
+			       pci_device->address.device_no,
+			       pci_device->address.func_no,
+			       cap + 8, sizeof mupper, &mupper);
+	pci_write_config_mmio (pci_device->config_mmio,
+			       pci_device->address.bus_no,
+			       pci_device->address.device_no,
+			       pci_device->address.func_no,
+			       cap + 12, sizeof mdata, &mdata);
+	return msi;
+}
+
+void
+pci_msi_enable (struct pci_msi *msi)
+{
+	struct pci_device *pci_device = msi->dev;
+	u8 cap = msi->cap;
+	u16 mctl = 1;
+
+	pci_write_config_mmio (pci_device->config_mmio,
+			       pci_device->address.bus_no,
+			       pci_device->address.device_no,
+			       pci_device->address.func_no,
+			       cap + 2, sizeof mctl, &mctl);
+}
+
+void
+pci_msi_disable (struct pci_msi *msi)
+{
+	struct pci_device *pci_device = msi->dev;
+	u8 cap = msi->cap;
+	u16 mctl = 0;
+
+	pci_write_config_mmio (pci_device->config_mmio,
+			       pci_device->address.bus_no,
+			       pci_device->address.device_no,
+			       pci_device->address.func_no,
+			       cap + 2, sizeof mctl, &mctl);
 }

@@ -38,6 +38,13 @@ void virtio_net_config_read (void *handle, u8 iosize, u16 offset,
 void virtio_net_config_write (void *handle, u8 iosize, u16 offset,
 			      union mem *data);
 void virtio_net_set_multifunction (void *handle, int enable);
+void virtio_net_set_msix (void *handle, u32 msix,
+			  void (*msix_disable) (void *msix_param),
+			  void (*msix_enable) (void *msix_param),
+			  void *msix_param);
+void virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
+		      union mem *data);
+int virtio_intr (void *handle);
 void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       void (*intr_clear) (void *intr_param),
 		       void (*intr_set) (void *intr_param),
@@ -45,22 +52,41 @@ void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       void (*intr_enable) (void *intr_param),
 		       void *intr_param);
 #else
-static void
+static inline void
 virtio_net_config_read (void *handle, u8 iosize, u16 offset, union mem *data)
 {
 }
 
-static void
+static inline void
 virtio_net_config_write (void *handle, u8 iosize, u16 offset, union mem *data)
 {
 }
 
-static void
+static inline void
 virtio_net_set_multifunction (void *handle, int enable)
 {
 }
 
-static void *
+static inline void
+virtio_net_set_msix (void *handle, u32 msix,
+		     void (*msix_disable) (void *msix_param),
+		     void (*msix_enable) (void *msix_param), void *msix_param)
+{
+}
+
+static inline void
+virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
+		 union mem *data)
+{
+}
+
+static inline int
+virtio_intr (void *handle)
+{
+	return -1;
+}
+
+static inline void *
 virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		 void (*intr_clear) (void *intr_param),
 		 void (*intr_set) (void *intr_param),

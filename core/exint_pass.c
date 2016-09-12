@@ -36,6 +36,18 @@
 #include "int.h"
 #include "string.h"
 
+/* Interrupts 0x10-0x1F are reserved by CPU for exceptions but can be
+ * delivered by APIC.  Operating systems do not use them for external
+ * interrupts because they are same number as CPU exceptions and BIOS
+ * calls. */
+#define EXINT_ALLOC_START 0x10
+#define EXINT_ALLOC_NUM 0x10
+
+struct exint_pass_intr {
+	int (*callback) (void *data, int num);
+	void *data;
+};
+
 static void exint_pass_int_enabled (void);
 static void exint_pass_default (int num);
 static void exint_pass_hlt (void);
@@ -45,6 +57,45 @@ static struct exint_func func = {
 	exint_pass_default,
 	exint_pass_hlt,
 };
+
+static struct exint_pass_intr intr[EXINT_ALLOC_NUM];
+
+static int
+exint_pass_intr_set (int (*callback) (void *data, int num), void *data, int i)
+{
+	if (callback && intr[i].callback)
+		return 0;
+	intr[i].callback = callback;
+	intr[i].data = data;
+	return 1;
+}
+
+static int
+exint_pass_intr_call (int num)
+{
+	if (num < EXINT_ALLOC_START)
+		return num;
+	int i = num - EXINT_ALLOC_START;
+	if (i >= EXINT_ALLOC_NUM || !intr[i].callback)
+		return num;
+	return intr[i].callback (intr[i].data, num);
+}
+
+int
+exint_pass_intr_alloc (int (*callback) (void *data, int num), void *data)
+{
+	int i;
+	for (i = 0; i < EXINT_ALLOC_NUM; i++)
+		if (exint_pass_intr_set (callback, data, i))
+			return EXINT_ALLOC_START + i;
+	return -1;
+}
+
+void
+exint_pass_intr_free (int num)
+{
+	exint_pass_intr_set (NULL, NULL, num);
+}
 
 static void
 exint_pass_int_enabled (void)
@@ -74,6 +125,7 @@ do_exint_pass (void)
 	current->vmctl.read_flags (&rflags);
 	if (rflags & RFLAGS_IF_BIT) { /* if interrupts are enabled */
 		num = do_externalint_enable ();
+		num = exint_pass_intr_call (num);
 		if (num >= 0)
 			current->exint.exintfunc_default (num);
 		current->vmctl.exint_pending (false);

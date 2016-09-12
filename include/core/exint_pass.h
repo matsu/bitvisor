@@ -27,11 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_EXINT_PASS_H
-#define _CORE_EXINT_PASS_H
+#ifndef __CORE_EXINT_PASS_H
+#define __CORE_EXINT_PASS_H
 
-#include <core/exint_pass.h>
-
-void do_exint_pass (void);
+int exint_pass_intr_alloc (int (*callback) (void *data, int num), void *data);
+void exint_pass_intr_free (int num);
 
 #endif
