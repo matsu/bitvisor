@@ -51,6 +51,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 	} else if (tmpa >= 4 && ia == 4) {
 		/* *oa &= ~CPUID_4_EAX_NUMOFTHREADS_MASK; */
 		/* *oa &= ~CPUID_4_EAX_NUMOFCORES_MASK; */
+	} else if (tmpa >= 7 && ia == 7 && ic == 0) {
+		*ob &= ~CPUID_7_EBX_INVPCID_BIT;
 	} else if (tmpa >= 0xD && ia == 0xD && ic == 0) {
 		/* Processor Extended State Enumeration Leaf */
 		/* see xsetbv_pass.c */
