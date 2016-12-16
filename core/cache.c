@@ -993,6 +993,9 @@ read_syscfg (void *arg)
 
 	ret = arg;
 	asm_rdmsr64 (MSR_AMD_SYSCFG, ret);
+	/* The SYSCFG is readable but not writable in QEMU/KVM VM.
+	   Check whether it is writable to detect such environment. */
+	asm_wrmsr64 (MSR_AMD_SYSCFG, *ret);
 }
 
 static void
