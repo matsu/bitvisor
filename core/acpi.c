@@ -797,6 +797,48 @@ remove_dup_facs_addr (u64 facs[], int n)
 }
 
 static void
+disable_vtd (void *dmar)
+{
+#ifdef DISABLE_VTD
+	struct description_header *header;
+	struct {
+		u16 type;
+		u16 length;
+		u8 flags;
+		u8 reserved;
+		u16 segment_number;
+		u64 register_base_address;
+	} __attribute__ ((packed)) *q;
+	struct {
+		u32 version_register;
+		u32 reserved;
+		u64 capability_register;
+		u64 extended_capability_register;
+		u32 global_command_register;
+		u32 global_status_register;
+	} __attribute__ ((packed)) *r;
+	u32 offset;
+
+	header = dmar;
+	offset = 0x30;		/* Remapping structures */
+	while (offset + sizeof *q <= header->length) {
+		q = dmar + offset;
+		if (!q->type) {	/* DRHD */
+			r = mapmem_hphys (q->register_base_address, sizeof *r,
+					  MAPMEM_WRITE);
+			if (r->global_status_register & 0x80000000) {
+				printf ("DMAR: [0x%llX] Disable translation\n",
+					q->register_base_address);
+				r->global_command_register = 0;
+			}
+			unmapmem (r, sizeof *r);
+		}
+		offset += q->length;
+	}
+#endif
+}
+
+static void
 acpi_init_global (void)
 {
 	u64 rsdp;
@@ -831,6 +873,7 @@ acpi_init_global (void)
 			dom_io[i]=create_dom(i) ;
 		memset (r, 0, 4); /* Clear DMAR to prevent guest OS from
 				     using iommu */
+		disable_vtd (r);
 	}
 
 	q = find_facp ();
