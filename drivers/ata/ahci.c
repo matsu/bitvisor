@@ -1082,7 +1082,9 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 			return;
 		}
 		if (port && ahci_port_eq (port_off, len, PxCMD)) {
-			if (port->shadowbit && !(*buf32 & PxCMD_ST_BIT)) {
+			if (!port->storage_device)
+				; /* Passthrough the access before init */
+			else if (port->shadowbit && !(*buf32 & PxCMD_ST_BIT)) {
 				pxcmd = ahci_port_read (ad, port_num, PxCMD);
 				if (pxcmd & PxCMD_ST_BIT)
 					ahci_cmd_cancel (port);
