@@ -64,6 +64,12 @@ ulong SECTION_ENTRY_DATA uefi_free_pages;
 ulong SECTION_ENTRY_DATA uefi_wait_for_event;
 ulong SECTION_ENTRY_DATA uefi_acpi_20_table = ~0UL;
 ulong SECTION_ENTRY_DATA uefi_acpi_table = ~0UL;
+ulong SECTION_ENTRY_DATA uefi_locate_handle_buffer;
+ulong SECTION_ENTRY_DATA uefi_free_pool;
+ulong SECTION_ENTRY_DATA uefi_open_protocol;
+ulong SECTION_ENTRY_DATA uefi_close_protocol;
+ulong SECTION_ENTRY_DATA uefi_image_handle;
+ulong SECTION_ENTRY_DATA uefi_disconnect_controller;
 bool uefi_booted;
 
 static void SECTION_ENTRY_TEXT
@@ -148,6 +154,7 @@ uefi_init (u32 loadaddr, u32 loadsize, EFI_SYSTEM_TABLE *systab,
 	EFI_SIMPLE_TEXT_IN_PROTOCOL *conin;
 	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout;
 
+	uefi_image_handle = (ulong)image;
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_conin),
 			 &systab->ConIn, sizeof uefi_conin);
 	conin = uefi_conin;
@@ -176,6 +183,20 @@ uefi_init (u32 loadaddr, u32 loadsize, EFI_SYSTEM_TABLE *systab,
 			 sizeof uefi_get_memory_map);
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_read),
 			 &file->Read, sizeof uefi_read);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_locate_handle_buffer),
+			 &uefi_boot_services->LocateHandleBuffer,
+			 sizeof uefi_locate_handle_buffer);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_free_pool),
+			 &uefi_boot_services->FreePool, sizeof uefi_free_pool);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_open_protocol),
+			 &uefi_boot_services->OpenProtocol,
+			 sizeof uefi_open_protocol);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_close_protocol),
+			 &uefi_boot_services->CloseProtocol,
+			 sizeof uefi_close_protocol);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_disconnect_controller),
+			 &uefi_boot_services->DisconnectController,
+			 sizeof uefi_disconnect_controller);
 	read_configuration_table (systab);
 	uefi_init_get_vmmsize (&vmmsize, &align);
 	vmmsize = (vmmsize + PAGESIZE - 1) & ~PAGESIZE_MASK;

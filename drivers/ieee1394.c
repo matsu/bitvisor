@@ -43,6 +43,7 @@ static void
 ieee1394_new(struct pci_device *pci_device)
 {
 	printf("An IEEE1394 host controller found. Disable it.\n");
+	pci_system_disconnect (pci_device);
 	return;
 }
 

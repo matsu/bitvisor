@@ -269,6 +269,7 @@ ieee1394log_new (struct pci_device *pci_device)
 	}
 
 	printf ("IEEE1394 found. Occupy it for debug.\n");
+	pci_system_disconnect (pci_device);
 
 	/* Enable device */
 	u16 command;

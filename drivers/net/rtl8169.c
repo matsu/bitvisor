@@ -1755,6 +1755,7 @@ rtl8169_new (struct pci_device *dev)
 		printf("rtl8169_new:end!\n");
 #endif
 		if (net_init (ctx->net_handle, ctx, &phys_func, NULL, NULL)) {
+			pci_system_disconnect (dev);
 			rtl8169_seize_init (dev);
 			ctx->conceal = true;
 			net_start (ctx->net_handle);

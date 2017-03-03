@@ -36,6 +36,7 @@
 #include "pci_internal.h"
 #include "pci_init.h"
 #include <core/acpi.h>
+#include <core/disconnect.h>
 #include <core/mmio.h>
 
 static const char driver_name[] = "pci_driver";
@@ -404,6 +405,15 @@ pci_mcfg_register_handler (void)
 		mmio_register_unlocked (p->phys, p->len,
 					pci_config_mmio_handler, p);
 	}
+}
+
+/* Disconnect the device from a firmware driver */
+void
+pci_system_disconnect (struct pci_device *pci_device)
+{
+	disconnect_pcidev_driver (0, pci_device->address.bus_no,
+				  pci_device->address.device_no,
+				  pci_device->address.func_no);
 }
 
 static void pci_init()

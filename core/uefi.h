@@ -42,6 +42,12 @@ extern ulong uefi_free_pages;
 extern ulong uefi_wait_for_event;
 extern ulong uefi_acpi_20_table;
 extern ulong uefi_acpi_table;
+extern ulong uefi_locate_handle_buffer;
+extern ulong uefi_free_pool;
+extern ulong uefi_open_protocol;
+extern ulong uefi_close_protocol;
+extern ulong uefi_image_handle;
+extern ulong uefi_disconnect_controller;
 extern bool uefi_booted;
 
 #endif

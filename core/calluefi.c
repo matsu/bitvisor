@@ -29,13 +29,20 @@
 
 #include <EfiCommon.h>
 #include <EfiApi.h>
+#include EFI_PROTOCOL_DEFINITION (PciIo)
 #undef NULL
 #include "calluefi_asm.h"
 #include "current.h"
 #include "entry.h"
 #include "mm.h"
+#include "printf.h"
 #include "string.h"
 #include "uefi.h"
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-braces"
+static EFI_GUID pci_io_protocol_guid = EFI_PCI_IO_PROTOCOL_GUID;
+#pragma GCC diagnostic pop
 
 u8 uefi_memory_map_data[16384];
 ulong uefi_memory_map_size = sizeof uefi_memory_map_data;
@@ -94,6 +101,65 @@ call_uefi_putchar (unsigned char c)
 	buf = c == '\n' ? 0x0A000D : c;
 	calluefi (uefi_conout_output_string, 2, uefi_conout,
 		  sym_to_phys (&buf));
+}
+
+/* Disconnect drivers from the controller if the PCI device location
+ * matches */
+static void
+disconnect_pcidev_driver (ulong tseg, ulong tbus, ulong tdev, ulong tfunc,
+			  ulong controller)
+{
+	static u64 protocol, seg, bus, dev, func;
+	EFI_PCI_IO_PROTOCOL *pci_io;
+	int retrycount = 10;
+
+	if (calluefi (uefi_open_protocol, 6, controller,
+		      sym_to_phys (&pci_io_protocol_guid),
+		      sym_to_phys (&protocol), uefi_image_handle, NULL,
+		      EFI_OPEN_PROTOCOL_GET_PROTOCOL))
+		return;
+	pci_io = mapmem_hphys (protocol, sizeof *pci_io, 0);
+	if (!calluefi ((ulong)pci_io->GetLocation, 5, protocol,
+		       sym_to_phys (&seg), sym_to_phys (&bus),
+		       sym_to_phys (&dev), sym_to_phys (&func)) &&
+	    seg == tseg && bus == tbus && dev == tdev && func == tfunc) {
+		while (retrycount-- > 0) {
+			if (!calluefi (uefi_disconnect_controller, 3,
+				       controller, NULL, NULL))
+				break;
+		}
+		printf ("[%04lX:%02lX:%02lX.%lX] %s PCI device drivers\n",
+			tseg, tbus, tdev, tfunc, retrycount < 0 ?
+			"Failed to disconnect" : "Disconnected");
+	}
+	unmapmem (pci_io, sizeof *pci_io);
+	calluefi (uefi_close_protocol, 4, controller,
+		  sym_to_phys (&pci_io_protocol_guid), uefi_image_handle,
+		  NULL);
+}
+
+/* Call disconnect_pcidev_driver() with every EFI_PCI_IO_PROTOCOL handle */
+void
+call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
+				    ulong func)
+{
+	static u64 nhandles, handles;
+	ulong *handles_map;
+	u64 ihandles;
+
+	if (calluefi (uefi_locate_handle_buffer, 5, ByProtocol,
+		      sym_to_phys (&pci_io_protocol_guid), NULL,
+		      sym_to_phys (&nhandles), sym_to_phys (&handles)))
+		return;
+	if (nhandles) {
+		handles_map = mapmem_hphys (handles, sizeof *handles_map *
+					    nhandles, 0);
+		for (ihandles = 0; ihandles < nhandles; ihandles++)
+			disconnect_pcidev_driver (seg, bus, dev, func,
+						  handles_map[ihandles]);
+		unmapmem (handles_map, sizeof *handles_map * nhandles);
+	}
+	calluefi (uefi_free_pool, 1, handles);
 }
 
 asmlinkage u32

@@ -77,6 +77,7 @@ pci_conceal_new (struct pci_device *pci_device)
 		pci_device->address.func_no,
 		pci_device->config_space.vendor_id,
 		pci_device->config_space.device_id);
+	pci_system_disconnect (pci_device);
 	for (i = 0; i < PCI_CONFIG_BASE_ADDRESS_NUMS; i++) {
 		pci_get_bar_info (pci_device, i, &bar);
 		if (bar.type == PCI_BAR_INFO_TYPE_IO) {

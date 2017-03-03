@@ -946,6 +946,7 @@ bnx_new (struct pci_device *pci_device)
 	printi ("[%02x:%02x.%01x] A Broadcom NetXtreme GbE found.\n",
 		pci_device->address.bus_no, pci_device->address.device_no,
 		pci_device->address.func_no);
+	pci_system_disconnect (pci_device);
 	if (pci_device->driver_options[2] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[2], NULL))
 		option_virtio = true;

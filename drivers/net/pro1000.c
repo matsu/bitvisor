@@ -1552,6 +1552,11 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 				      NULL);
 	}
 	if (d2->seize) {
+		pci_system_disconnect (pci_device);
+		/* Enabling bus master and memory space again because
+		 * they might be disabled after disconnecting firmware
+		 * drivers. */
+		pro1000_enable_dma_and_memory (pci_device);
 		seize_pro1000 (d2);
 		net_start (d2->nethandle);
 	}

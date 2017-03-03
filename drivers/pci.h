@@ -193,6 +193,7 @@ extern void pci_write_config_data32(pci_config_address_t addr, int offset, u32 d
 
 struct pci_device *pci_possible_new_device (pci_config_address_t addr,
 					    struct pci_config_mmio_data *mmio);
+void pci_system_disconnect (struct pci_device *pci_device);
 void pci_readwrite_config_mmio (struct pci_config_mmio_data *p, bool wr,
 				uint bus_no, uint device_no, uint func_no,
 				uint offset, uint iosize, void *data);
