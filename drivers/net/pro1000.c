@@ -1288,6 +1288,20 @@ pro1000_msi (void *data, int num)
 }
 
 static void
+pro1000_enable_dma_and_memory (struct pci_device *pci_device)
+{
+	pci_config_address_t addr = pci_device->address;
+	u32 command_orig, command;
+
+	addr.reg_no = 1;
+	command_orig = pci_read_config_data32 (addr, 0);
+	command = command_orig | PCI_CONFIG_COMMAND_MEMENABLE |
+		PCI_CONFIG_COMMAND_BUSMASTER;
+	if (command != command_orig)
+		pci_write_config_data32 (addr, 0, command);
+}
+
+static void
 seize_pro1000 (struct data2 *d2)
 {
 	/* Disable interrupts */
@@ -1507,6 +1521,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	}
 	d->disable = false;
 	d2->d1 = d;
+	pro1000_enable_dma_and_memory (pci_device);
 	get_macaddr (d2, d2->macaddr);
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
