@@ -958,8 +958,9 @@ pci_driver_option_get_int (char *option, char **e, int base)
 	if (p == option)
 		panic ("pci_driver_option_get_int: invalid value %s",
 		       option);
-	if (ret < -0x80000000)
-		ret = -0x80000000;
+	/* -0x7FFFFFFF - 1 is signed, -0x80000000 is unsigned */
+	if (ret < -0x7FFFFFFF - 1)
+		ret = -0x7FFFFFFF - 1;
 	if (ret > 0x7FFFFFFF)
 		ret = 0x7FFFFFFF;
 	if (e)
