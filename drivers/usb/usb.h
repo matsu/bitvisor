@@ -142,6 +142,9 @@ struct usb_operations {
 
 struct usb_init_dev_operations {
 	u8 (*dev_addr) (struct usb_request_block *urb);
+	void (*add_hc_specific_data) (struct usb_host *host,
+				      struct usb_device *dev,
+				      struct usb_request_block *urb);
 };
 
 struct usb_host {
@@ -151,6 +154,7 @@ struct usb_host {
 #define USB_HOST_TYPE_UHCI     0x01U
 #define USB_HOST_TYPE_OHCI     0x02U
 #define USB_HOST_TYPE_EHCI     0x04U
+#define USB_HOST_TYPE_XHCI     0x08U
 	u64 last_changed_port;
 	void *private;
 	struct usb_device *device;

@@ -128,11 +128,13 @@ int
 usb_hook_process(struct usb_host *host, 
 		 struct usb_request_block *urb, int phase)
 {
-	struct usb_hook *hook;
+	struct usb_hook *hook, *next_hook;
 	int ret = USB_HOOK_PASS; /* default */
 	u8 endpt;
 
-	for (hook = host->hook[phase - 1]; hook; hook = hook->next) {
+	for (hook = host->hook[phase - 1]; hook; hook = next_hook) {
+		next_hook = hook->next;
+
 		/* dev */
 		if ((hook->match & USB_HOOK_MATCH_DEV) &&
 		    (hook->dev != urb->dev))
@@ -157,7 +159,18 @@ usb_hook_process(struct usb_host *host,
 
 		/* reach here if the urb content 
 		   fit all patterns specified by a hook */
+		if (hook->before_callback)
+			hook->before_callback (host, urb, hook->cbarg);
 		ret = hook->callback(host, urb, hook->cbarg);
+		if (hook->after_callback)
+			hook->after_callback (host, urb, hook->cbarg);
+
+		if (hook->exec_once) {
+			spinlock_lock (&host->lock_hk);
+			usb_hook_unregister (host, phase, hook);
+			spinlock_unlock (&host->lock_hk);
+		}
+
 		if (ret == USB_HOOK_DISCARD)
 			break;
 	}
@@ -166,6 +179,50 @@ usb_hook_process(struct usb_host *host,
 }
 
 DEFINE_ALLOC_FUNC(usb_hook);
+
+void *
+usb_hook_register_ex (struct usb_host *host, 
+		      u8 phase, u8 match, u8 devadr, u8 endpt, 
+		      const struct usb_hook_pattern *data,
+		      int (*callback) (struct usb_host *, 
+				       struct usb_request_block *,
+				       void *),
+		      void *cbarg,
+		      struct usb_device *dev,
+		      int (*before_callback) (struct usb_host *,
+					      struct usb_request_block *,
+					      void *),
+		      int (*after_callback) (struct usb_host *,
+					     struct usb_request_block *,
+					     void *),
+		      u8 try_exec_first, u8 exec_once)
+{
+	struct usb_hook *hook;
+
+	if ((phase != USB_HOOK_REQUEST) && (phase != USB_HOOK_REPLY))
+		return NULL;
+
+	hook = alloc_usb_hook();
+	ASSERT(hook != NULL);
+	hook->match = match;
+	hook->devadr = devadr;
+	hook->endpt = endpt;
+	hook->data = data;
+	hook->exec_once = exec_once;
+	hook->before_callback = before_callback;
+	hook->callback = callback;
+	hook->after_callback = after_callback;
+	hook->cbarg = cbarg;
+	hook->dev = dev;
+	hook->next = NULL;
+
+	if (try_exec_first)
+		usb_hook_insert (&host->hook[phase - 1], hook);
+	else
+		usb_hook_append (&host->hook[phase - 1], hook);
+
+	return (void *)hook;
+}
 
 /**
  * @brief API for registering a transfer hook condition
@@ -187,25 +244,8 @@ usb_hook_register(struct usb_host *host,
 		  void *cbarg,
 		  struct usb_device *dev)
 {
-	struct usb_hook *hook;
-
-	if ((phase != USB_HOOK_REQUEST) && (phase != USB_HOOK_REPLY))
-		return NULL;
-
-	hook = alloc_usb_hook();
-	ASSERT(hook != NULL);
-	hook->match = match;
-	hook->devadr = devadr;
-	hook->endpt = endpt;
-	hook->data = data;
-	hook->callback = callback;
-	hook->cbarg = cbarg;
-	hook->dev = dev;
-	hook->next = NULL;
-
-	usb_hook_append(&host->hook[phase - 1], hook);
-
-	return (void *)hook;
+	return usb_hook_register_ex (host, phase, match, devadr, endpt, data,
+				     callback, cbarg, dev, NULL, NULL, 0, 0);
 }
 
 void

@@ -272,6 +272,9 @@ struct usb_device {
 	size_t l_ddesc, l_cdesc;
 	u8 serial[256];
 	u8 serial_len;
+
+	u8 ctrl_by_host;
+	u32 hc_specific_data[2];
 };
 
 void
@@ -280,6 +283,13 @@ int
 free_device(struct usb_host *host, struct usb_device *dev);
 void 
 usb_init_device_monitor(struct usb_host *host);
+void usb_init_device (struct usb_host *host, u8 usb_addr,
+		      int (*before_init) (struct usb_host *usbhc,
+					  struct usb_request_block *urb,
+					  void *arg),
+		      int (*after_init) (struct usb_host *host,
+					 struct usb_request_block *urb,
+					 void *arg));
 int
 handle_connect_status(struct usb_host *ub_host, u64 portno, u16 status);
 int

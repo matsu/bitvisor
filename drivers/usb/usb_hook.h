@@ -35,6 +35,13 @@ struct usb_hook {
 			struct usb_request_block *urb,
 			void *arg);
 	void       *cbarg;
+	int (*before_callback) (struct usb_host *host,
+				struct usb_request_block *urb,
+				void *arg);
+	int (*after_callback) (struct usb_host *host,
+			       struct usb_request_block *urb,
+			       void *arg);
+	u8         exec_once;
 
 	/* target device */
 	struct usb_device *dev; /* NULL if hc-wide hook */
@@ -60,5 +67,21 @@ usb_hook_register(struct usb_host *host,
 
 void
 usb_hook_unregister(struct usb_host *host, int phase, void *handle);
+
+void *usb_hook_register_ex (struct usb_host *host, 
+			    u8 phase, u8 match, u8 devadr, u8 endpt, 
+			    const struct usb_hook_pattern *data,
+			    int (*callback) (struct usb_host *, 
+					     struct usb_request_block *,
+					     void *),
+			    void *cbarg,
+			    struct usb_device *dev,
+			    int (*before_callback) (struct usb_host *,
+						    struct usb_request_block *,
+						    void *),
+			    int (*after_callback) (struct usb_host *,
+						   struct usb_request_block *,
+						   void *),
+			    u8 try_exec_first, u8 exec_once);
 
 #endif /* __USB_HOOK_H__ */

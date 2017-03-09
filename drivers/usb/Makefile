@@ -14,6 +14,7 @@ CFLAGS += -Idrivers
 
 objs-$(CONFIG_SHADOW_UHCI) += uhci.o uhci_debug.o uhci_shadow.o uhci_trans.o
 objs-$(CONFIG_SHADOW_EHCI) += ehci.o ehci_debug.o ehci_shadow.o ehci_trans.o
+objs-$(CONFIG_SHADOW_XHCI) += xhci.o xhci_shadow.o xhci_trans.o
 objs-$(CONFIG_HANDLE_USBMSC) += usb_mscd.o
 objs-$(CONFIG_HANDLE_USBHUB) += usb_hub.o
 objs-$(CONFIG_CONCEAL_USBCCID) += usb_ccid.o

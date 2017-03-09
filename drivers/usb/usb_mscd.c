@@ -1010,6 +1010,7 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	handler->private_data = mscdev;
 	dev->handle = handler;
 	
+	dev->ctrl_by_host = 1;
 	spinlock_unlock(&mscdev->lock);
 
 	/* register a hook for GetMaxLun */
