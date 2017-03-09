@@ -358,6 +358,14 @@ get_edesc_by_address(struct usb_device *device, u8 endpoint)
 		idesc = device->config->interface->altsetting + i;
 		n_eps = idesc->bNumEndpoints;
 		edesc = idesc->endpoint;
+
+		/*
+		 * It is possible that the interface descriptor does not
+		 * have the endpoint descriptor.
+		 */
+		if (!edesc)
+			continue;
+
 		do {
 			if (edesc[n_eps].bEndpointAddress == endpoint)
 			/* check that the enpoint is in the currently selected
