@@ -650,6 +650,11 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 	if (!hub)
 		return USB_HOOK_PASS;
 
+	if (urb->status == URB_STATUS_ERRORS) {
+		ASSERT (urb->actlen == 0);
+		return USB_HOOK_PASS;
+	}
+
 	spinlock_lock(&mscdev->lock);
 	mscunit = mscdev->unit[mscdev->lun];
 
