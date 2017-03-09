@@ -79,6 +79,18 @@ static struct usb_operations uhciop = {
 	.deactivate_urb = uhci_deactivate_urb
 };
 
+DEFINE_GET_U16_FROM_SETUP_FUNC (wValue)
+
+static u8
+uhci_dev_addr (struct usb_request_block *h_urb)
+{
+	return (u8)get_wValue_from_setup (h_urb->shadow->buffers) & 0x7fU;
+}
+
+static struct usb_init_dev_operations uhci_init_dev_op = {
+	.dev_addr = uhci_dev_addr,
+};
+
 static void 
 uhci_new(struct pci_device *pci_device)
 {
@@ -116,6 +128,7 @@ uhci_new(struct pci_device *pci_device)
 	LIST2_HEAD_INIT (host->need_shadow, need_shadow);
 	LIST2_HEAD_INIT (host->update, update);
  	host->hc = usb_register_host((void *)host, &uhciop, 
+				     &uhci_init_dev_op,
 				     USB_HOST_TYPE_UHCI);
 	ASSERT(host->hc != NULL);
 	usb_init_device_monitor(host->hc);

@@ -140,6 +140,9 @@ struct usb_operations {
 	(*deactivate_urb)(struct usb_host *, struct usb_request_block *urb);
 };
 
+struct usb_init_dev_operations {
+	u8 (*dev_addr) (struct usb_request_block *urb);
+};
 
 struct usb_host {
 	LIST_DEFINE(usb_hc_list);
@@ -152,6 +155,7 @@ struct usb_host {
 	void *private;
 	struct usb_device *device;
 	struct usb_operations *op;
+	struct usb_init_dev_operations *init_op;
 #define USB_HOOK_NUM_PHASE     2
 	spinlock_t lock_hk;
 	struct usb_hook *hook[USB_HOOK_NUM_PHASE];
@@ -322,6 +326,7 @@ extern "C" {
 void usb_sc_lock (struct usb_host *usb);
 void usb_sc_unlock (struct usb_host *usb);
 struct usb_host *usb_register_host (void *host, struct usb_operations *op,
+				    struct usb_init_dev_operations *init_op,
 				    u8 type);
 int usb_unregister_devices (struct usb_host *uhc);
 

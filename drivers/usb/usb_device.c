@@ -739,7 +739,7 @@ new_usb_device(struct usb_host *usbhc,
 	void usbhid_init_handle (struct usb_host *, struct usb_device *);
 
 	/* get a device address */
-	devadr = (u8)get_wValue_from_setup(urb->shadow->buffers) & 0x7fU;
+	devadr = usbhc->init_op->dev_addr (urb);
 
 	dprintft(1, "SetAddress(%d) found.\n", devadr);
 

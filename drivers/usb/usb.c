@@ -669,7 +669,8 @@ usb_interrupt_read(usb_dev_handle *dev, int ep, char *bytes, int size,
 }
 
 struct usb_host *
-usb_register_host (void *host, struct usb_operations *op, u8 type)
+usb_register_host (void *host, struct usb_operations *op,
+		   struct usb_init_dev_operations *init_op, u8 type)
 {
 	struct usb_host *hc;
 
@@ -678,6 +679,9 @@ usb_register_host (void *host, struct usb_operations *op, u8 type)
 	hc->type = type;
 	hc->private = host;
 	hc->op = op;
+	hc->init_op = init_op;
+	if (!init_op || !init_op->dev_addr)
+		panic ("init_op->dev_addr must not be NULL");
 	hc->host_id = usb_host_id++;
 	spinlock_init(&hc->lock_hk);
 	spinlock_init(&hc->lock_sclock);
