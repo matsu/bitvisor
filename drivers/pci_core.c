@@ -580,6 +580,15 @@ void pci_register_driver(struct pci_driver *driver)
 	return;
 }
 
+void
+pci_register_intr_callback (int (*callback) (void *data, int num), void *data)
+{
+	if (!callback || !data)
+		return;
+
+	exint_pass_intr_register_callback (callback, data);
+}
+
 /* ------------------------------------------------------------------------------
    PCI configuration registers access
  ------------------------------------------------------------------------------ */

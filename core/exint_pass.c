@@ -34,6 +34,8 @@
 #include "exint_pass.h"
 #include "initfunc.h"
 #include "int.h"
+#include "list.h"
+#include "mm.h"
 #include "string.h"
 
 /* Interrupts 0x10-0x1F are reserved by CPU for exceptions but can be
@@ -48,6 +50,11 @@ struct exint_pass_intr {
 	void *data;
 };
 
+struct exint_pass_intr_list {
+	LIST1_DEFINE (struct exint_pass_intr_list);
+	struct exint_pass_intr intr;
+};
+
 static void exint_pass_int_enabled (void);
 static void exint_pass_default (int num);
 static void exint_pass_hlt (void);
@@ -59,6 +66,7 @@ static struct exint_func func = {
 };
 
 static struct exint_pass_intr intr[EXINT_ALLOC_NUM];
+static LIST1_DEFINE_HEAD_INIT (struct exint_pass_intr_list, intr_list);
 
 static int
 exint_pass_intr_set (int (*callback) (void *data, int num), void *data, int i)
@@ -71,13 +79,23 @@ exint_pass_intr_set (int (*callback) (void *data, int num), void *data, int i)
 }
 
 static int
+exint_pass_intr_run_callback_list (int num)
+{
+	struct exint_pass_intr_list *intr;
+
+	LIST1_FOREACH (intr_list, intr)
+		intr->intr.callback (intr->intr.data, num);
+	return num;
+}
+
+static int
 exint_pass_intr_call (int num)
 {
 	if (num < EXINT_ALLOC_START)
 		return num;
 	int i = num - EXINT_ALLOC_START;
 	if (i >= EXINT_ALLOC_NUM || !intr[i].callback)
-		return num;
+		return exint_pass_intr_run_callback_list (num);
 	return intr[i].callback (intr[i].data, num);
 }
 
@@ -95,6 +113,20 @@ void
 exint_pass_intr_free (int num)
 {
 	exint_pass_intr_set (NULL, NULL, num);
+}
+
+int
+exint_pass_intr_register_callback (int (*callback) (void *data, int num),
+				   void *data)
+{
+	struct exint_pass_intr_list *intr = alloc (sizeof *intr);
+
+	if (!intr)
+		return 0;
+	intr->intr.callback = callback;
+	intr->intr.data     = data;
+	LIST1_ADD (intr_list, intr);
+	return 1;
 }
 
 static void

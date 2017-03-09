@@ -175,6 +175,8 @@ struct pci_bar_info {
 
 // exported functions
 extern void pci_register_driver (struct pci_driver *driver);
+extern void pci_register_intr_callback (int (*callback) (void *data, int num),
+					void *data);
 extern void pci_handle_default_config_read (struct pci_device *pci_device,
 					    u8 iosize, u16 offset,
 					    union mem *data);

@@ -32,5 +32,7 @@
 
 int exint_pass_intr_alloc (int (*callback) (void *data, int num), void *data);
 void exint_pass_intr_free (int num);
+int exint_pass_intr_register_callback (int (*callback) (void *data, int num),
+				       void *data);
 
 #endif
