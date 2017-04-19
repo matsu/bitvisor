@@ -326,7 +326,7 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
 	h = *head;
 	t = *tail;
-	if (h == 0xFFFFFFFF)
+	if (h >= NUM_OF_TDESC || t >= NUM_OF_TDESC)
 		return;
 	for (i = 0; i < num_packets; i++) {
 		nt = t + 1;
