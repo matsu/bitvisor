@@ -834,8 +834,18 @@ new_device:
 			goto found;
 		}
 	}
-	if (!wr)
-		memset (buf, 0xFF, len);
+	/* Passthrough accesses to PCI configuration space of
+	 * non-existent devices.  The pci_config_data_handler()
+	 * function returns CORE_IO_RET_DEFAULT in this case.  This
+	 * behavior is apparently required for EFI variable access on
+	 * iMac (Retina 5K, 27-inch, Late 2015) and MacBook (Retina,
+	 * 12-inch, Early 2016).  This function can return 0 to make
+	 * access passthrough, but mapmem/unmapmem is called after
+	 * returning 0.  Use the pci_readwrite_config_mmio() function
+	 * here to avoid mapmem for performance reason. */
+	pci_readwrite_config_mmio (d, wr, addr.s.bus_no, addr.s.dev_no,
+				   addr.s.func_no, addr.s.reg_offset, len,
+				   buf);
 	return 1;
 found:
 	if (dev->bridge.yes && wr)
