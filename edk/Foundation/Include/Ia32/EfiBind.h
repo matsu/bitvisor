@@ -133,7 +133,7 @@ Abstract:
 #endif
 
 
-#if (__STDC_VERSION__ < 199901L)
+#if 1
   //
   // No ANSI C 2000 stdint.h integer width declarations, so define equivalents
   //
