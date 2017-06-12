@@ -96,7 +96,7 @@ wndproc (HWND hwnd, UINT nMsg, WPARAM wParam, LPARAM lParam)
 	return DefWindowProc (hwnd, nMsg, wParam, lParam);
 }
 
-int STDCALL
+int WINAPI
 WinMain (HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
 {
 	HWND hwnd;
