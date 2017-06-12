@@ -1,4 +1,7 @@
 #define _BSD_SOURCE
+#define _DEFAULT_SOURCE
+/* _BSD_SOURCE for glibc version < 2.19 */
+/* _DEFAULT_SOURCE suppresses a warning of glibc version >= 2.20 */
 
 #include <setjmp.h>
 #include <signal.h>
