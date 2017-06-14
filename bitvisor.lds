@@ -2,7 +2,6 @@ ENTRY(entry)
 virt = 0x40100000;
 phys = 0x00100000;
 PHDRS {
-	hdrs PT_PHDR PHDRS AT (phys);
 	all PT_LOAD;
 }
 SECTIONS {
