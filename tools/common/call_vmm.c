@@ -78,14 +78,13 @@ static void
 call_vmm_get_function_sub (void *data)
 {
 	struct call_vmm_get_function_sub_data *p;
-	intptr_t tmp;
+	extern char done[] asm ("call_vmm_get_function_sub__done");
 
 	p = data;
-	asm volatile ("mov $1f,%1\n"
-		      "jmp *%4\n"
-		      "1:"
-		      : "=a" (p->ret), "=&S" (tmp)
-		      : "a" (0), "b" (p->arg), "r" (p->addr));
+	asm volatile ("jmp *%3\n"
+		      "call_vmm_get_function_sub__done:"
+		      : "=a" (p->ret)
+		      : "a" (0), "b" (p->arg), "r" (p->addr), "S" (done));
 }
 
 void

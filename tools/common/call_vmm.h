@@ -1,17 +1,29 @@
 #include <stdint.h>
-#define CALL_VMM_GET_FUNCTION(name, ret) do { \
-	intptr_t call_vmm__addr0, call_vmm__addr1; \
+#define CALL_VMM_GET_FUNCTION_LINE_SUB(name, ret, line) do { \
+	intptr_t call_vmm__tmp; \
+	extern char call_vmm__##line##_asm0[] \
+		asm ("CALL_VMM_GET_FUNCTION_" #line "_0"); \
+	extern char call_vmm__##line##_asm1[] \
+		asm ("CALL_VMM_GET_FUNCTION_" #line "_1"); \
  \
 	asm volatile ("jmp 2f\n" \
-		      "0: vmcall; jmp *%1; .org 0b+5; vmmcall; jmp *%1;" \
+		      "CALL_VMM_GET_FUNCTION_" #line "_0:\n" \
+		      "0: vmcall; jmp *%0; .org 0b+5; vmmcall; jmp *%0;" \
 		      "   .org 0b+10; .string \"" name "\"\n" \
-		      "1: vmcall; jmp *%1; .org 1b+5; vmmcall; jmp *%1;" \
+		      "CALL_VMM_GET_FUNCTION_" #line "_1:\n" \
+		      "1: vmcall; jmp *%0; .org 1b+5; vmmcall; jmp *%0;" \
 		      "   .org 1b+10; .string \"" name "\"\n" \
-		      "2: mov $0b,%0; mov $1b,%1" \
-		      : "=r" (call_vmm__addr0), "=S" (call_vmm__addr1)); \
-	call_vmm_get_function (call_vmm__addr0, call_vmm__addr1, \
+		      "2:" \
+		      : "=S" (call_vmm__tmp)); \
+	call_vmm_get_function ((intptr_t)call_vmm__##line##_asm0, \
+			       (intptr_t)call_vmm__##line##_asm1, \
 			       5, 10, (ret)); \
 } while (0)
+#define CALL_VMM_GET_FUNCTION_LINE(name, ret, line) \
+	CALL_VMM_GET_FUNCTION_LINE_SUB (name, ret, line)
+/* Using this macro multiple times in a line causes errors */
+#define CALL_VMM_GET_FUNCTION(name, ret) \
+	CALL_VMM_GET_FUNCTION_LINE (name, ret, __LINE__)
 
 typedef struct {
 	int vmmcall_number;
