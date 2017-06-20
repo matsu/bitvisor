@@ -1433,8 +1433,9 @@ static void
 pro1000_intr_set (void *param)
 {
 	struct data2 *d2 = param;
+	volatile u32 *ics = (void *)(u8 *)d2->d1[0].map + 0xC8;
 
-	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) |= 0x1; /* interrupt */
+	*ics = 1 << 7 | 1 << 4;	/* interrupt */
 }
 
 static void
