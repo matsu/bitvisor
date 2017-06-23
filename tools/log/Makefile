@@ -8,7 +8,9 @@ clean :
 		modules.order
 	-rmdir .tmp_versions
 
-load :
+# GNU Make understands "load :" as a load directive.  Do not put
+# spaces between "load" and ":" for workaround.
+load:
 	-rmmod logget-linux
 	insmod logget-linux.ko
 
