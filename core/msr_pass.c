@@ -28,6 +28,9 @@
  */
 
 #include "asm.h"
+#include "assert.h"
+#include "cpu.h"
+#include "cpu_mmu.h"
 #include "current.h"
 #include "initfunc.h"
 #include "int.h"
@@ -88,6 +91,117 @@ msr_pass_read_msr (u32 msrindex, u64 *msrdata)
 	return false;
 }
 
+static u64
+get_ia32_bios_sign_id (void)
+{
+	u64 rev;
+	u32 a, b, c, d;
+
+	asm_wrmsr64 (MSR_IA32_BIOS_SIGN_ID, 0);
+	asm_cpuid (1, 0, &a, &b, &c, &d);
+	asm_rdmsr64 (MSR_IA32_BIOS_SIGN_ID, &rev);
+	return rev;
+}
+
+/* Microcode updates cannot be loaded in VMX non-root operation on
+ * Intel CPUs.  This function loads the updates in VMX root
+ * operation. */
+static bool
+ia32_bios_updt (virt_t addr)
+{
+	u64 vmm_addr = PAGESIZE | (addr & PAGESIZE_MASK);
+	phys_t phys, mm_phys;
+	struct msrarg m;
+	int num;
+	ulong cr2, lastcr2 = 0, guest_addr;
+	int levels;
+	enum vmmerr r;
+	u64 entries[5];
+	u64 efer;
+	ulong cr0, cr3, cr4;
+	phys_t hphys, gphys;
+	int in_mmio_range;
+	bool ret = false;
+
+	m.msrindex = MSR_IA32_BIOS_UPDT_TRIG;
+	m.msrdata = &vmm_addr;
+	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr0);
+	current->vmctl.read_control_reg (CONTROL_REG_CR3, &cr3);
+	current->vmctl.read_control_reg (CONTROL_REG_CR4, &cr4);
+	current->vmctl.read_msr (MSR_IA32_EFER, &efer);
+	if (0)
+		printf ("CPU%d: old IA32_BIOS_SIGN_ID %016llX\n",
+			get_cpu_id (), get_ia32_bios_sign_id ());
+
+	/* Allocate an empty page directory for address 0-0x3FFFFFFF
+	 * and switch to it. */
+	if (mm_process_alloc (&phys) < 0)
+		panic ("%s: mm_process_alloc failed", __func__);
+	mm_phys = mm_process_switch (phys);
+	for (;;) {
+		/* Do update! */
+		num = callfunc_and_getint (do_write_msr_sub, &m);
+		if (num == -1)	/* Success */
+			break;
+		if (num == EXCEPTION_GP) {
+			ret = true;
+			break;
+		}
+		if (num != EXCEPTION_PF)
+			panic ("%s: exception %d", __func__, num);
+		/* Handle a page fault.  Get the guest physical
+		 * address of the page. */
+		/* FIXME: Set access bit in PTE */
+		asm_rdcr2 (&cr2);
+		if (lastcr2 == cr2) /* check to avoid infinite loop */
+			panic ("%s: second page fault at 0x%lX",
+			       __func__, cr2);
+		else
+			lastcr2 = cr2;
+		guest_addr = (addr & ~PAGESIZE_MASK) + (cr2 - PAGESIZE);
+		r = cpu_mmu_get_pte (guest_addr, cr0, cr3, cr4, efer, false,
+				     false, false, entries, &levels);
+		if (r == VMMERR_PAGE_NOT_PRESENT) {
+			ret = true;
+			if (0)
+				printf ("%s: guest page fault at 0x%lX\n",
+					__func__, guest_addr);
+			current->vmctl.generate_pagefault (0, guest_addr);
+			break;
+		}
+		if (r != VMMERR_SUCCESS)
+			panic ("%s: cpu_mmu_get_pte failed %d", __func__, r);
+		gphys = entries[0] & current->pte_addr_mask;
+		/* Find MMIO hooks. */
+		mmio_lock ();
+		in_mmio_range = mmio_access_page (gphys, false);
+		mmio_unlock ();
+		if (in_mmio_range)
+			panic ("%s: mmio check failed cr2=0x%lX ent=0x%llX",
+			       __func__, cr2, entries[0]);
+		/* Convert the address and map it. */
+		/* FIXME: Handle cache flags in the PTE. */
+		hphys = current->gmm.gp2hp (gphys, NULL);
+		ASSERT (!(hphys & PAGESIZE_MASK));
+		if (mm_process_map_shared_physpage (cr2, hphys, false))
+			panic ("%s: mm_process_map_shared_physpage failed"
+			       " cr2=0x%lX guest=0x%lX ent=0x%llX",
+			       __func__, cr2, guest_addr, entries[0]);
+		if (0)
+			printf ("%s: cr2=0x%lX guest=0x%lX ent=0x%llX\n",
+				__func__, cr2, guest_addr, entries[0]);
+	}
+	/* Free page tables, switch to previous address space and free
+	 * the page directory. */
+	mm_process_unmapall ();
+	mm_process_switch (mm_phys);
+	mm_process_free (phys);
+	if (0)
+		printf ("CPU%d: new IA32_BIOS_SIGN_ID %016llX\n",
+			get_cpu_id (), get_ia32_bios_sign_id ());
+	return ret;
+}
+
 static bool
 msr_pass_write_msr (u32 msrindex, u64 msrdata)
 {
@@ -98,8 +212,7 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 	/* FIXME: Exception handling */
 	switch (msrindex) {
 	case MSR_IA32_BIOS_UPDT_TRIG:
-		printf ("msr_pass: microcode updates cannot be loaded.\n");
-		break;
+		return ia32_bios_updt (msrdata);
 	case MSR_IA32_TIME_STAMP_COUNTER:
 		asm_rdmsr64 (MSR_IA32_TIME_STAMP_COUNTER, &tmp);
 		current->tsc_offset = msrdata - tmp;

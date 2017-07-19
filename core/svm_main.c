@@ -344,37 +344,39 @@ do_readwrite_msr (void)
 	enum vmmerr err;
 	struct svm *svm;
 	struct vmcb *vmcb;
-	bool gp_fault;
+	bool msr_fault;
+	u64 v;
 
 	svm = &current->u.svm;
 	vmcb = svm->vi.vmcb;
+	v = svm->intr.vmcb_intr_info.v;
 	if (currentcpu->svm.nrip_save) {
 		switch (vmcb->exitinfo1) {
 		case 0:
-			gp_fault = cpu_emul_rdmsr ();
+			msr_fault = cpu_emul_rdmsr ();
 			break;
 		case 1:
-			gp_fault = cpu_emul_wrmsr ();
+			msr_fault = cpu_emul_wrmsr ();
 			break;
 		default:
 			panic ("Invalid EXITINFO1 0x%llX", vmcb->exitinfo1);
 		}
-		if (!gp_fault)
+		if (!msr_fault)
 			vmcb->rip = vmcb->nrip;
 	} else {
 		err = cpu_interpreter ();
 		switch (err) {
 		case VMMERR_SUCCESS:
-			gp_fault = false;
+			msr_fault = false;
 			break;
 		case VMMERR_MSR_FAULT:
-			gp_fault = true;
+			msr_fault = true;
 			break;
 		default:
 			panic ("ERR %d", err);
 		}
 	}
-	if (gp_fault) {
+	if (msr_fault && v == svm->intr.vmcb_intr_info.v) {
 		svm->intr.vmcb_intr_info.v = 0;
 		svm->intr.vmcb_intr_info.s.vector = EXCEPTION_GP;
 		svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_EXCEPTION;

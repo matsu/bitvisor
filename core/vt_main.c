@@ -134,18 +134,28 @@ make_gp_fault (u32 errcode)
 static void
 do_rdmsr (void)
 {
-	if (cpu_emul_rdmsr ())
-		make_gp_fault (0);
-	else
+	struct vt_intr_data *vid = &current->u.vt.intr;
+	u32 v;
+
+	v = vid->vmcs_intr_info.v;
+	if (cpu_emul_rdmsr ()) {
+		if (v == vid->vmcs_intr_info.v) /* not page fault */
+			make_gp_fault (0);
+	} else
 		add_ip ();
 }
 
 static void
 do_wrmsr (void)
 {
-	if (cpu_emul_wrmsr ())
-		make_gp_fault (0);
-	else
+	struct vt_intr_data *vid = &current->u.vt.intr;
+	u32 v;
+
+	v = vid->vmcs_intr_info.v;
+	if (cpu_emul_wrmsr ()) {
+		if (v == vid->vmcs_intr_info.v) /* not page fault */
+			make_gp_fault (0);
+	} else
 		add_ip ();
 }
 
