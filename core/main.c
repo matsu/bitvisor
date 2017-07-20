@@ -54,12 +54,14 @@
 #include "svm_init.h"
 #include "types.h"
 #include "uefi.h"
+#include "uefi_param_ext.h"
 #include "vcpu.h"
 #include "vmmcall.h"
 #include "vmmcall_boot.h"
 #include "vramwrite.h"
 #include "vt.h"
 #include "vt_init.h"
+#include <share/uefi_boot.h>
 
 static struct multiboot_info mi;
 static u32 minios_startaddr;
@@ -68,6 +70,9 @@ static u8 minios_params[OSLOADER_BOOTPARAMS_SIZE];
 static void *bios_data_area;
 static int shiftkey;
 static u8 imr_master, imr_slave;
+
+static struct uuid pass_auth_uuid = UEFI_BITVISOR_PASS_AUTH_UUID;
+static struct uuid cpu_type_uuid  = UEFI_BITVISOR_CPU_TYPE_UUID;
 
 static void
 print_boot_msg (void)
@@ -294,6 +299,30 @@ get_tmpbuf (u32 *tmpbufaddr, u32 *tmpbufsize)
 }
 
 static void
+process_cpu_type_ext (void)
+{
+	phys_t cpu_type_ext_addr = uefi_param_ext_get_phys (&cpu_type_uuid);
+	if (cpu_type_ext_addr) {
+		struct cpu_type_param_ext *cpu_ext;
+
+		cpu_ext = mapmem_hphys (cpu_type_ext_addr, sizeof *cpu_ext,
+					MAPMEM_WRITE);
+		switch (currentcpu->fullvirtualize) {
+		case FULLVIRTUALIZE_VT:
+			cpu_ext->type = CPU_TYPE_INTEL;
+			break;
+		case FULLVIRTUALIZE_SVM:
+			cpu_ext->type = CPU_TYPE_AMD;
+			break;
+		default:
+			panic ("Unknown CPU type");
+			break;
+		}
+		unmapmem (cpu_ext, sizeof *cpu_ext);
+	}
+}
+
+static void
 bsp_init_thread (void *args)
 {
 	u32 tmpbufaddr, tmpbufsize;
@@ -324,19 +353,24 @@ bsp_init_thread (void *args)
 		call_initfunc ("config0");
 		load_drivers ();
 		call_initfunc ("config1");
-	} else {
+	} else if (!uefi_booted) {
 		load_drivers ();
-	}
-	if (!uefi_booted) {
 		get_tmpbuf (&tmpbufaddr, &tmpbufsize);
 		load_bootsector (bios_boot_drive, tmpbufaddr, tmpbufsize);
 		sync_cursor_pos ();
 	}
 	initregs ();
-	if (uefi_booted)
+	if (uefi_booted) {
+		process_cpu_type_ext ();
 		copy_uefi_bootcode ();
-	else
+		if (uefi_param_ext_get_phys (&pass_auth_uuid))
+			vmmcall_boot_continue();
+		call_initfunc ("config0");
+		load_drivers ();
+		call_initfunc ("config1");
+	} else {
 		copy_bootsector ();
+	}
 }
 
 static void

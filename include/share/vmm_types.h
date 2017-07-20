@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2017 Igel Co., Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -10,7 +11,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
  *    and/or other materials provided with the distribution.
- * 3. Neither the name of the University of Tsukuba nor the names of its
+ * 3. Neither the name of the copyright holder nor the names of its
  *    contributors may be used to endorse or promote products derived from
  *    this software without specific prior written permission.
  *
@@ -27,32 +28,23 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CORE_TYPES_H
-#define __CORE_TYPES_H
+#ifndef __SHARE_VMM_TYPES_H
+#define __SHARE_VMM_TYPES_H
 
-#include <share/vmm_types.h>
-
-#define NULL			((void *)0)
-
-typedef enum {
-	false = 0,
-	true = 1,
-} bool;
-union mem {
-	u8 byte;
-	u16 word;
-	u32 dword;
-	u64 qword;
-};
-
-typedef union {
-	u8 byte;
-	u16 word;
-	u32 dword;
-	u64 qword;
-	u8 bytes[8];
-	u16 words[4];
-	u32 dwords[2];
-} core_mem_t;
+typedef signed char		i8;
+typedef signed short int	i16;
+typedef signed int		i32;
+typedef signed long long int	i64;
+typedef unsigned char		u8;
+typedef unsigned short int	u16;
+typedef unsigned int		u32;
+typedef unsigned long long int	u64;
+typedef unsigned int		uint;
+typedef unsigned long int	ulong;
+typedef unsigned long int	size_t;
+typedef unsigned long int	addr_t;
+typedef unsigned long int	virt_t;
+typedef unsigned int		phys32_t;
+typedef unsigned long long int	phys_t;
 
 #endif

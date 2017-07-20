@@ -27,18 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-typedef unsigned char		u8;
-typedef unsigned short int	u16;
-typedef unsigned int		u32;
-typedef unsigned long long int	u64;
-#define __CORE_TYPES_H
-#include "core/config.h"
+#include <vmm_types.h>
 
-struct loadcfg_data {
-	unsigned int len;
-	unsigned int pass, passlen;
-	unsigned int data, datalen;
-};
+#include <config.h>
+#include <loadcfg.h>
 
 int getkey (void);
 void call0x10 (int, int, int, int);

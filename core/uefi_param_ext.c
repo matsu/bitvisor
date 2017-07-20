@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Igel Co., Ltd.
+ * Copyright (c) 2017 Igel Co., Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -10,7 +10,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
  *    and/or other materials provided with the distribution.
- * 3. Neither the name of the University of Tsukuba nor the names of its
+ * 3. Neither the name of the copyright holder nor the names of its
  *    contributors may be used to endorse or promote products derived from
  *    this software without specific prior written permission.
  *
@@ -27,28 +27,67 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_UEFI_H
-#define _CORE_UEFI_H
-
+#include "initfunc.h"
+#include "mm.h"
+#include "panic.h"
+#include "string.h"
 #include "types.h"
+#include "uefi.h"
+#include "uefi_param_ext.h"
+#include <share/uefi_boot.h>
 
-extern void *uefi_conin;
-extern void *uefi_conout;
-extern ulong uefi_conin_read_key_stroke;
-extern ulong uefi_conout_output_string;
-extern ulong uefi_allocate_pages;
-extern ulong uefi_get_memory_map;
-extern ulong uefi_free_pages;
-extern ulong uefi_wait_for_event;
-extern ulong uefi_acpi_20_table;
-extern ulong uefi_acpi_table;
-extern ulong uefi_locate_handle_buffer;
-extern ulong uefi_free_pool;
-extern ulong uefi_open_protocol;
-extern ulong uefi_close_protocol;
-extern ulong uefi_image_handle;
-extern ulong uefi_disconnect_controller;
-extern ulong uefi_boot_param_ext_addr;
-extern bool uefi_booted;
+static phys_t boot_param_ext_addrs[MAX_N_PARAM_EXTS];
+static u64 n_param_exts;
 
-#endif
+static u8
+compare_uuid (struct uuid *uuid1, struct uuid *uuid2)
+{
+	u64 *val1 = (u64 *)uuid1;
+	u64 *val2 = (u64 *)uuid2;
+
+	return (val1[0] == val2[0] &&
+		val1[1] == val2[1]);
+}
+
+phys_t
+uefi_param_ext_get_phys (struct uuid *ext_uuid)
+{
+	if (n_param_exts == 0 || !ext_uuid)
+		return 0x0;
+
+	phys_t addr = 0x0;
+	struct param_ext *base;
+	uint i;
+
+	for (i = 0; i < n_param_exts && addr == 0x0; i++) {
+		base = mapmem_hphys (boot_param_ext_addrs[i], sizeof *base, 0);
+		if (compare_uuid (&base->uuid, ext_uuid))
+			addr = boot_param_ext_addrs[i];
+		unmapmem (base, sizeof *base);
+	}
+
+	return addr;
+}
+
+static void
+uefi_param_ext_init (void)
+{
+	if (uefi_boot_param_ext_addr == 0x0)
+		return;
+
+	phys_t *param_ext_map;
+	param_ext_map = mapmem_hphys (uefi_boot_param_ext_addr,
+				      sizeof (phys_t) * MAX_N_PARAM_EXTS, 0);
+
+	uint i;
+	for (i = 0; i < MAX_N_PARAM_EXTS && param_ext_map[i]; i++) {
+		boot_param_ext_addrs[i] = param_ext_map[i];
+		n_param_exts++;
+	}
+	if (param_ext_map[i])
+		panic ("Number of parameter extension beyond the limit");
+
+	unmapmem (param_ext_map, sizeof (phys_t) * MAX_N_PARAM_EXTS);
+}
+
+INITFUNC ("global5", uefi_param_ext_init);

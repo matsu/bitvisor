@@ -31,10 +31,11 @@
 #include <EfiApi.h>
 #include <Protocol/SimpleFileSystem/SimpleFileSystem.h>
 #include <Protocol/LoadedImage/LoadedImage.h>
+#include <vmm_types.h>
+#include <uefi_boot.h>
 
-typedef int EFIAPI entry_func_t (uint32_t loadaddr, uint32_t loadsize,
-				 EFI_SYSTEM_TABLE *systab, EFI_HANDLE image,
-				 EFI_FILE_HANDLE file);
+typedef int EFIAPI entry_func_t (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab,
+				 void **boot_exts);
 
 static EFI_GUID LoadedImageProtocol = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 static EFI_GUID FileSystemProtocol = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
@@ -161,7 +162,19 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	}
 	entry = *(uint32_t *)(paddr + 0x18);
 	entry_func = (entry_func_t *)(paddr + (entry & 0xFFFF));
-	boot_error = entry_func (paddr, readsize, systab, image, file2);
+
+	struct bitvisor_boot boot_ext = {
+		UEFI_BITVISOR_BOOT_UUID,
+		paddr,
+		readsize,
+		file2
+	};
+	void *boot_exts[] = {
+		&boot_ext,
+		NULL
+	};
+
+	boot_error = entry_func (image, systab, boot_exts);
 	if (!boot_error)
 		systab->ConOut->OutputString (systab->ConOut,
 					      L"Boot failed\r\n");

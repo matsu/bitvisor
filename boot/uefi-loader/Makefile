@@ -27,6 +27,7 @@ loadvmm.dll : loadvmm.c
 		-ffreestanding -fno-builtin -fno-stack-protector \
 		-fno-strict-aliasing \
 		-I. \
+		-I../../include/share/ \
 		-I$(EDK_DIR)/Foundation/Efi/Include/ \
 		-I$(EDK_DIR)/Foundation/Framework/Include/ \
 		-I$(EDK_DIR)/Foundation/Include/ \

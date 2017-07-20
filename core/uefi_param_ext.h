@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2017 Igel Co., Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -10,7 +10,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
  *    and/or other materials provided with the distribution.
- * 3. Neither the name of the University of Tsukuba nor the names of its
+ * 3. Neither the name of the copyright holder nor the names of its
  *    contributors may be used to endorse or promote products derived from
  *    this software without specific prior written permission.
  *
@@ -27,32 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CORE_TYPES_H
-#define __CORE_TYPES_H
+#ifndef _CORE_UEFI_BOOT_EXT_H
+#define _CORE_UEFI_BOOT_EXT_H
 
-#include <share/vmm_types.h>
+struct uuid;
 
-#define NULL			((void *)0)
-
-typedef enum {
-	false = 0,
-	true = 1,
-} bool;
-union mem {
-	u8 byte;
-	u16 word;
-	u32 dword;
-	u64 qword;
-};
-
-typedef union {
-	u8 byte;
-	u16 word;
-	u32 dword;
-	u64 qword;
-	u8 bytes[8];
-	u16 words[4];
-	u32 dwords[2];
-} core_mem_t;
+phys_t uefi_param_ext_get_phys (struct uuid *ext_uuid);
 
 #endif

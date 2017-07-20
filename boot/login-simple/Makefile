@@ -1,4 +1,4 @@
-INC    = ../../include/core/config.h
+INC    = ../../include/share/config.h
 
 .PHONY : all clean
 
@@ -9,7 +9,7 @@ clean :
 
 module1.bin : asm.s main.c $(INC)
 	gcc -m32 -Wall -s -Wl,-Ttext,0x8000 -nostdlib -nostdinc \
-		-idirafter ../../include -o module1.bin asm.s main.c
+		-idirafter ../../include/share/ -o module1.bin asm.s main.c
 
 makedata : makedata.c
 	gcc -Wall `pkg-config --cflags openssl` -o makedata makedata.c \

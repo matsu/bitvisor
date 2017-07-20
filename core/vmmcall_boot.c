@@ -41,12 +41,7 @@
 #include "vmmcall.h"
 #include "vmmcall_boot.h"
 #include "../crypto/decryptcfg.h"
-
-struct loadcfg_data {
-	u32 len;
-	u32 pass, passlen;
-	u32 data, datalen;
-};
+#include <share/loadcfg.h>
 
 struct vmmcall_boot_thread_data {
 	void (*func) (void *);
@@ -111,12 +106,45 @@ boot_guest (void)
 }
 
 static void
+do_loadcfg (u64 pass_addr, u64 passlen, u64 data_addr, u64 datalen)
+{
+	u8 *pass, *data;
+	struct config_data *tmpbuf;
+
+	pass = mapmem_hphys (pass_addr, passlen, 0);
+	ASSERT (pass);
+	data = mapmem_hphys (data_addr, datalen, 0);
+	ASSERT (data);
+	tmpbuf = alloc (datalen);
+	ASSERT (tmpbuf);
+#ifdef CRYPTO
+	decryptcfg (pass, passlen, data, datalen, tmpbuf);
+#else
+	panic ("cannot decrypt");
+#endif
+	unmapmem (pass, passlen);
+	unmapmem (data, datalen);
+	config.len = 0;
+	if ((tmpbuf->len + 15) / 16 == datalen / 16) {
+		if (tmpbuf->len != sizeof config)
+			panic ("config size mismatch: %d, %d\n", tmpbuf->len,
+			       (int)sizeof config);
+		data = mapmem_hphys (data_addr, sizeof config, MAPMEM_WRITE);
+		ASSERT (data);
+		memcpy (data, tmpbuf, sizeof config);
+		unmapmem (data, datalen);
+		current->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
+	} else {
+		current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
+	}
+	free (tmpbuf);
+}
+
+static void
 loadcfg (void)
 {
 	struct loadcfg_data *d;
-	u8 *pass, *data;
 	ulong rbx;
-	struct config_data *tmpbuf;
 
 	if (!enable)
 		return;
@@ -128,34 +156,31 @@ loadcfg (void)
 	if (d->len != sizeof *d)
 		panic ("size mismatch: %d, %d\n", d->len,
 		       (int)sizeof *d);
-	pass = mapmem_hphys (d->pass, d->passlen, 0);
-	ASSERT (pass);
-	data = mapmem_hphys (d->data, d->datalen, 0);
-	ASSERT (data);
-	tmpbuf = alloc (d->datalen);
-	ASSERT (tmpbuf);
-#ifdef CRYPTO
-	decryptcfg (pass, d->passlen, data, d->datalen, tmpbuf);
-#else
-	panic ("cannot decrypt");
-#endif
-	unmapmem (pass, d->passlen);
-	unmapmem (data, d->datalen);
+
+	do_loadcfg (d->pass, d->passlen, d->data, d->datalen);
+
 	unmapmem (d, sizeof *d);
-	config.len = 0;
-	if ((tmpbuf->len + 15) / 16 == d->datalen / 16) {
-		if (tmpbuf->len != sizeof config)
-			panic ("config size mismatch: %d, %d\n", tmpbuf->len,
-			       (int)sizeof config);
-		data = mapmem_hphys (d->data, sizeof config, MAPMEM_WRITE);
-		ASSERT (data);
-		memcpy (data, tmpbuf, sizeof config);
-		unmapmem (data, d->datalen);
-		current->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
-	} else {
-		current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
-	}
-	free (tmpbuf);
+}
+
+static void
+loadcfg64 (void)
+{
+	struct loadcfg64_data *d;
+	ulong rbx;
+
+	if (!enable)
+		return;
+
+	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
+	d = mapmem_hphys (rbx, sizeof *d, 0);
+	ASSERT (d);
+	if (d->len != sizeof *d)
+		panic ("size mismatch: %lld, %d\n", d->len,
+		       (int)sizeof *d);
+
+	do_loadcfg (d->pass, d->passlen, d->data, d->datalen);
+
+	unmapmem (d, sizeof *d);
 }
 
 void
@@ -176,6 +201,7 @@ vmmcall_boot_init (void)
 {
 	vmmcall_register ("boot", boot_guest);
 	vmmcall_register ("loadcfg", loadcfg);
+	vmmcall_register ("loadcfg64", loadcfg64);
 	config.len = 0;
 	enable = false;
 }

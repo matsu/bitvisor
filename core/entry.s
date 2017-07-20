@@ -300,8 +300,6 @@ uefi64_entry:
 	mov	%rcx,%rdi
 	mov	%rdx,%rsi
 	mov	%r8,%rdx
-	mov	%r9,%rcx
-	mov	8*8(%rsp),%r8
 	push	%rbp
 	push	%r12
 	push	%r13
