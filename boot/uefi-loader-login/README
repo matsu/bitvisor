@@ -1,0 +1,2 @@
+This loader looks for 'module2.bin' generated during login-simple compilation.
+Don't forget to generate 'module2.bin' after compiling this loader.
