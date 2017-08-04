@@ -1691,6 +1691,7 @@ read_satacap (struct ahci_data *ad, struct pci_device *pci_device)
 {
 	int i;
 	u8 cap;
+	u32 val;
 	union {
 		struct {
 			unsigned int val : 32;
@@ -1713,23 +1714,21 @@ read_satacap (struct ahci_data *ad, struct pci_device *pci_device)
 			unsigned int reserved : 8; /* Reserved */
 		} f;
 	} satacr1;
-	pci_config_address_t addr;
 	struct pci_bar_info bar_info;
 
-	addr = pci_device->address;
-	addr.reg_no = 0x34 >> 2; /* CAP - Capabilities Pointer */
-	cap = pci_read_config_data8 (addr, 0);
+	pci_config_read (pci_device, &cap, sizeof cap,
+			 0x34);	/* CAP - Capabilities Pointer */
 	while (cap >= 0x40) {
-		addr.reg_no = cap >> 2;
-		satacr0.v.val = pci_read_config_data32 (addr, 0);
+		pci_config_read (pci_device, &val, sizeof val, cap & ~3);
+		satacr0.v.val = val;
 		if (satacr0.f.cid == 0x12) /* SATA Capability */
 			goto found;
 		cap = satacr0.f.next;
 	}
 	return;
 found:
-	addr.reg_no = (cap + 4) >> 2;
-	satacr1.v.val = pci_read_config_data32 (addr, 0);
+	pci_config_read (pci_device, &val, sizeof val, (cap + 4) & ~3);
+	satacr1.v.val = val;
 	if (satacr0.f.majrev != 0x1 || satacr0.f.minrev != 0x0)
 		panic ("SATACR0 0x%X SATACR1 0x%X Revision error",
 		       satacr0.v.val, satacr1.v.val);

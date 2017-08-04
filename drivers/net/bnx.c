@@ -228,19 +228,13 @@ bnx_mmiowrite32 (struct bnx *bnx, int offset, u32 data)
 static void
 bnx_pciread32 (struct bnx *bnx, int offset, u32 *data)
 {
-	pci_config_address_t addr = bnx->pci->address;
-
-	addr.reg_no = offset >> 2;
-	*data = pci_read_config_data32(addr, 0);
+	pci_config_read (bnx->pci, data, sizeof *data, offset);
 }
 
 static void
 bnx_pciwrite32 (struct bnx *bnx, int offset, u32 data)
 {
-	pci_config_address_t addr = bnx->pci->address;
-
-	addr.reg_no = offset >> 2;
-	pci_write_config_data32(addr, 0, data);
+	pci_config_write (bnx->pci, &data, sizeof data, offset);
 }
 
 #if 0				/* VMM ensures the availability of MMIOs. */
@@ -897,16 +891,13 @@ passcap_without_msi (struct bnx *bnx, struct pci_device *pci)
 {
 	u32 val;
 	u8 cap, cur;
-	pci_config_address_t addr;
 
-	addr = pci->address;
-	addr.reg_no = 0x34 >> 2; /* CAP - Capabilities Pointer */
-	cap = pci_read_config_data8 (addr, 0);
+	pci_config_read (pci, &cap, sizeof cap,
+			 0x34);	/* CAP - Capabilities Pointer */
 	cur = 0x34;
 	bnx->config_override[cur] = cap;
 	while (cap >= 0x40) {
-		addr.reg_no = cap >> 2;
-		val = pci_read_config_data32 (addr, 0);
+		pci_config_read (pci, &val, sizeof val, cap & ~3);
 		switch (val & 0xFF) { /* Cap ID */
 		case 0x05:	/* MSI */
 			printi ("[%02x:%02x.%01x] Capabilities [%02x] MSI\n",

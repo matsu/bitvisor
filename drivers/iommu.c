@@ -41,9 +41,6 @@
 #include "pci.h"
 extern struct list pci_device_list_head;
 
-u8 pci_read_config_data8();
-u16 pci_read_config_data16();
-
 static inline void asm_wbinvd (void)
 {
 	asm volatile ("wbinvd");

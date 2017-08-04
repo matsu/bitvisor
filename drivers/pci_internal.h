@@ -47,39 +47,14 @@ struct pci_config_mmio_data {
 #define PCI_CONFIG_ADDR_PORT	0x0CF8
 #define PCI_CONFIG_DATA_PORT	0x0CFC
 
-#define DEFINE_pci_read_config_data_without_lock(size)		\
-static inline u##size pci_read_config_data##size##_without_lock(pci_config_address_t addr, int offset) \
-{								\
-	u##size data;						\
-	out32(PCI_CONFIG_ADDR_PORT, addr.value);		\
-	in##size(PCI_CONFIG_DATA_PORT + offset, &data);		\
-	return data;						\
-}
-
-#define DEFINE_pci_write_config_data_without_lock(size)		\
-static inline void pci_write_config_data##size##_without_lock(pci_config_address_t addr, int offset, u##size data) \
-{								\
-	out32(PCI_CONFIG_ADDR_PORT, addr.value);		\
-	out##size(PCI_CONFIG_DATA_PORT + offset, data);		\
-}
-
-DEFINE_pci_read_config_data_without_lock(8)
-DEFINE_pci_read_config_data_without_lock(16)
-DEFINE_pci_read_config_data_without_lock(32)
-DEFINE_pci_write_config_data_without_lock(8)
-DEFINE_pci_write_config_data_without_lock(16)
-DEFINE_pci_write_config_data_without_lock(32)
-
-static inline u32 pci_read_config_data_port_without_lock(){ u32 data; in32(PCI_CONFIG_DATA_PORT, &data); return data;}
-static inline void pci_write_config_data_port_without_lock(u32 data){ out32(PCI_CONFIG_DATA_PORT, data); }
-
 extern int pci_config_data_handler(core_io_t io, union mem *data, void *arg);
 extern int pci_config_addr_handler(core_io_t io, union mem *data, void *arg);
 void pci_save_config_addr(void);
-void pci_restore_config_addr(void);
 extern void pci_append_device(struct pci_device *dev);
 int pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 			     uint len, u32 flags);
+void pci_config_pmio_enter (void);
+void pci_config_pmio_leave (void);
 
 extern struct pci_config_mmio_data *pci_config_mmio_data_head;
 extern struct list pci_device_list_head;

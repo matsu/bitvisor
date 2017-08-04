@@ -183,16 +183,6 @@ extern void pci_handle_default_config_read (struct pci_device *pci_device,
 extern void pci_handle_default_config_write (struct pci_device *pci_device,
 					     u8 iosize, u16 offset,
 					     union mem *data);
-extern u32  pci_read_config_data_port();
-extern void pci_write_config_data_port(u32 data);
-
-extern u8 pci_read_config_data8(pci_config_address_t addr, int offset);
-extern u16 pci_read_config_data16(pci_config_address_t addr, int offset);
-extern u32 pci_read_config_data32(pci_config_address_t addr, int offset);
-extern void pci_write_config_data8(pci_config_address_t addr, int offset, u8 data);
-extern void pci_write_config_data16(pci_config_address_t addr, int offset, u16 data);
-extern void pci_write_config_data32(pci_config_address_t addr, int offset, u32 data);
-
 struct pci_device *pci_possible_new_device (pci_config_address_t addr,
 					    struct pci_config_mmio_data *mmio);
 void pci_system_disconnect (struct pci_device *pci_device);
@@ -205,6 +195,17 @@ void pci_read_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
 void pci_write_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
 			    uint device_no, uint func_no, uint offset,
 			    uint iosize, void *data);
+void pci_readwrite_config_pmio (bool wr, uint bus_no, uint device_no,
+				uint func_no, uint offset, uint iosize,
+				void *data);
+void pci_read_config_pmio (uint bus_no, uint device_no, uint func_no,
+			   uint offset, uint iosize, void *data);
+void pci_write_config_pmio (uint bus_no, uint device_no, uint func_no,
+			    uint offset, uint iosize, void *data);
+void pci_config_read (struct pci_device *pci_device, void *data, uint iosize,
+		      uint offset);
+void pci_config_write (struct pci_device *pci_device, void *data, uint iosize,
+		       uint offset);
 void pci_get_bar_info (struct pci_device *pci_device, int n,
 		       struct pci_bar_info *bar_info);
 int pci_get_modifying_bar_info (struct pci_device *pci_device,

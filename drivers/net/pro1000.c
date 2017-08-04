@@ -1290,15 +1290,15 @@ pro1000_msi (void *data, int num)
 static void
 pro1000_enable_dma_and_memory (struct pci_device *pci_device)
 {
-	pci_config_address_t addr = pci_device->address;
 	u32 command_orig, command;
 
-	addr.reg_no = 1;
-	command_orig = pci_read_config_data32 (addr, 0);
+	pci_config_read (pci_device, &command_orig, sizeof command_orig,
+			 PCI_CONFIG_COMMAND);
 	command = command_orig | PCI_CONFIG_COMMAND_MEMENABLE |
 		PCI_CONFIG_COMMAND_BUSMASTER;
 	if (command != command_orig)
-		pci_write_config_data32 (addr, 0, command);
+		pci_config_write (pci_device, &command, sizeof command,
+				  PCI_CONFIG_COMMAND);
 }
 
 static void
@@ -1410,11 +1410,11 @@ seize_pro1000 (struct data2 *d2)
 	d2->tdesc[0].initialized = true;
 	{
 		int i;
-		pci_config_address_t addr = d2->pci_device->address;
 
 		for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
-			addr.reg_no = i;
-			d2->regs_at_init[i] = pci_read_config_data32 (addr, 0);
+			pci_config_read (d2->pci_device, &d2->regs_at_init[i],
+					 sizeof d2->regs_at_init[i],
+					 sizeof d2->regs_at_init[i] * i);
 		}
 	}
 }
@@ -1856,7 +1856,6 @@ resume_pro1000 (void)
 {
 	struct data2 *d2;
 	int i;
-	pci_config_address_t addr;
 
 	/* All descriptors should be reinitialized before
 	 * receiving/transmitting enabled by the guest OS. */
@@ -1866,11 +1865,12 @@ resume_pro1000 (void)
 		d2->rdesc[0].initialized = false;
 		d2->rdesc[1].initialized = false;
 		if (d2->seize) {
-			addr = d2->pci_device->address;
 			for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
-				addr.reg_no = i;
-				pci_write_config_data32 (addr, 0,
-							 d2->regs_at_init[i]);
+				pci_config_write (d2->pci_device,
+						  &d2->regs_at_init[i],
+						  sizeof d2->regs_at_init[i],
+						  sizeof d2->regs_at_init[i]
+						  * i);
 			}
 			seize_pro1000 (d2);
 		}
