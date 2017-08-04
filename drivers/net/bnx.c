@@ -596,6 +596,7 @@ bnx_xmit (struct bnx *bnx, void *buf, int buflen)
 	if (!bnx->tx_enabled)
 		return;
 	spinlock_lock (&bnx->tx_lock);
+	bnx->tx_consumer = bnx->status->tx_consumer;
 	if ((bnx->tx_producer + 1) % bnx->tx_ring_len != bnx->tx_consumer) {
 		memcpy (bnx->tx_buf[bnx->tx_producer], buf, buflen);
 		bnx->tx_ring[bnx->tx_producer].len_flags = buflen << 16 | 0x84;
