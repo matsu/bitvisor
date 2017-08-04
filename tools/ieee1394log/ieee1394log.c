@@ -33,6 +33,7 @@
 #include <getopt.h>
 #include <libraw1394/raw1394.h>
 #include <unistd.h>
+#include <errno.h>
 
 #define MAX_PORTS 16
 
@@ -43,6 +44,8 @@ typedef struct {
 	unsigned long long int addr;
 } ieee1394log_t;
 
+static int retry_count = 0;
+
 static int
 bus_reset_handler (raw1394handle_t handle, unsigned int generation)
 {
@@ -50,6 +53,27 @@ bus_reset_handler (raw1394handle_t handle, unsigned int generation)
 	printf ("Bus reset.\n");
 	return 0;
 }
+
+static int
+raw1394_read_retry (raw1394handle_t handle, nodeid_t node, nodeaddr_t addr,
+		    size_t length, quadlet_t *buffer)
+{
+	int i = 0;
+	int ret;
+
+	do {
+		if (i)
+			fprintf (stderr, "%d\b", i % 10);
+		ret = raw1394_read (handle, node, addr, length, buffer);
+		if (i)
+			fprintf (stderr, " \b");
+		if (ret >= 0 || errno != EAGAIN)
+			return ret;
+	} while (i++ < retry_count);
+	return ret;
+}
+
+#define raw1394_read raw1394_read_retry
 
 static int
 setup (ieee1394log_t *ieee1394log, int port, int node)
@@ -211,10 +235,12 @@ print_log (ieee1394log_t *ieee1394log)
 static void
 usage (char *prog)
 {
-	printf ("Usage: %s [-p port_no] [-n node_no] -i\n", prog);
-	printf ("   or: %s [-p port_no] [-n node_no] address\n", prog);
+	printf ("Usage: %s [-p port_no] [-n node_no] [-r retry] -i\n", prog);
+	printf ("   or: %s [-p port_no] [-n node_no] [-r retry] address\n",
+		prog);
 	printf ("   -p port_no  : Target port number (optional).\n");
 	printf ("   -n node_no  : Target node number (optional).\n");
+	printf ("   -r retry    : Retry count (optional).\n");
 	printf ("   -i          : Show port information.\n");
 	printf ("   address     : Buffer address in target machine.\n");
 }
@@ -228,7 +254,7 @@ main (int argc, char *argv[])
 	ieee1394log_t *ieee1394log;
 	int opt;
 
-	while ((opt = getopt (argc, argv, "ip:n:")) != -1) {
+	while ((opt = getopt (argc, argv, "ip:n:r:")) != -1) {
 		switch (opt) {
 		case 'i':
 			info_only = 1;
@@ -238,6 +264,9 @@ main (int argc, char *argv[])
 			break;
 		case 'n':
 			node = atoi (optarg);
+			break;
+		case 'r':
+			retry_count = atoi (optarg);
 			break;
 		default:
 			usage (argv[0]);
