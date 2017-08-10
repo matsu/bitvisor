@@ -478,6 +478,10 @@ pci_set_bridge_io (struct pci_device *pci_device)
 	if (!pci_device->address.bus_no)
 		return;		/* No bridges are used for this
 				 * device. */
+	if (pci_device->hotplug)
+		return;		/* Hot-plug devices should be
+				 * configured by the guest operating
+				 * system. */
 	LIST_FOREACH (pci_device_list, dev) {
 		if ((dev->config_space.class_code & 0xFFFF00) == 0x060400) {
 			/* The dev is a PCI bridge. */

@@ -282,6 +282,7 @@ pci_possible_new_device (pci_config_address_t addr,
 	if (data != 0xFFFF)
 		ret = pci_new_device (addr);
 	if (ret) {
+		ret->hotplug = 1;
 		ret->parent_bridge =
 			pci_get_bridge_from_bus_no (ret->address.bus_no);
 		if (ret->parent_bridge)

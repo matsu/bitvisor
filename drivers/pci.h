@@ -143,6 +143,7 @@ struct pci_device {
 	} bridge;
 	struct pci_device *parent_bridge;
 	int disconnect;
+	int hotplug;
 	u8 fake_command_mask, fake_command_fixed, fake_command_virtual;
 };
 
