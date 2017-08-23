@@ -138,6 +138,8 @@ pci_save_bridge_info (struct pci_device *dev)
 			dev->config_space.base_address[2] >> 8;
 		dev->bridge.subordinate_bus_no =
 			dev->config_space.base_address[2] >> 16;
+		spinlock_init (&dev->bridge.callback_lock);
+		dev->bridge.callback_list = NULL;
 	}
 }
 
@@ -210,6 +212,8 @@ pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 			dev->config_space.vendor_id,
 			dev->config_space.device_id);
 		dev->disconnect = 0;
+		if (dev->driver && dev->driver->reconnect)
+			dev->driver->reconnect (dev);
 		return 0;
 	}
 	/* The device has been changed.  If a driver has been loaded

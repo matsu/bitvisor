@@ -48,6 +48,12 @@ struct pci_msi {
 	struct pci_device *dev;
 };
 
+struct pci_bridge_callback_list {
+	struct pci_bridge_callback_list *next;
+	struct pci_device *dev;
+	struct pci_bridge_callback *callback;
+};
+
 enum addrlock_mode {
 	ADDR_LOCK,
 	ADDR_RESTORE_UNLOCK,
@@ -234,6 +240,8 @@ device_disconnect (struct pci_device *dev)
 			dev->config_space.vendor_id,
 			dev->config_space.device_id);
 		dev->disconnect = 1;
+		if (dev->driver && dev->driver->disconnect)
+			dev->driver->disconnect (dev);
 	}
 	if (!dev->bridge.yes)
 		return;
@@ -243,6 +251,54 @@ device_disconnect (struct pci_device *dev)
 			continue;
 		device_disconnect (dev);
 	}
+}
+
+static void
+pci_handle_bridge_pre_config_write (struct pci_device *bridge, u8 iosize,
+				    u16 offset, union mem *data)
+{
+	struct pci_bridge_callback_list *list;
+	struct pci_bridge_callback *c;
+	int cmd = 0;
+	u8 force_cmd = 0;
+
+	if (offset <= 4 && offset + iosize > 4)
+		cmd = 1;
+	spinlock_lock (&bridge->bridge.callback_lock);
+	for (list = bridge->bridge.callback_list; list; list = list->next) {
+		c = list->callback;
+		if (!c)		/* Never happen */
+			continue;
+		if (c->pre_config_write)
+			c->pre_config_write (list->dev, bridge, iosize,
+					     offset, data);
+		if (cmd && c->force_command)
+			force_cmd |= c->force_command (list->dev, bridge);
+	}
+	spinlock_unlock (&bridge->bridge.callback_lock);
+	if (cmd) {
+		bridge->fake_command_mask = force_cmd;
+		bridge->fake_command_fixed = force_cmd;
+	}
+}
+
+static void
+pci_handle_bridge_post_config_write (struct pci_device *bridge, u8 iosize,
+				     u16 offset, union mem *data)
+{
+	struct pci_bridge_callback_list *list;
+	struct pci_bridge_callback *c;
+
+	spinlock_lock (&bridge->bridge.callback_lock);
+	for (list = bridge->bridge.callback_list; list; list = list->next) {
+		c = list->callback;
+		if (!c)		/* Never happen */
+			continue;
+		if (c->post_config_write)
+			c->post_config_write (list->dev, bridge, iosize,
+					      offset, data);
+	}
+	spinlock_unlock (&bridge->bridge.callback_lock);
 }
 
 static void
@@ -389,25 +445,30 @@ dev_found:
 	}
 connected_dev_found:
 	if (dev->bridge.yes && wr)
+		pci_handle_bridge_pre_config_write (dev, len, offset, buf);
+	if (dev->bridge.yes && wr)
 		pci_handle_bridge_config_write (dev, len, offset, buf);
 	if (dev->driver == NULL)
 		goto def;
 	if (dev->driver->options.use_base_address_mask_emulation) {
 		if (pci_config_emulate_base_address_mask (dev, offset, wr,
 							  buf, len))
-			goto ret;
+			goto ret2;
 	}
 	func = wr ? dev->driver->config_write : dev->driver->config_read;
 	if (func) {
 		ioret = func (dev, len, offset, buf);
 		if (ioret == CORE_IO_RET_DONE)
-			goto ret;
+			goto ret2;
 	}
 def:
 	if (wr)
 		pci_handle_default_config_write (dev, len, offset, buf);
 	else
 		pci_handle_default_config_read (dev, len, offset, buf);
+ret2:
+	if (dev->bridge.yes && wr)
+		pci_handle_bridge_post_config_write (dev, len, offset, buf);
 ret:
 	spinlock_unlock (&pci_config_io_lock);
 }
@@ -567,37 +628,31 @@ found:
 }
 
 void
-pci_set_bridge_fake_command (struct pci_device *pci_device, u8 mask, u8 fixed)
+pci_set_bridge_callback (struct pci_device *pci_device,
+			 struct pci_bridge_callback *bridge_callback)
 {
-	u32 tmp;
-	struct pci_device *dev;
-	u8 bus_no_start, bus_no_end;
+	struct pci_device *bridge;
+	struct pci_bridge_callback_list **list, *p;
 
-	if (!pci_device->address.bus_no)
-		return;		/* No bridges are used for this
-				 * device. */
-	LIST_FOREACH (pci_device_list, dev) {
-		if ((dev->config_space.class_code & 0xFFFF00) != 0x060400)
-			continue;
-		/* The dev is a PCI bridge. */
-		tmp = dev->config_space.base_address[2];
-		bus_no_start = tmp >> 8;
-		bus_no_end = tmp >> 16;
-		if (!(bus_no_start <= pci_device->address.bus_no &&
-		      bus_no_end >= pci_device->address.bus_no))
-			continue;
-		/* The dev is the bridge that the pci_device is
-		 * connected to. */
-		if (!dev->fake_command_mask)
-			dev->fake_command_virtual = dev->config_space.command;
-		dev->fake_command_fixed = (dev->fake_command_fixed & ~mask) |
-			(fixed & mask);
-		dev->fake_command_mask |= mask;
-		printf ("[%02x:%02x.%01x] fake_command"
-			" mask 0x%02X fixed 0x%02X\n",
-			dev->address.bus_no, dev->address.device_no,
-			dev->address.func_no, dev->fake_command_mask,
-			dev->fake_command_fixed);
+	for (bridge = pci_device->parent_bridge; bridge;
+	     bridge = bridge->parent_bridge) {
+		spinlock_lock (&bridge->bridge.callback_lock);
+		for (list = &bridge->bridge.callback_list; (p = *list);
+		     list = &p->next) {
+			if (p->dev == pci_device) {
+				*list = p->next;
+				free (p);
+				break;
+			}
+		}
+		if (bridge_callback) {
+			p = alloc (sizeof *p);
+			p->dev = pci_device;
+			p->callback = bridge_callback;
+			p->next = *list;
+			*list = p;
+		}
+		spinlock_unlock (&bridge->bridge.callback_lock);
 	}
 }
 
