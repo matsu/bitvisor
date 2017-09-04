@@ -923,7 +923,7 @@ loop2:
 		addbuf (d, AML_ArgObj, OK);
 		addbuf (d, AML_LocalObj, OK);
 		break;
-	case AML_UserTermObj:
+	case AML_MethodInvocation:
 		addbuf (d, AML_NameString, AML_TermArgList, OK);
 		break;
 	case AML_TermArgList:
@@ -1399,13 +1399,17 @@ loop2:
 		addbuf (d, AML_DefToString, OK);
 		addbuf (d, AML_DefWait, OK);
 		addbuf (d, AML_DefXOr, OK);
-		addbuf (d, AML_UserTermObj, OK);
+		addbuf (d, AML_MethodInvocation, OK);
 		break;
 	case AML_Type6Opcode:
 		addbuf (d, AML_DefRefOf, OK);
 		addbuf (d, AML_DefDerefOf, OK);
 		addbuf (d, AML_DefIndex, OK);
-		addbuf (d, AML_UserTermObj, OK);
+		/* UserTermObj was apparently replaced to
+		 * MethodInvocation in ACPI spec 5.0 but Type6Opcode
+		 * still has UserTermObj in ACPI spec 6.2.  It must be
+		 * MethodInvocation now. */
+		addbuf (d, /* AML_UserTermObj */AML_MethodInvocation, OK);
 		break;
 	case AML_DefAcquire:
 		addbuf (d, AML_AcquireOp, AML_MutexObject, 
