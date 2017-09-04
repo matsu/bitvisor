@@ -978,6 +978,7 @@ loop2:
 		 * in ACPI spec 5.0, but actually they are needed. */
 		addbuf (d, AML_DefDevice, OK);
 		addbuf (d, AML_DefEvent, OK);
+		addbuf (d, AML_DefExternal, OK);
 		addbuf (d, AML_DefField, OK);
 		addbuf (d, AML_DefIndexField, OK);
 		addbuf (d, AML_DefMethod, OK);
@@ -1099,6 +1100,19 @@ loop2:
 		break;
 	case AML_EventOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x02, OK);
+		break;
+	case AML_DefExternal:
+		addbuf (d, AML_ExternalOp, AML_NameString, AML_ObjectType,
+			AML_ArgumentCount, OK);
+		break;
+	case AML_ExternalOp:
+		addbuf (d, AML_0x15, OK);
+		break;
+	case AML_ObjectType:
+		addbuf (d, AML_ByteData, OK);
+		break;
+	case AML_ArgumentCount:
+		addbuf (d, AML_ByteData /* 0 - 7 */, OK);
 		break;
 	case AML_DefField:
 		addbuf (d, AML_FieldOp, AML_PkgLength, 
@@ -1945,6 +1959,7 @@ loop2:
 	case AML_0x12: OKIF (*d->c == 0x12); goto err;
 	case AML_0x13: OKIF (*d->c == 0x13); goto err;
 	case AML_0x14: OKIF (*d->c == 0x14); goto err;
+	case AML_0x15: OKIF (*d->c == 0x15); goto err;
 	case AML_0x1F: OKIF (*d->c == 0x1F); goto err;
 	case AML_0x20: OKIF (*d->c == 0x20); goto err;
 	case AML_0x21: OKIF (*d->c == 0x21); goto err;
