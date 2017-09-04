@@ -1005,11 +1005,6 @@ loop2:
 		addbuf (d, AML_Nothing, OK);
 		addbuf (d, AML_FieldElement, AML_FieldList, OK);
 		break;
-	case AML_FieldElement:
-		addbuf (d, AML_NamedField, OK);
-		addbuf (d, AML_ReservedField, OK);
-		addbuf (d, AML_AccessField, OK);
-		break;
 	case AML_NamedField:
 		addbuf (d, AML_NameSeg, AML_PkgLength, 
 			AML_PkgIGNORE, OK);
@@ -1027,6 +1022,13 @@ loop2:
 		break;
 	case AML_AccessAttrib:
 		addbuf (d, AML_ByteData, OK);
+		break;
+	case AML_ConnectField:
+		addbuf (d, AML_0x02, AML_NameString, OK);
+		/* BufferData appeared in ACPI spec 5.0 but it still
+		 * has been undefined in ACPI spec 6.2.  BufData is
+		 * just guess. */
+		addbuf (d, AML_0x02, /* AML_BufferData */AML_BufData, OK);
 		break;
 	case AML_DefCreateBitField:
 		addbuf (d, AML_CreateBitFieldOp, AML_SourceBuff, 
@@ -1184,6 +1186,23 @@ loop2:
 		break;
 	case AML_ThermalZoneOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x85, OK);
+		break;
+	case AML_ExtendedAccessField:
+		/* AccessLength appeared in ACPI spec 5.0 but it still
+		 * has been undefined in ACPI spec 6.2.  ByteData is
+		 * just guess. */
+		addbuf (d, AML_0x03, AML_AccessType, AML_ExtendedAccessAttrib,
+			/* AML_AccessLength */AML_ByteData, OK);
+		break;
+	case AML_ExtendedAccessAttrib:
+		addbuf (d, AML_ByteData, OK);
+		break;
+	case AML_FieldElement:
+		addbuf (d, AML_NamedField, OK);
+		addbuf (d, AML_ReservedField, OK);
+		addbuf (d, AML_AccessField, OK);
+		addbuf (d, AML_ExtendedAccessField, OK);
+		addbuf (d, AML_ConnectField, OK);
 		break;
 	case AML_Type1Opcode:
 		addbuf (d, AML_DefBreak, OK);
@@ -1913,6 +1932,7 @@ loop2:
 	case AML_0x01: OKIF (*d->c == 0x01); goto err;
 	case AML_0x01_TO_0x7F: OKIF (*d->c >= 0x01 && *d->c <= 0x7F); goto err;
 	case AML_0x02: OKIF (*d->c == 0x02); goto err;
+	case AML_0x03: OKIF (*d->c == 0x03); goto err;
 	case AML_0x06: OKIF (*d->c == 0x06); goto err;
 	case AML_0x08: OKIF (*d->c == 0x08); goto err;
 	case AML_0x0A: OKIF (*d->c == 0x0A); goto err;
