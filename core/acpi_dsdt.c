@@ -907,9 +907,12 @@ loop2:
 	case AML_ExtOpPrefix:
 		addbuf (d, AML_0x5B, OK);
 		break;
-	case AML_TermObj:
+	case AML_Object:
 		addbuf (d, AML_NameSpaceModifierObj, OK);
 		addbuf (d, AML_NamedObj, OK);
+		break;
+	case AML_TermObj:
+		addbuf (d, AML_Object, OK);
 		addbuf (d, AML_Type1Opcode, OK);
 		addbuf (d, AML_Type2Opcode, OK);
 		break;
@@ -924,19 +927,22 @@ loop2:
 		addbuf (d, AML_LocalObj, OK);
 		break;
 	case AML_MethodInvocation:
-		addbuf (d, AML_NameString, AML_TermArgList, OK);
+		/* NameString2 is same as NameString except NullName.
+		 * If NameString is used here, multiple ZeroOp bytes
+		 * are parsed as NullName for NameString, and, ZeroOp
+		 * and another MethodInvocation for TermArgList.  To
+		 * avoid the behavior which may take a long time,
+		 * NullName is specially handled in MethodInvocation2
+		 * and goto err if MethodInvocation2 already exists in
+		 * path. */
+		if (pathsearch (d, AML_MethodInvocation2, NULL))
+			goto err;
+		addbuf (d, AML_NameString2, AML_TermArgList, OK);
+		addbuf (d, AML_MethodInvocation2, OK);
 		break;
 	case AML_TermArgList:
 		addbuf (d, AML_Nothing, OK);
 		addbuf (d, AML_TermArg, AML_TermArgList, OK);
-		break;
-	case AML_ObjectList:
-		addbuf (d, AML_Nothing, OK);
-		addbuf (d, AML_Object, AML_ObjectList, OK);
-		break;
-	case AML_Object:
-		addbuf (d, AML_NameSpaceModifierObj, OK);
-		addbuf (d, AML_NamedObj, OK);
 		break;
 	case AML_NameSpaceModifierObj:
 		addbuf (d, AML_DefAlias, OK);
@@ -1166,7 +1172,7 @@ loop2:
 	case AML_DefPowerRes:
 		addbuf (d, AML_PowerResOp, AML_PkgLength, 
 			AML_NameString, AML_SystemLevel, 
-			AML_ResourceOrder, AML_ObjectList, AML_PkgEND, OK);
+			AML_ResourceOrder, AML_TermList, AML_PkgEND, OK);
 		break;
 	case AML_PowerResOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x84, OK);
@@ -1180,7 +1186,7 @@ loop2:
 	case AML_DefProcessor:
 		addbuf (d, AML_ProcessorOp, AML_PkgLength, 
 			AML_NameString, AML_ProcID, AML_PblkAddr, 
-			AML_PblkLen, AML_ObjectList, AML_PkgEND, OK);
+			AML_PblkLen, AML_TermList, AML_PkgEND, OK);
 		break;
 	case AML_ProcessorOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x83, OK);
@@ -1196,7 +1202,7 @@ loop2:
 		break;
 	case AML_DefThermalZone:
 		addbuf (d, AML_ThermalZoneOp, AML_PkgLength, 
-			AML_NameString, AML_ObjectList, AML_PkgEND, OK);
+			AML_NameString, AML_TermList, AML_PkgEND, OK);
 		break;
 	case AML_ThermalZoneOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x85, OK);
@@ -2062,13 +2068,10 @@ loop2:
 		addbuf (d, AML_TermArg, OK); /* FIXME: correct? */
 		break;
 	case AML_DefDevice:
-		/* If() operator must not be in ObjectList but */
-		/* some BIOSes have a DSDT which has If() operator */
-		/* in ObjectList of Device() block. (see ACPI spec 4.0a) */
-		/* ObjectList2 includes If() operator for workaround. */
-		/* D34010WYKH 2014-01 has ZeroOp in ObjectList of Device(). */
+		/* D34010WYKH 2014-01 has ZeroOp in TermList of
+		 * Device().  That is parsed in MethodInvocation. */
 		addbuf (d, AML_DeviceOp, AML_PkgLength, 
-			AML_NameString, AML_ObjectList2, AML_PkgEND, OK);
+			AML_NameString, AML_TermList, AML_PkgEND, OK);
 		break;
 	case AML_DefMethod:
 		addbuf (d, AML_MethodOp, AML_PkgLength, 
@@ -2087,12 +2090,14 @@ loop2:
 		addbuf (d, AML_SuperName, OK);
 		/* => ThermalZone | Processor | Device */
 		break;
-	case AML_ObjectList2:
-		addbuf (d, AML_Nothing, OK);
-		addbuf (d, AML_Object, AML_ObjectList2, OK);
-		addbuf (d, AML_DefIfElse, AML_ObjectList2, OK);
-		/* ZeroOp is a workaround for D34010WYKH 2014-01 */
-		addbuf (d, AML_ZeroOp, AML_ObjectList2, OK);
+	case AML_NameString2:
+		/* NameString without NullName in NamePath */
+		addbuf (d, AML_RootChar, AML_NameSeg, OK);
+		addbuf (d, AML_RootChar, AML_DualNamePath, OK);
+		addbuf (d, AML_RootChar, AML_MultiNamePath, OK);
+		addbuf (d, AML_PrefixPath, AML_NameSeg, OK);
+		addbuf (d, AML_PrefixPath, AML_DualNamePath, OK);
+		addbuf (d, AML_PrefixPath, AML_MultiNamePath, OK);
 		break;
 	case AML_ObjectReference:
 		addbuf (d, AML_TermArg, OK); /* FIXME: correct? */
@@ -2166,6 +2171,12 @@ loop2:
 		goto ok;
 	case AML_WordData:	/* ByteData[0:7] ByteData[8:15] */
 		addbuf (d, AML_ByteData, AML_ByteData, OK);
+		break;
+	case AML_MethodInvocation2:
+		/* NameString with NullName in NamePath and method
+		 * arguments */
+		addbuf (d, AML_RootChar, AML_NullName, AML_TermArgList, OK);
+		addbuf (d, AML_PrefixPath, AML_NullName, AML_TermArgList, OK);
 		break;
 	case OK:
 		if (!d->cur->pathhead)
