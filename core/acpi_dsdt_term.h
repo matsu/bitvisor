@@ -36,6 +36,7 @@
 	TERM (AML_SegCount_OK),
 	TERM (AML_NameString2),
 	TERM (AML_MethodInvocation2),
+	TERM (AML_TermList2),
 	TERM (AML_0x00),
 	TERM (AML_0x00_TO_0xFF),
 	TERM (AML_0x01),

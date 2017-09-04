@@ -718,7 +718,10 @@ loop2:
 	switch (element) {
 /* --- */
 	case AML_AMLCode:
-		addbuf (d, AML_DefBlockHdr, AML_TermList, OK);
+		/* ThinkPad L570 has a DSDT that contains unexpected
+		 * OneOp in TermList.  TermList2 has OneOp for
+		 * workaround. */
+		addbuf (d, AML_DefBlockHdr, AML_TermList2, OK);
 		break;
 	case AML_DefBlockHdr:
 		addbuf (d, AML_TableSignature, AML_TableLength, 
@@ -2177,6 +2180,12 @@ loop2:
 		 * arguments */
 		addbuf (d, AML_RootChar, AML_NullName, AML_TermArgList, OK);
 		addbuf (d, AML_PrefixPath, AML_NullName, AML_TermArgList, OK);
+		break;
+	case AML_TermList2:
+		addbuf (d, AML_Nothing, OK);
+ 		addbuf (d, AML_TermObj, AML_TermList2, OK);
+		/* OneOp is a workaround for ThinkPad L570. */
+		addbuf (d, AML_OneOp, AML_TermList2, OK);
 		break;
 	case OK:
 		if (!d->cur->pathhead)
