@@ -973,6 +973,9 @@ loop2:
 		addbuf (d, AML_DefCreateQWordField, OK);
 		addbuf (d, AML_DefCreateWordField, OK);
 		addbuf (d, AML_DefDataRegion, OK);
+		/* DefDevice, DefEvent, DefField, DefIndexField,
+		 * DefMethod and DefMutex were removed from NamedObj
+		 * in ACPI spec 5.0, but actually they are needed. */
 		addbuf (d, AML_DefDevice, OK);
 		addbuf (d, AML_DefEvent, OK);
 		addbuf (d, AML_DefField, OK);
