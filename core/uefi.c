@@ -156,7 +156,7 @@ boot_param_get_phys (struct uuid *boot_uuid)
 		uefi_entry_pcpy (uefi_entry_virttophys (&opt_addr),
 				 &opt_table_phys[i], sizeof (opt_addr));
 		uefi_entry_pcpy (uefi_entry_virttophys (&opt_uuid),
-				 (void *)opt_addr,
+				 (void *)(ulong)opt_addr,
 				 sizeof (opt_uuid));
 		if (!uefi_guid_cmp ((EFI_GUID *)&opt_uuid,
 				    (EFI_GUID *)boot_uuid))
@@ -238,7 +238,7 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 		return 0;
 	}
 	uefi_entry_pcpy (uefi_entry_virttophys (&bitvisor_opt),
-			 (void *)boot_opt_addr,
+			 (void *)(ulong)boot_opt_addr,
 			 sizeof (bitvisor_opt));
 
 	loadaddr = bitvisor_opt.loadaddr;
