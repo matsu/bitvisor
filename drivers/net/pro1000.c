@@ -1474,6 +1474,25 @@ pro1000_msix_enable (void *param)
 	pci_msi_enable (d2->virtio_net_msi);
 }
 
+/* Disable I/O space and unreghook I/O space hooks to avoid I/O space
+ * hook collision with virtio-net. */
+static void
+pro1000_disable_io (struct pci_device *pci_device, struct data *d)
+{
+	u32 command_orig, command;
+	int i;
+
+	pci_config_read (pci_device, &command_orig, sizeof command_orig,
+			 PCI_CONFIG_COMMAND);
+	command = command_orig & ~PCI_CONFIG_COMMAND_IOENABLE;
+	if (command != command_orig)
+		pci_config_write (pci_device, &command, sizeof command,
+				  PCI_CONFIG_COMMAND);
+	for (i = 0; i < 6; i++)
+		if (d[i].e && d[i].io)
+			unreghook (&d[i]);
+}
+
 static void 
 vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 		 char *option_net, bool option_virtio)
@@ -1537,6 +1556,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 						  pro1000_intr_enable, d2);
 	}
 	if (d2->virtio_net) {
+		pro1000_disable_io (pci_device, d);
 		d2->virtio_net_msi = pci_msi_init (pci_device, pro1000_msi,
 						   d2);
 		if (d2->virtio_net_msi)
