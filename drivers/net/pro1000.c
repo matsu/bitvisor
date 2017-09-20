@@ -998,8 +998,8 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
 	h = *head;
 	t = *tail;
-	ASSERT (h < NUM_OF_RDESC);
-	ASSERT (t < NUM_OF_RDESC);
+	if (h >= NUM_OF_RDESC || t >= NUM_OF_RDESC)
+		return;
 	for (;;) {
 		nt = t + 1;
 		if (nt >= NUM_OF_RDESC)
