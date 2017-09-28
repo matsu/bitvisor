@@ -1015,7 +1015,7 @@ bnx_bridge_post_config_write (struct pci_device *dev,
 static u8
 bnx_bridge_force_command (struct pci_device *dev, struct pci_device *bridge)
 {
-	return PCI_CONFIG_COMMAND_BUSMASTER;
+	return PCI_CONFIG_COMMAND_BUSMASTER | PCI_CONFIG_COMMAND_MEMENABLE;
 }
 
 static void
