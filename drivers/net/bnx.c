@@ -527,8 +527,21 @@ is_bnx_ok (struct bnx *bnx)
 			(bridge->config_space.regs32[9] | 0xFFFFF);
 		if (prefetchable_memory_base > prefetchable_memory_limit ||
 		    bnx->base < prefetchable_memory_base ||
-		    bnx->base + 0xFFFF > prefetchable_memory_limit)
-			return 0;
+		    bnx->base + 0xFFFF > prefetchable_memory_limit) {
+			/* The prefetchable bit in a BAR of a bnx
+			 * device is always set but strangely its
+			 * address assigned by iMac 2017 firmware is
+			 * in non-prefetchable memory after warm
+			 * reboot.  So check memory base/limit too. */
+			u32 memory_base = (bridge->config_space.regs32[8] &
+					   0xFFF0) << 16;
+			u32 memory_limit = bridge->config_space.regs32[8] |
+				0xFFFFF;
+			if (memory_base > memory_limit ||
+			    bnx->base < memory_base ||
+			    bnx->base + 0xFFFF > memory_limit)
+				return 0;
+		}
 		bridge = bridge->parent_bridge;
 	}
 	u32 cmd;
