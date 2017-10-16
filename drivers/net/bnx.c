@@ -56,6 +56,7 @@ static const char driver_longname[] =
 #define HOST_TX_RING_LEN 512
 #define HOST_RX_PROD_RING_LEN 512
 #define HOST_RX_RETR_RING_LEN 512
+#define RX_BUF_OFFSET 4		/* For VLAN */
 
 struct bnx_tx_desc {
 	u32 addr_high;
@@ -318,11 +319,12 @@ bnx_ring_alloc (struct bnx *bnx)
 	for (i = 0; i < bnx->rx_prod_ring_len; i++) {
 		alloc_page (&virt, &phys);
 		memset (&bnx->rx_prod_ring[i], 0, sizeof bnx->rx_prod_ring[i]);
-		bnx->rx_prod_ring[i].addr_low = phys & 0xffffffff;
-		bnx->rx_prod_ring[i].addr_high = phys >> 32;
+		bnx->rx_prod_ring[i].addr_low = (phys + RX_BUF_OFFSET) &
+			0xffffffff;
+		bnx->rx_prod_ring[i].addr_high = (phys + RX_BUF_OFFSET) >> 32;
 		bnx->rx_prod_ring[i].length = HOST_FRAME_MAXLEN;
 		bnx->rx_prod_ring[i].index = i;
-		bnx->rx_buf[i] = virt;
+		bnx->rx_buf[i] = virt + RX_BUF_OFFSET;
 	}
 	pagenum =
 		(sizeof(struct bnx_rx_desc) * HOST_RX_RETR_RING_LEN - 1)
@@ -455,6 +457,41 @@ bnx_call_recv (struct bnx *bnx, void *buf, int buflen)
 				    bnx->recvphys_param, NULL);
 }
 
+static void
+bnx_call_recv_vlan (struct bnx *bnx, void *buf, int buflen, u16 vlan_tag)
+{
+	unsigned int pktsize = buflen - 4;
+	u32 *move_from, *move_to;
+	union {
+		u8 b[4];
+		u32 v;
+	} vlan;
+	int i;
+
+	/* The buf address must be the allocated address +
+	 * RX_BUF_OFFSET.  This function uses the RX_BUF_OFFSET bytes
+	 * to insert 802.1Q tag. */
+	ASSERT (buflen > 0);
+	if (bnx->recvphys_func && buflen > 6 * 2) {
+		/* Move destination/source MAC address to buf-4.  Use
+		 * for-loop since memmove() is not available. */
+		move_from = buf;
+		move_to = buf - 4;
+		for (i = 0; i < 6 * 2 / sizeof (u32); i++)
+			*move_to++ = *move_from++;
+		/* Insert 802.1Q tag */
+		vlan.b[0] = 0x81; /* 802.1Q */
+		vlan.b[1] = 0x00; /* 802.1Q */
+		vlan.b[2] = vlan_tag >> 8;
+		vlan.b[3] = vlan_tag;
+		*move_to = vlan.v;
+		buf -= 4;
+		pktsize += 4;
+		bnx->recvphys_func (bnx, 1, &buf, &pktsize,
+				    bnx->recvphys_param, NULL);
+	}
+}
+
 static void bnx_handle_recv (struct bnx *bnx);
 
 static void
@@ -578,11 +615,14 @@ bnx_handle_recv (struct bnx *bnx)
 
 		desc = bnx->rx_retr_ring[bnx->rx_retr_consumer];
 		if (!(desc.flags & (1 << 10)) && /* not error */
-		    !(desc.flags & (1 << 6)) &&	 /* not VLAN */
 		    desc.length > 0 && desc.length <= HOST_FRAME_MAXLEN) {
 			buf = bnx->rx_buf[desc.index];
 			buf_len = desc.length;
-			bnx_call_recv (bnx, buf, buf_len);
+			if (!(desc.flags & (1 << 6))) /* not VLAN */
+				bnx_call_recv (bnx, buf, buf_len);
+			else
+				bnx_call_recv_vlan (bnx, buf, buf_len,
+						    desc.vlan_tag);
 		}
 		bnx_ring_update (&bnx->rx_retr_consumer,
 				 bnx->rx_retr_ring_len);
