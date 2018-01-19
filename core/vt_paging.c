@@ -91,6 +91,18 @@ vt_paging_init (void)
 		current->u.vt.unrestricted_guest = true;
 	else
 		cpu_mmu_spt_init ();
+	if (current->u.vt.unrestricted_guest &&
+	    current->u.vt.pcid_available) {
+		/* The spt implementation does not support PCID yet.
+		 * PCID could be enabled if EPT and PCID are
+		 * available, because PCID can only be enabled on
+		 * 64bit mode that is unrelated to unrestricted guest,
+		 * but to avoid complexity, provide PCID only if EPT,
+		 * unrestricted guest and PCID are supported. */
+		current->cpuid.pcid = true;
+		if (current->u.vt.enable_invpcid_available)
+			current->cpuid.invpcid = true;
+	}
 	if (current->u.vt.ept_available)
 		vt_ept_init ();
 	vt_paging_pg_change ();
@@ -308,6 +320,10 @@ vt_paging_pg_change (void)
 			(current->u.vt.unrestricted_guest ?
 			 VMCS_PROC_BASED_VMEXEC_CTL2_UNRESTRICTED_GUEST_BIT :
 			 0) : 0;
+		tmp |= current->u.vt.unrestricted_guest &&
+			current->u.vt.pcid_available &&
+			current->u.vt.enable_invpcid_available ?
+			VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_INVPCID_BIT : 0;
 		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, tmp);
 		asm_vmread (VMCS_VMEXIT_CTL, &tmp);
 		if (ept_enable)

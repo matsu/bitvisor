@@ -197,6 +197,20 @@ vt_cr3exit_controllable (void)
 	return true;
 }
 
+static bool
+vt_pcid_available (void)
+{
+	u32 a, b, c, d;
+
+#ifndef __x86_64__
+	return false;
+#endif
+	asm_cpuid (CPUID_1, 0, &a, &b, &c, &d);
+	if (c & CPUID_1_ECX_PCID_BIT)
+		return true;
+	return false;
+}
+
 /* Initialize VMCS region
    INPUT:
    vmcs_revision_identifier: VMCS revision identifier
@@ -256,6 +270,7 @@ vt__vmcs_init (void)
 	current->u.vt.exint_pending = false;
 	current->u.vt.cr3exit_controllable = vt_cr3exit_controllable ();
 	current->u.vt.cr3exit_off = false;
+	current->u.vt.pcid_available = vt_pcid_available ();
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
@@ -299,6 +314,9 @@ vt__vmcs_init (void)
 		if (procbased_ctls2_and &
 		    VMCS_PROC_BASED_VMEXEC_CTL2_UNRESTRICTED_GUEST_BIT)
 			current->u.vt.unrestricted_guest_available = true;
+		if (procbased_ctls2_and &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_INVPCID_BIT)
+			current->u.vt.enable_invpcid_available = true;
 		if (procbased_ctls2_and &
 		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_RDTSCP_BIT)
 			procbased_ctls2 |=

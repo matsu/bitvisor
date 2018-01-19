@@ -46,6 +46,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		/* *ob &= ~CPUID_1_EBX_NUMOFLP_MASK; */
 		/* *ob |= ~CPUID_1_EBX_NUMOFLP_1; */
 		*oc &= ~(CPUID_1_ECX_VMX_BIT | CPUID_1_ECX_PCID_BIT);
+		if (current->cpuid.pcid)
+			*oc |= CPUID_1_ECX_PCID_BIT;
 		/* *od &= ~CPUID_1_EDX_PAE_BIT; */
 		/* *od &= ~CPUID_1_EDX_APIC_BIT; */
 	} else if (tmpa >= 4 && ia == 4) {
@@ -53,6 +55,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		/* *oa &= ~CPUID_4_EAX_NUMOFCORES_MASK; */
 	} else if (tmpa >= 7 && ia == 7 && ic == 0) {
 		*ob &= ~CPUID_7_EBX_INVPCID_BIT;
+		if (current->cpuid.invpcid)
+			*ob |= CPUID_7_EBX_INVPCID_BIT;
 	} else if (tmpa >= 0xD && ia == 0xD && ic == 0) {
 		/* Processor Extended State Enumeration Leaf */
 		/* see xsetbv_pass.c */

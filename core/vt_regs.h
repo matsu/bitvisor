@@ -96,6 +96,17 @@ vt_write_cr3 (ulong val)
 {
 	struct vt *p = &current->u.vt;
 
+#ifdef __x86_64__
+	if (vt_read_cr4 () & CR4_PCIDE_BIT) {
+		/* When PCID is enabled, TLB should not be flushed if
+		 * bit 63 of CR3 is set.  Clearing the bit 63 here,
+		 * because the bit 63 must be read as zero.  Unless
+		 * the cr3exit_off is set, currently the bit 63 is
+		 * ignored in the VMM i.e TLB is always flushed when
+		 * MOV to CR3 instruction is executed. */
+		val &= ~CR3_PCID_KEEPTLB_BIT;
+	}
+#endif
 	if (p->cr3exit_off)
 		asm_vmwrite (VMCS_GUEST_CR3, val);
 	else

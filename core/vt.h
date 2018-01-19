@@ -83,6 +83,8 @@ struct vt {
 	bool save_load_efer_enable;
 	bool exint_pass, exint_pending, exint_update, exint_re_pending;
 	bool cr3exit_controllable, cr3exit_off;
+	bool pcid_available;
+	bool enable_invpcid_available;
 };
 
 struct vt_pcpu_data {

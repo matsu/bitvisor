@@ -42,6 +42,7 @@ struct get_pte_data {
 	unsigned int wp : 1;	/* WP (Write Protect): CR0 bit 16 */
 	unsigned int pse : 1;	/* PSE (Page Size Extensions): CR4 bit 4 */
 	unsigned int pae : 1;	/* PAE (Physical Address Extensions):CR4bit5 */
+	unsigned int pcide : 1;	/* PCIDE (PCID-Enable): CR4 bit 17 */
 	unsigned int lme : 1;	/* LME (Long Mode Enable): MSR(EFER) bit 8 */
 	unsigned int nxe : 1;	/* NXE (No-Execute Enable):MSR(EFER) bit 10 */
 	unsigned int write : 1;	/* Write access. Set D bit if 1 */
@@ -187,6 +188,11 @@ get_pte_sub (ulong virt, ulong cr3, struct get_pte_data d, u64 entries[5],
 	} else {
 		levels = 2;
 	}
+	if (levels == 4 && d.pcide) {
+		/* Clear 12bit PCID to treat CR3 as CR3.PCD=0 and
+		 * CR3.PWT=0 in a PCIDE=0 case */
+		cr3 &= ~PAGESIZE_MASK;
+	}
 	*plevels = levels;
 	pmap_open_guest (&m, cr3, levels, true);
 	pmap_seek (&m, virt, levels + 1);
@@ -248,6 +254,7 @@ cpu_mmu_get_pte (ulong virt, ulong cr0, ulong cr3, ulong cr4, u64 efer,
 	d.wp = !!(cr0 & CR0_WP_BIT);
 	d.pse = !!(cr4 & CR4_PSE_BIT);
 	d.pae = !!(cr4 & CR4_PAE_BIT);
+	d.pcide = !!(cr4 & CR4_PCIDE_BIT);
 	d.lme = !!(efer & MSR_IA32_EFER_LME_BIT);
 	d.nxe = !!(efer & MSR_IA32_EFER_NXE_BIT);
 	d.write = write;
