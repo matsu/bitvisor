@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "entry.h"
@@ -39,6 +40,7 @@
 #include "vt_msr.h"
 #include "vt_paging.h"
 #include "vt_regs.h"
+#include "vt_shadow_vt.h"
 
 #define REALMODE_IDTR_BASE	0
 #define REALMODE_IDTR_LIMIT	0
@@ -182,6 +184,12 @@ vt_read_control_reg (enum control_reg reg, ulong *val)
 		break;
 	case CONTROL_REG_CR4:
 		*val = vt_read_cr4 ();
+		if (!current->u.vt.vmxe) {
+			*val &= ~CR4_VMXE_BIT;
+		} else {
+			/* Do nothing because physical VMXE bit is
+			 * always set */
+		}
 		break;
 	default:
 		panic ("Fatal error: unknown control register.");
@@ -384,6 +392,8 @@ vt_write_control_reg (enum control_reg reg, ulong val)
 		asm_vmwrite (VMCS_GUEST_CR4, vt_paging_apply_fixed_cr4 (val));
 		vt_paging_updatecr3 ();
 		vt_paging_flush_guest_tlb ();
+		if (config.vmm.unsafe_nested_virtualization)
+			current->u.vt.vmxe = !!(val & CR4_VMXE_BIT);
 		break;
 	default:
 		panic ("Fatal error: unknown control register.");
@@ -881,4 +891,6 @@ vt_reset (void)
 	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc_based_vmexec_ctl);
 	asm_vmwrite (VMCS_GUEST_DR7, 0x400);
 	asm_vmwrite64 (VMCS_GUEST_IA32_DEBUGCTL, 0);
+	current->u.vt.vmxe = false;
+	vt_shadow_vt_reset ();
 }

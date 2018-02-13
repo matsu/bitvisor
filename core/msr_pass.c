@@ -29,6 +29,7 @@
 
 #include "asm.h"
 #include "assert.h"
+#include "config.h"
 #include "cpu.h"
 #include "cpu_mmu.h"
 #include "current.h"

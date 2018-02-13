@@ -61,6 +61,7 @@ struct vt_vmcs_info {
 };
 
 struct vt_ept;
+struct shadow_vt;
 
 struct vt {
 	struct vt_vmentry_regs vr;
@@ -71,6 +72,7 @@ struct vt {
 	struct vt_msr msr;
 	struct vt_msrbmp *msrbmp;
 	struct vt_ept *ept;
+	struct shadow_vt *shadow_vt;
 	bool lme, lma;
 	bool first;
 	void *saved_vmcs;
@@ -85,6 +87,9 @@ struct vt {
 	bool cr3exit_controllable, cr3exit_off;
 	bool pcid_available;
 	bool enable_invpcid_available;
+	bool vmxe;
+	bool vmxon;
+	bool vmcs_shadowing_available;
 };
 
 struct vt_pcpu_data {
@@ -92,6 +97,7 @@ struct vt_pcpu_data {
 	void *vmxon_region_virt;
 	u64 vmxon_region_phys;
 	u64 vmcs_region_phys;
+	bool vmcs_writable_readonly;
 };
 
 void vt_generate_pagefault (ulong err, ulong cr2);

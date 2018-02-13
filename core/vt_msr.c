@@ -29,6 +29,7 @@
 
 #include "asm.h"
 #include "cache.h"
+#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "int.h"
@@ -270,6 +271,9 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 		asm_vmread (VMCS_GUEST_GS_BASE, &a);
 		*msrdata = a;
 		break;
+	case MSR_IA32_DEBUGCTL:
+		asm_vmread64 (VMCS_GUEST_IA32_DEBUGCTL, msrdata);
+		break;
 	case MSR_IA32_STAR:
 	case MSR_IA32_LSTAR:
 	case MSR_AMD_CSTAR:
@@ -328,6 +332,19 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 	case MSR_IA32_PAT:
 		r = vt_paging_get_gpat (msrdata);
 		break;
+	case MSR_IA32_FEATURE_CONTROL:
+		r = current->msr.read_msr (msrindex, msrdata);
+		if (!config.vmm.unsafe_nested_virtualization)
+			*msrdata &= ~MSR_IA32_FEATURE_CONTROL_VMXON_BIT;
+		break;
+	case MSR_IA32_VMX_PROCBASED_CTLS2:
+		r = current->msr.read_msr (msrindex, msrdata);
+		*msrdata &=
+			~((u64)
+			  VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VM_FUNCTIONS_BIT
+			  << 32 |
+			  VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VM_FUNCTIONS_BIT);
+		break;
 	default:
 		r = current->msr.read_msr (msrindex, msrdata);
 	}
@@ -371,6 +388,9 @@ vt_write_msr (u32 msrindex, u64 msrdata)
 		break;
 	case MSR_IA32_GS_BASE:
 		asm_vmwrite (VMCS_GUEST_GS_BASE, (ulong)msrdata);
+		break;
+	case MSR_IA32_DEBUGCTL:
+		asm_vmwrite64 (VMCS_GUEST_IA32_DEBUGCTL, msrdata);
 		break;
 	case MSR_IA32_STAR:
 	case MSR_IA32_LSTAR:
@@ -456,6 +476,7 @@ vt_msrpass (u32 msrindex, bool wr, bool pass)
 	case MSR_IA32_SYSENTER_EIP:
 	case MSR_IA32_FS_BASE:
 	case MSR_IA32_GS_BASE:
+	case MSR_IA32_DEBUGCTL:
 	case MSR_IA32_STAR:
 	case MSR_IA32_LSTAR:
 	case MSR_AMD_CSTAR:
@@ -500,6 +521,8 @@ vt_msrpass (u32 msrindex, bool wr, bool pass)
 		pass = false;
 		break;
 	case MSR_IA32_MTRRCAP:
+	case MSR_IA32_FEATURE_CONTROL:
+	case MSR_IA32_VMX_PROCBASED_CTLS2:
 		if (!wr)
 			pass = false;
 		break;

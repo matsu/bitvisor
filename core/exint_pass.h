@@ -33,5 +33,6 @@
 #include <core/exint_pass.h>
 
 void do_exint_pass (void);
+int exint_pass_intr_call (int num);
 
 #endif

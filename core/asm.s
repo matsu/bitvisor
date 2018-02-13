@@ -82,7 +82,7 @@ asm_vmlaunch_regs_32:
 	mov	4*RDI(%edi),%edi
 	vmlaunch
 6:
-	xor	%eax,%eax
+	sbb	%eax,%eax
 	dec	%eax
 	add	$4,%esp
 	pop	%edi
@@ -150,7 +150,7 @@ asm_vmresume_regs_32:
 	mov	4*RDI(%edi),%edi
 	vmresume
 6:
-	xor	%eax,%eax
+	sbb	%eax,%eax
 	dec	%eax
 	add	$4,%esp
 	pop	%edi
@@ -330,7 +330,7 @@ asm_vmlaunch_regs_64:
 	mov	8*RDI(%rdi),%rdi
 	vmlaunch
 6:
-	xor	%rax,%rax
+	sbb	%rax,%rax
 	dec	%rax
 	add	$8,%rsp
 	pop	%rdi
@@ -417,7 +417,7 @@ asm_vmresume_regs_64:
 	mov	8*RDI(%rdi),%rdi
 	vmresume
 6:
-	xor	%rax,%rax
+	sbb	%rax,%rax
 	dec	%rax
 	add	$8,%rsp
 	pop	%rdi

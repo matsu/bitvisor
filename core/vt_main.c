@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "config.h"
 #include "constants.h"
 #include "convert.h"
 #include "cpu_emul.h"
@@ -56,6 +57,7 @@
 #include "vt_main.h"
 #include "vt_paging.h"
 #include "vt_regs.h"
+#include "vt_shadow_vt.h"
 #include "vt_vmcs.h"
 
 #define EPT_VIOLATION_EXIT_QUAL_WRITE_BIT 0x2
@@ -131,6 +133,21 @@ make_gp_fault (u32 errcode)
 	vid->vmcs_intr_info.s.reserved = 0;
 	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
 	vid->vmcs_exception_errcode = errcode;
+	vid->vmcs_instruction_len = 0;
+}
+
+static void
+make_ud_fault (void)
+{
+	struct vt_intr_data *vid = &current->u.vt.intr;
+
+	vid->vmcs_intr_info.s.vector = EXCEPTION_UD;
+	vid->vmcs_intr_info.s.type = INTR_INFO_TYPE_HARD_EXCEPTION;
+	vid->vmcs_intr_info.s.err = INTR_INFO_ERR_INVALID;
+	vid->vmcs_intr_info.s.nmi = 0;
+	vid->vmcs_intr_info.s.reserved = 0;
+	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
+	vid->vmcs_exception_errcode = 0;
 	vid->vmcs_instruction_len = 0;
 }
 
@@ -828,16 +845,22 @@ err:
 	panic ("do_task_switch: error %d", r);
 }
 
-static void
-do_xsetbv (void)
+static bool
+is_cpl0 (void)
 {
 	u16 cs;
 
+	vt_read_sreg_sel (SREG_CS, &cs);
+	return !(cs & 3);
+}
+
+static void
+do_xsetbv (void)
+{
 	/* According to the manual, XSETBV causes a VM exit regardless
 	 * of the value of CPL.  Maybe it is different from the real
 	 * behavior, but check CPL here to be sure. */
-	vt_read_sreg_sel (SREG_CS, &cs);
-	if ((cs & 3) || cpu_emul_xsetbv ())
+	if (!is_cpl0 () || cpu_emul_xsetbv ())
 		make_gp_fault (0);
 	else
 		add_ip ();
@@ -890,6 +913,109 @@ do_interrupt_window (void)
 		do_re_external_int ();
 	if (current->u.vt.exint_pending)
 		current->exint.hlt ();
+}
+
+static void
+do_vmxon (void)
+{
+	if (!current->u.vt.vmxe) {
+		make_ud_fault ();
+		return;
+	}
+	if (!is_cpl0 ()) {
+		make_gp_fault (0);
+		return;
+	}
+	if (current->u.vt.vmxon) {
+		vt_emul_vmxon_in_vmx_root_mode ();
+		return;
+	}
+
+	vt_emul_vmxon ();
+}
+
+static bool
+is_vm_allowed (void)
+{
+	if (!current->u.vt.vmxon) {
+		make_ud_fault ();
+		return false;
+	}
+	if (!is_cpl0 ()) {
+		make_gp_fault (0);
+		return false;
+	}
+	return true;
+}
+
+static void
+do_vmxoff (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmxoff ();
+}
+
+static void
+do_vmclear (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmclear ();
+}
+
+static void
+do_vmptrld (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmptrld ();
+}
+
+static void
+do_vmptrst (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmptrst ();
+}
+
+static void
+do_invept (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_invept ();
+}
+
+static void
+do_invvpid (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_invvpid ();
+}
+
+static void
+do_vmread (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmread ();
+}
+
+static void
+do_vmwrite (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmwrite ();
+}
+
+static void
+do_vmlaunch (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmlaunch ();
+}
+
+static void
+do_vmresume (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmresume ();
 }
 
 static void
@@ -954,6 +1080,39 @@ vt__exit_reason (void)
 		break;
 	case EXIT_REASON_NMI_WINDOW:
 		do_nmi_window ();
+		break;
+	case EXIT_REASON_VMXON:
+		do_vmxon ();
+		break;
+	case EXIT_REASON_VMXOFF:
+		do_vmxoff ();
+		break;
+	case EXIT_REASON_VMCLEAR:
+		do_vmclear ();
+		break;
+	case EXIT_REASON_VMPTRLD:
+		do_vmptrld ();
+		break;
+	case EXIT_REASON_VMPTRST:
+		do_vmptrst ();
+		break;
+	case EXIT_REASON_INVEPT:
+		do_invept ();
+		break;
+	case EXIT_REASON_INVVPID:
+		do_invvpid ();
+		break;
+	case EXIT_REASON_VMREAD:
+		do_vmread ();
+		break;
+	case EXIT_REASON_VMWRITE:
+		do_vmwrite ();
+		break;
+	case EXIT_REASON_VMLAUNCH:
+		do_vmlaunch ();
+		break;
+	case EXIT_REASON_VMRESUME:
+		do_vmresume ();
 		break;
 	default:
 		printf ("Fatal error: handler not implemented.\n");

@@ -29,6 +29,7 @@
 
 #include "asm.h"
 #include "assert.h"
+#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "initfunc.h"
@@ -41,6 +42,7 @@
 #include "vt_init.h"
 #include "vt_paging.h"
 #include "vt_panic.h"
+#include "vt_shadow_vt.h"
 #include "vt_regs.h"
 
 /* Check whether VMX is usable
@@ -143,6 +145,16 @@ vt__vmxon (void)
 
 	/* VMXON */
 	asm_vmxon (&currentcpu->vt.vmxon_region_phys);
+}
+
+static void
+vt_check_capabilities (void)
+{
+	u64 vmx_misc;
+
+	asm_rdmsr64 (MSR_IA32_VMX_MISC, &vmx_misc);
+	currentcpu->vt.vmcs_writable_readonly =
+		!!(vmx_misc & MSR_IA32_VMX_MISC_VMWRITE_ALL_BIT);
 }
 
 static void
@@ -271,6 +283,10 @@ vt__vmcs_init (void)
 	current->u.vt.cr3exit_controllable = vt_cr3exit_controllable ();
 	current->u.vt.cr3exit_off = false;
 	current->u.vt.pcid_available = vt_pcid_available ();
+	current->u.vt.shadow_vt = NULL;
+	current->u.vt.vmxe = false;
+	current->u.vt.vmxon = false;
+	current->u.vt.vmcs_shadowing_available = false;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
@@ -325,6 +341,9 @@ vt__vmcs_init (void)
 		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_XSAVES_BIT)
 			procbased_ctls2 |=
 				VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_XSAVES_BIT;
+		if (procbased_ctls2_and &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VMCS_SHADOWING_BIT)
+			current->u.vt.vmcs_shadowing_available = true;
 	}
 	if ((exit_ctls_and & VMCS_VMEXIT_CTL_SAVE_IA32_EFER_BIT) &&
 	    (exit_ctls_and & VMCS_VMEXIT_CTL_LOAD_IA32_EFER_BIT) &&
@@ -520,6 +539,7 @@ vt_init (void)
 {
 	vt__vmx_init ();
 	vt__vmxon ();
+	vt_check_capabilities ();
 }
 
 void

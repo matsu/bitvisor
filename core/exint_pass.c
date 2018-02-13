@@ -88,7 +88,7 @@ exint_pass_intr_run_callback_list (int num)
 	return num;
 }
 
-static int
+int
 exint_pass_intr_call (int num)
 {
 	if (num < EXINT_ALLOC_START)
