@@ -29,29 +29,19 @@
 
 #include "current.h"
 #include "initfunc.h"
+#include "sx_init.h"
 #include "sx_init_pass.h"
 
 static unsigned int
 get_init_count (void)
 {
-	unsigned int r = 0;
-
-	asm volatile ("xchgl %0,%%gs:gs_init_count" : "+r" (r));
-	return r;
-}
-
-static void
-inc_init_count (void)
-{
-	asm volatile ("incl %gs:gs_init_count");
+	return sx_init_get_count ();
 }
 
 static void
 sx_init_pass_init (void)
 {
-	get_init_count ();	/* Clear init_count */
 	current->sx_init.get_init_count = get_init_count;
-	current->sx_init.inc_init_count = inc_init_count;
 }
 
 INITFUNC ("pass0", sx_init_pass_init);

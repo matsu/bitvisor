@@ -34,7 +34,6 @@
 #include "cpu.h"
 #include "current.h"
 #include "initfunc.h"
-#include "int.h"
 #include "localapic.h"
 #include "mm.h"
 #include "panic.h"
@@ -44,7 +43,6 @@
 #include "svm_init.h"
 #include "svm_paging.h"
 #include "svm_vmcb.h"
-#include "sx_handler.h"
 #include "types.h"
 
 bool
@@ -249,7 +247,6 @@ svm_init (void)
 	asm_rdmsr64 (MSR_AMD_VM_CR, &tmp);
 	tmp |= MSR_AMD_VM_CR_DIS_A20M_BIT | MSR_AMD_VM_CR_R_INIT_BIT;
 	asm_wrmsr64 (MSR_AMD_VM_CR, tmp);
-	set_int_handler (EXCEPTION_SX, sx_handler);
 	/* FIXME: size of a host state area is undocumented */
 	alloc_page (&v, &p);
 	currentcpu->svm.hsave = v;

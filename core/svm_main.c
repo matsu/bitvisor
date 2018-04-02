@@ -552,6 +552,7 @@ svm_wait_for_sipi (void)
 
 	sipi_vector = localapic_wait_for_sipi ();
 	current->sx_init.get_init_count (); /* Clear init_counter here */
+	current->u.svm.init_signal = false;
 	svm_reset ();
 	svm_write_realmode_seg (SREG_CS, sipi_vector << 8);
 	svm_write_general_reg (GENERAL_REG_RAX, 0);
@@ -573,7 +574,8 @@ svm_mainloop (void)
 	for (;;) {
 		schedule ();
 		panic_test ();
-		if (current->sx_init.get_init_count ())
+		if (current->u.svm.init_signal ||
+		    current->sx_init.get_init_count ())
 			svm_wait_for_sipi ();
 		svm_nmi ();
 		svm_event_injection_setup ();
@@ -589,7 +591,7 @@ svm_init_signal (void)
 {
 	if (get_cpu_id () == 1)
 		localapic_mmio_register ();
-	current->sx_init.inc_init_count ();
+	current->u.svm.init_signal = true;
 }
 
 void

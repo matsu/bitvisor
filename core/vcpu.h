@@ -41,6 +41,7 @@
 #include "msr.h"
 #include "nmi.h"
 #include "svm.h"
+#include "sx_init.h"
 #include "types.h"
 #include "vmctl.h"
 #include "vt.h"
@@ -50,11 +51,6 @@ struct exint_func {
 	void (*int_enabled) (void);
 	void (*exintfunc_default) (int num);
 	void (*hlt) (void);
-};
-
-struct sx_init_func {
-	unsigned int (*get_init_count) (void);
-	void (*inc_init_count) (void);
 };
 
 struct vcpu {

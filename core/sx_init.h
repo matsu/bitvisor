@@ -27,52 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_SVM_H
-#define _CORE_SVM_H
+#ifndef _CORE_SX_INIT_H
+#define _CORE_SX_INIT_H
 
-#include "svm_io.h"
-#include "svm_msr.h"
-#include "svm_vmcb.h"
-
-struct svm_intr_data {
-	union {
-		struct vmcb_eventinj s;
-		u64 v;
-	} vmcb_intr_info;
+struct sx_init_func {
+	unsigned int (*get_init_count) (void);
 };
 
-struct svm_vmcb_info {
-	struct vmcb *vmcb;
-	u64 vmcb_phys;
-};
-
-struct svm_np;
-
-struct svm {
-	struct svm_vmrun_regs vr;
-	struct svm_vmcb_info vi;
-	struct svm_intr_data intr;
-	struct svm_io *io;
-	struct svm_msrbmp *msrbmp;
-	struct svm_np *np;
-	bool lme, lma, svme;
-	bool init_signal;
-	struct vmcb *saved_vmcb;
-	u64 *cr0, *cr3, *cr4;
-	u64 gcr0, gcr3, gcr4;
-	u64 vm_cr, hsave_pa;
-};
-
-struct svm_pcpu_data {
-	void *hsave;
-	u64 hsave_phys;
-	struct vmcb *vmcbhost;
-	u64 vmcbhost_phys;
-	bool flush_by_asid;
-	bool nrip_save;
-	u32 nasid;
-};
-
-void vmctl_svm_init (void);
+unsigned int sx_init_get_count (void);
 
 #endif

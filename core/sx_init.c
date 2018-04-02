@@ -27,52 +27,51 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_SVM_H
-#define _CORE_SVM_H
+#include "current.h"
+#include "initfunc.h"
+#include "int.h"
+#include "sx_handler.h"
+#include "sx_init.h"
 
-#include "svm_io.h"
-#include "svm_msr.h"
-#include "svm_vmcb.h"
+unsigned int
+sx_init_get_count (void)
+{
+	unsigned int r;
 
-struct svm_intr_data {
-	union {
-		struct vmcb_eventinj s;
-		u64 v;
-	} vmcb_intr_info;
-};
+	/* Since the gs_init_count is CPU-thread local, no bus lock is
+	 * needed.  However the gs_init_count may be incremented by
+	 * the #SX handler while this function is running.  Use inline
+	 * asm to update the gs_init_count properly even if the #SX
+	 * handler is called between these instructions. */
+	asm volatile ("movl %%gs:gs_init_count, %0\n"
+		      "subl %0, %%gs:gs_init_count"
+		      : "=&r" (r) : : "cc", "memory");
+	return r;
+}
 
-struct svm_vmcb_info {
-	struct vmcb *vmcb;
-	u64 vmcb_phys;
-};
+static void
+sx_init_init_pcpu (void)
+{
+	/* #SX exception is only available on AMD processors.  The
+	   sx_handler might be called on Intel processors as an
+	   external interrupt.  The sx_handler jumps to the
+	   int_handler if it is an interrupt, not an exception,
+	   detected by the exception error code. */
+	set_int_handler (EXCEPTION_SX, sx_handler);
+	sx_init_get_count ();	/* Clear gs_init_count */
+}
 
-struct svm_np;
+static unsigned int
+get_init_count (void)
+{
+	return 0;
+}
 
-struct svm {
-	struct svm_vmrun_regs vr;
-	struct svm_vmcb_info vi;
-	struct svm_intr_data intr;
-	struct svm_io *io;
-	struct svm_msrbmp *msrbmp;
-	struct svm_np *np;
-	bool lme, lma, svme;
-	bool init_signal;
-	struct vmcb *saved_vmcb;
-	u64 *cr0, *cr3, *cr4;
-	u64 gcr0, gcr3, gcr4;
-	u64 vm_cr, hsave_pa;
-};
+static void
+sx_init_init (void)
+{
+	current->sx_init.get_init_count = get_init_count;
+}
 
-struct svm_pcpu_data {
-	void *hsave;
-	u64 hsave_phys;
-	struct vmcb *vmcbhost;
-	u64 vmcbhost_phys;
-	bool flush_by_asid;
-	bool nrip_save;
-	u32 nasid;
-};
-
-void vmctl_svm_init (void);
-
-#endif
+INITFUNC ("pcpu0", sx_init_init_pcpu);
+INITFUNC ("vcpu0", sx_init_init);
