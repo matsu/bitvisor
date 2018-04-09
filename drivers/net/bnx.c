@@ -137,6 +137,8 @@ struct bnx {
 
 	void *virtio_net;
 	u8 config_override[0x100];
+	bool hotplugpass;
+	bool hotplug_detected;
 };
 
 #define BNXPCI_REGBASE		0x78
@@ -168,6 +170,8 @@ struct bnx {
 #define BNXMEM_TXRCB_LENFLAGS	0x108
 #define BNXMEM_RXRCB_RETR_RINGADDR 0x200
 #define BNXMEM_RXRCB_RETR_LENFLAGS 0x208
+
+static bool bnx_hotplug = false;
 
 static inline void
 bnx_print_access (int wr, char *table[], int offset, bool force)
@@ -897,6 +901,41 @@ getinfo_physnic (void *handle, struct nicinfo *info)
 	memcpy (info->mac_address, bnx->mac, sizeof bnx->mac);
 }
 
+static bool
+bnx_hotplug_detect (struct bnx *bnx)
+{
+	/* Check the rx producer ring buffer address to detect
+	 * hot plugging */
+	u32 orig_regbase;
+	bnx_pciread32 (bnx, BNXPCI_REGBASE, &orig_regbase);
+	bnx_pciwrite32 (bnx, BNXPCI_REGBASE, 0xC0000000 +
+			BNXREG_RXRCB_PROD_RINGADDR + 4);
+	u32 ringaddr_lower;
+	bnx_pciread32 (bnx, BNXPCI_REGDATA, &ringaddr_lower);
+	bnx_pciwrite32 (bnx, BNXPCI_REGBASE, orig_regbase);
+	return (ringaddr_lower != (bnx->rx_prod_ring_phys & 0xFFFFFFFF));
+}
+
+static bool
+bnx_hotplugpass_test (struct bnx *bnx)
+{
+	if (bnx->hotplugpass && bnx_hotplug_detect (bnx)) {
+		bnx->hotplug_detected = true;
+		return true;
+	}
+	return false;
+}
+
+static bool
+bnx_hotplugpass (struct bnx *bnx)
+{
+	if (!bnx)
+		return true;
+	if (bnx->hotplugpass && bnx->hotplug_detected)
+		return true;
+	return false;
+}
+
 static void
 send_physnic (void *handle, unsigned int num_packets, void **packets,
 	      unsigned int *packet_sizes, bool print_ok)
@@ -904,6 +943,8 @@ send_physnic (void *handle, unsigned int num_packets, void **packets,
 	struct bnx *bnx = handle;
 	unsigned int i;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	for (i = 0; i < num_packets; i++)
 		bnx_xmit (bnx, packets[i], packet_sizes[i]);
 }
@@ -922,6 +963,8 @@ poll_physnic (void *handle)
 {
 	struct bnx *bnx = handle;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	bnx_handle_status (bnx);
 }
 
@@ -937,6 +980,8 @@ bnx_intr_clear (void *param)
 {
 	struct bnx *bnx = param;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	spinlock_lock (&bnx->reg_lock);
 	bnx_mmiowrite32 (bnx, 0x0204, 0);
 	spinlock_unlock (&bnx->reg_lock);
@@ -955,6 +1000,8 @@ bnx_intr_disable (void *param)
 	struct bnx *bnx = param;
 	u32 data;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	spinlock_lock (&bnx->reg_lock);
 	bnx_mmioread32 (bnx, 0x68, &data);
 	if (!(data & 2)) {
@@ -979,6 +1026,8 @@ bnx_intr_enable (void *param)
 	struct bnx *bnx = param;
 	u32 data;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	spinlock_lock (&bnx->reg_lock);
 	bnx_mmioread32 (bnx, 0x68, &data);
 	if (data & 2) {
@@ -1044,6 +1093,8 @@ bnx_bridge_pre_config_write (struct pci_device *dev,
 {
 	struct bnx *bnx = dev->host;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	if (offset < 0x34) {
 		spinlock_lock (&bnx->ok_lock);
 		bnx->bridge_changing = true;
@@ -1058,6 +1109,8 @@ bnx_bridge_post_config_write (struct pci_device *dev,
 {
 	struct bnx *bnx = dev->host;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	if (offset < 0x34) {
 		spinlock_lock (&bnx->ok_lock);
 		bnx->bridge_changing = false;
@@ -1068,6 +1121,10 @@ bnx_bridge_post_config_write (struct pci_device *dev,
 static u8
 bnx_bridge_force_command (struct pci_device *dev, struct pci_device *bridge)
 {
+	struct bnx *bnx = dev->host;
+
+	if (bnx_hotplugpass (bnx))
+		return 0;
 	return PCI_CONFIG_COMMAND_BUSMASTER | PCI_CONFIG_COMMAND_MEMENABLE;
 }
 
@@ -1079,6 +1136,7 @@ bnx_new (struct pci_device *pci_device)
 	bool option_tty = false;
 	bool option_virtio = false;
 	bool option_multifunction = false;
+	bool option_hotplugpass = false;
 	struct nicfunc *virtio_net_func;
 
 	printi ("[%02x:%02x.%01x] A Broadcom NetXtreme GbE found.\n",
@@ -1091,6 +1149,17 @@ bnx_new (struct pci_device *pci_device)
 	if (pci_device->driver_options[3] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[3], NULL))
 		option_multifunction = true;
+	if (pci_device->driver_options[4] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[4], NULL))
+		option_hotplugpass = true;
+	if (option_hotplugpass && bnx_hotplug) {
+		printi ("[%02x:%02x.%01x] Passthrough\n",
+			pci_device->address.bus_no,
+			pci_device->address.device_no,
+			pci_device->address.func_no);
+		pci_device->host = NULL;
+		return;
+	}
 
 	bnx = alloc (sizeof *bnx);
 	if (!bnx) {
@@ -1098,6 +1167,7 @@ bnx_new (struct pci_device *pci_device)
 		return;
 	}
 	memset (bnx, 0, sizeof *bnx);
+	bnx->hotplugpass = option_hotplugpass;
 	if (pci_device->driver_options[0] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[0], NULL))
 		option_tty = true;
@@ -1184,6 +1254,8 @@ bnx_config_read (struct pci_device *pci_device, u8 iosize,
 	unsigned int i;
 	u8 override;
 
+	if (bnx_hotplugpass (bnx))
+		return CORE_IO_RET_DEFAULT;
 	if (bnx->virtio_net) {
 		bnx_virtio_config_read (pci_device, iosize, offset, buf, bnx);
 	} else {
@@ -1255,6 +1327,8 @@ bnx_config_write (struct pci_device *pci_device, u8 iosize,
 {
 	struct bnx *bnx = pci_device->host;
 
+	if (bnx_hotplugpass (bnx))
+		return CORE_IO_RET_DEFAULT;
 	if (bnx->virtio_net)
 		bnx_virtio_config_write (pci_device, iosize, offset, buf, bnx);
 	return CORE_IO_RET_DONE;
@@ -1266,6 +1340,8 @@ bnx_disconnect (struct pci_device *pci_device)
 	struct bnx *bnx = pci_device->host;
 	u32 cmd;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	spinlock_lock (&bnx->ok_lock);
 	bnx->disconnected = true;
 	spinlock_unlock (&bnx->ok_lock);
@@ -1280,6 +1356,17 @@ bnx_reconnect (struct pci_device *pci_device)
 	struct bnx *bnx = pci_device->host;
 	u32 cmd;
 
+	if (bnx_hotplugpass (bnx))
+		return;
+	if (bnx_hotplugpass_test (bnx)) {
+		printi ("[%02x:%02x.%01x] Passthrough\n",
+			pci_device->address.bus_no,
+			pci_device->address.device_no,
+			pci_device->address.func_no);
+		if (bnx->virtio_net)
+			virtio_net_unregister_handler (bnx->virtio_net);
+		return;
+	}
 	/* Rewriting BARs here seems to be required to make the
 	 * Thunderbolt to Gigabit Ethernet Adapter work... */
 	bnx_update_bar (bnx, bnx->base);
@@ -1294,7 +1381,7 @@ bnx_reconnect (struct pci_device *pci_device)
 static struct pci_driver bnx_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
-	.driver_options	= "tty,net,virtio,multifunction",
+	.driver_options	= "tty,net,virtio,multifunction,hotplugpass",
 	.device		= "class_code=020000,id="
 			  "14e4:165a|" /* BCM5722 */
 			  "14e4:1682|" /* Thunderbolt - BCM57762 */
@@ -1315,4 +1402,11 @@ bnx_init (void)
 	pci_register_driver (&bnx_driver);
 }
 
+static void
+bnx_set_hotplug (void)
+{
+	bnx_hotplug = true;
+}
+
 PCI_DRIVER_INIT (bnx_init);
+INITFUNC ("config10", bnx_set_hotplug);

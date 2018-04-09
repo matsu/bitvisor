@@ -638,3 +638,14 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	*func = &virtio_net_func;
 	return vnet;
 }
+
+void
+virtio_net_unregister_handler (void *handle)
+{
+	struct virtio_net *vnet = handle;
+
+	if (vnet->prev_port) {
+		vnet->prev_port = 0;
+		core_io_unregister_handler (vnet->hd);
+	}
+}

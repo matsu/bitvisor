@@ -51,6 +51,7 @@ void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       void (*intr_disable) (void *intr_param),
 		       void (*intr_enable) (void *intr_param),
 		       void *intr_param);
+void virtio_net_unregister_handler (void *handle);
 #else
 static inline void
 virtio_net_config_read (void *handle, u8 iosize, u16 offset, union mem *data)
@@ -94,5 +95,10 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		 void (*intr_enable) (void *intr_param), void *intr_param)
 {
 	return NULL;
+}
+
+static inline void
+virtio_net_unregister_handler (void *handle)
+{
 }
 #endif
