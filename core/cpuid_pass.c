@@ -45,7 +45,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 	if (tmpa >= 1 && ia == 1) {
 		/* *ob &= ~CPUID_1_EBX_NUMOFLP_MASK; */
 		/* *ob |= ~CPUID_1_EBX_NUMOFLP_1; */
-		*oc &= ~(CPUID_1_ECX_VMX_BIT | CPUID_1_ECX_PCID_BIT);
+		*oc &= ~(CPUID_1_ECX_VMX_BIT | CPUID_1_ECX_SMX_BIT |
+			 CPUID_1_ECX_PCID_BIT);
 		if (current->cpuid.pcid)
 			*oc |= CPUID_1_ECX_PCID_BIT;
 		/* *od &= ~CPUID_1_EDX_PAE_BIT; */
