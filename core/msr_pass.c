@@ -71,6 +71,9 @@ msr_pass_read_msr (u32 msrindex, u64 *msrdata)
 	struct msrarg m;
 
 	switch (msrindex) {
+	case MSR_IA32_TSC_ADJUST:
+		*msrdata = current->tsc_offset;
+		break;
 	case MSR_IA32_TIME_STAMP_COUNTER:
 		asm_rdmsr64 (MSR_IA32_TIME_STAMP_COUNTER, msrdata);
 		*msrdata += current->tsc_offset;
@@ -213,6 +216,10 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 	switch (msrindex) {
 	case MSR_IA32_BIOS_UPDT_TRIG:
 		return ia32_bios_updt (msrdata);
+	case MSR_IA32_TSC_ADJUST:
+		current->tsc_offset = msrdata;
+		current->vmctl.tsc_offset_changed ();
+		break;
 	case MSR_IA32_TIME_STAMP_COUNTER:
 		asm_rdmsr64 (MSR_IA32_TIME_STAMP_COUNTER, &tmp);
 		current->tsc_offset = msrdata - tmp;
@@ -276,6 +283,8 @@ msr_pass_init (void)
 					false);
 		current->vmctl.msrpass (MSR_IA32_TIME_STAMP_COUNTER, true,
 					false);
+		current->vmctl.msrpass (MSR_IA32_TSC_ADJUST, false, false);
+		current->vmctl.msrpass (MSR_IA32_TSC_ADJUST, true, false);
 		current->vmctl.msrpass (MSR_IA32_APIC_BASE_MSR, true, false);
 	}
 }
