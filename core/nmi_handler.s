@@ -27,34 +27,32 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "current.h"
-#include "initfunc.h"
-#include "int.h"
-#include "nmi_handler.h"
-#include "nmi_pass.h"
-#include "types.h"
+	SEG_SEL_PCPU32	= (8 * 8)
+	SEG_SEL_PCPU64	= (15 * 8)
 
-static unsigned int
-get_nmi_count (void)
-{
-	unsigned int r = 0;
+	.include "longmode.h"
 
-	asm volatile ("xchgl %0, %%gs:gs_nmi_count" : "+r" (r));
-	return r;
-}
+	.text
+	.globl	nmi_handler
 
-static void
-nmi_pass_init_pcpu (void)
-{
-	set_int_handler (EXCEPTION_NMI, nmi_handler);
-}
-
-static void
-nmi_pass_init (void)
-{
-	get_nmi_count ();	/* Clear nmi_count */
-	current->nmi.get_nmi_count = get_nmi_count;
-}
-
-INITFUNC ("pass0", nmi_pass_init);
-INITFUNC ("pcpu0", nmi_pass_init_pcpu);
+.if longmode
+	# 64bit
+	.align	8
+nmi_handler:
+	push	%gs
+	push	$SEG_SEL_PCPU64
+	pop	%gs
+	incl	%gs:gs_nmi_count
+	pop	%gs
+	iretq
+.else
+	# 32bit
+	.align	8
+nmi_handler:
+	push	%gs
+	push	$SEG_SEL_PCPU32
+	pop	%gs
+	incl	%gs:gs_nmi_count
+	pop	%gs
+	iretl
+.endif

@@ -42,7 +42,7 @@ DEFINE_GS_OFFSET (gs_inthandling, 0);
 DEFINE_GS_OFFSET (gs_currentcpu, 8);
 DEFINE_GS_OFFSET (gs_syscallstack, 16);
 DEFINE_GS_OFFSET (gs_current, 24);
-DEFINE_GS_OFFSET (gs_nmi, 32);
+DEFINE_GS_OFFSET (gs_nmi_count, 32);
 DEFINE_GS_OFFSET (gs_init_count, 40);
 
 static struct pcpu *pcpu_list_head;

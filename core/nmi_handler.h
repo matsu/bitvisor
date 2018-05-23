@@ -27,34 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "current.h"
-#include "initfunc.h"
-#include "int.h"
-#include "nmi_handler.h"
-#include "nmi_pass.h"
-#include "types.h"
+#ifndef _CORE_NMI_HANDLER_H
+#define _CORE_NMI_HANDLER_H
 
-static unsigned int
-get_nmi_count (void)
-{
-	unsigned int r = 0;
+extern char nmi_handler[];
 
-	asm volatile ("xchgl %0, %%gs:gs_nmi_count" : "+r" (r));
-	return r;
-}
-
-static void
-nmi_pass_init_pcpu (void)
-{
-	set_int_handler (EXCEPTION_NMI, nmi_handler);
-}
-
-static void
-nmi_pass_init (void)
-{
-	get_nmi_count ();	/* Clear nmi_count */
-	current->nmi.get_nmi_count = get_nmi_count;
-}
-
-INITFUNC ("pass0", nmi_pass_init);
-INITFUNC ("pcpu0", nmi_pass_init_pcpu);
+#endif
