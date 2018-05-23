@@ -27,66 +27,53 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_VCPU_H
-#define _CORE_VCPU_H
-
-#include "acpi.h"
-#include "cache.h"
-#include "cpu_mmu_spt.h"
-#include "cpuid.h"
-#include "gmm.h"
-#include "io_io.h"
-#include "localapic.h"
-#include "mmio.h"
-#include "msr.h"
+#include "current.h"
+#include "initfunc.h"
+#include "int.h"
 #include "nmi.h"
-#include "svm.h"
+#include "nmi_handler.h"
 #include "types.h"
-#include "vmctl.h"
-#include "vt.h"
-#include "xsetbv.h"
 
-struct exint_func {
-	void (*int_enabled) (void);
-	void (*exintfunc_default) (int num);
-	void (*hlt) (void);
-};
+unsigned int
+nmi_get_count (void)
+{
+	unsigned int r;
 
-struct sx_init_func {
-	unsigned int (*get_init_count) (void);
-	void (*inc_init_count) (void);
-};
+	/* Since the gs_nmi_count is CPU-thread local, no bus lock is
+	 * needed.  However the gs_nmi_count may be incremented by the
+	 * NMI handler while this function is running.  Use inline asm
+	 * to update the gs_nmi_count properly even if the NMI handler
+	 * is called between these instructions. */
+	asm volatile ("movl %%gs:gs_nmi_count, %0\n"
+		      "subl %0, %%gs:gs_nmi_count"
+		      : "=&r" (r) : : "cc", "memory");
+	return r;
+}
 
-struct vcpu {
-	struct vcpu *next;
-	union {
-		struct vt vt;
-		struct svm svm;
-	} u;
-	bool halt;
-	bool initialized;
-	u64 tsc_offset;
-	bool updateip;
-	u64 pte_addr_mask;
-	struct cpu_mmu_spt_data spt;
-	struct cpuid_data cpuid;
-	struct exint_func exint;
-	struct gmm_func gmm;
-	struct io_io_data io;
-	struct msr_data msr;
-	struct vmctl_func vmctl;
-	/* vcpu0: data per VM */
-	struct vcpu *vcpu0;
-	struct mmio_data mmio;
-	struct nmi_func nmi;
-	struct xsetbv_data xsetbv;
-	struct acpi_data acpi;
-	struct localapic_data localapic;
-	struct sx_init_func sx_init;
-	struct cache_data cache;
-};
+void
+nmi_inc_count (void)
+{
+	asm volatile ("incl %%gs:gs_nmi_count" : : : "cc", "memory");
+}
 
-void vcpu_list_foreach (bool (*func) (struct vcpu *p, void *q), void *q);
-void load_new_vcpu (struct vcpu *vcpu0);
+static void
+nmi_init_pcpu (void)
+{
+	set_int_handler (EXCEPTION_NMI, nmi_handler);
+	nmi_get_count ();	/* Clear gs_nmi_count */
+}
 
-#endif
+static unsigned int
+get_nmi_count (void)
+{
+	return 0;
+}
+
+static void
+nmi_init (void)
+{
+	current->nmi.get_nmi_count = get_nmi_count;
+}
+
+INITFUNC ("pcpu0", nmi_init_pcpu);
+INITFUNC ("vcpu0", nmi_init);

@@ -59,4 +59,4 @@ objs-1 += vt_panic.o vt_regs.o wakeup.o xsetbv.o xsetbv_pass.o
 objs-1 += arith.o asm.o callrealmode_asm.o calluefi_asm.o entry.o
 objs-1 += guest_bioshook.o int_handler.o process_sysenter.o string.o
 objs-1 += sx_handler.o thread_switch.o wakeup_entry.o disconnect.o
-objs-1 += uefi_param_ext.o nmi_handler.o
+objs-1 += uefi_param_ext.o nmi_handler.o nmi.o

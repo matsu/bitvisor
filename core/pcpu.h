@@ -83,7 +83,7 @@ struct pcpu_gs {
 	void *syscallstack PCPU_GS_ALIGN;
 				   /* %gs:16 (process.c, process_sysenter.s) */
 	void *current PCPU_GS_ALIGN;	/* %gs:24 (current.h) */
-	u64 nmi_count;		/* %gs:32 (nmi_pass.c, nmi_handler.s) */
+	u64 nmi_count;		/* %gs:32 (nmi.c, nmi_handler.s) */
 	u64 init_count;		/* %gs:40 (sx_init_pass.c, sx_handler.s) */
 };
 

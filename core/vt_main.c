@@ -38,6 +38,7 @@
 #include "initfunc.h"
 #include "int.h"
 #include "linkage.h"
+#include "nmi.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
@@ -187,7 +188,7 @@ vt_generate_nmi (void)
 	vid->vmcs_instruction_len = 0;
 }
 
-/* NMI handler.  FIXME: This is currently pass-through only. */
+/* Generate an NMI in the VM */
 static void
 vt_nmi_has_come (void)
 {
@@ -309,7 +310,7 @@ do_exception (void)
 			current->u.vt.intr.vmcs_instruction_len = len;
 			break;
 		case INTR_INFO_TYPE_NMI:
-			vt_nmi_has_come ();
+			nmi_inc_count ();
 			break;
 		case INTR_INFO_TYPE_EXTERNAL:
 		default:
