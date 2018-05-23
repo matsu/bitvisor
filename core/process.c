@@ -141,7 +141,7 @@ set_process64_msrs (void)
 		     (SEG_SEL_CODE32U << 16) | SEG_SEL_CODE64);
 	asm_wrmsr (MSR_IA32_LSTAR, (ulong)syscall_entry_sysret64);
 	asm_wrmsr (MSR_AMD_CSTAR, (ulong)syscall_entry_sysret64);
-	asm_wrmsr (MSR_IA32_FMASK,
+	asm_wrmsr (MSR_IA32_FMASK, RFLAGS_TF_BIT |
 		   RFLAGS_VM_BIT | RFLAGS_IF_BIT | RFLAGS_RF_BIT);
 #endif
 }
