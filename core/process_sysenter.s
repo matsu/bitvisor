@@ -35,7 +35,6 @@
 	SEG_SEL_CALLGATE = (9 * 8 + 3)
 	SEG_SEL_DATA64	= (11 * 8)
 	SEG_SEL_PCPU64	= (15 * 8)
-	gs_syscallstack	= 16
 
 	.text
 	.globl	syscall_entry_sysexit

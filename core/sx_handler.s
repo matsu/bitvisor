@@ -30,7 +30,6 @@
 	SEG_SEL_PCPU32	= (8 * 8)
 	SEG_SEL_PCPU64	= (15 * 8)
 	EXCEPTION_SX	= 0x1E
-	gs_init_count	= 40
 
 	.include "longmode.h"
 
