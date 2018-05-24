@@ -2241,7 +2241,11 @@ retry:
 		if (v + (i << PAGESIZE_SHIFT) >= MAPMEM_ADDR_END) {
 			v = MAPMEM_ADDR_START;
 			loopcount++;
-			ASSERT (loopcount == 1);
+			if (loopcount > 1) {
+				spinlock_unlock (&mapmem_lock);
+				panic ("%s: loopcount %d offset 0x%X len 0x%X",
+				       __func__, loopcount, offset, len);
+			}
 			goto retry;
 		}
 		pmap_seek (m, v + (i << PAGESIZE_SHIFT), 1);
