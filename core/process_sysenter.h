@@ -35,9 +35,11 @@
 
 extern u8 processuser_sysenter[], processuser_no_sysenter[];
 extern u8 processuser_syscall[];
+extern u8 processuser_callgate64[];
 
 asmlinkage void syscall_entry_sysexit (void);
 asmlinkage void syscall_entry_lret (void);
 asmlinkage void syscall_entry_sysret64 (void);
+asmlinkage void syscall_entry_lret64 (void);
 
 #endif

@@ -48,21 +48,21 @@ typedef unsigned long ulong;
 
 #ifdef __x86_64__
 #	define DOSYSCALL0(rb, ra) asm volatile \
-		("syscall" : "=a" (ra) \
-			    : "b" ((ulong)rb) \
+		("call *%1" : "=a" (ra) \
+			    : "0" ((ulong)CALLADDR), "b" ((ulong)rb) \
 			    : "memory", "cc", "%rcx", "%rdx" \
 			    , "%r8", "%r9", "%r10", "%r11", "%r12", "%r13" \
 			    , "%r14", "%r15")
 #	define DOSYSCALL1(rb, rs, ra) asm volatile \
-		("syscall" : "=a" (ra) \
-			    : "b" ((ulong)rb) \
+		("call *%1" : "=a" (ra) \
+			    : "0" ((ulong)CALLADDR), "b" ((ulong)rb) \
 			    , "S" ((ulong)rs) \
 			    : "memory", "cc", "%rcx", "%rdx" \
 			    , "%r8", "%r9", "%r10", "%r11", "%r12", "%r13" \
 			    , "%r14", "%r15")
 #	define DOSYSCALL2(rb, rs, rd, ra) asm volatile \
-		("syscall" : "=a" (ra) \
-			    : "b" ((ulong)rb) \
+		("call *%1" : "=a" (ra) \
+			    : "0" ((ulong)CALLADDR), "b" ((ulong)rb) \
 			    , "S" ((ulong)rs), "D" ((ulong)rd) \
 			    : "memory", "cc", "%rcx", "%rdx" \
 			    , "%r8", "%r9", "%r10", "%r11", "%r12", "%r13" \

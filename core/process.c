@@ -146,6 +146,12 @@ set_process64_msrs (void)
 #endif
 }
 
+/* Note: SYSCALL/SYSRET is supported on all 64bit processors.  It can
+ * be enabled by the USE_SYSCALL64 but it is disabled by default
+ * because of security reasons.  Since the SYSCALL/SYSRET does not
+ * switch %rsp and an interrupt stack table mechanism is currently not
+ * used, #NMI between the SYSCALL and switching %rsp or between
+ * switching %rsp and SYSRET uses the user stack in ring 0. */
 static void
 setup_syscallentry (void)
 {
@@ -153,10 +159,16 @@ setup_syscallentry (void)
 	ulong efer;
 
 	asm_wrmsr (MSR_IA32_SYSENTER_CS, 0);	/* Disable SYSENTER/SYSEXIT */
+#ifdef USE_SYSCALL64
 	set_process64_msrs ();
 	asm_rdmsr (MSR_IA32_EFER, &efer);
 	efer |= MSR_IA32_EFER_SCE_BIT;
 	asm_wrmsr (MSR_IA32_EFER, efer);
+#else
+	asm_rdmsr (MSR_IA32_EFER, &efer);
+	efer &= ~MSR_IA32_EFER_SCE_BIT;
+	asm_wrmsr (MSR_IA32_EFER, efer);
+#endif
 #else
 	if (sysenter_available ()) {
 		asm_wrmsr (MSR_IA32_SYSENTER_CS, SEG_SEL_CODE32);
@@ -288,9 +300,15 @@ found:
 	}
 	/* for system calls */
 #ifdef __x86_64__
+#ifdef USE_SYSCALL64
 	mm_process_map_shared_physpage (0x3FFFF000,
 					sym_to_phys (processuser_syscall),
 					false);
+#else
+	mm_process_map_shared_physpage (0x3FFFF000,
+					sym_to_phys (processuser_callgate64),
+					false);
+#endif
 #else
 	if (sysenter_available ())
 		mm_process_map_shared_physpage (0x3FFFF000,
@@ -364,6 +382,16 @@ own_process64_msrs (void (*func) (void *data), void *data)
 	return true;
 }
 
+static void
+set_process64_msrs_if_necessary (void)
+{
+#ifndef USE_SYSCALL64
+	return;
+#endif
+	if (own_process64_msrs (release_process64_msrs, NULL))
+		set_process64_msrs ();
+}
+
 /* pid, func=pointer to the function of the process,
    sp=stack pointer of the process */
 /* process_lock must be locked */
@@ -383,15 +411,18 @@ call_msgfunc0 (int pid, void *func, ulong sp)
 	currentcpu->pid = pid;
 	process[pid].running++;
 	spinlock_unlock (&process_lock);
-	if (own_process64_msrs (release_process64_msrs, NULL))
-		set_process64_msrs ();
+	set_process64_msrs_if_necessary ();
 	asm volatile (
 #ifdef __x86_64__
 		" pushq %%rbp \n"
 		" pushq %8 \n"
 		" pushq $1f \n"
 		" movq %%rsp,%8 \n"
+#ifdef USE_SYSCALL64
+		" jmp ret_to_user64_sysret \n"
+#else
 		" jmp ret_to_user64 \n"
+#endif
 		"1: \n"
 		" popq %8 \n"
 		" popq %%rbp \n"
@@ -991,8 +1022,7 @@ process_syscall (struct syscall_regs *regs)
 		regs->rax = syscall_table[regs->rbx] (regs->rdx, regs->rcx,
 						      regs->rbx, regs->rsi,
 						      regs->rdi);
-		if (own_process64_msrs (release_process64_msrs, NULL))
-			set_process64_msrs ();
+		set_process64_msrs_if_necessary ();
 		return;
 	}
 	printf ("Bad system call.\n");

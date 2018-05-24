@@ -48,6 +48,8 @@
 #define SEG_SEL_TSS64		(13 * 8)
 #define SEG_SEL_TSS64_		(14 * 8) /* Reserved */
 #define SEG_SEL_PCPU64		(15 * 8)
+#define SEG_SEL_CALLGATE64	(16 * 8)
+#define SEG_SEL_CALLGATE64_	(17 * 8) /* Reserved */
 
 void get_seg_base (ulong gdtbase, u16 ldtr, u16 sel, ulong *segbase);
 u32 get_seg_access_rights (u16 sel);

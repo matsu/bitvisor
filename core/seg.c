@@ -159,6 +159,23 @@ set_gatedesc (struct gatedesc32 *d, u32 offset, u32 sel, u32 param_count,
 }
 
 static void
+set_gatedesc64 (struct gatedesc64 *d, u64 offset, u32 sel,
+		enum gatedesc_type type, unsigned int dpl, unsigned int p)
+{
+	d->offset_15_0 = offset;
+	d->sel = sel;
+	d->ist = 0;
+	d->reserved1 = 0;
+	d->type = type;
+	d->zero = 0;
+	d->dpl = dpl;
+	d->p = p;
+	d->offset_31_16 = offset >> 16;
+	d->offset_63_32 = offset >> 32;
+	d->reserved2 = 0;
+}
+
+static void
 fill_segdesctbl (struct segdesc *gdt, struct tss32 *tss32, struct tss64 *tss64,
 		 struct pcpu_gs *gs)
 {
@@ -237,8 +254,12 @@ fill_segdesctbl (struct segdesc *gdt, struct tss32 *tss32, struct tss64 *tss64,
 		     SEGDESC_TYPE_RDWR_DATA,
 		     SEGDESC_S_CODE_OR_DATA_SEGMENT, 0, 1,
 		     0, SEGDESC_L_64, SEGDESC_D_B_64);
+	/* SEG_SEL_CALLGATE64 */
+	set_gatedesc64 ((struct gatedesc64 *)&gdt[16],
+			(ulong)syscall_entry_lret64,
+			SEG_SEL_CODE64, GATEDESC_TYPE_64BIT_CALL, 3, 1);
 	/* Unused */
-	i = 16;
+	i = 18;
 	ASSERT (i <= NUM_OF_SEGDESCTBL);
 	for (; i < NUM_OF_SEGDESCTBL; i++)
 		set_segdesc (&gdt[i], 0x00000000, 0x00000000,

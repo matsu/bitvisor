@@ -31,20 +31,25 @@
 	SYS_MSGRET = 8
 	SEG_SEL_CODE32U	= (3 * 8 + 3)
 	SEG_SEL_DATA32U	= (4 * 8 + 3)
+	SEG_SEL_CODE64U	= (5 * 8 + 3)
 	SEG_SEL_PCPU32	= (8 * 8)
-	SEG_SEL_CALLGATE = (9 * 8 + 3)
+	SEG_SEL_CALLGATE32 = (9 * 8 + 3)
 	SEG_SEL_DATA64	= (11 * 8)
 	SEG_SEL_PCPU64	= (15 * 8)
+	SEG_SEL_CALLGATE64 = (16 * 8 + 3)
 
 	.text
 	.globl	syscall_entry_sysexit
 	.globl	syscall_entry_lret
 	.globl	ret_to_user32
 	.globl	ret_to_user64
+	.globl	ret_to_user64_sysret
 	.globl	syscall_entry_sysret64
+	.globl	syscall_entry_lret64
 	.globl	processuser_sysenter
 	.globl	processuser_no_sysenter
 	.globl	processuser_syscall
+	.globl	processuser_callgate64
 
 	.code32
 	.align	4
@@ -131,12 +136,54 @@ syscall_entry_sysret64:
 	sysretq
 
 	.align	8
-ret_to_user64:
+ret_to_user64_sysret:
 	pushf
 	pop	%r11
 	mov	%rcx,%rsp
 	mov	$0x3FFFF200,%rcx
 	sysretq
+
+	.align	8
+syscall_entry_lret64:
+	mov	$SEG_SEL_DATA64,%eax
+	mov	%eax,%ds
+	mov	%eax,%es
+	mov	%eax,%fs
+	mov	%eax,%ss
+	mov	$SEG_SEL_PCPU64,%eax
+	mov	%eax,%gs
+	mov	%gs:gs_syscallstack(%rip),%rsp
+	push	%rax
+	push	%rdx
+	push	%rcx
+	push	%rbx
+	push	%rsp
+	push	%rbp
+	push	%rsi
+	push	%rdi
+	mov	%rsp,%rdi
+	call	process_syscall
+	pop	%rdi
+	pop	%rsi
+	pop	%rbp
+	pop	%rsp
+	pop	%rbx
+	pop	%rcx
+	pop	%rdx
+	pop	%rax
+	push	$SEG_SEL_DATA32U
+	push	%rcx
+	push	$SEG_SEL_CODE64U
+	push	%rdx
+	lretq
+
+	.align	8
+ret_to_user64:
+	push	$SEG_SEL_DATA32U
+	push	%rcx
+	push	$SEG_SEL_CODE64U
+	push	$0x3FFFF200
+	lretq
 
 	.code32
 	.align	PAGESIZE
@@ -152,23 +199,49 @@ processuser_sysenter:				# at 0x3FFFF000
 processuser_no_sysenter:			# at 0x3FFFF000
 	pop	%edx
 	mov	%esp,%ecx
-	lcall	$SEG_SEL_CALLGATE,$0
+	lcall	$SEG_SEL_CALLGATE32,$0
 	.org	processuser_no_sysenter + 0x100	# at 0x3FFFF100
 	mov	$SYS_MSGRET,%ebx
 	mov	%eax,%esi
-	lcall	$SEG_SEL_CALLGATE,$0
+	lcall	$SEG_SEL_CALLGATE32,$0
 	.align	PAGESIZE
 
 	.code64
 	.align	PAGESIZE
 processuser_syscall:			# at 0x3FFFF000
-	syscall				# unused
+	syscall				#
 	ret				#
 	.org	processuser_syscall + 0x100	# at 0x3FFFF100
 	mov	$SYS_MSGRET,%ebx
 	mov	%rax,%rsi
 	syscall
 	.org processuser_syscall+0x200	# at 0x3FFFF200 (used by ret_to_user64)
+	mov	%rdx,%rax
+	pop	%rbx
+	pop	%rdi
+	pop	%rsi
+	pop	%rdx
+	pop	%rcx
+	pop	%r8
+	pop	%r9
+	push	%rbx
+	jmp	*%rax
+	.align	PAGESIZE
+processuser_callgate64:			# at 0x3FFFF000
+	pop	%rdx
+	mov	%rsp,%rcx
+	lcall	*1f(%rip)
+1:
+	.long	0
+	.word	SEG_SEL_CALLGATE64
+	.org	processuser_callgate64 + 0x100	# at 0x3FFFF100
+	mov	$SYS_MSGRET,%ebx
+	mov	%rax,%rsi
+	lcall	*1f(%rip)
+1:
+	.long	0
+	.word	SEG_SEL_CALLGATE64
+	.org	processuser_callgate64 + 0x200	# at 0x3FFFF200
 	mov	%rdx,%rax
 	pop	%rbx
 	pop	%rdi
