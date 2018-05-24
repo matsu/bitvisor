@@ -106,7 +106,7 @@ syscall_entry_sysret64:
 	mov	%eax,%ss
 	mov	$SEG_SEL_PCPU64,%eax
 	mov	%eax,%gs
-	mov	%gs:gs_syscallstack,%rsp
+	mov	%gs:gs_syscallstack(%rip),%rsp
 	push	%rax
 	push	%rdx		# RSP
 	push	%rcx		# RIP
