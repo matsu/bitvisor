@@ -6,6 +6,7 @@
 #define memcmp __builtin_memcmp
 #define memcpy __builtin_memcpy
 #define memset __builtin_memset
+#define strncmp __builtin_strncmp
 
 #define BYTE_ORDER  LITTLE_ENDIAN
 
@@ -32,6 +33,9 @@
 		       x, __LINE__, __FILE__);			\
 	} while (0)
 
+#define LWIP_NO_STDINT_H 1
+#define LWIP_NO_INTTYPES_H 1
+
 /* --- Debug --- */
 #define ETHARP_DEBUG LWIP_DBG_ON
 #define DHCP_DEBUG LWIP_DBG_ON
@@ -49,6 +53,7 @@ typedef short s16_t;
 typedef unsigned int u32_t;
 typedef int s32_t;
 
+typedef long ptrdiff_t;
 typedef unsigned long mem_ptr_t;
 typedef unsigned long int size_t;
 

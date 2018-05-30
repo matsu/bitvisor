@@ -61,8 +61,7 @@
 #include "lwip/autoip.h"
 #include "lwip/opt.h"
 #include "lwip/tcp.h"
-#include "lwip/tcp_impl.h"
-#include "lwip/timers.h"
+#include "lwip/timeouts.h"
 #include "netif/etharp.h"
 #include "net_main.h"
 #include "ip_main.h"
@@ -220,6 +219,7 @@ tcpip_netif_conf_sub (struct netif *netif, unsigned char *ipaddr_a,
 	}
 	if (use_dhcp) {
 		/* Dynamic IP assignment by DHCP. */
+		netif_set_up (netif);
 		dhcp_start (netif);
 	} else {
 		/* Static IP assignment. */
