@@ -130,9 +130,8 @@ strcmp32:
 	pop	%esi
 	ret
 1:
-	setnc	%al
-	setc	%ah
-	ror	%eax
+	sbb	%eax,%eax
+	xor	$-2,%eax
 	pop	%edi
 	pop	%esi
 	ret
@@ -148,9 +147,8 @@ memcmp32:
 	cld
 	repe	cmpsb
 	je	1f
-	setnc	%al
-	setc	%ah
-	ror	%eax
+	sbb	%eax,%eax
+	xor	$-2,%eax
 1:
 	pop	%edi
 	pop	%esi
@@ -249,9 +247,8 @@ strcmp64:
 	jne	1b
 	ret
 1:
-	setnc	%al
-	setc	%ah
-	ror	%eax
+	sbb	%eax,%eax
+	xor	$-2,%eax
 	ret
 
 	.align	64
@@ -261,9 +258,8 @@ memcmp64:
 	cld
 	repe	cmpsb
 	je	1f
-	setnc	%al
-	setc	%ah
-	ror	%eax
+	sbb	%eax,%eax
+	xor	$-2,%eax
 1:
 	ret
 
