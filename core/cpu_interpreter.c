@@ -2505,10 +2505,10 @@ opcode_idata (struct op *op, struct idata id)
 		     "pushfl \n" \
 		     "popl %0 \n" \
 		     : "=&rm" (newflags) \
-		     , "=&rm" (dst) \
+		     , "=&abcdm" (dst) \
 		     : "i" (~flagmask) \
 		     , "r" (flags & flagmask) \
-		     , "r" (src) \
+		     , "abcd" (src) \
 		     , "1" (dst) \
 		     : "cc"); \
 		newflags = (flags & ~flagmask) | (newflags & flagmask); \
