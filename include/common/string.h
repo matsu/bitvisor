@@ -33,7 +33,6 @@
 #include <core/string.h>
 
 #define strncpy(dst, src, n)	__builtin_strncpy(dst, src, n)
-#define strncmp(dst, src, n)	__builtin_strncmp(dst, src, n)
 #define strcat(dst, src)	__builtin_strcat(dst, src)
 #define strncat(dst, src, n)	__builtin_strncat(dst, src, n)
 #define strchr(s, c)		__builtin_strchr(s, c)

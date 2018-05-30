@@ -93,3 +93,18 @@ strchr (char *s, int c)
 	}
 	return 0;
 }
+
+static inline int
+strncmp (char *s1, char *s2, int len)
+{
+	int r, c1, c2;
+
+	if (len <= 0)
+		return 0;
+	do {
+		c1 = *s1++;
+		c2 = *s2++;
+		r = c1 - c2;
+	} while (!r && c1 && --len > 0);
+	return r;
+}
