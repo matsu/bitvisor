@@ -442,6 +442,11 @@ resume_vm (u32 wake_addr)
 			asm_cli_and_hlt ();
 #endif
 	}
+	/* Wait for initialization completion of other processors
+	 * before starting the virtual machine to make sure that the
+	 * VMM can handle an INIT signal sent by the guest operating
+	 * system for starting processors. */
+	sync_all_processors ();
 	current->vmctl.start_vm ();
 	panic ("VM stopped.");
 }
