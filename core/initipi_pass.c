@@ -28,50 +28,20 @@
  */
 
 #include "current.h"
+#include "initipi.h"
+#include "initipi_pass.h"
 #include "initfunc.h"
-#include "int.h"
-#include "sx_handler.h"
-#include "sx_init.h"
-
-unsigned int
-sx_init_get_count (void)
-{
-	unsigned int r;
-
-	/* Since the gs_init_count is CPU-thread local, no bus lock is
-	 * needed.  However the gs_init_count may be incremented by
-	 * the #SX handler while this function is running.  Use inline
-	 * asm to update the gs_init_count properly even if the #SX
-	 * handler is called between these instructions. */
-	asm volatile ("movl %%gs:gs_init_count, %0\n"
-		      "subl %0, %%gs:gs_init_count"
-		      : "=&r" (r) : : "cc", "memory");
-	return r;
-}
-
-static void
-sx_init_init_pcpu (void)
-{
-	/* #SX exception is only available on AMD processors.  The
-	   sx_handler might be called on Intel processors as an
-	   external interrupt.  The sx_handler jumps to the
-	   int_handler if it is an interrupt, not an exception,
-	   detected by the exception error code. */
-	set_int_handler (EXCEPTION_SX, sx_handler);
-	sx_init_get_count ();	/* Clear gs_init_count */
-}
 
 static unsigned int
 get_init_count (void)
 {
-	return 0;
+	return initipi_get_count ();
 }
 
 static void
-sx_init_init (void)
+initipi_pass_init (void)
 {
-	current->sx_init.get_init_count = get_init_count;
+	current->initipi.get_init_count = get_init_count;
 }
 
-INITFUNC ("pcpu0", sx_init_init_pcpu);
-INITFUNC ("vcpu0", sx_init_init);
+INITFUNC ("pass0", initipi_pass_init);

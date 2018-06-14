@@ -551,7 +551,7 @@ svm_wait_for_sipi (void)
 	u32 sipi_vector;
 
 	sipi_vector = localapic_wait_for_sipi ();
-	current->sx_init.get_init_count (); /* Clear init_counter here */
+	current->initipi.get_init_count (); /* Clear init_counter here */
 	current->u.svm.init_signal = false;
 	svm_reset ();
 	svm_write_realmode_seg (SREG_CS, sipi_vector << 8);
@@ -575,7 +575,7 @@ svm_mainloop (void)
 		schedule ();
 		panic_test ();
 		if (current->u.svm.init_signal ||
-		    current->sx_init.get_init_count ())
+		    current->initipi.get_init_count ())
 			svm_wait_for_sipi ();
 		svm_nmi ();
 		svm_event_injection_setup ();

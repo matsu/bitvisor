@@ -27,13 +27,59 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_SX_INIT_H
-#define _CORE_SX_INIT_H
+#include "current.h"
+#include "initfunc.h"
+#include "initipi.h"
+#include "int.h"
+#include "sx_handler.h"
 
-struct sx_init_func {
-	unsigned int (*get_init_count) (void);
-};
+unsigned int
+initipi_get_count (void)
+{
+	unsigned int r;
 
-unsigned int sx_init_get_count (void);
+	/* Since the gs_init_count is CPU-thread local, no bus lock is
+	 * needed.  However the gs_init_count may be incremented by
+	 * the #SX handler while this function is running.  Use inline
+	 * asm to update the gs_init_count properly even if the #SX
+	 * handler is called between these instructions. */
+	asm volatile ("movl %%gs:gs_init_count, %0\n"
+		      "subl %0, %%gs:gs_init_count"
+		      : "=&r" (r) : : "cc", "memory");
+	return r;
+}
 
-#endif
+/* On Intel processors, an INIT signal is handled as a VM exit.  This
+ * function is called during handling the VM exit. */
+void
+initipi_inc_count (void)
+{
+	asm volatile ("incl %%gs:gs_init_count" : : : "cc", "memory");
+}
+
+static void
+initipi_init_pcpu (void)
+{
+	/* #SX exception is only available on AMD processors.  The
+	   sx_handler might be called on Intel processors as an
+	   external interrupt.  The sx_handler jumps to the
+	   int_handler if it is an interrupt, not an exception,
+	   detected by the exception error code. */
+	set_int_handler (EXCEPTION_SX, sx_handler);
+	initipi_get_count ();	/* Clear gs_init_count */
+}
+
+static unsigned int
+get_init_count (void)
+{
+	return 0;
+}
+
+static void
+initipi_init (void)
+{
+	current->initipi.get_init_count = get_init_count;
+}
+
+INITFUNC ("pcpu0", initipi_init_pcpu);
+INITFUNC ("vcpu0", initipi_init);

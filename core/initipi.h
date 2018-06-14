@@ -27,21 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "current.h"
-#include "initfunc.h"
-#include "sx_init.h"
-#include "sx_init_pass.h"
+#ifndef _CORE_INITIPI_H
+#define _CORE_INITIPI_H
 
-static unsigned int
-get_init_count (void)
-{
-	return sx_init_get_count ();
-}
+struct initipi_func {
+	unsigned int (*get_init_count) (void);
+};
 
-static void
-sx_init_pass_init (void)
-{
-	current->sx_init.get_init_count = get_init_count;
-}
+unsigned int initipi_get_count (void);
+void initipi_inc_count (void);
 
-INITFUNC ("pass0", sx_init_pass_init);
+#endif

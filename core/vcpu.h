@@ -35,13 +35,13 @@
 #include "cpu_mmu_spt.h"
 #include "cpuid.h"
 #include "gmm.h"
+#include "initipi.h"
 #include "io_io.h"
 #include "localapic.h"
 #include "mmio.h"
 #include "msr.h"
 #include "nmi.h"
 #include "svm.h"
-#include "sx_init.h"
 #include "types.h"
 #include "vmctl.h"
 #include "vt.h"
@@ -78,7 +78,7 @@ struct vcpu {
 	struct xsetbv_data xsetbv;
 	struct acpi_data acpi;
 	struct localapic_data localapic;
-	struct sx_init_func sx_init;
+	struct initipi_func initipi;
 	struct cache_data cache;
 };
 

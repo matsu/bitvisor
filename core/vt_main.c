@@ -36,6 +36,7 @@
 #include "exint_pass.h"
 #include "gmm_pass.h"
 #include "initfunc.h"
+#include "initipi.h"
 #include "int.h"
 #include "linkage.h"
 #include "nmi.h"
@@ -507,8 +508,8 @@ vt__event_delivery_check (void)
 	vid->vmcs_intr_info.v = ivif.v;
 }
 
-static void
-do_init_signal (void)
+void
+vt_init_signal (void)
 {
 	if (currentcpu->cpunum == 0)
 		handle_init_to_bsp ();
@@ -518,6 +519,12 @@ do_init_signal (void)
 	current->halt = false;
 	current->u.vt.vr.sw.enable = 0;
 	vt_update_exception_bmp ();
+}
+
+static void
+do_init_signal (void)
+{
+	initipi_inc_count ();
 }
 
 static void
@@ -1022,6 +1029,8 @@ vt_mainloop (void)
 		schedule ();
 		vt_vmptrld (current->u.vt.vi.vmcs_region_phys);
 		panic_test ();
+		if (current->initipi.get_init_count ())
+			vt_init_signal ();
 		if (current->halt) {
 			vt__halt ();
 			current->halt = false;
@@ -1145,12 +1154,6 @@ static void
 vt_register_status_callback (void)
 {
 	register_status_callback (vt_status);
-}
-
-void
-vt_init_signal (void)
-{
-	do_init_signal ();
 }
 
 void
