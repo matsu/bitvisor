@@ -1,5 +1,4 @@
 CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
 CONSTANTS-$(CONFIG_STORAGE_PD) += -DSTORAGE_PD
 
-objs-1 += kernel.o
-asubdirs-1 += lib
+objs-1 += storage_io.o

@@ -17,6 +17,7 @@ target = $(elf)
 
 subdirs-1 += core drivers
 subdirs-$(CONFIG_STORAGE) += storage
+subdirs-$(CONFIG_STORAGE_IO) += storage_io
 subdirs-$(CONFIG_VPN) += vpn
 subdirs-$(CONFIG_IDMAN) += idman
 subdirs-1 += net
@@ -27,6 +28,7 @@ psubdirs-1 += process
 process-depends-$(CONFIG_CRYPTO) += $(dir)crypto/$(outa_p)
 process-depends-$(CONFIG_IDMAN) += $(dir)idman/$(outo_p)
 process-depends-$(CONFIG_STORAGE) += $(dir)storage/$(outo_p)
+process-depends-$(CONFIG_STORAGE_IO) += $(dir)storage_io/$(outo_p)
 process-depends-$(CONFIG_VPN) += $(dir)vpn/$(outo_p)
 
 $(dir)$(elf) : $(defouto) $(dir)$(lds)
