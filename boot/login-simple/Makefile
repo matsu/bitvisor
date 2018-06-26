@@ -21,7 +21,7 @@ readdata : readdata.c
 
 module2.bin : config.c configparser.c configparser.h makedata $(INC) \
  bitvisor.conf
-	gcc -Wall -idirafter ../../include -o config config.c loaddata.c \
-		configparser.c
+	gcc -Wall -idirafter ../../include/share -o config \
+		config.c loaddata.c configparser.c
 	./config < bitvisor.conf > config.raw
 	./makedata config.raw > module2.bin

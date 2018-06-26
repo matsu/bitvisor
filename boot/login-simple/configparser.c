@@ -32,12 +32,8 @@
 #include <string.h>
 #include <stdlib.h>
 
-typedef unsigned char		u8;
-typedef unsigned short int	u16;
-typedef unsigned int		u32;
-typedef unsigned long long int	u64;
-#define __CORE_TYPES_H
-#include "core/config.h"
+#include <vmm_types.h>
+#include <config.h>
 
 #include "configparser.h"
 
