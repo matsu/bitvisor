@@ -152,6 +152,8 @@ storage_conf_type (char **name, void **val, int *len)
 		t = STORAGE_TYPE_AHCI;
 	else if (strcasecmp (*val, "AHCI_ATAPI") == 0)
 		t = STORAGE_TYPE_AHCI_ATAPI;
+	else if (strcasecmp (*val, "NVME") == 0)
+		t = STORAGE_TYPE_NVME;
 	else if (strcasecmp (*val, "ANY") == 0)
 		t = STORAGE_TYPE_ANY;
 	else {

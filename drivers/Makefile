@@ -10,6 +10,7 @@ CONSTANTS-$(CONFIG_NET_RTL8169) += -DNET_RTL8169
 CFLAGS += -Ivpn
 
 subdirs-$(CONFIG_ATA_DRIVER) += ata
+subdirs-$(CONFIG_NVME_DRIVER) += nvme
 subdirs-$(CONFIG_USB_DRIVER) += usb
 subdirs-$(CONFIG_NET_DRIVER) += net
 objs-1 += core.o dmar.o ieee1394.o iommu.o pci_conceal.o pci_core.o
