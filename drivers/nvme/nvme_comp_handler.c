@@ -43,17 +43,23 @@
 #include "nvme_comp_handler.h"
 
 static struct nvme_request *
-get_request (struct nvme_request_hub *hub, u16 cmd_id)
+get_request (struct nvme_host *host,
+	     struct nvme_request_hub *hub,
+	     u16 subm_queue_id,
+	     u16 cmd_id)
 {
 	spinlock_lock (&hub->lock);
 
-	struct nvme_request *req = hub->req_slot[cmd_id];
+	struct nvme_subm_slot *subm_slot;
+	subm_slot = nvme_get_subm_slot (host, subm_queue_id);
+
+	struct nvme_request *req = subm_slot->req_slot[cmd_id];
 
 	if (!req)
 		goto end;
 
-	hub->req_slot[cmd_id] = NULL;
-	hub->n_slots_used--;
+	subm_slot->req_slot[cmd_id] = NULL;
+	subm_slot->n_slots_used--;
 end:
 	spinlock_unlock (&hub->lock);
 
@@ -256,11 +262,24 @@ process_io_comp (struct nvme_host *host,
 		req->callback (host, comp, req);
 }
 
+static u16
+g_subm_cur_tail (struct nvme_host *host, u16 subm_queue_id)
+{
+	struct nvme_queue_info *g_subm_queue_info;
+	g_subm_queue_info = host->g_queue.subm_queue_info[subm_queue_id];
+
+	return g_subm_queue_info->cur_pos.tail;
+}
+
 static void
 process_comp_queue (struct nvme_host *host,
+		    u16 comp_queue_id,
 		    struct nvme_queue_info *h_comp_queue_info,
 		    struct nvme_queue_info *g_comp_queue_info)
 {
+	struct nvme_request_hub *hub;
+	hub = host->h_queue.request_hub[comp_queue_id];
+
 	u16 h_cur_head = h_comp_queue_info->cur_pos.head;
 	u16 g_cur_head = g_comp_queue_info->cur_pos.head;
 
@@ -274,13 +293,10 @@ process_comp_queue (struct nvme_host *host,
 	     g_comp = &g_comp_queue_info->queue.comp[g_cur_head]) {
 
 		/* This queue ID is submission queue ID */
-		u16 queue_id = h_comp->queue_id;
-
-		struct nvme_request_hub *req_hub;
-		req_hub = host->h_queue.request_hub[queue_id];
+		u16 subm_queue_id = h_comp->queue_id;
 
 		struct nvme_request *req;
-		req = get_request (req_hub, h_comp->cmd_id);
+		req = get_request (host, hub, subm_queue_id, h_comp->cmd_id);
 
 		ASSERT (req);
 
@@ -288,11 +304,11 @@ process_comp_queue (struct nvme_host *host,
 		if (time_taken > NVME_TIME_TAKEN_WATERMARK) {
 			printf ("Long time controller response: %llu\n",
 				time_taken);
-			printf ("Queue ID: %u opcode: %u\n",
-				queue_id, req->cmd.opcode);
+			printf ("Submission Queue ID: %u opcode: %u\n",
+				subm_queue_id, req->cmd.opcode);
 		}
 
-		if (queue_id == 0)
+		if (subm_queue_id == 0)
 			process_admin_comp (host, h_comp, req);
 		else
 			process_io_comp (host, h_comp, req);
@@ -316,7 +332,8 @@ process_comp_queue (struct nvme_host *host,
 			 * if we mix guest commands and host commands to share
 			 * queues.
 			 */
-			comp.queue_head = g_cur_head;
+			comp.queue_head = g_subm_cur_tail (host,
+							   subm_queue_id);
 
 			if (first_g_comp) {
 				*g_comp = comp;
@@ -332,19 +349,19 @@ process_comp_queue (struct nvme_host *host,
 				g_cur_head = 0;
 			}
 
-			spinlock_lock (&req_hub->lock);
+			spinlock_lock (&hub->lock);
 			g_comp_queue_info->cur_pos.head = g_cur_head;
 			h_comp_queue_info->cur_pos.head = h_cur_head;
-			spinlock_unlock (&req_hub->lock);
+			spinlock_unlock (&hub->lock);
 		} else {
-			spinlock_lock (&req_hub->lock);
-			nvme_write_comp_db (host, queue_id, h_cur_head);
-			req_hub->n_not_ack_h_reqs--;
+			spinlock_lock (&hub->lock);
+			nvme_write_comp_db (host, comp_queue_id, h_cur_head);
+			hub->n_not_ack_h_reqs--;
 			h_comp_queue_info->cur_pos.head = h_cur_head;
-			spinlock_unlock (&req_hub->lock);
+			spinlock_unlock (&hub->lock);
 		}
 
-		nvme_free_request (req_hub, req);
+		nvme_free_request (hub, req);
 	}
 
 	if (first_g_comp) {
@@ -364,19 +381,19 @@ process_comp_queue (struct nvme_host *host,
 }
 
 static void
-nvme_lock_comp_queue (struct nvme_host *host, u16 queue_id)
+nvme_lock_comp_queue (struct nvme_host *host, u16 comp_queue_id)
 {
 	struct nvme_queue_info *queue_info;
-	queue_info = host->h_queue.comp_queue_info[queue_id];
+	queue_info = host->h_queue.comp_queue_info[comp_queue_id];
 
 	spinlock_lock (&queue_info->lock);
 }
 
 static void
-nvme_unlock_comp_queue (struct nvme_host *host, u16 queue_id)
+nvme_unlock_comp_queue (struct nvme_host *host, u16 comp_queue_id)
 {
 	struct nvme_queue_info *queue_info;
-	queue_info = host->h_queue.comp_queue_info[queue_id];
+	queue_info = host->h_queue.comp_queue_info[comp_queue_id];
 
 	spinlock_unlock (&queue_info->lock);
 }
@@ -398,6 +415,7 @@ nvme_process_all_comp_queues (struct nvme_host *host)
 
 		nvme_lock_comp_queue (host, i);
 		process_comp_queue (host,
+				    i,
 				    h_comp_queue_info,
 				    g_comp_queue_info);
 		nvme_unlock_comp_queue (host, i);

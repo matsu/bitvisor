@@ -60,46 +60,6 @@ handle_delete_queue (struct nvme_host *host, struct nvme_request *req)
 }
 
 static void
-create_queue (struct nvme_queue_info *h_queue_info,
-	      struct nvme_queue_info *g_queue_info,
-	      uint page_nbytes,
-	      u16 h_queue_n_entries,
-	      u16 g_queue_n_entries,
-	      uint entry_nbytes,
-	      phys_t g_queue_phys,
-	      uint map_flag)
-{
-	h_queue_info->n_entries	   = h_queue_n_entries;
-	h_queue_info->entry_nbytes = entry_nbytes;
-
-	g_queue_info->n_entries	   = g_queue_n_entries;
-	g_queue_info->entry_nbytes = entry_nbytes;
-
-	uint h_nbytes = h_queue_n_entries  * entry_nbytes;
-	h_nbytes = (h_nbytes < page_nbytes) ? page_nbytes : h_nbytes;
-
-	uint g_nbytes = g_queue_n_entries * entry_nbytes;
-	g_nbytes = (g_nbytes < page_nbytes) ? page_nbytes : g_nbytes;
-
-	phys_t h_queue_phys;
-	h_queue_info->queue.ptr = zalloc2 (h_nbytes, &h_queue_phys);
-	h_queue_info->queue_phys = h_queue_phys;
-
-	g_queue_info->queue_phys = g_queue_phys;
-	g_queue_info->queue.ptr = mapmem_gphys (g_queue_phys,
-						g_nbytes,
-						map_flag);
-
-	h_queue_info->phase = NVME_INITIAL_PHASE;
-	g_queue_info->phase = NVME_INITIAL_PHASE;
-
-	spinlock_init (&h_queue_info->lock);
-
-	dprintf (NVME_SUBM_DEBUG, "Guest addr: 0x%016llX\n", g_queue_phys);
-	dprintf (NVME_SUBM_DEBUG, "Host  addr: 0x%016llX\n", h_queue_phys);
-}
-
-static void
 handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 {
 	struct nvme_cmd *cmd = &req->cmd;
@@ -138,14 +98,15 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 						    g_queue_n_entries,
 				    		    host->max_n_entries);
 
+		/* Patch queue entries */
 		cmd->cmd_flags[0] = (h_queue_n_entries - 1) << 16 | queue_id;
 	}
 
 
-	dprintf (NVME_SUBM_DEBUG, "Queue ID: %u\n", queue_id);
-	dprintf (NVME_SUBM_DEBUG, "Host Queue #entries: %u\n",
+	dprintf (NVME_ETC_DEBUG, "Queue ID: %u\n", queue_id);
+	dprintf (NVME_ETC_DEBUG, "Host Queue #entries: %u\n",
 		 h_queue_n_entries);
-	dprintf (NVME_SUBM_DEBUG, "Guest Queue #entries: %u\n",
+	dprintf (NVME_ETC_DEBUG, "Guest Queue #entries: %u\n",
 		 g_queue_n_entries);
 
 	struct nvme_queue *h_queue = &host->h_queue;
@@ -157,36 +118,33 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 
 		struct nvme_queue_info *h_subm_queue_info, *g_subm_queue_info;
 		h_subm_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
-		spinlock_init (&h_subm_queue_info->lock);
 		g_subm_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
 
 		u16 comp_queue_id = QUEUE_GET_COMP_QID (cmd);
 
-		struct nvme_queue_info *g_comp_queue_info;
-		g_comp_queue_info = g_queue->comp_queue_info[comp_queue_id];
+		nvme_init_queue_info (h_subm_queue_info,
+				      g_subm_queue_info,
+				      host->page_nbytes,
+				      h_queue_n_entries,
+				      g_queue_n_entries,
+				      host->io_subm_entry_nbytes,
+				      NVME_CMD_PRP_PTR1 (cmd),
+				      0);
 
-		create_queue (h_subm_queue_info,
-			      g_subm_queue_info,
-			      host->page_nbytes,
-			      h_queue_n_entries,
-			      g_queue_n_entries,
-			      host->io_subm_entry_nbytes,
-			      NVME_CMD_PRP_PTR1 (cmd),
-			      0);
+		h_subm_queue_info->paired_comp_queue_id = comp_queue_id;
 
+		dprintf (NVME_ETC_DEBUG, "Paired Completion Queue ID: %u\n",
+			 comp_queue_id);
+
+		nvme_add_subm_slot (host,
+				    host->h_queue.request_hub[comp_queue_id],
+				    h_subm_queue_info,
+				    g_subm_queue_info,
+				    queue_id);
+
+		/* Patch queue address */
 		NVME_CMD_PRP_PTR1 (cmd) = h_subm_queue_info->queue_phys;
 
-		struct nvme_request_hub *req_hub;
-		req_hub = zalloc (NVME_REQUEST_HUB_NBYTES);
-		spinlock_init (&req_hub->lock);
-
-		uint nbytes;
-		nbytes = h_queue_n_entries * sizeof (struct nvme_request *);
-		req_hub->req_slot = zalloc (nbytes);
-		req_hub->h_subm_queue_info = h_subm_queue_info;
-		req_hub->g_comp_queue_info = g_comp_queue_info;
-
-		h_queue->request_hub[queue_id] = req_hub;
 		h_queue->subm_queue_info[queue_id] = h_subm_queue_info;
 		g_queue->subm_queue_info[queue_id] = g_subm_queue_info;
 	} else {
@@ -195,20 +153,25 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 
 		struct nvme_queue_info *h_comp_queue_info, *g_comp_queue_info;
 		h_comp_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
-		spinlock_init (&h_comp_queue_info->lock);
 		g_comp_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
 
-		create_queue (h_comp_queue_info,
-			      g_comp_queue_info,
-			      host->page_nbytes,
-			      h_queue_n_entries,
-			      g_queue_n_entries,
-			      host->io_comp_entry_nbytes,
-			      NVME_CMD_PRP_PTR1 (cmd),
-			      MAPMEM_WRITE);
+		nvme_init_queue_info (h_comp_queue_info,
+				      g_comp_queue_info,
+				      host->page_nbytes,
+				      h_queue_n_entries,
+				      g_queue_n_entries,
+				      host->io_comp_entry_nbytes,
+				      NVME_CMD_PRP_PTR1 (cmd),
+				      MAPMEM_WRITE);
 
+		/* Patch queue address */
 		NVME_CMD_PRP_PTR1 (cmd) = h_comp_queue_info->queue_phys;
 
+		struct nvme_request_hub *req_hub;
+		req_hub = zalloc (NVME_REQUEST_HUB_NBYTES);
+		spinlock_init (&req_hub->lock);
+
+		h_queue->request_hub[queue_id] = req_hub;
 		h_queue->comp_queue_info[queue_id] = h_comp_queue_info;
 		g_queue->comp_queue_info[queue_id] = g_comp_queue_info;
 	}
@@ -493,13 +456,15 @@ io_cmd_handler (struct nvme_host *host,
  */
 static uint
 get_fetching_limit (struct nvme_host *host,
-		    struct nvme_request_hub *hub,
-		    u16 queue_id)
+		    u16 subm_queue_id)
 {
 	if (!host->io_interceptor ||
 	    !host->io_interceptor->get_fetching_limit ||
-	    queue_id == 0)
+	    subm_queue_id == 0)
 		return 32;
+
+	struct nvme_request_hub *hub;
+	hub = nvme_get_request_hub (host, subm_queue_id);
 
 	uint n_waiting_g_reqs = hub->n_waiting_g_reqs;
 
@@ -519,16 +484,14 @@ request_from_g_cmd (struct nvme_cmd *g_cmd)
 }
 
 static uint
-fetch_requests_from_guest (struct nvme_host *host, u16 queue_id)
+fetch_requests_from_guest (struct nvme_host *host, u16 subm_queue_id)
 {
 	struct nvme_queue_info *g_subm_queue_info;
-	struct nvme_request_hub *req_hub;
 	uint n_fetchable;
 	uint count = 0;
 
-	g_subm_queue_info = host->g_queue.subm_queue_info[queue_id];
-	req_hub		  = host->h_queue.request_hub[queue_id];
-	n_fetchable	  = get_fetching_limit (host, req_hub, queue_id);
+	g_subm_queue_info = host->g_queue.subm_queue_info[subm_queue_id];
+	n_fetchable	  = get_fetching_limit (host, subm_queue_id);
 
 	u16 g_cur_tail = g_subm_queue_info->cur_pos.tail;
 	u16 g_new_tail = g_subm_queue_info->new_pos.tail;
@@ -542,14 +505,14 @@ fetch_requests_from_guest (struct nvme_host *host, u16 queue_id)
 
 		struct nvme_request *req;
 		req = request_from_g_cmd (g_cmd);
-		req->queue_id = queue_id;
+		req->queue_id = subm_queue_id;
 
-		if (queue_id == 0)
+		if (subm_queue_id == 0)
 		      admin_cmd_handler (host, req);
 		else
 		      io_cmd_handler (host, req);
 
-		nvme_register_request (req_hub, req);
+		nvme_register_request (host, req, subm_queue_id);
 
 		count++;
 		g_cur_tail++;
@@ -578,15 +541,15 @@ try_fetch_req_unlock (struct nvme_host *host)
 }
 
 uint
-nvme_try_process_requests (struct nvme_host *host, u16 queue_id)
+nvme_try_process_requests (struct nvme_host *host, u16 subm_queue_id)
 {
 	uint fetched = 0;
 	if (!host->pause_fetching_g_reqs) {
 		try_fetch_req_lock (host);
-		fetched = fetch_requests_from_guest (host, queue_id);
+		fetched = fetch_requests_from_guest (host, subm_queue_id);
 		try_fetch_req_unlock (host);
 	}
 
-	nvme_submit_queuing_requests (host, queue_id);
+	nvme_submit_queuing_requests (host, subm_queue_id);
 	return fetched;
 }

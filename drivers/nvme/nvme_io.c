@@ -724,12 +724,10 @@ nvme_io_rw_request (struct nvme_host *host,
 
 	ASSERT (req->is_h_req);
 
-	u16 queue_id = io_desc->queue_id;
+	u16 subm_queue_id = io_desc->queue_id;
 
-	struct nvme_request_hub *req_hub = host->h_queue.request_hub[queue_id];
-
-	nvme_register_request (req_hub, req);
-	nvme_submit_queuing_requests (host, queue_id);
+	nvme_register_request (host, req, subm_queue_id);
+	nvme_submit_queuing_requests (host, subm_queue_id);
 
 	free (io_desc);
 
@@ -795,9 +793,7 @@ nvme_io_flush_request (struct nvme_host *host,
 	h_cmd->opcode = NVME_IO_OPCODE_FLUSH;
 	h_cmd->nsid   = nsid;
 
-	struct nvme_request_hub *req_hub = host->h_queue.request_hub[1];
-
-	nvme_register_request (req_hub, req);
+	nvme_register_request (host, req, 1);
 	nvme_submit_queuing_requests (host, 1);
 
 	return 1;
@@ -835,9 +831,7 @@ nvme_io_identify (struct nvme_host *host,
 
 	h_cmd->cmd_flags[0] = (controller_id << 16) | cns;
 
-	struct nvme_request_hub *req_hub = host->h_queue.request_hub[0];
-
-	nvme_register_request (req_hub, req);
+	nvme_register_request (host, req, 0);
 	nvme_submit_queuing_requests (host, 0);
 
 	return 1;

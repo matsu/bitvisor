@@ -277,16 +277,70 @@ nvme_set_max_n_queues (struct nvme_host *host,
 	host->g_queue.max_n_comp_queues = max_n_comp_queues;
 }
 
-static int
-first_free_slot (struct nvme_request_hub *hub)
+void
+nvme_init_queue_info (struct nvme_queue_info *h_queue_info,
+		      struct nvme_queue_info *g_queue_info,
+		      uint page_nbytes,
+		      u16 h_queue_n_entries,
+		      u16 g_queue_n_entries,
+		      uint entry_nbytes,
+		      phys_t g_queue_phys,
+		      uint map_flag)
 {
-	ASSERT (hub->req_slot);
+	h_queue_info->n_entries	   = h_queue_n_entries;
+	h_queue_info->entry_nbytes = entry_nbytes;
 
-	uint n_entries = hub->h_subm_queue_info->n_entries;
+	g_queue_info->n_entries	   = g_queue_n_entries;
+	g_queue_info->entry_nbytes = entry_nbytes;
+
+	uint h_nbytes = h_queue_n_entries  * entry_nbytes;
+	h_nbytes = (h_nbytes < page_nbytes) ? page_nbytes : h_nbytes;
+
+	uint g_nbytes = g_queue_n_entries * entry_nbytes;
+	g_nbytes = (g_nbytes < page_nbytes) ? page_nbytes : g_nbytes;
+
+	phys_t h_queue_phys;
+	h_queue_info->queue.ptr = zalloc2 (h_nbytes, &h_queue_phys);
+	h_queue_info->queue_phys = h_queue_phys;
+
+	g_queue_info->queue_phys = g_queue_phys;
+	g_queue_info->queue.ptr = mapmem_gphys (g_queue_phys,
+						g_nbytes,
+						map_flag);
+
+	h_queue_info->paired_comp_queue_id = NVME_NO_PAIRED_COMP_QUEUE_ID;
+	g_queue_info->paired_comp_queue_id = NVME_NO_PAIRED_COMP_QUEUE_ID;
+
+	h_queue_info->phase = NVME_INITIAL_PHASE;
+	g_queue_info->phase = NVME_INITIAL_PHASE;
+
+	spinlock_init (&h_queue_info->lock);
+
+	dprintf (NVME_ETC_DEBUG, "Guest addr: 0x%016llX\n",
+		 g_queue_info->queue_phys);
+	dprintf (NVME_ETC_DEBUG, "Host  addr: 0x%016llX\n",
+		 h_queue_info->queue_phys);
+}
+
+struct nvme_subm_slot *
+nvme_get_subm_slot (struct nvme_host *host, u16 subm_queue_id)
+{
+	struct nvme_subm_slot *subm_slot;
+	subm_slot = host->h_queue.subm_queue_info[subm_queue_id]->subm_slot;
+
+	ASSERT (subm_slot);
+
+	return subm_slot;
+}
+
+static int
+first_free_slot (struct nvme_subm_slot *subm_slot)
+{
+	uint n_slots = subm_slot->n_slots;
 
 	uint i;
-	for (i = 0; i < n_entries; i++) {
-		if (!hub->req_slot[i])
+	for (i = 0; i < n_slots; i++) {
+		if (!subm_slot->req_slot[i])
 			return i;
 	}
 
@@ -294,10 +348,17 @@ first_free_slot (struct nvme_request_hub *hub)
 }
 
 void
-nvme_register_request (struct nvme_request_hub *hub,
-		       struct nvme_request *reqs)
+nvme_register_request (struct nvme_host *host,
+		       struct nvme_request *reqs,
+		       u16 subm_queue_id)
 {
 	ASSERT (reqs);
+
+	struct nvme_request_hub *hub;
+	hub = nvme_get_request_hub (host, subm_queue_id);
+
+	struct nvme_subm_slot *subm_slot;
+	subm_slot = nvme_get_subm_slot (host, subm_queue_id);
 
 	spinlock_lock (&hub->lock);
 
@@ -306,21 +367,21 @@ nvme_register_request (struct nvme_request_hub *hub,
 	while (req) {
 		if (req->is_h_req) {
 			hub->n_waiting_h_reqs++;
-			if (hub->queuing_h_reqs) {
-				hub->queuing_h_reqs_tail->next = req;
-				hub->queuing_h_reqs_tail       = req;
+			if (subm_slot->queuing_h_reqs) {
+				subm_slot->queuing_h_reqs_tail->next = req;
+				subm_slot->queuing_h_reqs_tail       = req;
 			} else {
-				hub->queuing_h_reqs	 = req;
-				hub->queuing_h_reqs_tail = req;
+				subm_slot->queuing_h_reqs      = req;
+				subm_slot->queuing_h_reqs_tail = req;
 			}
 		} else {
 			hub->n_waiting_g_reqs++;
-			if (hub->queuing_g_reqs) {
-				hub->queuing_g_reqs_tail->next = req;
-				hub->queuing_g_reqs_tail       = req;
+			if (subm_slot->queuing_g_reqs) {
+				subm_slot->queuing_g_reqs_tail->next = req;
+				subm_slot->queuing_g_reqs_tail       = req;
 			} else {
-				hub->queuing_g_reqs	 = req;
-				hub->queuing_g_reqs_tail = req;
+				subm_slot->queuing_g_reqs      = req;
+				subm_slot->queuing_g_reqs_tail = req;
 			}
 		}
 		req = req->next;
@@ -330,36 +391,37 @@ nvme_register_request (struct nvme_request_hub *hub,
 }
 
 static struct nvme_request *
-nvme_dequeue_request (struct nvme_request_hub *hub, int dequeue_host_req)
+nvme_dequeue_request (struct nvme_subm_slot *subm_slot, int dequeue_host_req)
 {
 	struct nvme_request *req = NULL;
 	struct nvme_request *prev_req = NULL;
 
 	if (dequeue_host_req) {
-		if (!hub->queuing_h_reqs)
+		if (!subm_slot->queuing_h_reqs)
 			goto end;
-		req = hub->queuing_h_reqs;
-		hub->queuing_h_reqs = req->next;
-		if (!hub->queuing_h_reqs)
-			hub->queuing_h_reqs_tail = NULL;
-	} else if (hub->queuing_g_reqs) {
-		req = hub->queuing_g_reqs;
+		req = subm_slot->queuing_h_reqs;
+		subm_slot->queuing_h_reqs = req->next;
+		if (!subm_slot->queuing_h_reqs)
+			subm_slot->queuing_h_reqs_tail = NULL;
+	} else if (subm_slot->queuing_g_reqs) {
+		req = subm_slot->queuing_g_reqs;
 
 		while (req && req->pause) {
 			prev_req = req;
 			req = req->next;
 		}
 
-		if (req) {
-			if (prev_req) {
-				prev_req->next = req->next;
-				if (!prev_req->next)
-					hub->queuing_g_reqs_tail = prev_req;
-			} else {
-				hub->queuing_g_reqs = req->next;
-				if (!hub->queuing_g_reqs)
-					hub->queuing_g_reqs_tail = NULL;
-			}
+		if (!req)
+			goto end;
+
+		if (prev_req) {
+			prev_req->next = req->next;
+			if (!prev_req->next)
+				subm_slot->queuing_g_reqs_tail = prev_req;
+		} else {
+			subm_slot->queuing_g_reqs = req->next;
+			if (!subm_slot->queuing_g_reqs)
+				subm_slot->queuing_g_reqs_tail = NULL;
 		}
 	}
 end:
@@ -368,10 +430,14 @@ end:
 
 static void
 nvme_submit_request (struct nvme_request_hub *hub,
+		     struct nvme_queue_info *h_subm_queue_info,
 		     struct nvme_request *req,
 		     u16 tail)
 {
-	int slot = first_free_slot (hub);
+	struct nvme_subm_slot *subm_slot;
+	subm_slot = h_subm_queue_info->subm_slot;
+
+	int slot = first_free_slot (subm_slot);
 
 	ASSERT (slot >= 0);
 
@@ -379,11 +445,9 @@ nvme_submit_request (struct nvme_request_hub *hub,
 
 	req->submit_time = get_time ();
 
-	hub->req_slot[slot] = req;
+	subm_slot->req_slot[slot] = req;
 
-	hub->n_slots_used++;
-
-	hub->h_subm_queue_info->queue.subm[tail] = req->cmd;
+	h_subm_queue_info->queue.subm[tail] = req->cmd;
 
 	if (!req->is_h_req)
 		hub->n_not_ack_g_reqs++;
@@ -392,16 +456,19 @@ nvme_submit_request (struct nvme_request_hub *hub,
 }
 
 void
-nvme_submit_queuing_requests (struct nvme_host *host, u16 queue_id)
+nvme_submit_queuing_requests (struct nvme_host *host, u16 subm_queue_id)
 {
+	struct nvme_request_hub *hub;
 	struct nvme_queue_info *h_subm_queue_info;
-	struct nvme_request_hub *req_hub;
+	struct nvme_subm_slot *subm_slot;
 
-	req_hub = host->h_queue.request_hub[queue_id];
+	hub = nvme_get_request_hub (host, subm_queue_id);
 
-	h_subm_queue_info = req_hub->h_subm_queue_info;
+	h_subm_queue_info = host->h_queue.subm_queue_info[subm_queue_id];
 
-	spinlock_lock (&req_hub->lock);
+	subm_slot = h_subm_queue_info->subm_slot;
+
+	spinlock_lock (&hub->lock);
 
 	u16 h_cur_tail = h_subm_queue_info->cur_pos.tail;
 
@@ -414,29 +481,33 @@ nvme_submit_queuing_requests (struct nvme_host *host, u16 queue_id)
 	 * Some controller stalls there are too many completion
 	 * notification queuing up.
 	 */
-	int dequeue_host_req = req_hub->n_waiting_h_reqs > 0;
+	int dequeue_host_req = hub->n_waiting_h_reqs > 0;
 
 	if (dequeue_host_req &&
-	    req_hub->n_not_ack_g_reqs - req_hub->n_async_g_reqs > 0)
+	    hub->n_not_ack_g_reqs - hub->n_async_g_reqs > 0)
 		dequeue_host_req = 0;
 
 	if (!dequeue_host_req &&
-	    req_hub->n_not_ack_h_reqs > 0)
+	    hub->n_not_ack_h_reqs > 0)
 		goto end;
 
 	/*
 	 * Use n_entries - 1 because it is possible that the tail value wraps
 	 * and some controllers might stop generating interrupts.
 	 */
-	while (req_hub->n_slots_used < n_entries - 1) {
+	while (subm_slot->n_slots_used < n_entries - 1) {
 		struct nvme_request *req;
-		req = nvme_dequeue_request (req_hub, dequeue_host_req);
+		req = nvme_dequeue_request (subm_slot, dequeue_host_req);
 
 		if (!req)
 			break;
 
-		nvme_submit_request (req_hub, req, h_cur_tail);
+		nvme_submit_request (hub,
+				     h_subm_queue_info,
+				     req,
+				     h_cur_tail);
 
+		subm_slot->n_slots_used++;
 		count++;
 
 		h_cur_tail++;
@@ -448,10 +519,10 @@ nvme_submit_queuing_requests (struct nvme_host *host, u16 queue_id)
 	if (count > 0) {
 		/* Make sure that commands are stored in the queue properly */
 		cpu_sfence ();
-		nvme_write_subm_db (host, queue_id, h_cur_tail);
+		nvme_write_subm_db (host, subm_queue_id, h_cur_tail);
 	}
 end:
-	spinlock_unlock (&req_hub->lock);
+	spinlock_unlock (&hub->lock);
 }
 
 void
@@ -477,43 +548,142 @@ nvme_free_request (struct nvme_request_hub *hub, struct nvme_request *req)
 	free (req);
 }
 
-static void
-free_req_hub (struct nvme_host *host, uint queue_id)
+void
+nvme_add_subm_slot (struct nvme_host *host,
+		    struct nvme_request_hub *hub,
+		    struct nvme_queue_info *h_subm_queue_info,
+		    struct nvme_queue_info *g_subm_queue_info,
+		    u16 subm_queue_id)
 {
-	struct nvme_request_hub *hub = host->h_queue.request_hub[queue_id];
+	ASSERT (hub && h_subm_queue_info && !h_subm_queue_info->subm_slot);
+
+	struct nvme_subm_slot *subm_slot;
+	subm_slot = zalloc (NVME_SUBM_SLOT_NBYTES);
+
+	subm_slot->n_slots = h_subm_queue_info->n_entries;
+
+	uint nbytes = subm_slot->n_slots * sizeof (struct nvme_request *);
+	subm_slot->req_slot = zalloc (nbytes);
+
+	subm_slot->subm_queue_id = subm_queue_id;
+
+	h_subm_queue_info->subm_slot = subm_slot;
+	g_subm_queue_info->subm_slot = subm_slot;
+
+	subm_slot->next = hub->subm_slots;
+	hub->subm_slots = subm_slot;
+}
+
+static void
+free_subm_slot (struct nvme_request_hub *hub,
+		struct nvme_subm_slot *subm_slot)
+{
+	struct nvme_request *req, *next_req;
+
+	req = subm_slot->queuing_h_reqs;
+	while (req) {
+		next_req = req->next;
+		nvme_free_request (hub, req);
+		req = next_req;
+	}
+
+	req = subm_slot->queuing_g_reqs;
+	while (req) {
+		next_req = req->next;
+		nvme_free_request (hub, req);
+		req = next_req;
+	}
+
+	if (subm_slot->req_slot) {
+		uint n_slots = subm_slot->n_slots;
+
+		uint i;
+		for (i = 0; i < n_slots; i++) {
+			req = subm_slot->req_slot[i];
+			if (req)
+				nvme_free_request (hub, req);
+		}
+
+		free (subm_slot->req_slot);
+	}
+
+	free (subm_slot);
+}
+
+struct nvme_request_hub *
+nvme_get_request_hub (struct nvme_host *host, u16 subm_queue_id)
+{
+	struct nvme_queue_info *subm_queue_info;
+	subm_queue_info = host->h_queue.subm_queue_info[subm_queue_id];
+
+	ASSERT (subm_queue_info);
+
+	u16 comp_queue_id = subm_queue_info->paired_comp_queue_id;
+
+	ASSERT (comp_queue_id != NVME_NO_PAIRED_COMP_QUEUE_ID);
+
+	return host->h_queue.request_hub[comp_queue_id];
+}
+
+static void
+free_req_hub (struct nvme_host *host, uint comp_queue_id)
+{
+	struct nvme_request_hub *hub;
+	hub = host->h_queue.request_hub[comp_queue_id];
 
 	if (!hub)
 		return;
 
-	if (hub->req_slot) {
-		uint n_entries = hub->h_subm_queue_info->n_entries;
+	struct nvme_subm_slot *subm_slot, *next_subm_slot;
+	subm_slot = hub->subm_slots;
 
-		uint i;
-		for (i = 0; i < n_entries; i++) {
-			if (hub->req_slot[i])
-				nvme_free_request (hub, hub->req_slot[i]);
-		}
-		free (hub->req_slot);
-	}
-
-	struct nvme_request *req, *next_req;
-
-	req = hub->queuing_h_reqs;
-	while (req) {
-		next_req = req->next;
-		nvme_free_request (hub, req);
-		req = next_req;
-	}
-
-	req = hub->queuing_g_reqs;
-	while (req) {
-		next_req = req->next;
-		nvme_free_request (hub, req);
-		req = next_req;
+	while (subm_slot) {
+		next_subm_slot = subm_slot->next;
+		free_subm_slot (hub, subm_slot);
+		subm_slot = next_subm_slot;
 	}
 
 	free (hub);
-	host->h_queue.request_hub[queue_id] = NULL;
+	host->h_queue.request_hub[comp_queue_id] = NULL;
+}
+
+static void
+remove_subm_slot (struct nvme_host *host,
+		  u16 subm_queue_id)
+{
+	struct nvme_queue_info *h_subm_queue_info;
+	h_subm_queue_info = host->h_queue.subm_queue_info[subm_queue_id];
+
+	if (!h_subm_queue_info)
+		return;
+
+	if (!h_subm_queue_info->subm_slot)
+		return;
+
+	struct nvme_request_hub *hub;
+	hub = nvme_get_request_hub (host, subm_queue_id);
+
+	if (!hub)
+		return;
+
+	struct nvme_subm_slot *subm_slot, *prev_subm_slot = NULL;
+	subm_slot = hub->subm_slots;
+	while (subm_slot) {
+		if (subm_slot->subm_queue_id == subm_queue_id) {
+			if (prev_subm_slot == NULL)
+				hub->subm_slots = subm_slot->next;
+			else
+				prev_subm_slot->next = subm_slot->next;
+			break;
+		}
+
+		prev_subm_slot = subm_slot;
+		subm_slot = subm_slot->next;
+	}
+
+	ASSERT (subm_slot);
+
+	free_subm_slot (hub, subm_slot);
 }
 
 static void
@@ -537,41 +707,42 @@ free_queue_info (struct nvme_queue_info *h_queue_info,
 
 void
 nvme_free_subm_queue_info (struct nvme_host *host,
-			   u16 queue_id)
+			   u16 subm_queue_id)
 {
-	free_req_hub (host, queue_id);
-	free_queue_info (host->h_queue.subm_queue_info[queue_id],
-			 host->g_queue.subm_queue_info[queue_id],
+	remove_subm_slot (host, subm_queue_id);
+	free_queue_info (host->h_queue.subm_queue_info[subm_queue_id],
+			 host->g_queue.subm_queue_info[subm_queue_id],
 			 host->page_nbytes);
-	host->h_queue.subm_queue_info[queue_id] = NULL;
-	host->g_queue.subm_queue_info[queue_id] = NULL;
+	host->h_queue.subm_queue_info[subm_queue_id] = NULL;
+	host->g_queue.subm_queue_info[subm_queue_id] = NULL;
 }
 
 void
 nvme_free_comp_queue_info (struct nvme_host *host,
-			   u16 queue_id)
+			   u16 comp_queue_id)
 {
-	free_queue_info (host->h_queue.comp_queue_info[queue_id],
-			 host->g_queue.comp_queue_info[queue_id],
+	free_req_hub (host, comp_queue_id);
+	free_queue_info (host->h_queue.comp_queue_info[comp_queue_id],
+			 host->g_queue.comp_queue_info[comp_queue_id],
 			 host->page_nbytes);
-	host->h_queue.comp_queue_info[queue_id] = NULL;
-	host->g_queue.comp_queue_info[queue_id] = NULL;
+	host->h_queue.comp_queue_info[comp_queue_id] = NULL;
+	host->g_queue.comp_queue_info[comp_queue_id] = NULL;
 }
 
 void
-nvme_lock_subm_queue (struct nvme_host *host, u16 queue_id)
+nvme_lock_subm_queue (struct nvme_host *host, u16 subm_queue_id)
 {
 	struct nvme_queue_info *queue_info;
-	queue_info = host->h_queue.subm_queue_info[queue_id];
+	queue_info = host->h_queue.subm_queue_info[subm_queue_id];
 
 	spinlock_lock (&queue_info->lock);
 }
 
 void
-nvme_unlock_subm_queue (struct nvme_host *host, u16 queue_id)
+nvme_unlock_subm_queue (struct nvme_host *host, u16 subm_queue_id)
 {
 	struct nvme_queue_info *queue_info;
-	queue_info = host->h_queue.subm_queue_info[queue_id];
+	queue_info = host->h_queue.subm_queue_info[subm_queue_id];
 
 	spinlock_unlock (&queue_info->lock);
 }

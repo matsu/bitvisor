@@ -153,34 +153,6 @@ wait_for_interceptor (struct nvme_host *host)
 }
 
 static void
-set_queue_buffer (struct nvme_queue_info *h_queue_info,
-		  struct nvme_queue_info *g_queue_info,
-		  phys_t g_queue_addr,
-		  uint queue_nbytes,
-		  int g_queue_write)
-{
-	phys_t *phys_addr = &h_queue_info->queue_phys;
-	h_queue_info->queue.ptr = zalloc2 (queue_nbytes, phys_addr);
-
-	g_queue_info->queue_phys = g_queue_addr;
-	g_queue_info->queue.ptr = mapmem_gphys (g_queue_addr,
-						queue_nbytes,
-						(g_queue_write) ?
-						MAPMEM_WRITE :
-						0);
-
-	h_queue_info->new_pos.value = 0;
-	g_queue_info->new_pos.value = 0;
-
-	h_queue_info->cur_pos.value = 0;
-	g_queue_info->cur_pos.value = 0;
-
-	/* Only for completion queue */
- 	h_queue_info->phase = NVME_INITIAL_PHASE;
- 	g_queue_info->phase = NVME_INITIAL_PHASE;
-}
-
-static void
 init_admin_queue (struct nvme_host *host)
 {
 	if (host->enable)
@@ -190,71 +162,52 @@ init_admin_queue (struct nvme_host *host)
 	h_queue = &host->h_queue;
 	g_queue = &host->g_queue;
 
+	/* Sanity check */
+	ASSERT (host->g_admin_comp_n_entries > 0 &&
+		host->g_admin_subm_n_entries > 0);
+
 	struct nvme_queue_info *h_subm_queue_info, *g_subm_queue_info;
 	h_subm_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
 	g_subm_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
-	spinlock_init (&h_subm_queue_info->lock);
 
 	struct nvme_queue_info *h_comp_queue_info, *g_comp_queue_info;
 	h_comp_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
 	g_comp_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
-	spinlock_init (&h_comp_queue_info->lock);
 
-	/* Set number of entries */
-	h_subm_queue_info->n_entries = host->g_admin_subm_n_entries;
-	g_subm_queue_info->n_entries = host->g_admin_subm_n_entries;
+	/* Initialize admin completion queue */
+	dprintf (NVME_ETC_DEBUG, "Initializing Admin Completion Queue\n");
+	nvme_init_queue_info (h_comp_queue_info,
+			      g_comp_queue_info,
+			      host->page_nbytes,
+			      host->g_admin_comp_n_entries,
+			      host->g_admin_comp_n_entries,
+			      host->io_comp_entry_nbytes,
+			      host->g_admin_comp_queue_addr,
+			      MAPMEM_WRITE);
 
-	h_comp_queue_info->n_entries = host->g_admin_comp_n_entries;
-	g_comp_queue_info->n_entries = host->g_admin_comp_n_entries;
+	/* Initialize admin submission queue */
+	dprintf (NVME_ETC_DEBUG, "Initializing Admin Submission Queue\n");
+	nvme_init_queue_info (h_subm_queue_info,
+			      g_subm_queue_info,
+			      host->page_nbytes,
+			      host->g_admin_subm_n_entries,
+			      host->g_admin_subm_n_entries,
+			      host->io_subm_entry_nbytes,
+			      host->g_admin_subm_queue_addr,
+			      0);
 
-	/* Sanity check */
-	ASSERT (g_subm_queue_info->n_entries > 0 &&
-		g_comp_queue_info->n_entries > 0);
+	h_subm_queue_info->paired_comp_queue_id = 0;
 
-	uint nbytes;
-
-	/* Set submission queue buffers */
-	nbytes = g_subm_queue_info->n_entries * NVME_CMD_NBYTES;
-	nbytes = (nbytes < host->page_nbytes) ?
-		 host->page_nbytes :
-		 nbytes;
-
-	set_queue_buffer (h_subm_queue_info,
-			  g_subm_queue_info,
-			  host->g_admin_subm_queue_addr,
-			  nbytes,
-			  0);
-
-	dprintf (NVME_ETC_DEBUG, "Host submission queue addr: 0x%016llX\n",
-		 h_subm_queue_info->queue_phys);
-	dprintf (NVME_ETC_DEBUG, "Guest submission queue addr: 0x%016llX\n",
-		 g_subm_queue_info->queue_phys);
-
+	/* Initialize admin request hub */
 	struct nvme_request_hub *admin_req_hub;
 	admin_req_hub = zalloc (NVME_REQUEST_HUB_NBYTES);
 	spinlock_init (&admin_req_hub->lock);
-	admin_req_hub->h_subm_queue_info = h_subm_queue_info;
-	admin_req_hub->g_comp_queue_info = g_comp_queue_info;
-	nbytes = g_subm_queue_info->n_entries * sizeof (struct nvme_request *);
-	admin_req_hub->req_slot = zalloc (nbytes);
+	nvme_add_subm_slot (host,
+			    admin_req_hub,
+			    h_subm_queue_info,
+			    g_subm_queue_info,
+			    0);
 	h_queue->request_hub[0] = admin_req_hub;
-
-	/* Set completion queue buffers */
- 	nbytes = g_comp_queue_info->n_entries * NVME_COMP_NBYTES;
- 	nbytes = (nbytes < host->page_nbytes) ?
- 		 host->page_nbytes :
- 		 nbytes;
-
-	set_queue_buffer (h_comp_queue_info,
-			  g_comp_queue_info,
-			  host->g_admin_comp_queue_addr,
-			  nbytes,
-			  1);
-
-	dprintf (NVME_ETC_DEBUG, "Host completion queue addr: 0x%016llX\n",
-		 h_comp_queue_info->queue_phys);
-	dprintf (NVME_ETC_DEBUG, "Guest completion queue addr: 0x%016llX\n",
-		 g_comp_queue_info->queue_phys);
 
 	/* Finalize */
 	h_queue->subm_queue_info[0] = h_subm_queue_info;
@@ -582,27 +535,27 @@ nvme_acq_reg_write (void *data,
 /* ---------- Start Queue Doorbell Register handler ---------- */
 
 static void
-update_new_tail_pos (struct nvme_host *host, u16 queue_id, u16 new_tail)
+update_new_tail_pos (struct nvme_host *host, u16 subm_queue_id, u16 new_tail)
 {
 	struct nvme_queue_info *g_subm_queue_info;
-	g_subm_queue_info = host->g_queue.subm_queue_info[queue_id];
+	g_subm_queue_info = host->g_queue.subm_queue_info[subm_queue_id];
 
 	g_subm_queue_info->new_pos.tail = new_tail;
 }
 
 static void
-update_comp_db (struct nvme_host *host, u16 queue_id, u16 new_head)
+update_comp_db (struct nvme_host *host, u16 comp_queue_id, u16 new_head)
 {
 	struct nvme_request_hub *req_hub;
-	req_hub = host->h_queue.request_hub[queue_id];
+	req_hub = host->h_queue.request_hub[comp_queue_id];
 
 	spinlock_lock (&req_hub->lock);
 
 	struct nvme_queue_info *g_comp_queue_info, *h_comp_queue_info;
 
-	h_comp_queue_info = host->h_queue.comp_queue_info[queue_id];
+	h_comp_queue_info = host->h_queue.comp_queue_info[comp_queue_id];
 
-	g_comp_queue_info = host->g_queue.comp_queue_info[queue_id];
+	g_comp_queue_info = host->g_queue.comp_queue_info[comp_queue_id];
 
 	uint g_n_entries = g_comp_queue_info->n_entries;
 
@@ -618,7 +571,7 @@ update_comp_db (struct nvme_host *host, u16 queue_id, u16 new_head)
 	 */
 	if (n_ack_reqs == 0 ||
 	    req_hub->n_not_ack_g_reqs < n_ack_reqs) {
-		printf ("comp queue id: %u\n", queue_id);
+		printf ("comp queue id: %u\n", comp_queue_id);
 		printf ("new_head: %u\n", new_head);
 		printf ("old_head: %u\n", old_head);
 		printf ("n_ack_reqs: %u\n", n_ack_reqs);
@@ -656,7 +609,7 @@ update_comp_db (struct nvme_host *host, u16 queue_id, u16 new_head)
 
 	u64 val = ((h_cur_head + h_n_entries) - diff) % h_n_entries;
 
-	nvme_write_comp_db (host, queue_id, val);
+	nvme_write_comp_db (host, comp_queue_id, val);
 end:
 	spinlock_unlock (&req_hub->lock);
 }
@@ -682,7 +635,7 @@ init_interceptor (struct nvme_host *host)
 }
 
 static void
-try_polling_for_completeness (struct nvme_host *host, u16 queue_id)
+try_polling_for_completeness (struct nvme_host *host, u16 subm_queue_id)
 {
 	if (!host->io_interceptor ||
 	    !host->io_interceptor->poll_completeness)
@@ -693,7 +646,7 @@ try_polling_for_completeness (struct nvme_host *host, u16 queue_id)
 		return;
 
 	struct nvme_request_hub *req_hub;
-	req_hub = host->h_queue.request_hub[queue_id];
+	req_hub = nvme_get_request_hub (host, subm_queue_id);
 
 	u64 time = get_time ();
 

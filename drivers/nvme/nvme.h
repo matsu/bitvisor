@@ -260,8 +260,8 @@ struct nvme_comp {
 #define NVME_STATUS_TYPE_MEDIA_AND_DATA_ERR (0x2)
 #define NVME_STATUS_TYPE_VENDOR		    (0x7)
 
-struct nvme_request_hub {
-	struct nvme_request **req_slot;
+struct nvme_subm_slot {
+	struct nvme_subm_slot *next;
 
 	struct nvme_request *queuing_h_reqs;
 	struct nvme_request *queuing_h_reqs_tail;
@@ -269,10 +269,17 @@ struct nvme_request_hub {
 	struct nvme_request *queuing_g_reqs;
 	struct nvme_request *queuing_g_reqs_tail;
 
-	struct nvme_queue_info *h_subm_queue_info; /* Ref only */
-	struct nvme_queue_info *g_comp_queue_info; /* Ref only */
+	struct nvme_request **req_slot;
 
 	uint n_slots_used;
+	uint n_slots;
+
+	u16 subm_queue_id;
+};
+#define NVME_SUBM_SLOT_NBYTES (sizeof (struct nvme_subm_slot))
+
+struct nvme_request_hub {
+	struct nvme_subm_slot *subm_slots;
 
 	uint n_waiting_h_reqs;
 	uint n_waiting_g_reqs;
@@ -325,6 +332,8 @@ struct nvme_request {
 };
 #define NVME_REQUEST_NBYTES (sizeof (struct nvme_request))
 
+#define NVME_NO_PAIRED_COMP_QUEUE_ID (-1)
+
 struct nvme_queue_info {
 	phys_t queue_phys;
 
@@ -334,20 +343,18 @@ struct nvme_queue_info {
 		struct nvme_comp *comp;
 	} queue;
 
-	uint   n_entries;
-	uint   entry_nbytes;
+	struct nvme_subm_slot *subm_slot; /* Ref only */
+
+	uint n_entries;
+	uint entry_nbytes;
+
+	int paired_comp_queue_id; /* Only for submission queue */
 
 	union {
 		u16 value;
 		u16 tail;
 		u16 head;
-	} new_pos;
-
-	union {
-		u16 value;
-		u16 tail;
-		u16 head;
-	} cur_pos;
+	} new_pos, cur_pos;
 
 	u8 phase; /* Only for completion queue */
 	u8 lock;
@@ -465,15 +472,35 @@ void nvme_set_max_n_queues (struct nvme_host *host,
 			    u16 max_n_subm_queues,
 			    u16 max_n_comp_queues);
 
-void nvme_register_request (struct nvme_request_hub *hub,
-			    struct nvme_request *reqs);
+void nvme_init_queue_info (struct nvme_queue_info *h_queue_info,
+			   struct nvme_queue_info *g_queue_info,
+			   uint page_nbytes,
+			   u16 h_queue_n_entries,
+			   u16 g_queue_n_entries,
+			   uint entry_nbytes,
+			   phys_t g_queue_phys,
+			   uint map_flag);
+
+struct nvme_subm_slot * nvme_get_subm_slot (struct nvme_host *host,
+					    u16 subm_queue_id);
+
+void nvme_register_request (struct nvme_host *host,
+			    struct nvme_request *reqs,
+			    u16 subm_queue_id);
 
 void nvme_submit_queuing_requests (struct nvme_host *host, u16 queue_id);
 
 void nvme_free_request (struct nvme_request_hub *hub,
 			struct nvme_request *req);
 
-void nvme_free_req_hub (struct nvme_host *host, uint queue_id);
+void nvme_add_subm_slot (struct nvme_host *host,
+			 struct nvme_request_hub *hub,
+			 struct nvme_queue_info *h_subm_queue_info,
+			 struct nvme_queue_info *g_subm_queue_info,
+			 u16 subm_queue_id);
+
+struct nvme_request_hub * nvme_get_request_hub (struct nvme_host *host,
+						u16 subm_queue_id);
 
 void nvme_free_subm_queue_info (struct nvme_host *host, u16 queue_id);
 
