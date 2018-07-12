@@ -419,6 +419,8 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "vmm.panic_reboot");
 	ss (uintnum, &name, &src, &len, "vmm.shell", "vmm.shell");
 	ss (uintnum, &name, &src, &len, "vmm.dbgsh", "vmm.dbgsh");
+	ss (uintnum, &name, &src, &len, "vmm.telnet_dbgsh",
+	    "vmm.telnet_dbgsh");
 	ss (uintnum, &name, &src, &len, "vmm.status", "vmm.status");
 	ss (uintnum, &name, &src, &len, "vmm.boot_active", "vmm.boot_active");
 	ss (uintnum, &name, &src, &len, "vmm.no_intr_intercept",
@@ -589,6 +591,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.panic_reboot);
 	CONF (vmm.shell);
 	CONF (vmm.dbgsh);
+	CONF (vmm.telnet_dbgsh);
 	CONF (vmm.status);
 	CONF (vmm.boot_active);
 	CONF (vmm.no_intr_intercept);

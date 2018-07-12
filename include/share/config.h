@@ -226,6 +226,7 @@ struct config_data_vmm {
 	int panic_reboot;
 	int shell;
 	int dbgsh;
+	int telnet_dbgsh;
 	int status;
 	int boot_active;
 	int no_intr_intercept;

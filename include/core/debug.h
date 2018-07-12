@@ -27,20 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_DEBUG_H
-#define _CORE_DEBUG_H
+#ifndef __CORE_DEBUG_H
+#define __CORE_DEBUG_H
 
-#include <core/debug.h>
-
-#ifdef DEBUG_GDB
-#	ifdef __x86_64__
-#		error DEBUG_GDB is not supported on 64bit
-#	endif
-#endif
-
-void debug_msgregister (void);
-void debug_msgunregister (void);
-void debug_gdb (void);
-void debug_iohook (void);
+void debug_shell (int ttyin, int ttyout);
 
 #endif

@@ -38,11 +38,14 @@
 #include "printf.h"
 #include "process.h"
 #include "serial.h"
+#include "spinlock.h"
 #include "string.h"
 #include "types.h"
 #include "vmmerr.h"
 
 static int memdump, memfree;
+static spinlock_t debug_msglock = SPINLOCK_INITIALIZER;
+static int debug_msglock_count;
 
 enum memdump_type {
 	MEMDUMP_GPHYS,
@@ -234,13 +237,46 @@ debug_iohook (void)
 void
 debug_msgregister (void)
 {
-	memdump = msgregister ("memdump", memdump_msghandler);
-	memfree = msgregister ("free", memfree_msghandler);
+	int reg = 0;
+
+	/* No need to hurry msgregister because these are used by
+	 * debug process.  Call msgregister after unlock to avoid
+	 * panic loop in the msgregister function. */
+
+	spinlock_lock (&debug_msglock);
+	if (!debug_msglock_count++)
+		reg = 1;
+	spinlock_unlock (&debug_msglock);
+	if (reg) {
+		memdump = msgregister ("memdump", memdump_msghandler);
+		memfree = msgregister ("free", memfree_msghandler);
+	}
 }
 
 void
 debug_msgunregister (void)
 {
-	msgunregister (memdump);
-	msgunregister (memfree);
+	spinlock_lock (&debug_msglock);
+	if (!--debug_msglock_count) {
+		msgunregister (memdump);
+		msgunregister (memfree);
+	}
+	spinlock_unlock (&debug_msglock);
+}
+
+void
+debug_shell (int ttyin, int ttyout)
+{
+	int shell;
+
+	debug_msgregister ();
+	shell = newprocess ("shell");
+	if (ttyin < 0 || ttyout < 0 || shell < 0)
+		panic ("debug_shell start failed (%d,%d,%d)",
+		       ttyin, ttyout, shell);
+	msgsenddesc (shell, ttyin);
+	msgsenddesc (shell, ttyout);
+	msgsendint (shell, 0);
+	msgclose (shell);
+	debug_msgunregister ();
 }

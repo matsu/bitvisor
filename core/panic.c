@@ -400,6 +400,7 @@ call_panic_shell (void)
 {
 	int d;
 	static bool flag_free = false, flag_shell = false;
+	static bool flag_telnet = false;
 	ulong cr0;
 
 	if (config.vmm.panic_reboot) {
@@ -421,6 +422,12 @@ call_panic_shell (void)
 	d = panic_process;
 	if (d >= 0 && config.vmm.shell && !flag_shell &&
 	    currentcpu->panic.shell_ready) {
+		if (config.vmm.telnet_dbgsh && !flag_telnet) {
+			flag_telnet = true;
+			printf ("telnet mode\n");
+			for (;;)
+				schedule ();
+		}
 		flag_shell = true;
 		debug_msgregister ();
 		ttylog_stop ();

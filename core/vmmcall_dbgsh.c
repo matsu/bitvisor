@@ -91,21 +91,14 @@ dbgsh_ttyout_msghandler (int m, int c)
 static void
 dbgsh_thread (void *arg)
 {
-	int shell, ttyin, ttyout;
+	int ttyin, ttyout;
 
 	msgregister ("dbgsh_ttyin", dbgsh_ttyin_msghandler);
 	msgregister ("dbgsh_ttyout", dbgsh_ttyout_msghandler);
-	debug_msgregister ();
 	ttyin = msgopen ("dbgsh_ttyin");
 	ttyout = msgopen ("dbgsh_ttyout");
 	for (;;) {
-		shell = newprocess ("shell");
-		if (ttyin < 0 || ttyout < 0 || shell < 0)
-			panic ("dbgsh_thread");
-		msgsenddesc (shell, ttyin);
-		msgsenddesc (shell, ttyout);
-		msgsendint (shell, 0);
-		msgclose (shell);
+		debug_shell (ttyin, ttyout);
 		dbgsh_send_to_guest (0x100 | '\n');
 		schedule ();
 	}

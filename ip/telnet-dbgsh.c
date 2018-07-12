@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2014 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,20 +28,75 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_DEBUG_H
-#define _CORE_DEBUG_H
-
+#include <core/config.h>
 #include <core/debug.h>
+#include <core/initfunc.h>
+#include <core/panic.h>
+#include <core/printf.h>
+#include <core/process.h>
+#include <core/thread.h>
+#include "telnet-server.h"
 
-#ifdef DEBUG_GDB
-#	ifdef __x86_64__
-#		error DEBUG_GDB is not supported on 64bit
-#	endif
-#endif
+static int
+telnet_dbgsh_ttyin_msghandler (int m, int c)
+{
+	int tmp;
+	static int cr;
 
-void debug_msgregister (void);
-void debug_msgunregister (void);
-void debug_gdb (void);
-void debug_iohook (void);
+	if (m == 0) {
+		for (;;) {
+			tmp = telnet_server_input ();
+			if (tmp == '\n' && cr) {
+				cr = 0;
+			} else if (tmp >= 0) {
+				if (tmp == '\r')
+					cr = 1;
+				else
+					cr = 0;
+				return tmp;
+			}
+			schedule ();
+		}
+	}
+	return 0;
+}
 
-#endif
+static int
+telnet_dbgsh_ttyout_msghandler (int m, int c)
+{
+	if (m == 0) {
+		if (c <= 0 || c > 0x100)
+			c = 0x100;
+		if (c == '\n')
+			telnet_server_output ('\r');
+		telnet_server_output (c);
+	}
+	return 0;
+}
+
+static void
+telnet_dbgsh_thread (void *arg)
+{
+	int ttyin, ttyout;
+
+	msgregister ("telnet_dbgsh_i", telnet_dbgsh_ttyin_msghandler);
+	msgregister ("telnet_dbgsh_o", telnet_dbgsh_ttyout_msghandler);
+	ttyin = msgopen ("telnet_dbgsh_i");
+	ttyout = msgopen ("telnet_dbgsh_o");
+	for (;;) {
+		debug_shell (ttyin, ttyout);
+		telnet_server_output (-1);
+		schedule ();
+	}
+}
+
+static void
+telnet_dbgsh_init (void)
+{
+	if (config.vmm.telnet_dbgsh) {
+		telnet_server_init ("dbgsh");
+		thread_new (telnet_dbgsh_thread, NULL, VMM_STACKSIZE);
+	}
+}
+
+INITFUNC ("driver2", telnet_dbgsh_init);
