@@ -15,38 +15,32 @@ all : dbgsh-a.efi dbgsh-i.efi
 
 .PHONY : clean
 clean :
-	$(RM) dbgsh-a.dll dbgsh-i.dll dbgsh-a.efi dbgsh-i.efi
+	$(RM) dbgsh-a.efi dbgsh-i.efi
 
-dbgsh-a.efi : dbgsh-a.dll
-	(dd bs=1 count=220 && echo && dd bs=1 count=1 of=/dev/null && cat) \
-		< dbgsh-a.dll > dbgsh-a.efi
-
-dbgsh-i.efi : dbgsh-i.dll
-	(dd bs=1 count=220 && echo && dd bs=1 count=1 of=/dev/null && cat) \
-		< dbgsh-i.dll > dbgsh-i.efi
-
-dbgsh-a.dll : dbgsh-uefi.c
+dbgsh-a.efi : dbgsh-uefi.c
 	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
 		-mno-red-zone -mno-sse -nostdinc -s -O \
 		-ffreestanding -fno-builtin -fno-stack-protector \
 		-fno-strict-aliasing \
+		-Wl,--subsystem,10 \
 		-I. \
 		-I$(EDK_DIR)/Foundation/Efi/Include/ \
 		-I$(EDK_DIR)/Foundation/Framework/Include/ \
 		-I$(EDK_DIR)/Foundation/Include/ \
 		-I$(EDK_DIR)/Foundation/Efi/ \
 		-DVMMCALL=\"vmmcall\" \
-		-o dbgsh-a.dll dbgsh-uefi.c
+		-o dbgsh-a.efi dbgsh-uefi.c
 
-dbgsh-i.dll : dbgsh-uefi.c
+dbgsh-i.efi : dbgsh-uefi.c
 	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
 		-mno-red-zone -mno-sse -nostdinc -s -O \
 		-ffreestanding -fno-builtin -fno-stack-protector \
 		-fno-strict-aliasing \
+		-Wl,--subsystem,10 \
 		-I. \
 		-I$(EDK_DIR)/Foundation/Efi/Include/ \
 		-I$(EDK_DIR)/Foundation/Framework/Include/ \
 		-I$(EDK_DIR)/Foundation/Include/ \
 		-I$(EDK_DIR)/Foundation/Efi/ \
 		-DVMMCALL=\"vmcall\" \
-		-o dbgsh-i.dll dbgsh-uefi.c
+		-o dbgsh-i.efi dbgsh-uefi.c
