@@ -363,7 +363,9 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 		td->special = 0;
 		t = nt;
 	}
-	*tail = t;
+	volatile u32 *status = (void *)(u8 *)d2->d1[0].map + 0x8;
+	if (*status & 0x2)	/* link up indication */
+		*tail = t;
 }
 
 static void
