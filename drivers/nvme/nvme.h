@@ -401,10 +401,13 @@ struct nvme_host {
 	struct nvme_queue g_queue;
 
 	struct nvme_regs *regs;
+	struct nvme_regs *msix_regs;
 
 	struct nvme_ns_meta *ns_metas;
 
 	struct nvme_io_interceptor *io_interceptor;
+
+	phys_t msix_vector_base;
 
 	u64 max_data_transfer;
 
@@ -428,7 +431,9 @@ struct nvme_host {
 	u16 device_id;
 	u16 max_n_entries;
 	u16 queue_to_fetch; /* Used in process_all_comp_queues() */
+	u16 msix_n_vectors;
 
+	u8 msix_bar;
 	u8 db_stride;
 	u8 cmd_set;
 	u8 enable;
@@ -443,13 +448,12 @@ struct nvme_host {
 
 #define NVME_VENDOR_ID_APPLE (0x106B)
 #define NVME_VENDOR_ID_TOSHIBA (0x1179)
-#define NVME_VENDOR_ID_SAMSUNG (0x144D)
 
 #define NVME_DEV_TOSHIBA_0115 (0x0115)
-#define NVME_DEV_SAMSUNG_A808 (0xA808)
 
 struct nvme_data {
 	void *handler;
+	void *msix_handler;
 	struct nvme_host *host;
 
 	u8 enabled;
