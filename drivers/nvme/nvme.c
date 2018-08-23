@@ -228,7 +228,7 @@ init_admin_queue (struct nvme_host *host)
 }
 
 static void
-reset_controller (struct nvme_host *host)
+do_reset_controller (struct nvme_host *host)
 {
 	printf ("Controller reset occurs\n");
 
@@ -262,6 +262,24 @@ reset_controller (struct nvme_host *host)
 	}
 
 	host->n_ns = 0;
+}
+
+static void
+reset_controller (struct nvme_host *host)
+{
+	host->io_ready = 0;
+	wait_for_interceptor (host);
+	spinlock_lock (&host->lock);
+	host->enable = 0;
+	while (host->handling_comp) {
+		dprintf (NVME_ETC_DEBUG,
+			 "Wait for completion handler for reset\n");
+		spinlock_unlock (&host->lock);
+		schedule ();
+		spinlock_lock (&host->lock);
+	}
+	do_reset_controller (host);
+	spinlock_unlock (&host->lock);
 }
 
 static void
@@ -319,12 +337,7 @@ nvme_cc_reg_write (void *data,
 end:
 	if (host->enable &&
 	    (!NVME_CC_GET_ENABLE (value) || NVME_CC_GET_SHN (value))) {
-		host->io_ready = 0;
-		wait_for_interceptor (host);
-		spinlock_lock (&host->lock);
-		host->enable = 0;
 		reset_controller (host);
-		spinlock_unlock (&host->lock);
 		dprintf (NVME_ETC_DEBUG, "NVMe has been disabled\n");
 	} else if (!host->enable && NVME_CC_GET_ENABLE (value)) {
 		spinlock_lock (&host->lock);
@@ -704,7 +717,19 @@ intercept_db_write (struct nvme_host *host, uint idx, void *buf, uint len)
 		u16 g_new_tail = write_value & NVME_DB_REG_MASK;
 
 		update_new_tail_pos (host, queue_id, g_new_tail);
-		nvme_try_process_requests (host, queue_id);
+		/*
+		 * Postpone processing Admin commands if a completion handler
+		 * is running. This is to prevent unexpected errors when
+		 * the guest wants to delete a queue.
+		 */
+		if (queue_id != 0) {
+			nvme_try_process_requests (host, queue_id);
+		} else {
+			spinlock_lock (&host->lock);
+			if (!host->handling_comp)
+				nvme_try_process_requests (host, queue_id);
+			spinlock_unlock (&host->lock);
+		}
 		nvme_unlock_subm_queue (host, queue_id);
 		try_polling_for_completeness (host, queue_id);
 	} else {
@@ -858,15 +883,8 @@ nvme_reg_handler (void *data,
 		if (!wr) {
 			memcpy (buf, NVME_NSSRC_REG (nvme_regs), len);
 		} else {
-			if (TO_U32 (buf) == NVME_NSSRC_MAGIC) {
-				host->io_ready = 0;
-				wait_for_interceptor (host);
-				spinlock_lock (&host->lock);
-				host->enable = 0;
+			if (TO_U32 (buf) == NVME_NSSRC_MAGIC)
 				reset_controller (host);
-				spinlock_unlock (&host->lock);
-			}
-
 			memcpy (NVME_NSSRC_REG (nvme_regs), buf, len);
 		}
 

@@ -417,6 +417,7 @@ struct nvme_host {
 	u32 g_admin_comp_n_entries;
 
 	uint id;
+	uint handling_comp;
 
 	u32 n_ns;
 	u32 page_nbytes;
