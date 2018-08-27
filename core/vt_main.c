@@ -194,7 +194,13 @@ static void
 vt_nmi_has_come (void)
 {
 	ulong is, proc_based_vmexec_ctl;
+	struct vt_intr_data *vid = &current->u.vt.intr;
 
+	/* If the vmcs_intr_info is set to NMI, NMI will be generated
+	 * soon. */
+	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID &&
+	    vid->vmcs_intr_info.s.type == INTR_INFO_TYPE_NMI)
+		return;
 	/* If blocking by NMI bit is set, the NMI will not be
 	 * generated since an NMI handler in the guest operating
 	 * system is running. */
@@ -207,9 +213,10 @@ vt_nmi_has_come (void)
 	if (proc_based_vmexec_ctl & VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT)
 		return;
 	/* If blocking by STI bit and blocking by MOV SS bit are not
-	   set, generate NMI now. */
+	   set and no injection exists, generate NMI now. */
 	if (!(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_STI_BIT) &&
-	    !(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT)) {
+	    !(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT) &&
+	    vid->vmcs_intr_info.s.valid != INTR_INFO_VALID_VALID) {
 		vt_generate_nmi ();
 		return;
 	}
@@ -360,10 +367,6 @@ do_nmi_window (void)
 static void
 vt__nmi (void)
 {
-	struct vt_intr_data *vid = &current->u.vt.intr;
-
-	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID)
-		return;
 	if (!current->nmi.get_nmi_count ())
 		return;
 	vt_nmi_has_come ();
