@@ -65,6 +65,7 @@ enum vt__status {
 	VT__VMENTRY_SUCCESS,
 	VT__VMENTRY_FAILED,
 	VT__VMEXIT,
+	VT__NMI,
 };
 
 static u32 stat_intcnt = 0;
@@ -391,26 +392,38 @@ vt__event_delivery_setup (void)
 static enum vt__status
 call_vt__vmlaunch (void)
 {
-	if (asm_vmlaunch_regs (&current->u.vt.vr))
+	switch (asm_vmlaunch_regs (&current->u.vt.vr)) {
+	case 0:
+		return VT__VMEXIT;
+	case 1:
+		return VT__NMI;
+	default:
 		return VT__VMENTRY_FAILED;
-	return VT__VMEXIT;
+	}
 }
 
 static enum vt__status
 call_vt__vmresume (void)
 {
-	if (asm_vmresume_regs (&current->u.vt.vr))
+	switch (asm_vmresume_regs (&current->u.vt.vr)) {
+	case 0:
+		return VT__VMEXIT;
+	case 1:
+		return VT__NMI;
+	default:
 		return VT__VMENTRY_FAILED;
-	return VT__VMEXIT;
+	}
 }
 
-static void
+static bool
 vt__vm_run_first (void)
 {
 	enum vt__status status;
 	ulong errnum;
 
 	status = call_vt__vmlaunch ();
+	if (status == VT__NMI)
+		return true;
 	if (status != VT__VMEXIT) {
 		asm_vmread (VMCS_VM_INSTRUCTION_ERR, &errnum);
 		if (status == VT__VMENTRY_FAILED)
@@ -419,18 +432,20 @@ vt__vm_run_first (void)
 		else
 			panic ("Fatal error: Strange status.");
 	}
+	return false;
 }
 
-static void
+static bool
 vt__vm_run (void)
 {
 	enum vt__status status;
 	ulong errnum;
+	bool ret;
 
 	if (current->u.vt.first) {
-		vt__vm_run_first ();
+		ret = vt__vm_run_first ();
 		current->u.vt.first = false;
-		return;
+		return ret;
 	}
 	if (current->u.vt.exint_update)
 		vt_update_exint ();
@@ -439,6 +454,8 @@ vt__vm_run (void)
 	status = call_vt__vmresume ();
 	if (current->u.vt.saved_vmcs)
 		spinlock_lock (&currentcpu->suspend_lock);
+	if (status == VT__NMI)
+		return true;
 	if (status != VT__VMEXIT) {
 		asm_vmread (VMCS_VM_INSTRUCTION_ERR, &errnum);
 		if (status == VT__VMENTRY_FAILED)
@@ -447,21 +464,24 @@ vt__vm_run (void)
 		else
 			panic ("Fatal error: Strange status.");
 	}
+	return false;
 }
 
 /* FIXME: bad handling of TF bit */
-static void
+static bool
 vt__vm_run_with_tf (void)
 {
 	ulong rflags;
+	bool ret;
 
 	vt_read_flags (&rflags);
 	rflags |= RFLAGS_TF_BIT;
 	vt_write_flags (rflags);
-	vt__vm_run ();
+	ret = vt__vm_run ();
 	vt_read_flags (&rflags);
 	rflags &= ~RFLAGS_TF_BIT;
 	vt_write_flags (rflags);
+	return ret;
 }
 
 static void
@@ -1027,6 +1047,7 @@ vt_mainloop (void)
 	enum vmmerr err;
 	ulong cr0, acr;
 	u64 efer;
+	bool nmi;
 
 	for (;;) {
 		schedule ();
@@ -1095,18 +1116,22 @@ vt_mainloop (void)
 			vt__nmi ();
 			vt__event_delivery_setup ();
 			vt_msr_own_process_msrs ();
-			vt__vm_run_with_tf ();
+			nmi = vt__vm_run_with_tf ();
 			vt_paging_tlbflush ();
-			vt__event_delivery_check ();
-			vt__exit_reason ();
+			if (!nmi) {
+				vt__event_delivery_check ();
+				vt__exit_reason ();
+			}
 		} else {	/* not switching */
 			vt__nmi ();
 			vt__event_delivery_setup ();
 			vt_msr_own_process_msrs ();
-			vt__vm_run ();
+			nmi = vt__vm_run ();
 			vt_paging_tlbflush ();
-			vt__event_delivery_check ();
-			vt__exit_reason ();
+			if (!nmi) {
+				vt__event_delivery_check ();
+				vt__exit_reason ();
+			}
 		}
 	}
 }

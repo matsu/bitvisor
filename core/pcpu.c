@@ -44,6 +44,7 @@ DEFINE_GS_OFFSET (gs_syscallstack, 16);
 DEFINE_GS_OFFSET (gs_current, 24);
 DEFINE_GS_OFFSET (gs_nmi_count, 32);
 DEFINE_GS_OFFSET (gs_init_count, 40);
+DEFINE_GS_OFFSET (gs_nmi_critical, 48);
 
 static struct pcpu *pcpu_list_head;
 static spinlock_t pcpu_list_lock;

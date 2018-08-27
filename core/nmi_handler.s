@@ -43,6 +43,22 @@ nmi_handler:
 	push	$SEG_SEL_PCPU64
 	pop	%gs
 	incl	%gs:gs_nmi_count
+	cmpq	$0,%gs:gs_nmi_critical
+	je	1f
+	push	%rax
+	push	%rbx
+	mov	%gs:gs_nmi_critical,%rbx
+	mov	8*3(%rsp),%rax
+	cmp	%rax,(%rbx)
+	ja	2f
+	cmp	%rax,8(%rbx)
+	jbe	2f
+	mov	16(%rbx),%rax
+	mov	%rax,8*3(%rsp)
+2:
+	pop	%rbx
+	pop	%rax
+1:
 	pop	%gs
 	iretq
 .else
@@ -53,6 +69,22 @@ nmi_handler:
 	push	$SEG_SEL_PCPU32
 	pop	%gs
 	incl	%gs:gs_nmi_count
+	cmpl	$0,%gs:gs_nmi_critical
+	je	1f
+	push	%eax
+	push	%ebx
+	mov	%gs:gs_nmi_critical,%ebx
+	mov	4*3(%esp),%eax
+	cmp	%eax,(%ebx)
+	ja	2f
+	cmp	%eax,4(%ebx)
+	jbe	2f
+	mov	8(%ebx),%eax
+	mov	%eax,4*3(%esp)
+2:
+	pop	%ebx
+	pop	%eax
+1:
 	pop	%gs
 	iretl
 .endif

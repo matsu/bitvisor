@@ -85,6 +85,7 @@ struct pcpu_gs {
 	void *current PCPU_GS_ALIGN;	/* %gs:24 (current.h) */
 	u64 nmi_count;		/* %gs:32 (nmi.c, nmi_handler.s) */
 	u64 init_count;		/* %gs:40 (initipi_pass.c, sx_handler.s) */
+	void *nmi_critical PCPU_GS_ALIGN; /* %gs:48 (asm.s, nmi_handler.s) */
 };
 
 extern struct pcpu pcpu_default;

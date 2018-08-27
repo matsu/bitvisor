@@ -27,6 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+	.include "longmode.h"
+	.text
+
 	RAX = 0
 	RCX = 1
 	RDX = 2
@@ -46,6 +49,7 @@
 	VMCS_HOST_RSP = 0x6C14
 	VMCS_HOST_RIP = 0x6C16
 
+.if !longmode
 	.code32
 	.globl	asm_vmlaunch_regs_32
 	.align	16
@@ -57,6 +61,10 @@ asm_vmlaunch_regs_32:
 	mov	20(%esp),%edi	# arg1
 	push	%edi
 	sub	$4,%esp
+	movl	$3f,%gs:gs_nmi_critical
+	cmpl	$0,%gs:gs_nmi_count
+5:
+	jne	4f
 	mov	$VMCS_HOST_RSP,%eax
 	mov	%esp,%edx
 	vmwrite	%edx,%eax
@@ -73,11 +81,22 @@ asm_vmlaunch_regs_32:
 	mov	4*RSI(%edi),%esi
 	mov	4*RDI(%edi),%edi
 	vmlaunch
+6:
 	xor	%eax,%eax
 	dec	%eax
 	add	$4,%esp
 	pop	%edi
 	jmp	2f
+4:
+	xor	%eax,%eax
+	inc	%eax
+	add	$4,%esp
+	pop	%edi
+	jmp	2f
+3:
+	.long	5b
+	.long	6b
+	.long	4b
 	.align	16
 1:
 	mov	%edi,(%esp)
@@ -94,6 +113,7 @@ asm_vmlaunch_regs_32:
 	mov	%eax,4*CR2(%edi)
 	xor	%eax,%eax
 2:
+	movl	$0,%gs:gs_nmi_critical
 	pop	%edi
 	pop	%esi
 	pop	%ebx
@@ -109,6 +129,10 @@ asm_vmresume_regs_32:
 	mov	20(%esp),%edi	# arg1
 	push	%edi
 	sub	$4,%esp
+	movl	$3f,%gs:gs_nmi_critical
+	cmpl	$0,%gs:gs_nmi_count
+5:
+	jne	4f
 	mov	$VMCS_HOST_RSP,%eax
 	mov	%esp,%edx
 	vmwrite	%edx,%eax
@@ -125,11 +149,22 @@ asm_vmresume_regs_32:
 	mov	4*RSI(%edi),%esi
 	mov	4*RDI(%edi),%edi
 	vmresume
+6:
 	xor	%eax,%eax
 	dec	%eax
 	add	$4,%esp
 	pop	%edi
 	jmp	2f
+4:
+	xor	%eax,%eax
+	inc	%eax
+	add	$4,%esp
+	pop	%edi
+	jmp	2f
+3:
+	.long	5b
+	.long	6b
+	.long	4b
 	.align	16
 1:
 	mov	%edi,(%esp)
@@ -146,6 +181,7 @@ asm_vmresume_regs_32:
 	mov	%eax,4*CR2(%edi)
 	xor	%eax,%eax
 2:
+	movl	$0,%gs:gs_nmi_critical
 	pop	%edi
 	pop	%esi
 	pop	%ebx
@@ -230,6 +266,7 @@ asm_vmrun_regs_nested_32:
 	pop	%ebx
 	pop	%ebp
 	ret
+.else
 	.code64
 	.globl	asm_vmlaunch_regs_64
 	.align	16
@@ -242,6 +279,10 @@ asm_vmlaunch_regs_64:
 	push	%r15
 	push	%rdi		# arg1
 	sub	$8,%rsp
+	movq	$3f,%gs:gs_nmi_critical
+	cmpl	$0,%gs:gs_nmi_count
+5:
+	jne	4f
 	mov	$VMCS_HOST_RSP,%rax
 	mov	%rsp,%rdx
 	vmwrite	%rdx,%rax
@@ -266,11 +307,22 @@ asm_vmlaunch_regs_64:
 	mov	8*RSI(%rdi),%rsi
 	mov	8*RDI(%rdi),%rdi
 	vmlaunch
+6:
 	xor	%rax,%rax
 	dec	%rax
 	add	$8,%rsp
 	pop	%rdi
 	jmp	2f
+4:
+	xor	%rax,%rax
+	inc	%rax
+	add	$8,%rsp
+	pop	%rdi
+	jmp	2f
+3:
+	.quad	5b
+	.quad	6b
+	.quad	4b
 	.align	16
 1:
 	mov	%rdi,(%rsp)
@@ -295,6 +347,7 @@ asm_vmlaunch_regs_64:
 	mov	%r15,8*R15(%rdi)
 	xor	%rax,%rax
 2:
+	movq	$0,%gs:gs_nmi_critical
 	pop	%r15
 	pop	%r14
 	pop	%r13
@@ -313,6 +366,10 @@ asm_vmresume_regs_64:
 	push	%r15
 	push	%rdi		# arg1
 	sub	$8,%rsp
+	movq	$3f,%gs:gs_nmi_critical
+	cmpl	$0,%gs:gs_nmi_count
+5:
+	jne	4f
 	mov	$VMCS_HOST_RSP,%rax
 	mov	%rsp,%rdx
 	vmwrite	%rdx,%rax
@@ -337,11 +394,22 @@ asm_vmresume_regs_64:
 	mov	8*RSI(%rdi),%rsi
 	mov	8*RDI(%rdi),%rdi
 	vmresume
+6:
 	xor	%rax,%rax
 	dec	%rax
 	add	$8,%rsp
 	pop	%rdi
 	jmp	2f
+4:
+	xor	%rax,%rax
+	inc	%rax
+	add	$8,%rsp
+	pop	%rdi
+	jmp	2f
+3:
+	.quad	5b
+	.quad	6b
+	.quad	4b
 	.align	16
 1:
 	mov	%rdi,(%rsp)
@@ -366,6 +434,7 @@ asm_vmresume_regs_64:
 	mov	%r15,8*R15(%rdi)
 	xor	%rax,%rax
 2:
+	movq	$0,%gs:gs_nmi_critical
 	pop	%r15
 	pop	%r14
 	pop	%r13
@@ -499,3 +568,4 @@ asm_vmrun_regs_nested_64:
 	pop	%rbx
 	pop	%rbp
 	ret
+.endif
