@@ -768,6 +768,7 @@ map_hphys (void)
 static void
 unmap_user_area (void)
 {
+	ulong cr4;
 	void *virt;
 	phys_t phys;
 #ifdef USE_PAE
@@ -791,7 +792,12 @@ unmap_user_area (void)
 	phys = phys2;
 #endif
 #endif
+	/* Disable Page Global temporarily to flush TLBs for process
+	 * space */
+	asm_rdcr4 (&cr4);
+	asm_wrcr4 (cr4 & ~CR4_PGE_BIT);
 	asm_wrcr3 (phys);
+	asm_wrcr4 (cr4);
 	currentcpu->cr3 = phys;
 	/* Free the dummy page */
 	mm_process_free (mm_process_switch (1));
