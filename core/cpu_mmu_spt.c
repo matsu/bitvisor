@@ -2380,22 +2380,10 @@ update_cr3 (void)
 	current->vmctl.read_control_reg (CONTROL_REG_CR3, &cr3);
 	current->vmctl.read_control_reg (CONTROL_REG_CR4, &cr4);
 	current->vmctl.read_msr (MSR_IA32_EFER, &efer);
-	if (cr0 != cspt->cr0 || cr3 != cspt->cr3 ||
-	    cr4 != cspt->cr4 || efer != cspt->efer) {
-		cspt->cr0 = cr0;
-		cspt->cr3 = cr3;
-		cspt->cr4 = cr4;
-		cspt->efer = efer;
-	} else {
-		/* fast path */
-		rw_spinlock_lock_sh (&cspt->shadow1_lock);
-		clean_modified_shadow1 (cspt, false);
-		rw_spinlock_unlock_sh (&cspt->shadow1_lock);
-		rw_spinlock_lock_sh (&cspt->shadow2_lock);
-		clean_modified_shadow2 (cspt, false);
-		rw_spinlock_unlock_sh (&cspt->shadow2_lock);
-		return;
-	}
+	cspt->cr0 = cr0;
+	cspt->cr3 = cr3;
+	cspt->cr4 = cr4;
+	cspt->efer = efer;
 #ifdef CPU_MMU_SPT_USE_PAE
 	cspt->levels = guest64 () ? 4 : 3;
 #else
