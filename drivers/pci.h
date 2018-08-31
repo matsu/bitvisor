@@ -119,6 +119,11 @@ struct pci_config_space {
 #define PCI_CONFIG_COMMAND_MEMENABLE	0x2
 #define PCI_CONFIG_COMMAND_BUSMASTER	0x4
 
+#define PCI_CAP_RSVD	0x0
+#define PCI_CAP_MSI	0x5
+#define PCI_CAP_PCIEXP	0x10
+#define PCI_CAP_MSIX	0x11
+
 struct pci_config_mmio_data;
 struct token;
 struct pci_msi;
@@ -232,6 +237,7 @@ struct pci_driver *pci_find_driver_for_device (struct pci_device *device);
 struct pci_driver *pci_find_driver_by_token (struct token *name);
 int pci_driver_option_get_int (char *option, char **e, int base);
 bool pci_driver_option_get_bool (char *option, char **e);
+u8 pci_find_cap_offset (struct pci_device *pci_device, u8 cap_id);
 void pci_dump_pci_dev_list (void);
 struct pci_device *pci_get_bridge_from_bus_no (u8 bus_no);
 void pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge);

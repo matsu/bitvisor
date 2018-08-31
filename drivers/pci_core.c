@@ -1122,13 +1122,31 @@ error:
 	panic ("pci_driver_option_get_bool: invalid value %s", option);
 }
 
+u8
+pci_find_cap_offset (struct pci_device *pci_device, u8 cap_id)
+{
+	u32 val;
+	u8 cap;
+
+	/* Read Capabilities Pointer */
+	pci_config_read (pci_device, &cap, sizeof cap, 0x34);
+
+	while (cap >= 0x40) {
+		pci_config_read (pci_device, &val, sizeof val, cap & ~3);
+		if ((val & 0xFF) == cap_id)
+			break;
+		cap = val >> 8; /* Next Capability */
+	}
+
+	return cap < 0x40 ? 0 : cap;
+}
+
 struct pci_msi *
 pci_msi_init (struct pci_device *pci_device,
 	      int (*callback) (void *data, int num), void *data)
 {
 	u32 cmd;
 	u8 cap;
-	u32 capval;
 	int num;
 	struct pci_msi *msi;
 	u32 maddr, mupper;
@@ -1139,13 +1157,9 @@ pci_msi_init (struct pci_device *pci_device,
 	pci_config_read (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
 	if (!(cmd & 0x100000))	/* Capabilities */
 		return NULL;
-	pci_config_read (pci_device, &cap, sizeof cap, 0x34); /* CAP */
-	while (cap >= 0x40) {
-		pci_config_read (pci_device, &capval, sizeof capval, cap);
-		if ((capval & 0xFF) == 0x05)
-			goto found;
-		cap = capval >> 8;
-	}
+	cap = pci_find_cap_offset (pci_device, PCI_CAP_MSI);
+	if (cap)
+		goto found;
 	return NULL;
 found:
 	num = exint_pass_intr_alloc (callback, data);
