@@ -1105,25 +1105,6 @@ nvme_enable_dma_and_memory (struct pci_device *pci_device)
 		pci_config_write (pci_device, &command, sizeof (u32), 4);
 }
 
-static u8
-find_msix (struct pci_device *pci_device)
-{
-	u32 val;
-	u8 cap;
-
-	/* Read Capabilities Pointer */
-	pci_config_read (pci_device, &cap, sizeof cap, 0x34);
-
-	while (cap >= 0x40) {
-		pci_config_read (pci_device, &val, sizeof val, cap & ~3);
-		if ((val & 0xFF) == 0x11)
-			break;
-		cap = val >> 8; /* Next Capability */
-	}
-
-	return cap < 0x40 ? 0 : cap;
-}
-
 static int
 waiting_quirk (struct nvme_host *host)
 {
@@ -1171,7 +1152,7 @@ nvme_new (struct pci_device *pci_device)
 	nvme_data->enabled = 0;
 	nvme_data->host = host;
 
-	u8 msix_offset = find_msix (pci_device);
+	u8 msix_offset = pci_find_cap_offset (pci_device, PCI_CAP_MSIX);
 
 	if (msix_offset) {
 		u32 val, vector_base;
