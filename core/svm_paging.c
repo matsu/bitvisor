@@ -97,6 +97,7 @@ svm_paging_init (void)
 	current->u.svm.vi.vmcb->intercept_exception &= ~0x4000;
 	current->u.svm.vi.vmcb->intercept_read_cr &= ~0x19;
 	current->u.svm.vi.vmcb->intercept_write_cr &= ~0x18;
+	current->u.svm.vi.vmcb->intercept_task_switches = 0;
 	current->u.svm.cr0 = &current->u.svm.vi.vmcb->cr0;
 	current->u.svm.cr3 = &current->u.svm.vi.vmcb->cr3;
 	current->u.svm.cr4 = &current->u.svm.vi.vmcb->cr4;
@@ -109,6 +110,7 @@ svm_paging_init (void)
 		current->u.svm.vi.vmcb->intercept_exception &= ~0x4000;
 		current->u.svm.vi.vmcb->intercept_read_cr &= ~0x19;
 		current->u.svm.vi.vmcb->intercept_write_cr &= ~0x18;
+		current->u.svm.vi.vmcb->intercept_task_switches = 0;
 		asm_rdmsr64 (MSR_IA32_PAT, &current->u.svm.vi.vmcb->g_pat);
 		current->u.svm.cr0 = &current->u.svm.vi.vmcb->cr0;
 		current->u.svm.cr3 = &current->u.svm.vi.vmcb->cr3;

@@ -148,6 +148,87 @@ task_switch_load_segdesc (u16 sel, ulong gdtr_base, ulong gdtr_limit,
 		      << (desc.s.g ? 12 : 0)) | (desc.s.g ? 0xFFF : 0);
 }
 
+static ulong
+svm_get_task_switch_len (ulong rip)
+{
+	enum vmmerr err;
+	ulong acr;
+	u64 efer;
+	u8 c, s;
+	bool p66 = false, p67 = false, m32 = false;
+	ulong orig_rip = rip;
+
+	svm_read_msr (MSR_IA32_EFER, &efer);
+	if (efer & MSR_IA32_EFER_LMA_BIT)
+		panic ("Task switch in long mode is not allowed");
+	svm_read_sreg_acr (SREG_CS, &acr);
+	if (acr & ACCESS_RIGHTS_D_B_BIT)
+		m32 = true;
+	for (;;) {
+		err = cpu_seg_read_b (SREG_CS, rip++, &c);
+		if (err) {
+		read_error:
+			panic ("Could not read task switch instruction: %d",
+			       err);
+		}
+		if (c == 0x66) {
+			p66 = true;
+			continue;
+		}
+		if (c == 0x67) {
+			p67 = true;
+			continue;
+		}
+		if (c == 0x26 || c == 0x2E || c == 0x36 || c == 0x3E ||
+		    c == 0x64 || c == 0x65 || c == 0xF2 || c == 0xF3)
+			continue;
+		if (c == 0xCC)	/* INT3 */
+			goto end;
+		if (c == 0xCD) { /* INT */
+			rip++;
+			goto end;
+		}
+		if (c == 0xCE)	/* INTO */
+			goto end;
+		if (c == 0xCF)	/* IRET */
+			goto end;
+		if (c == 0xEA || c == 0x9A) { /* JMP/CALL 1234:5678 */
+			rip += ((m32 && !p66) || (!m32 && p66)) ? 6 : 4;
+			goto end;
+		}
+		if (c == 0xFF)	/* JMP/CALL FAR PTR [1234] */
+			break;
+		panic ("Unsupported opcode %02X in task switch", c);
+	}
+	err = cpu_seg_read_b (SREG_CS, rip++, &c);
+	if (err)
+		goto read_error;
+	if ((c & 0300) == 0300)
+		panic ("Invalid opcode FF %02X:"
+		       " task switch with register operand", c);
+	if ((!m32 && !p67) || (m32 && p67)) {
+		/* 16bit address */
+		rip += (c & 0307) == 06 ? 2 : c >> 6;
+		goto end;
+	}
+	/* 32bit address */
+	if ((c & 07) == 04) {
+		/* SIB byte */
+		if (!(c & 0300)) { /* (c & 0307) == 04 */
+			err = cpu_seg_read_b (SREG_CS, rip++, &s);
+			if (err)
+				goto read_error;
+			if ((s & 07) == 05)
+				c++; /* Now (c & 0307) == 05 */
+		} else {
+			rip++;
+		}
+	}
+	rip += (c & 0300) == 0200 || (c & 0307) == 05 ? 4 : c >> 6;
+end:
+	return rip - orig_rip;
+}
+
 static void
 svm_task_switch (void)
 {
@@ -231,6 +312,12 @@ svm_task_switch (void)
 	svm_read_sreg_sel (SREG_GS, &tmp16); tss32_1.gs = tmp16;
 	tss32_1.eflags = rflags;
 	svm_read_ip (&tmp); tss32_1.eip = tmp;
+	if (!current->u.svm.intr.vmcb_intr_info.s.v ||
+	    (current->u.svm.intr.vmcb_intr_info.s.type ==
+	     VMCB_EVENTINJ_TYPE_EXCEPTION &&
+	     (current->u.svm.intr.vmcb_intr_info.s.vector == 3 ||
+	      current->u.svm.intr.vmcb_intr_info.s.vector == 4)))
+		tss32_1.eip += svm_get_task_switch_len (tmp);
 	r = write_linearaddr_q (gdtr_base + tr_sel, tss1_desc.v);
 	if (r != VMMERR_SUCCESS)
 		goto err;

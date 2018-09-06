@@ -637,7 +637,7 @@ do_task_switch (void)
 		u64 v;
 	} tss1_desc, tss2_desc;
 	struct tss32 tss32_1, tss32_2;
-	ulong rflags, tmp;
+	ulong rflags, tmp, len;
 	u16 tmp16;
 
 	/* FIXME: 16bit TSS */
@@ -699,7 +699,19 @@ do_task_switch (void)
 	vt_read_sreg_sel (SREG_FS, &tmp16); tss32_1.fs = tmp16;
 	vt_read_sreg_sel (SREG_GS, &tmp16); tss32_1.gs = tmp16;
 	tss32_1.eflags = rflags;
-	vt_read_ip (&tmp); tss32_1.eip = tmp;
+	if (eqt.s.src == EXIT_QUAL_TS_SRC_INTR &&
+	    current->u.vt.intr.vmcs_intr_info.s.valid ==
+	    INTR_INFO_VALID_VALID)
+		/* If task switch is initiated by external interrupt,
+		 * NMI or hardware exception, the VM-exit instruction
+		 * length field is undefined.  In case of software
+		 * interrupt or software exception, the valid field is
+		 * set to invalid by the vt__event_delivery_check()
+		 * function. */
+		len = 0;
+	else
+		asm_vmread (VMCS_VMEXIT_INSTRUCTION_LEN, &len);
+	vt_read_ip (&tmp); tss32_1.eip = tmp + len;
 	r = write_linearaddr_q (gdtr_base + tr_sel, tss1_desc.v);
 	if (r != VMMERR_SUCCESS)
 		goto err;
