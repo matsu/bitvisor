@@ -202,21 +202,18 @@ vt_nmi_has_come (void)
 	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID &&
 	    vid->vmcs_intr_info.s.type == INTR_INFO_TYPE_NMI)
 		return;
-	/* If blocking by NMI bit is set, the NMI will not be
-	 * generated since an NMI handler in the guest operating
-	 * system is running. */
-	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
-	if (is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT)
-		return;
 	/* If NMI-window exiting bit is set, VM Exit reason "NMI
 	   window" will generate NMI. */
 	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &proc_based_vmexec_ctl);
 	if (proc_based_vmexec_ctl & VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT)
 		return;
-	/* If blocking by STI bit and blocking by MOV SS bit are not
-	   set and no injection exists, generate NMI now. */
+	/* If blocking by STI bit and blocking by MOV SS bit and
+	   blocking by NMI bit are not set and no injection exists,
+	   generate NMI now. */
+	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
 	if (!(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_STI_BIT) &&
 	    !(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT) &&
+	    !(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT) &&
 	    vid->vmcs_intr_info.s.valid != INTR_INFO_VALID_VALID) {
 		vt_generate_nmi ();
 		return;
@@ -224,7 +221,9 @@ vt_nmi_has_come (void)
 	/* Use NMI-window exiting to get the correct timing to inject
 	 * NMIs.  This is a workaround for a processor that makes a VM
 	 * Entry failure when NMI is injected while blocking by STI
-	 * bit is set. */
+	 * bit is set.  If blocking by NMI bit is set, the next NMI
+	 * will be generated after IRET which makes NMI window VM
+	 * Exit. */
 	proc_based_vmexec_ctl |= VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT;
 	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc_based_vmexec_ctl);
 }
