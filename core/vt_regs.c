@@ -780,6 +780,8 @@ vt_writing_sreg (enum sreg s)
 void
 vt_reset (void)
 {
+	ulong proc_based_vmexec_ctl;
+
 	asm_vmwrite (VMCS_CR0_READ_SHADOW, CR0_ET_BIT);
 	asm_vmwrite (VMCS_GUEST_CR0, vt_paging_apply_fixed_cr0 (CR0_ET_BIT));
 	current->u.vt.vr.cr2 = 0;
@@ -855,4 +857,10 @@ vt_reset (void)
 	vt_paging_updatecr3 ();
 	vt_paging_flush_guest_tlb ();
 	vt_update_exception_bmp ();
+	asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, 0);
+	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
+		     VMCS_GUEST_ACTIVITY_STATE_ACTIVE);
+	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &proc_based_vmexec_ctl);
+	proc_based_vmexec_ctl &= ~VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT;
+	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc_based_vmexec_ctl);
 }

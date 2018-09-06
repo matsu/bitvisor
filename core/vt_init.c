@@ -429,7 +429,8 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_GUEST_LDTR_ACCESS_RIGHTS, guest_riv.ldtr.acr);
 	asm_vmwrite (VMCS_GUEST_TR_ACCESS_RIGHTS, guest_riv.tr.acr);
 	asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, 0);
-	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE, 0);
+	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
+		     VMCS_GUEST_ACTIVITY_STATE_ACTIVE);
 	asm_vmwrite (VMCS_GUEST_IA32_SYSENTER_CS, sysenter_cs);
 	/* 32-Bit Host-State Field */
 	asm_vmwrite (VMCS_HOST_IA32_SYSENTER_CS, sysenter_cs);
