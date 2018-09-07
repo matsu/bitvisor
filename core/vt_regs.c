@@ -863,4 +863,6 @@ vt_reset (void)
 	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &proc_based_vmexec_ctl);
 	proc_based_vmexec_ctl &= ~VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT;
 	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc_based_vmexec_ctl);
+	asm_vmwrite (VMCS_GUEST_DR7, 0x400);
+	asm_vmwrite64 (VMCS_GUEST_IA32_DEBUGCTL, 0);
 }

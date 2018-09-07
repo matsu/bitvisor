@@ -151,6 +151,9 @@ svm_reset (void)
 	svm_msr_update_lma ();
 	svm_paging_updatecr3 ();
 	svm_paging_flush_guest_tlb ();
+	current->u.svm.vi.vmcb->dr7 = 0x400;
+	current->u.svm.vi.vmcb->dr6 = 0xFFFF0FF0;
+	current->u.svm.vi.vmcb->dbgctl = 0;
 }
 
 static void
