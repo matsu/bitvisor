@@ -101,15 +101,16 @@ svm_event_injection_setup (void)
 static bool
 svm_vm_run (void)
 {
-	int nmi;
+	int nmi_or_init;
 
 	if (current->u.svm.saved_vmcb)
 		spinlock_unlock (&currentcpu->suspend_lock);
-	nmi = asm_vmrun_regs (&current->u.svm.vr, current->u.svm.vi.vmcb_phys,
-			      currentcpu->svm.vmcbhost_phys);
+	nmi_or_init = asm_vmrun_regs (&current->u.svm.vr,
+				      current->u.svm.vi.vmcb_phys,
+				      currentcpu->svm.vmcbhost_phys);
 	if (current->u.svm.saved_vmcb)
 		spinlock_lock (&currentcpu->suspend_lock);
-	return !!nmi;
+	return !!nmi_or_init;
 }
 
 static void
@@ -547,7 +548,7 @@ do_stgi (void)
 static void
 do_vmrun (void)
 {
-	int nmi;
+	int nmi_or_init;
 	ulong vmcb_phys;
 	struct vmcb *vmcb;
 	enum vmcb_tlb_control orig_tlb_control;
@@ -569,12 +570,13 @@ do_vmrun (void)
 		if (vmcb->tlb_control != VMCB_TLB_CONTROL_FLUSH_TLB)
 			vmcb->tlb_control = svm->vi.vmcb->tlb_control;
 	}
-	nmi = asm_vmrun_regs_nested (&svm->vr, svm->vi.vmcb_phys,
-				     currentcpu->svm.vmcbhost_phys, vmcb_phys,
-				     svm->vi.vmcb->rflags & RFLAGS_IF_BIT);
+	nmi_or_init = asm_vmrun_regs_nested (&svm->vr, svm->vi.vmcb_phys,
+					     currentcpu->svm.vmcbhost_phys,
+					     vmcb_phys, svm->vi.vmcb->rflags &
+					     RFLAGS_IF_BIT);
 	vmcb->tlb_control = orig_tlb_control;
 	unmapmem (vmcb, sizeof *vmcb);
-	if (nmi)
+	if (nmi_or_init)
 		svm_nmi ();
 	else
 		svm->vi.vmcb->rip += 3;

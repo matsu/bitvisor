@@ -207,6 +207,8 @@ asm_vmrun_regs_32:
 	clgi
 	cmpl	$0,%gs:gs_nmi_count
 	jne	2f
+	cmpl	$0,%gs:gs_init_count
+	jne	2f
 	vmload
 	vmrun
 	vmsave
@@ -251,6 +253,8 @@ asm_vmrun_regs_nested_32:
 	mov	24(%esp),%eax	# arg2
 	clgi
 	cmpl	$0,%gs:gs_nmi_count
+	jne	2f
+	cmpl	$0,%gs:gs_init_count
 	jne	2f
 	vmload
 	mov	32(%esp),%eax	# arg4
@@ -492,6 +496,8 @@ asm_vmrun_regs_64:
 	clgi
 	cmpl	$0,%gs:gs_nmi_count
 	jne	2f
+	cmpl	$0,%gs:gs_init_count
+	jne	2f
 	vmload
 	vmrun
 	vmsave
@@ -562,6 +568,8 @@ asm_vmrun_regs_nested_64:
 	mov	8*RDI(%rdi),%rdi
 	clgi
 	cmpl	$0,%gs:gs_nmi_count
+	jne	2f
+	cmpl	$0,%gs:gs_init_count
 	jne	2f
 	vmload
 	pop	%rax		# arg5
