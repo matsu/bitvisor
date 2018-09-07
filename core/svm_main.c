@@ -48,23 +48,45 @@
 #include "vmmerr.h"
 #include "vmmcall.h"
 
-static void
+static bool
 svm_nmi (void)
 {
 	struct svm *svm;
 
 	svm = &current->u.svm;
-	if (svm->intr.vmcb_intr_info.s.v)
-		return;
-	if (svm->vi.vmcb->v_intr_masking)
-		return;
-	if (!current->nmi.get_nmi_count ())
-		return;
+	if (!current->nmi.get_nmi_count () && !svm->nmi_pending)
+		return false;
+	if (svm->vi.vmcb->v_intr_masking) {
+		svm->nmi_pending = true;
+		svm->vi.vmcb->intercept_pause = 0;
+		svm->vi.vmcb->intercept_hlt = 0;
+		svm->vi.vmcb->intercept_mwait_uncond = 0;
+		svm->vi.vmcb->intercept_mwait = 0;
+		return false;
+	}
+	if (svm->intr.vmcb_intr_info.s.v) {
+		if (svm->intr.vmcb_intr_info.s.type == VMCB_EVENTINJ_TYPE_NMI)
+			return false;
+		svm->nmi_pending = true;
+		svm->vi.vmcb->intercept_pause = 1;
+		svm->vi.vmcb->intercept_hlt = 1;
+		svm->vi.vmcb->intercept_mwait_uncond = 1;
+		svm->vi.vmcb->intercept_mwait = 1;
+		return false;
+	}
 	svm->intr.vmcb_intr_info.v = 0;
 	svm->intr.vmcb_intr_info.s.vector = EXCEPTION_NMI;
 	svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_NMI;
 	svm->intr.vmcb_intr_info.s.ev = 0;
 	svm->intr.vmcb_intr_info.s.v = 1;
+	if (svm->nmi_pending) {
+		svm->nmi_pending = false;
+		svm->vi.vmcb->intercept_pause = 0;
+		svm->vi.vmcb->intercept_hlt = 0;
+		svm->vi.vmcb->intercept_mwait_uncond = 0;
+		svm->vi.vmcb->intercept_mwait = 0;
+	}
+	return true;
 }
 
 static void
@@ -516,6 +538,7 @@ do_stgi (void)
 {
 	current->u.svm.vi.vmcb->v_intr_masking = 0;
 	current->u.svm.vi.vmcb->rip += 3;
+	svm_nmi ();
 }
 
 static void
@@ -562,6 +585,52 @@ do_invlpga (void)
 	else if (asid != current->u.svm.vi.vmcb->guest_asid)
 		asm_invlpga (address, asid);
 	current->u.svm.vi.vmcb->rip += 3;
+}
+
+static ulong
+svm_get_pause_hlt_or_mwait_nrip (ulong rip)
+{
+	enum vmmerr err;
+	u8 c;
+
+	do {
+		err = cpu_seg_read_b (SREG_CS, rip++, &c);
+		if (err) {
+		read_error:
+			panic ("Could not read hlt or mwait instruction: %d",
+			       err);
+		}
+	} while (c == 0x26 || c == 0x2E || c == 0x36 || c == 0x3E ||
+		 c == 0x64 || c == 0x65 || c == 0xF2 || c == 0xF3 ||
+		 c == 0x66 || c == 0x67); /* Prefix */
+	if (c == 0x90 || c == 0xF4) /* NOP(PAUSE), HLT */
+		return rip;
+	if (c != 0x0F)
+		panic ("Unsupported opcode %02X for hlt or mwait", c);
+	err = cpu_seg_read_b (SREG_CS, rip++, &c);
+	if (err)
+		goto read_error;
+	if (c != 0x01)
+		panic ("Unsupported opcode 0F %02X for hlt or mwait", c);
+	err = cpu_seg_read_b (SREG_CS, rip++, &c);
+	if (err)
+		goto read_error;
+	if (c != 0xC9 && c != 0xFB) /* MWAIT, MWAITX */
+		panic ("Unsupported opcode 0F 01 %02X for hlt or mwait", c);
+	return rip;
+}
+
+static void
+do_pause_hlt_or_mwait (void)
+{
+	struct vmcb *vmcb;
+
+	/* Just skip the instruction for nmi_pending */
+	vmcb = current->u.svm.vi.vmcb;
+	if (currentcpu->svm.nrip_save && vmcb->nrip)
+		vmcb->rip = vmcb->nrip;
+	else
+		vmcb->rip = svm_get_pause_hlt_or_mwait_nrip (vmcb->rip);
 }
 
 static void
@@ -620,6 +689,12 @@ svm_exit_code (void)
 	case VMEXIT_INVLPGA:
 		do_invlpga ();
 		break;
+	case VMEXIT_PAUSE:
+	case VMEXIT_HLT:
+	case VMEXIT_MWAIT:
+	case VMEXIT_MWAIT_CONDITIONAL:
+		do_pause_hlt_or_mwait ();
+		break;
 	default:
 		panic ("unsupported exitcode");
 	}
@@ -664,12 +739,12 @@ svm_mainloop (void)
 		if (current->u.svm.init_signal ||
 		    current->initipi.get_init_count ())
 			svm_wait_for_sipi ();
-		svm_nmi ();
 		svm_event_injection_setup ();
 		svm_vm_run ();
 		svm_tlbflush ();
 		svm_event_injection_check ();
-		svm_exit_code ();
+		if (!svm_nmi ())
+			svm_exit_code ();
 	}
 }
 

@@ -147,6 +147,7 @@ svm_reset (void)
 		current->u.svm.vm_cr |= MSR_AMD_VM_CR_SVMDIS_BIT;
 	current->u.svm.hsave_pa = 0;
 	current->u.svm.lme = 0;
+	current->u.svm.nmi_pending = false;
 	svm_msr_update_lma ();
 	svm_paging_updatecr3 ();
 	svm_paging_flush_guest_tlb ();
