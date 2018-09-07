@@ -90,20 +90,20 @@ asmlinkage int asm_vmlaunch_regs_32 (struct vt_vmentry_regs *p);
 asmlinkage int asm_vmresume_regs_32 (struct vt_vmentry_regs *p);
 asmlinkage int asm_vmlaunch_regs_64 (struct vt_vmentry_regs *p);
 asmlinkage int asm_vmresume_regs_64 (struct vt_vmentry_regs *p);
-asmlinkage void asm_vmrun_regs_32 (struct svm_vmrun_regs *p, ulong vmcb_phys,
-				   ulong vmcbhost_phys);
-asmlinkage void asm_vmrun_regs_64 (struct svm_vmrun_regs *p, ulong vmcb_phys,
-				   ulong vmcbhost_phys);
-asmlinkage void asm_vmrun_regs_nested_32 (struct svm_vmrun_regs *p,
-					  ulong vmcb_phys,
-					  ulong vmcbhost_phys,
-					  ulong vmcbnested,
-					  ulong rflags_if_bit);
-asmlinkage void asm_vmrun_regs_nested_64 (struct svm_vmrun_regs *p,
-					  ulong vmcb_phys,
-					  ulong vmcbhost_phys,
-					  ulong vmcbnested,
-					  ulong rflags_if_bit);
+asmlinkage int asm_vmrun_regs_32 (struct svm_vmrun_regs *p, ulong vmcb_phys,
+				  ulong vmcbhost_phys);
+asmlinkage int asm_vmrun_regs_64 (struct svm_vmrun_regs *p, ulong vmcb_phys,
+				  ulong vmcbhost_phys);
+asmlinkage int asm_vmrun_regs_nested_32 (struct svm_vmrun_regs *p,
+					 ulong vmcb_phys,
+					 ulong vmcbhost_phys,
+					 ulong vmcbnested,
+					 ulong rflags_if_bit);
+asmlinkage int asm_vmrun_regs_nested_64 (struct svm_vmrun_regs *p,
+					 ulong vmcb_phys,
+					 ulong vmcbhost_phys,
+					 ulong vmcbnested,
+					 ulong rflags_if_bit);
 
 static inline void
 asm_cpuid (u32 num, u32 numc, u32 *a, u32 *b, u32 *c, u32 *d)
@@ -906,27 +906,27 @@ asm_lock_ulong_swap (ulong *mem, ulong newval)
 }
 
 /* 0f 01 d8                vmrun */
-static inline void
+static inline int
 asm_vmrun_regs (struct svm_vmrun_regs *p, ulong vmcb_phys, ulong vmcbhost_phys)
 {
 #ifdef __x86_64__
-	asm_vmrun_regs_64 (p, vmcb_phys, vmcbhost_phys);
+	return asm_vmrun_regs_64 (p, vmcb_phys, vmcbhost_phys);
 #else
-	asm_vmrun_regs_32 (p, vmcb_phys, vmcbhost_phys);
+	return asm_vmrun_regs_32 (p, vmcb_phys, vmcbhost_phys);
 #endif
 }
 
-static inline void
+static inline int
 asm_vmrun_regs_nested (struct svm_vmrun_regs *p, ulong vmcb_phys,
 		       ulong vmcbhost_phys, ulong vmcbnested,
 		       ulong rflags_if_bit)
 {
 #ifdef __x86_64__
-	asm_vmrun_regs_nested_64 (p, vmcb_phys, vmcbhost_phys, vmcbnested,
-				  rflags_if_bit);
+	return asm_vmrun_regs_nested_64 (p, vmcb_phys, vmcbhost_phys,
+					 vmcbnested, rflags_if_bit);
 #else
-	asm_vmrun_regs_nested_32 (p, vmcb_phys, vmcbhost_phys, vmcbnested,
-				  rflags_if_bit);
+	return asm_vmrun_regs_nested_32 (p, vmcb_phys, vmcbhost_phys,
+					 vmcbnested, rflags_if_bit);
 #endif
 }
 
