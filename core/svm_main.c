@@ -56,14 +56,6 @@ svm_nmi (void)
 	svm = &current->u.svm;
 	if (!current->nmi.get_nmi_count () && !svm->nmi_pending)
 		return false;
-	if (svm->vi.vmcb->v_intr_masking) {
-		svm->nmi_pending = true;
-		svm->vi.vmcb->intercept_pause = 0;
-		svm->vi.vmcb->intercept_hlt = 0;
-		svm->vi.vmcb->intercept_mwait_uncond = 0;
-		svm->vi.vmcb->intercept_mwait = 0;
-		return false;
-	}
 	if (svm->intr.vmcb_intr_info.s.v) {
 		if (svm->intr.vmcb_intr_info.s.type == VMCB_EVENTINJ_TYPE_NMI)
 			return false;
@@ -72,6 +64,23 @@ svm_nmi (void)
 		svm->vi.vmcb->intercept_hlt = 1;
 		svm->vi.vmcb->intercept_mwait_uncond = 1;
 		svm->vi.vmcb->intercept_mwait = 1;
+		return false;
+	}
+	if (svm->vi.vmcb->interrupt_shadow) {
+		/* Avoid injecting NMI at IRET in NMI handler. */
+		svm->nmi_pending = true;
+		svm->vi.vmcb->intercept_pause = 1;
+		svm->vi.vmcb->intercept_hlt = 1;
+		svm->vi.vmcb->intercept_mwait_uncond = 1;
+		svm->vi.vmcb->intercept_mwait = 1;
+		return false;
+	}
+	if (svm->vi.vmcb->v_intr_masking || svm->vi.vmcb->intercept_iret) {
+		svm->nmi_pending = true;
+		svm->vi.vmcb->intercept_pause = 0;
+		svm->vi.vmcb->intercept_hlt = 0;
+		svm->vi.vmcb->intercept_mwait_uncond = 0;
+		svm->vi.vmcb->intercept_mwait = 0;
 		return false;
 	}
 	svm->intr.vmcb_intr_info.v = 0;
@@ -86,6 +95,7 @@ svm_nmi (void)
 		svm->vi.vmcb->intercept_mwait_uncond = 0;
 		svm->vi.vmcb->intercept_mwait = 0;
 	}
+	svm->vi.vmcb->intercept_iret = 1;
 	return true;
 }
 
@@ -643,6 +653,19 @@ do_pause_hlt_or_mwait (void)
 }
 
 static void
+do_iret (void)
+{
+	struct vmcb *vmcb;
+
+	/* Set interrupt window to block external interrupts at
+	 * IRET. */
+	vmcb = current->u.svm.vi.vmcb;
+	vmcb->intercept_iret = 0;
+	vmcb->interrupt_shadow = 1;
+	svm_nmi ();
+}
+
+static void
 svm_exit_code (void)
 {
 	switch (current->u.svm.vi.vmcb->exitcode) {
@@ -703,6 +726,9 @@ svm_exit_code (void)
 	case VMEXIT_MWAIT:
 	case VMEXIT_MWAIT_CONDITIONAL:
 		do_pause_hlt_or_mwait ();
+		break;
+	case VMEXIT_IRET:
+		do_iret ();
 		break;
 	default:
 		panic ("unsupported exitcode");

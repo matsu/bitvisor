@@ -61,6 +61,7 @@ struct svm {
 	u64 *cr0, *cr3, *cr4;
 	u64 gcr0, gcr3, gcr4;
 	u64 vm_cr, hsave_pa;
+	u64 iret_dr7;
 	bool nmi_pending;
 };
 
