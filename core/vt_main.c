@@ -443,7 +443,8 @@ vt__vm_run (void)
 
 	if (current->u.vt.first) {
 		ret = vt__vm_run_first ();
-		current->u.vt.first = false;
+		if (!ret)
+			current->u.vt.first = false;
 		return ret;
 	}
 	if (current->u.vt.exint_update)
