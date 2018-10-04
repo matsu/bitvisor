@@ -66,8 +66,10 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 
 	if (host->h_queue.max_n_subm_queues == 0) {
 		dprintf (1, "Warning: SET_FEATURE for n_queues not found, ");
-		dprintf (1, "Assume it is 1\n");
-		nvme_set_max_n_queues (host, 1, 1);
+		dprintf (1, "using default values\n");
+		nvme_set_max_n_queues (host,
+				       host->default_n_subm_queues,
+				       host->default_n_comp_queues);
 	}
 
 	/* Currently support only physical continuous */

@@ -229,6 +229,13 @@ struct nvme_cmd {
 #define NVME_ADMIN_OPCODE_SECURITY_SEND	    (0x81)
 #define NVME_ADMIN_OPCODE_SECURITY_RECV	    (0x82)
 
+#define NVME_SET_FEATURE_GET_FEATURE_ID(cmd) ((cmd)->cmd_flags[0] & 0xFF)
+
+#define NVME_SET_FEATURE_N_OF_QUEUES (0x7)
+
+#define NVME_SET_FEATURE_N_SUBM_QUEUES(cmd_specific) ((cmd_specific) & 0xFFFF)
+#define NVME_SET_FEATURE_N_COMP_QUEUES(cmd_specific) ((cmd_specific) >> 16)
+
 #define NVME_IO_OPCODE_FLUSH		   (0x00)
 #define NVME_IO_OPCODE_WRITE		   (0x01)
 #define NVME_IO_OPCODE_READ		   (0x02)
@@ -427,6 +434,8 @@ struct nvme_host {
 	u32 io_subm_entry_nbytes;
 	u32 io_comp_entry_nbytes;
 
+	u16 default_n_subm_queues;
+	u16 default_n_comp_queues;
 	u16 vendor_id;
 	u16 device_id;
 	u16 max_n_entries;

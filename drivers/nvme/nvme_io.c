@@ -814,6 +814,34 @@ nvme_io_identify (struct nvme_host *host,
 	return 1;
 }
 
+int
+nvme_io_get_n_queues (struct nvme_host *host,
+		      nvme_io_req_callback_t callback,
+		      void *arg)
+{
+	if (!host)
+		return 0;
+
+	struct nvme_request *req = alloc_host_base_request (callback, arg);
+
+	struct nvme_cmd *h_cmd = &req->cmd;
+
+	h_cmd->opcode = NVME_ADMIN_OPCODE_GET_FEATURE;
+
+	h_cmd->cmd_flags[0] = NVME_SET_FEATURE_N_OF_QUEUES;
+
+	/*
+	 * 0xFFFE is the maximum value according to the specification.
+	 * This value should be safe for querying.
+	 */
+	h_cmd->cmd_flags[1] = 0xFFFEFFFE;
+
+	nvme_register_request (host, req, 0);
+	nvme_submit_queuing_requests (host, 0);
+
+	return 1;
+}
+
 /* ----- End I/O related functions ----- */
 
 /* ----- Start extension related functions */

@@ -311,6 +311,11 @@ int nvme_io_identify (struct nvme_host *host,
 		      nvme_io_req_callback_t callback,
 		      void *arg);
 
+/* Return 1 if it succeeds */
+int nvme_io_get_n_queues (struct nvme_host *host,
+			  nvme_io_req_callback_t callback,
+			  void *arg);
+
 /* ----- End I/O related functions ----- */
 
 /* ----- Start extension related functions ----- */

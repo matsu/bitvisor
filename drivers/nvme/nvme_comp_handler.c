@@ -40,7 +40,6 @@
 
 #include "nvme.h"
 #include "nvme_io.h"
-#include "nvme_comp_handler.h"
 
 static struct nvme_request *
 get_request (struct nvme_host *host,
@@ -71,12 +70,14 @@ handle_set_feature_cmd (struct nvme_host *host,
 			struct nvme_comp *h_admin_comp,
 			struct nvme_cmd *cmd)
 {
-	u8 feature_id = SET_FEATURE_GET_FEATURE_ID (cmd);
+	u8 feature_id = NVME_SET_FEATURE_GET_FEATURE_ID (cmd);
 
 	u16 max_n_subm_queues, max_n_comp_queues;
 
+	u32 cmd_specific = h_admin_comp->cmd_specific;
+
 	switch (feature_id) {
-	case FEATURE_N_OF_QUEUES:
+	case NVME_SET_FEATURE_N_OF_QUEUES:
 
 		if (host->h_queue.max_n_subm_queues > 0) {
 			printf ("Strange: Duplicated N_OF_QUEUES feature\n");
@@ -85,9 +86,9 @@ handle_set_feature_cmd (struct nvme_host *host,
 
 		/* Values are 0 based, need to plus 1 */
 		max_n_subm_queues =
-			SET_FEATURE_N_SUBM_QUEUES (h_admin_comp) + 1;
+			NVME_SET_FEATURE_N_SUBM_QUEUES (cmd_specific) + 1;
 		max_n_comp_queues =
-			SET_FEATURE_N_COMP_QUEUES (h_admin_comp) + 1;
+			NVME_SET_FEATURE_N_COMP_QUEUES (cmd_specific) + 1;
 
 		nvme_set_max_n_queues (host,
 				       max_n_subm_queues,

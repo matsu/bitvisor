@@ -195,13 +195,27 @@ nvme_get_n_ns (struct nvme_host *host,
 	free (data);
 }
 
-void
-nvme_get_drive_info (struct nvme_host *host)
+static void
+nvme_get_default_n_queues (struct nvme_host *host,
+			   u8 status_type,
+			   u8 status,
+			   u32 cmd_specific,
+			   void *arg)
 {
-	ASSERT (host);
+	/* Values are 0 based, need to plus 1 */
+	host->default_n_subm_queues =
+		NVME_SET_FEATURE_N_SUBM_QUEUES (cmd_specific) + 1;
+	host->default_n_comp_queues =
+		NVME_SET_FEATURE_N_COMP_QUEUES (cmd_specific) + 1;
 
-	host->pause_fetching_g_reqs = 1;
+	dprintf (NVME_ETC_DEBUG,
+		 "Default number of submission queues: %u\n",
+		 host->default_n_subm_queues);
+	dprintf (NVME_ETC_DEBUG,
+		 "Default number of completion queues: %u\n",
+		 host->default_n_comp_queues);
 
+	/* Get numbers of namespace next */
 	phys_t data_phys;
 	u8 *ctrl_data = alloc2 (host->page_nbytes, &data_phys);
 
@@ -214,6 +228,16 @@ nvme_get_drive_info (struct nvme_host *host)
 			  host->id,
 			  nvme_get_n_ns,
 			  ctrl_data);
+}
+
+void
+nvme_get_drive_info (struct nvme_host *host)
+{
+	ASSERT (host);
+
+	host->pause_fetching_g_reqs = 1;
+
+	nvme_io_get_n_queues (host, nvme_get_default_n_queues, NULL);
 }
 
 void
