@@ -81,6 +81,7 @@ static void
 nvme_get_ns_info (struct nvme_host *host,
 		  u8 status_type,
 		  u8 status,
+		  u32 cmd_specific,
 		  void *arg)
 {
 	ASSERT (status_type == 0 && status == 0);
@@ -143,6 +144,7 @@ static void
 nvme_get_n_ns (struct nvme_host *host,
 	       u8 status_type,
 	       u8 status,
+	       u32 cmd_specific,
 	       void *arg)
 {
 	ASSERT (status_type == 0 && status == 0);

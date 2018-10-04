@@ -245,11 +245,14 @@ void nvme_io_change_g_req_to_dummy_read (struct nvme_request *g_req,
 
 u16 nvme_io_req_queue_id (struct nvme_request *g_req);
 
+typedef void (*nvme_io_req_callback_t) (struct nvme_host *host,
+					u8 status_type,
+					u8 status,
+					u32 cmd_specific,
+					void *arg);
+
 void nvme_io_set_req_callback (struct nvme_request *req,
-			       void (*callback) (struct nvme_host *host,
-						 u8 status_type,
-					    	 u8 status,
-					    	 void *arg),
+			       nvme_io_req_callback_t callback,
 			       void *arg);
 
 /* Overide buffer provided by the guest */
@@ -285,28 +288,19 @@ struct nvme_io_descriptor * nvme_io_g_buf_io_desc (struct nvme_host *host,
 /* Return 1 if it succeeds */
 int nvme_io_read_request (struct nvme_host *host,
 			  struct nvme_io_descriptor *io_desc,
-		      	  void (*callback) (struct nvme_host *host,
-					    u8 status_type,
-					    u8 status,
-					    void *arg),
+			  nvme_io_req_callback_t callback,
 		      	  void *arg);
 
 /* Return 1 if it succeeds */
 int nvme_io_write_request (struct nvme_host *host,
 			   struct nvme_io_descriptor *io_desc,
-			   void (*callback) (struct nvme_host *host,
-					     u8 status_type,
-					     u8 status,
-					     void *arg),
+			   nvme_io_req_callback_t callback,
 			   void *arg);
 
 /* Return 1 if it succeeds */
 int nvme_io_flush_request (struct nvme_host *host,
 			   u32 nsid,
-		       	   void (*callback) (struct nvme_host *host,
-					     u8 status_type,
-					     u8 status,
-					     void *arg),
+			   nvme_io_req_callback_t callback,
 		       	   void *arg);
 
 /* Return 1 if it succeeds */
@@ -314,10 +308,7 @@ int nvme_io_identify (struct nvme_host *host,
 		      u32 nsid,
 		      phys_t pagebuf,
 		      u8 cns, u16 controller_id,
-		      void (*callback) (struct nvme_host *host,
-					u8 status_type,
-					u8 status,
-					void *arg),
+		      nvme_io_req_callback_t callback,
 		      void *arg);
 
 /* ----- End I/O related functions ----- */

@@ -70,6 +70,7 @@ static void
 ata_rw_callback (struct nvme_host *host,
 		 u8 status_type,
 		 u8 status,
+		 u32 cmd_specific,
 		 void *arg)
 {
 	struct nvme_ata_wrapper *ata_wrapper = arg;

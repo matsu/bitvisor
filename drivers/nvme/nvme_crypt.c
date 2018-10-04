@@ -163,6 +163,7 @@ static void
 req_callback (struct nvme_host *host,
 	      u8 status_type,
 	      u8 status,
+	      u32 cmd_specific,
 	      void *arg)
 {
 	struct req_cb_data *cb_data = arg;

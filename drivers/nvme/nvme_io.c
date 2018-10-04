@@ -52,10 +52,7 @@ struct nvme_io_descriptor {
 #define NVME_IO_DESCRIPTOR_NBYTES (sizeof (struct nvme_io_descriptor))
 
 struct intercept_callback {
-	void (*callback) (struct nvme_host *host,
-			  u8 status_type,
-			  u8 status,
-			  void *arg);
+	nvme_io_req_callback_t callback;
 	void *arg;
 };
 #define INTERCEPT_CALLBACK_NBYTES (sizeof (struct intercept_callback))
@@ -74,6 +71,7 @@ req_callback (struct nvme_host *host,
 		cb->callback (host,
 			      status_type,
 			      status,
+			      comp->cmd_specific,
 			      cb->arg);
 
 	free (cb);
@@ -508,10 +506,7 @@ nvme_io_req_queue_id (struct nvme_request *g_req)
 
 void
 nvme_io_set_req_callback (struct nvme_request *req,
-			  void (*callback) (struct nvme_host *host,
-					    u8 status_type,
-					    u8 status,
-					    void *arg),
+			  nvme_io_req_callback_t callback,
 			  void *arg)
 {
 	if (callback) {
@@ -688,10 +683,7 @@ static int
 nvme_io_rw_request (struct nvme_host *host,
 		    u8 opcode,
 		    struct nvme_io_descriptor *io_desc,
-		    void (*callback) (struct nvme_host *host,
-				      u8 status_type,
-				      u8 status,
-				      void *arg),
+		    nvme_io_req_callback_t callback,
 		    void *arg)
 {
 	if (!nvme_io_host_ready (host) ||
@@ -737,10 +729,7 @@ nvme_io_rw_request (struct nvme_host *host,
 int
 nvme_io_read_request (struct nvme_host *host,
 		      struct nvme_io_descriptor *io_desc,
-		      void (*callback) (struct nvme_host *host,
-					u8 status_type,
-					u8 status,
-					void *arg),
+		      nvme_io_req_callback_t callback,
 		      void *arg)
 {
 	return nvme_io_rw_request (host,
@@ -753,10 +742,7 @@ nvme_io_read_request (struct nvme_host *host,
 int
 nvme_io_write_request (struct nvme_host *host,
 		       struct nvme_io_descriptor *io_desc,
-		       void (*callback) (struct nvme_host *host,
-					 u8 status_type,
-					 u8 status,
-					 void *arg),
+		       nvme_io_req_callback_t callback,
 		       void *arg)
 {
 	return nvme_io_rw_request (host,
@@ -769,10 +755,7 @@ nvme_io_write_request (struct nvme_host *host,
 int
 nvme_io_flush_request (struct nvme_host *host,
 		       u32 nsid,
-		       void (*callback) (struct nvme_host *host,
-					 u8 status_type,
-					 u8 status,
-					 void *arg),
+		       nvme_io_req_callback_t callback,
 		       void *arg)
 {
 	if (!host ||
@@ -804,10 +787,7 @@ nvme_io_identify (struct nvme_host *host,
 		  u32 nsid,
 		  phys_t pagebuf,
 		  u8 cns, u16 controller_id,
-		  void (*callback) (struct nvme_host *host,
-				    u8 status_type,
-				    u8 status,
-				    void *arg),
+		  nvme_io_req_callback_t callback,
 		  void *arg)
 {
 	if (!host ||
