@@ -679,6 +679,22 @@ nvme_io_g_buf_io_desc (struct nvme_host *host,
 	return io_desc;
 }
 
+static struct nvme_request *
+alloc_host_base_request (nvme_io_req_callback_t callback,
+			 void *arg)
+{
+	struct nvme_request *req = zalloc (NVME_REQUEST_NBYTES);
+
+	/* Important */
+	req->is_h_req = 1;
+
+	nvme_io_set_req_callback (req,
+				  callback,
+				  arg);
+
+	return req;
+}
+
 static int
 nvme_io_rw_request (struct nvme_host *host,
 		    u8 opcode,
@@ -691,17 +707,10 @@ nvme_io_rw_request (struct nvme_host *host,
 	    io_desc->buf_phys1 == 0x0)
 		return 0;
 
-	struct nvme_request *req = zalloc (NVME_REQUEST_NBYTES);
-
-	/* Important */
-	req->is_h_req = 1;
+	struct nvme_request *req = alloc_host_base_request (callback, arg);
 
 	req->lba_start = io_desc->lba_start;
 	req->n_lbas    = io_desc->n_lbas;
-
-	nvme_io_set_req_callback (req,
-				  callback,
-				  arg);
 
 	struct nvme_cmd *h_cmd = &req->cmd;
 
@@ -763,13 +772,7 @@ nvme_io_flush_request (struct nvme_host *host,
 	    nsid == 0)
 		return 0;
 
-	struct nvme_request *req = zalloc (NVME_REQUEST_NBYTES);
-
-	req->is_h_req = 1;
-
-	nvme_io_set_req_callback (req,
-				  callback,
-				  arg);
+	struct nvme_request *req = alloc_host_base_request (callback, arg);
 
 	struct nvme_cmd *h_cmd = &req->cmd;
 
@@ -794,13 +797,7 @@ nvme_io_identify (struct nvme_host *host,
 	    pagebuf == 0x0)
 		return 0;
 
-	struct nvme_request *req = zalloc (NVME_REQUEST_NBYTES);
-
-	req->is_h_req = 1;
-
-	nvme_io_set_req_callback (req,
-				  callback,
-				  arg);
+	struct nvme_request *req = alloc_host_base_request (callback, arg);
 
 	struct nvme_cmd *h_cmd = &req->cmd;
 
