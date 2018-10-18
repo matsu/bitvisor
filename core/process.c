@@ -156,18 +156,18 @@ static void
 setup_syscallentry (void)
 {
 #ifdef __x86_64__
-	ulong efer;
+	u64 efer;
 
 	asm_wrmsr (MSR_IA32_SYSENTER_CS, 0);	/* Disable SYSENTER/SYSEXIT */
 #ifdef USE_SYSCALL64
 	set_process64_msrs ();
-	asm_rdmsr (MSR_IA32_EFER, &efer);
+	asm_rdmsr64 (MSR_IA32_EFER, &efer);
 	efer |= MSR_IA32_EFER_SCE_BIT;
-	asm_wrmsr (MSR_IA32_EFER, efer);
+	asm_wrmsr64 (MSR_IA32_EFER, efer);
 #else
-	asm_rdmsr (MSR_IA32_EFER, &efer);
+	asm_rdmsr64 (MSR_IA32_EFER, &efer);
 	efer &= ~MSR_IA32_EFER_SCE_BIT;
-	asm_wrmsr (MSR_IA32_EFER, efer);
+	asm_wrmsr64 (MSR_IA32_EFER, efer);
 #endif
 #else
 	if (sysenter_available ()) {

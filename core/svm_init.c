@@ -244,12 +244,12 @@ svm_init (void)
 	u64 p;
 	u64 tmp;
 	void *v;
-	ulong efer;
+	u64 efer;
 	u32 a, b, c, d;
 
-	asm_rdmsr (MSR_IA32_EFER, &efer);
+	asm_rdmsr64 (MSR_IA32_EFER, &efer);
 	efer |= MSR_IA32_EFER_SVME_BIT;
-	asm_wrmsr (MSR_IA32_EFER, efer);
+	asm_wrmsr64 (MSR_IA32_EFER, efer);
 	asm_rdmsr64 (MSR_AMD_VM_CR, &tmp);
 	tmp |= MSR_AMD_VM_CR_DIS_A20M_BIT | MSR_AMD_VM_CR_R_INIT_BIT;
 	asm_wrmsr64 (MSR_AMD_VM_CR, tmp);
@@ -291,12 +291,12 @@ void
 svm_resume (void)
 {
 	u64 tmp;
-	ulong efer;
+	u64 efer;
 
 	ASSERT (current->u.svm.saved_vmcb);
-	asm_rdmsr (MSR_IA32_EFER, &efer);
+	asm_rdmsr64 (MSR_IA32_EFER, &efer);
 	efer |= MSR_IA32_EFER_SVME_BIT;
-	asm_wrmsr (MSR_IA32_EFER, efer);
+	asm_wrmsr64 (MSR_IA32_EFER, efer);
 	asm_rdmsr64 (MSR_AMD_VM_CR, &tmp);
 	tmp |= MSR_AMD_VM_CR_DIS_A20M_BIT | MSR_AMD_VM_CR_R_INIT_BIT;
 	asm_wrmsr64 (MSR_AMD_VM_CR, tmp);

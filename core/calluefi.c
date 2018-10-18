@@ -278,7 +278,8 @@ fill_pagetable (void *pt, u32 prev_phys, void *fillpage)
 void
 copy_uefi_bootcode (void)
 {
-	ulong efer, cr0, cr4;
+	u64 efer;
+	ulong cr0, cr4;
 	u64 bootcode;
 	u8 *p;
 
@@ -292,7 +293,7 @@ copy_uefi_bootcode (void)
 	current->vmctl.write_control_reg (CONTROL_REG_CR3, calluefi_uefi_cr3);
 	asm_rdcr4 (&cr4);
 	current->vmctl.write_control_reg (CONTROL_REG_CR4, cr4 & ~CR4_PGE_BIT);
-	asm_rdmsr (MSR_IA32_EFER, &efer);
+	asm_rdmsr64 (MSR_IA32_EFER, &efer);
 	current->vmctl.write_msr (MSR_IA32_EFER,
 				  efer & ~MSR_IA32_EFER_SVME_BIT);
 	current->vmctl.write_gdtr (calluefi_uefi_gdtr.base,
