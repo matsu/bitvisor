@@ -807,85 +807,14 @@ static struct idata grp3[8] = {
 
 #define UPDATE_IP(op) current->vmctl.write_ip (op->ip + op->ip_off)
 
-#define LGUESTSEG_READ_B(op,p,offset,data) do { \
-	if (op->longmode) { \
-		ulong base; \
-		current->vmctl.read_sreg_base (p, &base); \
-		RIE (read_linearaddr_b (base + (offset), (data))); \
-	} else { \
-		GUESTSEG_READ_B (p, offset, data); \
-	} \
-} while (0)
-
-#define LGUESTSEG_READ_W(op,p,offset,data) do { \
-	if (op->longmode) { \
-		ulong base; \
-		current->vmctl.read_sreg_base (p, &base); \
-		RIE (read_linearaddr_w (base + (offset), (data))); \
-	} else { \
-		GUESTSEG_READ_W (p, offset, data); \
-	} \
-} while (0)
-
-#define LGUESTSEG_READ_L(op,p,offset,data) do { \
-	if (op->longmode) { \
-		ulong base; \
-		current->vmctl.read_sreg_base (p, &base); \
-		RIE (read_linearaddr_l (base + (offset), (data))); \
-	} else { \
-		GUESTSEG_READ_L (p, offset, data); \
-	} \
-} while (0)
-
-#define LGUESTSEG_READ_Q(op,p,offset,data) do { \
-	if (op->longmode) { \
-		ulong base; \
-		current->vmctl.read_sreg_base (p, &base); \
-		RIE (read_linearaddr_q (base + (offset), (data))); \
-	} else { \
-		GUESTSEG_READ_Q (p, offset, data); \
-	} \
-} while (0)
-
-#define LGUESTSEG_WRITE_B(op,p,offset,data) do { \
-	if (op->longmode) { \
-		ulong base; \
-		current->vmctl.read_sreg_base (p, &base); \
-		RIE (write_linearaddr_b (base + (offset), (data))); \
-	} else { \
-		GUESTSEG_WRITE_B (p, offset, data); \
-	} \
-} while (0)
-
-#define LGUESTSEG_WRITE_W(op,p,offset,data) do { \
-	if (op->longmode) { \
-		ulong base; \
-		current->vmctl.read_sreg_base (p, &base); \
-		RIE (write_linearaddr_w (base + (offset), (data))); \
-	} else { \
-		GUESTSEG_WRITE_W (p, offset, data); \
-	} \
-} while (0)
-
-#define LGUESTSEG_WRITE_L(op,p,offset,data) do { \
-	if (op->longmode) { \
-		ulong base; \
-		current->vmctl.read_sreg_base (p, &base); \
-		RIE (write_linearaddr_l (base + (offset), (data))); \
-	} else { \
-		GUESTSEG_WRITE_L (p, offset, data); \
-	} \
-} while (0)
-
-#define LGUESTSEG_WRITE_Q(op,p,offset,data) do { \
-	if (op->longmode) { \
-		ulong base; \
-		current->vmctl.read_sreg_base (p, &base); \
-		RIE (write_linearaddr_q (base + (offset), (data))); \
-	} else { \
-		GUESTSEG_WRITE_Q (p, offset, data); \
-	} \
-} while (0)
+#define LGUESTSEG_READ_B(op,p,offset,data) GUESTSEG_READ_B (p, offset, data)
+#define LGUESTSEG_READ_W(op,p,offset,data) GUESTSEG_READ_W (p, offset, data)
+#define LGUESTSEG_READ_L(op,p,offset,data) GUESTSEG_READ_L (p, offset, data)
+#define LGUESTSEG_READ_Q(op,p,offset,data) GUESTSEG_READ_Q (p, offset, data)
+#define LGUESTSEG_WRITE_B(op,p,offset,data) GUESTSEG_WRITE_B (p, offset, data)
+#define LGUESTSEG_WRITE_W(op,p,offset,data) GUESTSEG_WRITE_W (p, offset, data)
+#define LGUESTSEG_WRITE_L(op,p,offset,data) GUESTSEG_WRITE_L (p, offset, data)
+#define LGUESTSEG_WRITE_Q(op,p,offset,data) GUESTSEG_WRITE_Q (p, offset, data)
 
 static enum vmmerr idata_rd (struct op *op, enum idata_operand operand,
 			     int length, void *pointer);

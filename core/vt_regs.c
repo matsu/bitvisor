@@ -446,28 +446,37 @@ vt_read_sreg_sel (enum sreg s, u16 *val)
 void
 vt_read_sreg_acr (enum sreg s, ulong *val)
 {
+	ulong ret, tmp;
+
 	switch (s) {
 	case SREG_ES:
-		asm_vmread (VMCS_GUEST_ES_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_ES_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_CS:
-		asm_vmread (VMCS_GUEST_CS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_CS_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_SS:
-		asm_vmread (VMCS_GUEST_SS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_SS_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_DS:
-		asm_vmread (VMCS_GUEST_DS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_DS_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_FS:
-		asm_vmread (VMCS_GUEST_FS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_FS_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_GS:
-		asm_vmread (VMCS_GUEST_GS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_GS_ACCESS_RIGHTS, &ret);
 		break;
 	default:
 		panic ("Fatal error: unknown sreg.");
 	}
+	if ((ret & ACCESS_RIGHTS_UNUSABLE_BIT) && s != SREG_CS &&
+	    current->u.vt.lma) {
+		vt_read_sreg_acr (SREG_CS, &tmp);
+		if (tmp & ACCESS_RIGHTS_L_BIT)
+			ret = 0xC0F3;
+	}
+	*val = ret;
 }
 
 void

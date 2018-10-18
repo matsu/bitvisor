@@ -241,7 +241,7 @@ svm_read_sreg_sel (enum sreg s, u16 *val)
 void
 svm_read_sreg_acr (enum sreg s, ulong *val)
 {
-	ulong tmp;
+	ulong ret, tmp;
 
 	switch (s) {
 	case SREG_ES:
@@ -266,9 +266,16 @@ svm_read_sreg_acr (enum sreg s, ulong *val)
 		panic ("Fatal error: unknown sreg.");
 	}
 	if (tmp & 0x80)		/* P bit is 1 */
-		*val = ((tmp & 0xF00) << 4) | (tmp & 0xFF);
+		ret = ((tmp & 0xF00) << 4) | (tmp & 0xFF);
 	else
-		*val = ACCESS_RIGHTS_UNUSABLE_BIT;
+		ret = ACCESS_RIGHTS_UNUSABLE_BIT;
+	if ((ret & ACCESS_RIGHTS_UNUSABLE_BIT) && s != SREG_CS &&
+	    current->u.svm.lma) {
+		svm_read_sreg_acr (SREG_CS, &tmp);
+		if (tmp & ACCESS_RIGHTS_L_BIT)
+			ret = 0xC0F3;
+	}
+	*val = ret;
 }
 
 void
