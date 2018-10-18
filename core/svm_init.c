@@ -99,9 +99,9 @@ svm_seg_reset (struct vmcb *p)
 	p->fs.attr = 0x93;
 	p->gs.attr = 0x93;
 	p->gdtr.attr = 0;
-	p->ldtr.attr = 0;
+	p->ldtr.attr = 0x82;
 	p->idtr.attr = 0;
-	p->tr.attr = 0;
+	p->tr.attr = 0x8B;
 	p->es.limit = 0xFFFF;
 	p->cs.limit = 0xFFFF;
 	p->ss.limit = 0xFFFF;

@@ -795,12 +795,18 @@ vt_reset (void)
 	asm_vmwrite (VMCS_GUEST_DS_SEL, 0);
 	asm_vmwrite (VMCS_GUEST_FS_SEL, 0);
 	asm_vmwrite (VMCS_GUEST_GS_SEL, 0);
+	asm_vmwrite (VMCS_GUEST_LDTR_SEL, 0);
+	asm_vmwrite (VMCS_GUEST_TR_SEL, 0);
 	asm_vmwrite (VMCS_GUEST_ES_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_CS_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_SS_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_DS_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_FS_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_GS_BASE, 0);
+	asm_vmwrite (VMCS_GUEST_LDTR_BASE, 0);
+	asm_vmwrite (VMCS_GUEST_TR_BASE, 0);
+	asm_vmwrite (VMCS_GUEST_GDTR_BASE, 0);
+	asm_vmwrite (VMCS_GUEST_IDTR_BASE, 0);
 	if (current->u.vt.unrestricted_guest) {
 		asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS, 0x93);
 		asm_vmwrite (VMCS_GUEST_CS_ACCESS_RIGHTS, 0x93);
@@ -816,19 +822,20 @@ vt_reset (void)
 		asm_vmwrite (VMCS_GUEST_FS_ACCESS_RIGHTS, 0xF3);
 		asm_vmwrite (VMCS_GUEST_GS_ACCESS_RIGHTS, 0xF3);
 	}
+	asm_vmwrite (VMCS_GUEST_LDTR_ACCESS_RIGHTS, 0x82);
+	asm_vmwrite (VMCS_GUEST_TR_ACCESS_RIGHTS, 0x8B);
 	asm_vmwrite (VMCS_GUEST_ES_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_CS_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_SS_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_DS_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_FS_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_GS_LIMIT, 0xFFFF);
+	asm_vmwrite (VMCS_GUEST_LDTR_LIMIT, 0xFFFF);
+	asm_vmwrite (VMCS_GUEST_TR_LIMIT, 0xFFFF);
+	asm_vmwrite (VMCS_GUEST_GDTR_LIMIT, 0xFFFF);
+	asm_vmwrite (VMCS_GUEST_IDTR_LIMIT, 0xFFFF);
 	if (current->u.vt.unrestricted_guest) {
 		asm_vmwrite (VMCS_GUEST_RFLAGS, RFLAGS_ALWAYS1_BIT);
-		asm_vmwrite (VMCS_GUEST_IDTR_BASE, 0);
-		asm_vmwrite (VMCS_GUEST_IDTR_LIMIT, 0xFFFF);
-		asm_vmwrite (VMCS_GUEST_TR_LIMIT, 0xFFFF);
-		asm_vmwrite (VMCS_GUEST_TR_ACCESS_RIGHTS, 0x8B);
-		asm_vmwrite (VMCS_GUEST_TR_BASE, 0);
 		current->u.vt.vr.re = 0;
 	} else {
 		asm_vmwrite (VMCS_GUEST_RFLAGS, RFLAGS_ALWAYS1_BIT |
