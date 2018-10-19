@@ -72,6 +72,7 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 	} else if (tmpa >= CPUID_EXT_A && ia == CPUID_EXT_A) {
 		if (*ob > 2)	/* NASID */
 			--*ob;
+		*od &= ~CPUID_EXT_A_EDX_SVM_LOCK_BIT;
 	}
 }
 

@@ -157,7 +157,7 @@ svm_read_msr (u32 msrindex, u64 *msrdata)
 		r = cache_get_gmsr_amd (msrindex, msrdata);
 		break;
 	case MSR_AMD_VM_CR:
-		*msrdata = current->u.svm.vm_cr |
+		*msrdata = (current->u.svm.vm_cr & ~MSR_AMD_VM_CR_LOCK_BIT) |
 			(!config.vmm.unsafe_nested_virtualization ?
 			 MSR_AMD_VM_CR_SVMDIS_BIT : 0);
 		break;
