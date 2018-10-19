@@ -29,6 +29,7 @@
 
 #include "asm.h"
 #include "cache.h"
+#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "mm.h"
@@ -156,7 +157,9 @@ svm_read_msr (u32 msrindex, u64 *msrdata)
 		r = cache_get_gmsr_amd (msrindex, msrdata);
 		break;
 	case MSR_AMD_VM_CR:
-		*msrdata = current->u.svm.vm_cr;
+		*msrdata = current->u.svm.vm_cr |
+			(!config.vmm.unsafe_nested_virtualization ?
+			 MSR_AMD_VM_CR_SVMDIS_BIT : 0);
 		break;
 	case MSR_AMD_VM_HSAVE_PA:
 		*msrdata = current->u.svm.hsave_pa;
@@ -187,7 +190,7 @@ svm_write_msr (u32 msrindex, u64 msrdata)
 		vmcb->sysenter_eip = msrdata;
 		break;
 	case MSR_IA32_EFER:
-		if ((current->u.svm.vm_cr & MSR_AMD_VM_CR_SVMDIS_BIT) &&
+		if (!config.vmm.unsafe_nested_virtualization &&
 		    (msrdata & MSR_IA32_EFER_SVME_BIT)) {
 			r = true;
 			break;

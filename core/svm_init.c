@@ -29,7 +29,6 @@
 
 #include "asm.h"
 #include "assert.h"
-#include "config.h"
 #include "constants.h"
 #include "cpu.h"
 #include "current.h"
@@ -143,8 +142,6 @@ svm_reset (void)
 	current->u.svm.svme = false;
 	current->u.svm.vm_cr = MSR_AMD_VM_CR_DIS_A20M_BIT |
 		MSR_AMD_VM_CR_LOCK_BIT;
-	if (!config.vmm.unsafe_nested_virtualization)
-		current->u.svm.vm_cr |= MSR_AMD_VM_CR_SVMDIS_BIT;
 	current->u.svm.hsave_pa = 0;
 	current->u.svm.lme = 0;
 	current->u.svm.nmi_pending = false;

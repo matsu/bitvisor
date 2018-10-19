@@ -564,7 +564,7 @@ do_vmrun (void)
 	enum vmcb_tlb_control orig_tlb_control;
 	struct svm *svm = &current->u.svm;
 
-	if (current->u.svm.vm_cr & MSR_AMD_VM_CR_SVMDIS_BIT) {
+	if (!current->u.svm.svme) {
 		svm->intr.vmcb_intr_info.v = 0;
 		svm->intr.vmcb_intr_info.s.vector = EXCEPTION_UD;
 		svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_EXCEPTION;
