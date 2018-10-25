@@ -569,7 +569,12 @@ vt_shadow_vt_reset (void)
 void
 vt_emul_vmxoff (void)
 {
+	ulong guest_rflags;
+
 	vt_shadow_vt_reset ();
+	asm_vmread (VMCS_GUEST_RFLAGS, &guest_rflags);
+	guest_rflags &= ~flag_mask;
+	asm_vmwrite (VMCS_GUEST_RFLAGS, guest_rflags);
 	add_ip ();
 }
 
