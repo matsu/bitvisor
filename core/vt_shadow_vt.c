@@ -924,7 +924,12 @@ end:
 void
 vt_emul_vmptrst (void)
 {
+	ulong guest_rflags;
+
 	write_operand1_m64 (current->u.vt.shadow_vt->current_vmcs_gphys);
+	asm_vmread (VMCS_GUEST_RFLAGS, &guest_rflags);
+	guest_rflags &= ~flag_mask;
+	asm_vmwrite (VMCS_GUEST_RFLAGS, guest_rflags);
 	add_ip ();
 }
 
