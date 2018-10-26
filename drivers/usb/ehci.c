@@ -45,9 +45,6 @@
 static const char driver_name[] = "ehci";
 static const char driver_longname[] = 
 	"Generic EHCI para pass-through driver 0.9";
-static const char virtual_model[40] = 
-	"BitVisor Virtual USB2 Host Controller   ";
-static const char virtual_revision[8] = "0.9     "; // 8 chars
 
 DEFINE_ALLOC_FUNC(ehci_host);
 

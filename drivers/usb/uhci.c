@@ -50,9 +50,6 @@ u32 vmm_term_inf() ;
 static const char driver_name[] = "uhci";
 static const char driver_longname[] = 
 	"Generic UHCI para pass-through driver 1.0";
-static const char virtual_model[40] = 
-	"BitVisor Virtual USB Host Controller   ";
-static const char virtual_revision[8] = "1.0    "; // 8 chars
 
 phys32_t uhci_monitor_boost_hc = 0U;
 DEFINE_ZALLOC_FUNC(uhci_host);
