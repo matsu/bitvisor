@@ -82,9 +82,7 @@ static struct pci_driver ieee1394_driver = {
 void 
 ieee1394_init(void) __initcode__
 {
-#if defined(IEEE1394_CONCEALER)
 	pci_register_driver(&ieee1394_driver);
-#endif
 	return;
 }
 PCI_DRIVER_INIT(ieee1394_init);
