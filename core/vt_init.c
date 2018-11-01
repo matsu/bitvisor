@@ -338,9 +338,11 @@ vt__vmcs_init (void)
 			procbased_ctls2 |=
 				VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_RDTSCP_BIT;
 		if (procbased_ctls2_and &
-		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_XSAVES_BIT)
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_XSAVES_BIT) {
 			procbased_ctls2 |=
 				VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_XSAVES_BIT;
+			asm_vmwrite64 (VMCS_XSS_EXITING_BMP, 0);
+		}
 		if (procbased_ctls2_and &
 		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VMCS_SHADOWING_BIT)
 			current->u.vt.vmcs_shadowing_available = true;
