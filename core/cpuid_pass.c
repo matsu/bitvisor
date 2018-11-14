@@ -72,6 +72,19 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		if (*ob > 2)	/* NASID */
 			--*ob;
 		*od &= ~CPUID_EXT_A_EDX_SVM_LOCK_BIT;
+	} else if (ia >= 0x40000000 && ia <= 0x4FFFFFFF) {
+		/*
+		 * 0x40000000 - 0x4FFFFFFF range is currently not used by
+		 * both Intel and AMD. The range can be used by a hypervisor
+		 * to expose additional features to the guest. When running
+		 * BitVisor under a hypervisor, those additional features
+		 * can cause unexpected errors to the guest running under
+		 * BitVisor as BitVisor does not handle them.
+		 */
+		*oa = 0;
+		*ob = 0;
+		*oc = 0;
+		*od = 0;
 	}
 }
 
