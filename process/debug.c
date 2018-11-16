@@ -49,10 +49,11 @@ struct memdump_data {
 	ulong virtaddr;
 };
 
-unsigned char memdata[128];
+unsigned char memdata[256];
 enum memdump_type dtype;
 u64 daddr;
 int dinit;
+int dlen;
 
 char logbuf[65536];
 int loglen;
@@ -72,10 +73,10 @@ command_error (void)
 void
 print_help (char *buf)
 {
-	printf ("dp guest-physical-address(hex) : dump memory\n");
-	printf ("dv guest-virtual-address(hex) : dump memory\n");
-	printf ("Dp vmm-physical-address(hex) : dump memory\n");
-	printf ("Dv vmm-virtual-address(hex) : dump memory\n");
+	printf ("dp[/len(hex)] guest-physical-address(hex) : dump memory\n");
+	printf ("dv[/len(hex)] guest-virtual-address(hex) : dump memory\n");
+	printf ("Dp[/len(hex)] vmm-physical-address(hex) : dump memory\n");
+	printf ("Dv[/len(hex)] vmm-virtual-address(hex) : dump memory\n");
 	printf ("h value1(hex) value2(hex) : add/sub\n");
 	printf ("r [register-name register-value(hex)]: print/set guest registers\n");
 	printf ("n : get next guest state from log\n");
@@ -159,6 +160,15 @@ dump_mem (char *buf, int t)
 			command_error ();
 			return;
 		}
+		dlen = 128;
+		if (*buf == '/') {
+			buf++;
+			if (!parse_hex (&buf, &v) || v > sizeof memdata) {
+				command_error ();
+				return;
+			}
+			dlen = v;
+		}
 		buf = skip_space (buf);
 		if (!parse_hex (&buf, &daddr)) {
 			command_error ();
@@ -178,7 +188,7 @@ dump_mem (char *buf, int t)
 		return;
 	}
 	setmsgbuf (&mbuf[0], &d, sizeof d, 0);
-	setmsgbuf (&mbuf[1], memdata, sizeof memdata, 1);
+	setmsgbuf (&mbuf[1], memdata, dlen, 1);
 	setmsgbuf (&mbuf[2], errbuf, sizeof errbuf, 1);
 	if (msgsendbuf (a, dtype, mbuf, 3)) {
 		printf ("msgsendbuf failed.\n");
@@ -188,7 +198,7 @@ dump_mem (char *buf, int t)
 		k = -(int)(v & 0xF);
 		do {
 			for (j = 0; j < 16; j++) {
-				if (k >= 0 && k < sizeof memdata)
+				if (k >= 0 && k < dlen)
 					tmp[j] = memdata[k];
 				else
 					tmp[j] = -1;
@@ -222,8 +232,8 @@ dump_mem (char *buf, int t)
 			}
 			printf ("\n");
 			i += 16;
-		} while (k < sizeof memdata);
-		v = v + sizeof memdata;
+		} while (k < dlen);
+		v = v + dlen;
 		daddr = v;
 		if (errbuf[0])
 			printf ("Error: %s\n", errbuf);
