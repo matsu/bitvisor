@@ -55,14 +55,10 @@ struct exint_pass_intr_list {
 	struct exint_pass_intr intr;
 };
 
-static void exint_pass_int_enabled (void);
-static void exint_pass_default (int num);
-static void exint_pass_hlt (void);
+static int exint_pass_ack (void);
 
 static struct exint_func func = {
-	exint_pass_int_enabled,
-	exint_pass_default,
-	exint_pass_hlt,
+	exint_pass_ack,
 };
 
 static struct exint_pass_intr intr[EXINT_ALLOC_NUM];
@@ -129,43 +125,14 @@ exint_pass_intr_register_callback (int (*callback) (void *data, int num),
 	return 1;
 }
 
-static void
-exint_pass_int_enabled (void)
+static int
+exint_pass_ack (void)
 {
-	current->vmctl.exint_pending (false);
-	current->vmctl.exint_pass (!!config.vmm.no_intr_intercept);
-}
-
-static void
-exint_pass_default (int num)
-{
-	current->vmctl.generate_external_int (num);
-}
-
-static void
-exint_pass_hlt (void)
-{
-	do_exint_pass ();
-}
-
-void
-do_exint_pass (void)
-{
-	ulong rflags;
 	int num;
 
-	current->vmctl.read_flags (&rflags);
-	if (rflags & RFLAGS_IF_BIT) { /* if interrupts are enabled */
-		num = do_externalint_enable ();
-		num = exint_pass_intr_call (num);
-		if (num >= 0)
-			current->exint.exintfunc_default (num);
-		current->vmctl.exint_pending (false);
-		current->vmctl.exint_pass (!!config.vmm.no_intr_intercept);
-	} else {
-		current->vmctl.exint_pending (true);
-		current->vmctl.exint_pass (true);
-	}
+	num = do_externalint_enable ();
+	num = exint_pass_intr_call (num);
+	return num;
 }
 
 static void

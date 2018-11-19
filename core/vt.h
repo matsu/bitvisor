@@ -83,7 +83,7 @@ struct vt {
 	bool invept_available;
 	bool unrestricted_guest_available, unrestricted_guest;
 	bool save_load_efer_enable;
-	bool exint_pass, exint_pending, exint_update, exint_re_pending;
+	bool exint_pass, exint_assert, exint_update;
 	bool cr3exit_controllable, cr3exit_off;
 	bool pcid_available;
 	bool enable_invpcid_available;
@@ -103,6 +103,8 @@ struct vt_pcpu_data {
 void vt_generate_pagefault (ulong err, ulong cr2);
 void vt_generate_external_int (uint num);
 void vt_update_exint (void);
+void vt_exint_pass (bool enable);
+void vt_exint_assert (bool assert);
 void vmctl_vt_init (void);
 void vt_vmptrld (u64 ptr);
 

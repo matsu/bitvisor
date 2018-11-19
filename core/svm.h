@@ -75,6 +75,9 @@ struct svm_pcpu_data {
 	u32 nasid;
 };
 
+void svm_exint_pass (bool enable);
+void svm_exint_assert (bool assert);
+void svm_generate_external_int (uint num);
 void vmctl_svm_init (void);
 
 #endif

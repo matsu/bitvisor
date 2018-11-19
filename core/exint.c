@@ -27,11 +27,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_EXINT_PASS_H
-#define _CORE_EXINT_PASS_H
+#include "current.h"
+#include "exint.h"
+#include "initfunc.h"
 
-#include <core/exint_pass.h>
+static int
+exint_default_ack (void)
+{
+	return -1;
+}
 
-int exint_pass_intr_call (int num);
+static void
+exint_init (void)
+{
+	current->exint.ack = exint_default_ack;
+}
 
-#endif
+INITFUNC ("vcpu0", exint_init);

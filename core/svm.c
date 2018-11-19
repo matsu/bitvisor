@@ -51,9 +51,6 @@
 } while (0)
 
 static void svm_generate_pagefault (ulong err, ulong cr2);
-static void svm_exint_pass (bool enable);
-static void svm_exint_pending (bool pending);
-static void svm_generate_external_int (uint num);
 static void svm_tsc_offset_changed (void);
 static bool svm_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e);
 static void svm_spt_tlbflush (void);
@@ -65,7 +62,6 @@ static struct vmctl_func func = {
 	svm_vmexit,
 	svm_start_vm,
 	svm_generate_pagefault,
-	svm_generate_external_int,
 	svm_read_general_reg,
 	svm_write_general_reg,
 	svm_read_control_reg,
@@ -90,8 +86,7 @@ static struct vmctl_func func = {
 	svm_write_msr,
 	call_cpuid,
 	svm_iopass,
-	svm_exint_pass,
-	svm_exint_pending,
+	svm_exint_assert,
 	svm_init_signal,
 	svm_tsc_offset_changed,
 	svm_panic_dump,
@@ -119,7 +114,7 @@ svm_generate_pagefault (ulong err, ulong cr2)
 	current->u.svm.vi.vmcb->cr2 = cr2;
 }
 
-static void
+void
 svm_exint_pass (bool enable)
 {
 	if (enable)
@@ -128,16 +123,21 @@ svm_exint_pass (bool enable)
 		current->u.svm.vi.vmcb->intercept_intr = 1;
 }
 
-static void
-svm_exint_pending (bool pending)
+void
+svm_exint_assert (bool assert)
 {
-	if (pending)
+	if (assert) {
 		current->u.svm.vi.vmcb->intercept_vintr = 1;
-	else
+		current->u.svm.vi.vmcb->v_ign_tpr = 1;
+		current->u.svm.vi.vmcb->v_irq = 1;
+	} else {
 		current->u.svm.vi.vmcb->intercept_vintr = 0;
+		current->u.svm.vi.vmcb->v_ign_tpr = 0;
+		current->u.svm.vi.vmcb->v_irq = 0;
+	}
 }
 
-static void
+void
 svm_generate_external_int (uint num)
 {
 	struct svm_intr_data *sid = &current->u.svm.intr;

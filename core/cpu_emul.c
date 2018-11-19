@@ -111,7 +111,6 @@ cpu_emul_sti (void)
 	current->vmctl.read_flags (&rflags);
 	rflags |= RFLAGS_IF_BIT;
 	current->vmctl.write_flags (rflags);
-	current->exint.int_enabled ();
 }
 
 enum vmmerr

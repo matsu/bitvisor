@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "config.h"
 #include "constants.h"
 #include "cpu.h"
 #include "cpu_emul.h"
@@ -433,6 +434,30 @@ err:
 }
 
 static void
+svm_inject_interrupt (void)
+{
+	int num;
+
+	if (current->pass_vm)
+		svm_exint_pass (!!config.vmm.no_intr_intercept);
+	svm_exint_assert (false);
+	num = current->exint.ack ();
+	if (num >= 0)
+		svm_generate_external_int (num);
+}
+
+/* Notes in case of pass_vm=1: currently the RFLAGS.IF in the virtual
+ * machine controls physical interrupts.  No #VMEXIT(VMEXIT_INTR) is
+ * generated while RFLAGS.IF=0.  Therefore, the interrupt can always
+ * be injected on #VMEXIT(VMEXIT_INTR). */
+static void
+svm_intr (void)
+{
+	if (current->pass_vm)
+		svm_inject_interrupt ();
+}
+
+static void
 do_pagefault (void)
 {
 	struct vmcb *vmcb;
@@ -690,7 +715,7 @@ svm_exit_code (void)
 		svm_task_switch ();
 		break;
 	case VMEXIT_INTR:
-		do_exint_pass ();
+		svm_intr ();
 		break;
 	case VMEXIT_MSR:
 		do_readwrite_msr ();
@@ -800,7 +825,6 @@ svm_init_signal (void)
 void
 svm_start_vm (void)
 {
-	current->exint.int_enabled ();
 	svm_paging_start ();
 	svm_mainloop ();
 }

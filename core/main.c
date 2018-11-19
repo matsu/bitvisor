@@ -391,6 +391,7 @@ create_pass_vm (void)
 		load_new_vcpu (vcpu0);
 	set_fullvirtualize ();
 	sync_all_processors ();
+	current->pass_vm = true;
 	current->vmctl.vminit ();
 	call_initfunc ("pass");
 	sync_all_processors ();

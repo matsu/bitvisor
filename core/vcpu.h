@@ -34,6 +34,7 @@
 #include "cache.h"
 #include "cpu_mmu_spt.h"
 #include "cpuid.h"
+#include "exint.h"
 #include "gmm.h"
 #include "initipi.h"
 #include "io_io.h"
@@ -47,12 +48,6 @@
 #include "vt.h"
 #include "xsetbv.h"
 
-struct exint_func {
-	void (*int_enabled) (void);
-	void (*exintfunc_default) (int num);
-	void (*hlt) (void);
-};
-
 struct vcpu {
 	struct vcpu *next;
 	union {
@@ -63,6 +58,7 @@ struct vcpu {
 	bool initialized;
 	u64 tsc_offset;
 	bool updateip;
+	bool pass_vm;
 	u64 pte_addr_mask;
 	struct cpu_mmu_spt_data spt;
 	struct cpuid_data cpuid;

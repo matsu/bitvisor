@@ -878,41 +878,61 @@ do_ept_violation (void)
 }
 
 static void
-do_re_external_int (void)
+vt_inject_interrupt (void)
 {
-	ulong rflags;
 	int num;
 
+	if (current->u.vt.intr.vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID)
+		return;
+	if (current->pass_vm)
+		vt_exint_pass (!!config.vmm.no_intr_intercept);
+	vt_exint_assert (false);
+	num = current->exint.ack ();
+	if (num >= 0)
+		vt_generate_external_int (num);
+}
+
+/* If an external interrupt is asserted and it can be injected now,
+ * inject it to avoid unnecessary VM entry/exit.  If it cannot be
+ * injected now, it will be injected when interrupt window VM exit
+ * occurred.  Note: when an external interrupt causes a VM exit, the
+ * blocking by STI bit is apparently not set on physical machines, but
+ * it may be set on virtual machines.  Therefore checking the bit is
+ * necessary. */
+static void
+vt_interrupt (void)
+{
+	ulong rflags;
+	ulong is;
+
+	if (!current->u.vt.exint_assert)
+		return;
+	/* If RFLAGS.IF=1... */
 	vt_read_flags (&rflags);
-	if (rflags & RFLAGS_IF_BIT) {
-		num = do_externalint_enable ();
-		if (num >= 0)
-			vt_generate_external_int (num);
-		current->u.vt.exint_re_pending = false;
-		current->u.vt.exint_update = true;
-	} else {
-		current->u.vt.exint_re_pending = true;
-		current->u.vt.exint_update = true;
-	}
+	if (!(rflags & RFLAGS_IF_BIT))
+		return;
+	/* ..., blocking by STI bit=0 and blocking by MOV SS bit=0... */
+	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
+	if ((is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_STI_BIT) ||
+	    (is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT))
+		return;
+	/* ..., then inject an interrupt now. */
+	vt_inject_interrupt ();
 }
 
 static void
 do_external_int (void)
 {
-	if (current->u.vt.vr.re && current->u.vt.exint_pass)
-		do_re_external_int ();
-	else
-		do_exint_pass ();
+	if (current->pass_vm) {
+		vt_exint_pass (true);
+		vt_exint_assert (true);
+	}
 }
 
 static void
 do_interrupt_window (void)
 {
-	if (current->u.vt.exint_re_pending && current->u.vt.vr.re &&
-	    current->u.vt.exint_pass)
-		do_re_external_int ();
-	if (current->u.vt.exint_pending)
-		current->exint.hlt ();
+	vt_inject_interrupt ();
 }
 
 static void
@@ -1285,6 +1305,7 @@ vt_mainloop (void)
 		/* when the state is switching, do single step */
 		if (current->u.vt.vr.sw.enable) {
 			vt__nmi ();
+			vt_interrupt ();
 			vt__event_delivery_setup ();
 			vt_msr_own_process_msrs ();
 			nmi = vt__vm_run_with_tf ();
@@ -1295,6 +1316,7 @@ vt_mainloop (void)
 			}
 		} else {	/* not switching */
 			vt__nmi ();
+			vt_interrupt ();
 			vt__event_delivery_setup ();
 			vt_msr_own_process_msrs ();
 			nmi = vt__vm_run ();
@@ -1358,7 +1380,6 @@ vt_register_status_callback (void)
 void
 vt_start_vm (void)
 {
-	current->exint.int_enabled ();
 	vt_paging_start ();
 	vt_mainloop ();
 }

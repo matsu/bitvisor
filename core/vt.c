@@ -46,8 +46,6 @@
 #include "vt_panic.h"
 #include "vt_regs.h"
 
-static void vt_exint_pass (bool enable);
-static void vt_exint_pending (bool pending);
 static void vt_tsc_offset_changed (void);
 static bool vt_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e);
 static void vt_spt_tlbflush (void);
@@ -59,7 +57,6 @@ static struct vmctl_func func = {
 	vt_vmexit,
 	vt_start_vm,
 	vt_generate_pagefault,
-	vt_generate_external_int,
 	vt_read_general_reg,
 	vt_write_general_reg,
 	vt_read_control_reg,
@@ -84,8 +81,7 @@ static struct vmctl_func func = {
 	vt_write_msr,
 	call_cpuid,
 	vt_iopass,
-	vt_exint_pass,
-	vt_exint_pending,
+	vt_exint_assert,
 	vt_init_signal,
 	vt_tsc_offset_changed,
 	vt_panic_dump,
@@ -154,16 +150,12 @@ void
 vt_update_exint (void)
 {
 	ulong pin, proc;
-	bool pass, pending;
+	bool pass, assert;
 
 	pass = current->u.vt.exint_pass;
-	pending = current->u.vt.exint_pending;
-	if (pass && current->u.vt.vr.re) {
-		if (current->u.vt.exint_re_pending)
-			pending = true;
-		else
-			pass = false;
-	}
+	assert = current->u.vt.exint_assert;
+	if (pass && current->u.vt.vr.re && !assert)
+		pass = false;
 	asm_vmread (VMCS_PIN_BASED_VMEXEC_CTL, &pin);
 	if (pass)
 		pin &= ~VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT;
@@ -171,7 +163,7 @@ vt_update_exint (void)
 		pin |= VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT;
 	asm_vmwrite (VMCS_PIN_BASED_VMEXEC_CTL, pin);
 	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &proc);
-	if (pending)
+	if (assert)
 		proc |= VMCS_PROC_BASED_VMEXEC_CTL_INTRWINEXIT_BIT;
 	else
 		proc &= ~VMCS_PROC_BASED_VMEXEC_CTL_INTRWINEXIT_BIT;
@@ -179,17 +171,17 @@ vt_update_exint (void)
 	current->u.vt.exint_update = false;
 }
 
-static void
+void
 vt_exint_pass (bool enable)
 {
 	current->u.vt.exint_pass = enable;
 	current->u.vt.exint_update = true;
 }
 
-static void
-vt_exint_pending (bool pending)
+void
+vt_exint_assert (bool assert)
 {
-	current->u.vt.exint_pending = pending;
+	current->u.vt.exint_assert = assert;
 	current->u.vt.exint_update = true;
 }
 

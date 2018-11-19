@@ -41,7 +41,6 @@ struct vmctl_func {
 	void (*vmexit) (void);
 	void (*start_vm) (void);
 	void (*generate_pagefault) (ulong err, ulong cr2);
-	void (*generate_external_int) (uint num);
 	void (*read_general_reg) (enum general_reg reg, ulong *val);
 	void (*write_general_reg) (enum general_reg reg, ulong val);
 	void (*read_control_reg) (enum control_reg reg, ulong *val);
@@ -66,8 +65,7 @@ struct vmctl_func {
 	bool (*write_msr) (u32 msrindex, u64 msrdata);
 	void (*cpuid) (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od);
 	void (*iopass) (u32 port, bool pass);
-	void (*exint_pass) (bool enable);
-	void (*exint_pending) (bool pending);
+	void (*exint_assert) (bool assert);
 	void (*init_signal) (void);
 	void (*tsc_offset_changed) (void);
 	void (*panic_dump) (void);

@@ -27,11 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_EXINT_PASS_H
-#define _CORE_EXINT_PASS_H
+#ifndef _CORE_EXINT_H
+#define _CORE_EXINT_H
 
-#include <core/exint_pass.h>
+#include "types.h"
 
-int exint_pass_intr_call (int num);
+struct exint_func {
+	int (*ack) (void);
+};
 
 #endif
