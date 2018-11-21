@@ -39,6 +39,8 @@ extern ulong uefi_memory_map_descsize;
 void call_uefi_get_memory_map (void);
 int call_uefi_allocate_pages (int type, int memtype, u64 npages, u64 *phys);
 int call_uefi_free_pages (u64 phys, u64 npages);
+int call_uefi_create_event_exit_boot_services (u64 phys, u64 context,
+					       void **event_ret);
 u32 call_uefi_getkey (void);
 void call_uefi_putchar (unsigned char c);
 void call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,

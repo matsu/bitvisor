@@ -51,6 +51,7 @@ extern ulong uefi_disconnect_controller;
 extern ulong uefi_boot_param_ext_addr;
 extern ulong uefi_protocols_per_handle;
 extern ulong uefi_uninstall_protocol_interface;
+extern ulong uefi_create_event;
 extern bool uefi_booted;
 
 #endif

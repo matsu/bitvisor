@@ -39,6 +39,8 @@
 #include "string.h"
 #include "uefi.h"
 
+#define EVT_SIGNAL_EXIT_BOOT_SERVICES 0x00000201
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 static EFI_GUID pci_io_protocol_guid = EFI_PCI_IO_PROTOCOL_GUID;
@@ -78,6 +80,19 @@ int
 call_uefi_free_pages (u64 phys, u64 npages)
 {
 	return calluefi (uefi_free_pages, 2, phys, npages);
+}
+
+int
+call_uefi_create_event_exit_boot_services (u64 phys, u64 context,
+					   void **event_ret)
+{
+	static EFI_EVENT event;
+	int ret;
+
+	ret = calluefi (uefi_create_event, 5, EVT_SIGNAL_EXIT_BOOT_SERVICES,
+			EFI_TPL_NOTIFY, phys, context, sym_to_phys (&event));
+	*event_ret = event;
+	return ret;
 }
 
 u32

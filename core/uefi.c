@@ -76,6 +76,7 @@ ulong SECTION_ENTRY_DATA uefi_disconnect_controller;
 ulong SECTION_ENTRY_DATA uefi_boot_param_ext_addr;
 ulong SECTION_ENTRY_DATA uefi_protocols_per_handle;
 ulong SECTION_ENTRY_DATA uefi_uninstall_protocol_interface;
+ulong SECTION_ENTRY_DATA uefi_create_event;
 bool uefi_booted;
 
 static void SECTION_ENTRY_TEXT
@@ -235,6 +236,9 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 			 (&uefi_uninstall_protocol_interface),
 			 &uefi_boot_services->UninstallProtocolInterface,
 			 sizeof uefi_uninstall_protocol_interface);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_create_event),
+			 &uefi_boot_services->CreateEvent,
+			 sizeof uefi_create_event);
 	read_configuration_table (systab);
 
 	if (!boot_options) {

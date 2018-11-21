@@ -31,6 +31,7 @@
 #include "acpi_dsdt.h"
 #include "assert.h"
 #include "beep.h"
+#include "calluefi.h"
 #include "constants.h"
 #include "current.h"
 #include "initfunc.h"
@@ -796,6 +797,100 @@ remove_dup_facs_addr (u64 facs[], int n)
 	}
 }
 
+#ifdef DISABLE_VTD
+/* Return true if there is an interrupt remapping table entry which is
+ * present.  For example this is true on recent (2018) Mac machines;
+ * apparently Mac machines until 2017 use PIC and PIT for timer
+ * services in firmware but recent Mac machines use HPET and interrupt
+ * remapping. */
+static bool
+is_interrupt_remapping_used (u64 irta_reg)
+{
+	static const u64 irte_p_bit = 1 << 0;
+	u32 nentries = 2 << (irta_reg & 0xF);
+	u64 irta = irta_reg & ~PAGESIZE_MASK;
+	u64 *irt;
+	u32 len = nentries * 2 * sizeof *irt;
+	u32 i;
+	bool ret = false;
+
+	irt = mapmem_hphys (irta, len, 0);
+	for (i = 0; i < nentries; i++) {
+		if (irt[2 * i] & irte_p_bit) {
+			ret = true;
+			break;
+		}
+	}
+	unmapmem (irt, len);
+	return ret;
+}
+
+static void
+disable_vtd_sub (u64 regbase)
+{
+	struct {
+		u32 version_register;
+		u32 reserved;
+		u64 capability_register;
+		u64 extended_capability_register;
+		u32 global_command_register;
+		u32 global_status_register;
+		u32 unused[(0xB8 - 0x20) / sizeof (u32)];
+		u64 interrupt_remapping_table_address_register;
+	} __attribute__ ((packed)) *r;
+	static const u32 interrupt_remapping_bit = 1 << 25;
+	static const u32 translation_bit = 1 << 31;
+	bool interrupt_remapping_used = false;
+	u32 status;
+	void *event;
+	static u64 clear_u32_uefi;
+	u8 *p;
+
+	r = mapmem_hphys (regbase, sizeof *r, MAPMEM_WRITE);
+	status = r->global_status_register;
+	if (status & interrupt_remapping_bit) {
+		u64 irta_reg = r->interrupt_remapping_table_address_register;
+		if (is_interrupt_remapping_used (irta_reg)) {
+			printf ("DMAR: [0x%llX] Interrupt remapping will be"
+				" disabled at ExitBootServices()\n", regbase);
+#ifdef VTD_TRANS
+			panic ("%s: Conflict with VTD_TRANS", __func__);
+#endif
+			interrupt_remapping_used = true;
+		} else {
+			printf ("DMAR: [0x%llX] Disable interrupt remapping\n",
+				regbase);
+		}
+	}
+	if (status & translation_bit)
+		printf ("DMAR: [0x%llX] Disable translation\n", regbase);
+	if (interrupt_remapping_used) {
+		r->global_command_register = status & ~translation_bit;
+		if (!uefi_booted)
+			panic ("%s: Interrupt remapping has been enabled"
+			       " by BIOS?", __func__);
+		if (call_uefi_allocate_pages (0, /* AllocateAnyPages */
+					      3, /* EfiBootServicesCode */
+					      1, &clear_u32_uefi))
+			panic ("%s: AllocatePages failed", __func__);
+		p = mapmem_hphys (clear_u32_uefi, 5, MAPMEM_WRITE);
+		p[0] = 0x31;	/* xor %eax,%eax */
+		p[1] = 0xC0;
+		p[2] = 0x89;	/* mov %eax,(%rdx) */
+		p[3] = 0x02;
+		p[4] = 0xC3;	/* ret */
+		unmapmem (p, 5);
+		if (call_uefi_create_event_exit_boot_services
+		    (clear_u32_uefi, regbase +
+		     ((ulong)&r->global_command_register - (ulong)r), &event))
+			panic ("%s: CreateEvent failed", __func__);
+	} else {
+		r->global_command_register = 0;
+	}
+	unmapmem (r, sizeof *r);
+}
+#endif
+
 static void
 disable_vtd (void *dmar)
 {
@@ -809,30 +904,14 @@ disable_vtd (void *dmar)
 		u16 segment_number;
 		u64 register_base_address;
 	} __attribute__ ((packed)) *q;
-	struct {
-		u32 version_register;
-		u32 reserved;
-		u64 capability_register;
-		u64 extended_capability_register;
-		u32 global_command_register;
-		u32 global_status_register;
-	} __attribute__ ((packed)) *r;
 	u32 offset;
 
 	header = dmar;
 	offset = 0x30;		/* Remapping structures */
 	while (offset + sizeof *q <= header->length) {
 		q = dmar + offset;
-		if (!q->type) {	/* DRHD */
-			r = mapmem_hphys (q->register_base_address, sizeof *r,
-					  MAPMEM_WRITE);
-			if (r->global_status_register & 0x80000000) {
-				printf ("DMAR: [0x%llX] Disable translation\n",
-					q->register_base_address);
-				r->global_command_register = 0;
-			}
-			unmapmem (r, sizeof *r);
-		}
+		if (!q->type)	/* DRHD */
+			disable_vtd_sub (q->register_base_address);
 		offset += q->length;
 	}
 #endif
