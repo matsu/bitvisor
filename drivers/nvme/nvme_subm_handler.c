@@ -268,10 +268,14 @@ admin_cmd_handler (struct nvme_host *host, struct nvme_request *req)
 	case NVME_ADMIN_OPCODE_SET_FEATURE:
 		dprintf (NVME_SUBM_DEBUG_OPT, "Admin opcode: %s found\n",
 			 STR (NVME_ADMIN_OPCODE_SET_FEATURE));
+		dprintf (NVME_SUBM_DEBUG_OPT, "Set Feature ID: %x\n",
+			 NVME_SET_FEATURE_GET_FEATURE_ID (g_cmd));
 		break;
 	case NVME_ADMIN_OPCODE_GET_FEATURE:
 		dprintf (NVME_SUBM_DEBUG_OPT, "Admin opcode: %s found\n",
 			 STR (NVME_ADMIN_OPCODE_GET_FEATURE));
+		dprintf (NVME_SUBM_DEBUG_OPT, "Get Feature ID: %x\n",
+			 NVME_SET_FEATURE_GET_FEATURE_ID (g_cmd));
 		break;
 	case NVME_ADMIN_OPCODE_ASYNC_EV_REQ:
 		host->h_queue.request_hub[0]->n_async_g_reqs++;

@@ -67,6 +67,8 @@ nvme_write_comp_db (struct nvme_host *host, u16 queue_id, u64 value)
 #define IDENTIFY_GET_N_LBAS(data)	   (*(u64 *)(data))
 #define IDENTIFY_GET_FMT_IDX(data)	   ((data)[26] & 0xF)
 #define IDENTIFY_GET_META_LBA_ENDING(data) (((data)[26] >> 4) && 0x1)
+#define IDENTIFY_GET_DPC(data)		   ((data)[28])
+#define IDENTIFY_GET_DPS(data)		   ((data)[29])
 #define IDENTIFY_GET_LBA_FMT_BASE(data)	   ((u32 *)&(data)[128])
 
 #define LBA_FMT_GET_META_NBYTES(fmt) ((fmt) & 0xFFFF)
@@ -112,6 +114,10 @@ nvme_get_ns_info (struct nvme_host *host,
 	dprintf (NVME_ETC_DEBUG, "Meta nbytes: %u\n", ns_meta->meta_nbytes);
 	dprintf (NVME_ETC_DEBUG, "Meta LBA ending: %u\n",
 		 ns_meta->meta_lba_ending);
+	dprintf (NVME_ETC_DEBUG, "End-to-end data protection capability: %x\n",
+		 IDENTIFY_GET_DPC (data));
+	dprintf (NVME_ETC_DEBUG, "End-to-end data protection settings: %x\n",
+		 IDENTIFY_GET_DPS (data));
 
 	if (ns_meta->nsid < host->n_ns) {
 		u32 nsid = ns_meta->nsid + 1;
