@@ -150,7 +150,7 @@ read_configuration_table (EFI_SYSTEM_TABLE *systab)
 static u64 SECTION_ENTRY_TEXT
 boot_param_get_phys (struct uuid *boot_uuid)
 {
-	u64 opt_addr = 0x0;
+	u64 opt_addr;
 	struct uuid opt_uuid;
 	u64 *opt_table_phys = (u64 *)uefi_boot_param_ext_addr;
 	uint i;
@@ -158,17 +158,17 @@ boot_param_get_phys (struct uuid *boot_uuid)
 	for (i = 0; i < MAX_N_PARAM_EXTS; i++) {
 		uefi_entry_pcpy (uefi_entry_virttophys (&opt_addr),
 				 &opt_table_phys[i], sizeof (opt_addr));
+		if (!opt_addr)
+			break;
 		uefi_entry_pcpy (uefi_entry_virttophys (&opt_uuid),
 				 (void *)(ulong)opt_addr,
 				 sizeof (opt_uuid));
 		if (!uefi_guid_cmp ((EFI_GUID *)&opt_uuid,
 				    (EFI_GUID *)boot_uuid))
-			break;
-		opt_addr = 0x0;
+			return opt_addr;
 	}
-	return opt_addr;
+	return 0x0;
 }
-
 
 int SECTION_ENTRY_TEXT
 uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
