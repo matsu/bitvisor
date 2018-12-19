@@ -138,6 +138,48 @@ nvme_cap_reg_read (void *data,
 /* ---------- Start Controller Configuration register handler ---------- */
 
 static void
+check_ans2_wrapper (struct nvme_host *host, u32 *value)
+{
+	if (host->ans2_wrapper &&
+	    NVME_CC_GET_IOSQES (*value) == 6) {
+		dprintf (NVME_ETC_DEBUG,
+			 "Patch command size to 128 bytes\n");
+		*value &= ~(0xF << 16);
+		*value |= (0x7 << 16);
+	}
+}
+
+static void
+check_subm_entry_size (struct nvme_host *host)
+{
+	if (host->h_io_subm_entry_nbytes == NVME_CMD_NBYTES) {
+		if (!host->ans2_wrapper &&
+		    host->vendor_id == NVME_VENDOR_ID_APPLE &&
+		    host->device_id == NVME_DEV_APPLE_2005)
+			dprintf (NVME_ETC_DEBUG,
+				 "Warning, ans2_wrapper is not enabled");
+		return;
+	} else if (host->vendor_id == NVME_VENDOR_ID_APPLE &&
+		   host->device_id == NVME_DEV_APPLE_2005 &&
+		   host->h_io_subm_entry_nbytes == NVME_CMD_ANS2_NBYTES) {
+		return;
+	}
+
+	panic ("Unsupported IO submission entry size of %u bytes",
+	       host->h_io_subm_entry_nbytes);
+}
+
+static void
+check_comp_entry_size (struct nvme_host *host)
+{
+	if (host->h_io_comp_entry_nbytes == NVME_COMP_NBYTES)
+		return;
+
+	panic ("Unsupported IO completion entry size of %u bytes",
+	       host->h_io_comp_entry_nbytes);
+}
+
+static void
 wait_for_interceptor (struct nvme_host *host)
 {
 	struct nvme_io_interceptor *io_interceptor;
@@ -181,7 +223,8 @@ init_admin_queue (struct nvme_host *host)
 			      host->page_nbytes,
 			      host->g_admin_comp_n_entries,
 			      host->g_admin_comp_n_entries,
-			      host->io_comp_entry_nbytes,
+			      NVME_COMP_NBYTES,
+			      NVME_COMP_NBYTES,
 			      host->g_admin_comp_queue_addr,
 			      MAPMEM_WRITE);
 
@@ -192,7 +235,8 @@ init_admin_queue (struct nvme_host *host)
 			      host->page_nbytes,
 			      host->g_admin_subm_n_entries,
 			      host->g_admin_subm_n_entries,
-			      host->io_subm_entry_nbytes,
+			      NVME_CMD_NBYTES,
+			      NVME_CMD_NBYTES,
 			      host->g_admin_subm_queue_addr,
 			      0);
 
@@ -300,7 +344,12 @@ nvme_cc_reg_write (void *data,
 		goto end;
 
 	/* In the future, we might need to deal with this */
-	host->cmd_set = NVME_CC_GET_CMD_SET (value);
+	u8 cmd_set = NVME_CC_GET_CMD_SET (value);
+
+	if (cmd_set != 0)
+		panic ("Unsupported NVMe command set %u", cmd_set);
+
+	host->cmd_set = cmd_set;
 
 	uint page_l_shift = PAGESHIFT_INIT_POS + NVME_CC_GET_MPS (value);
 	host->page_nbytes = 1 << page_l_shift;
@@ -319,17 +368,28 @@ nvme_cc_reg_write (void *data,
 	dprintf (NVME_ETC_DEBUG, "Page mask: 0x%016llX\n", host->page_mask);
 
 	if (NVME_CC_GET_IOSQES (value) != 0) {
-		host->io_subm_entry_nbytes = 1 << NVME_CC_GET_IOSQES (value);
+		host->g_io_subm_entry_nbytes = 1 << NVME_CC_GET_IOSQES (value);
+		check_ans2_wrapper (host, &value);
+		host->h_io_subm_entry_nbytes = 1 << NVME_CC_GET_IOSQES (value);
 		dprintf (NVME_ETC_DEBUG,
-			 "I/O Submission Queue Entry size: %u bytes\n",
-			 host->io_subm_entry_nbytes);
+			 "Host I/O Submission Queue Entry size: %u bytes\n",
+			 host->h_io_subm_entry_nbytes);
+		dprintf (NVME_ETC_DEBUG,
+			 "Guest I/O Submission Queue Entry size: %u bytes\n",
+			 host->g_io_subm_entry_nbytes);
+		check_subm_entry_size (host);
 	}
 
 	if (NVME_CC_GET_IOCQES (value) != 0) {
-		host->io_comp_entry_nbytes = 1 << NVME_CC_GET_IOCQES (value);
+		host->g_io_comp_entry_nbytes = 1 << NVME_CC_GET_IOCQES (value);
+		host->h_io_comp_entry_nbytes = 1 << NVME_CC_GET_IOCQES (value);
 		dprintf (NVME_ETC_DEBUG,
-			 "I/O Completion Queue Entry size: %u bytes\n",
-			 host->io_comp_entry_nbytes);
+			 "Host I/O Completion Queue Entry size: %u bytes\n",
+			 host->h_io_comp_entry_nbytes);
+		dprintf (NVME_ETC_DEBUG,
+			 "Guest I/O Completion Queue Entry size: %u bytes\n",
+			 host->g_io_comp_entry_nbytes);
+		check_comp_entry_size (host);
 	}
 
 	if (NVME_CC_GET_SHN (value))
@@ -1285,13 +1345,58 @@ nvme_new (struct pci_device *pci_device)
 	printf ("NVMe initialization done\n");
 }
 
+/* In the future, there might be more Apple-specific options */
+static void
+nvme_apple_new (struct pci_device *pci_device)
+{
+	nvme_new (pci_device);
+
+	struct nvme_data *nvme_data = pci_device->host;
+	struct nvme_host *host = nvme_data->host;
+
+	/* Check for Apple ANS2 Controller wrapper option */
+	if (host->vendor_id == NVME_VENDOR_ID_APPLE &&
+	    host->device_id == NVME_DEV_APPLE_2005 &&
+	    pci_device->driver_options[2] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[2], NULL)) {
+		printf ("ANS2 Controller wrapper enabled\n");
+		host->ans2_wrapper = 1;
+	}
+}
+
 static int
 nvme_config_read (struct pci_device *pci_device,
 		  u8 iosize,
 		  u16 offset,
 		  union mem *data)
 {
-	return CORE_IO_RET_DEFAULT;
+	pci_handle_default_config_read (pci_device, iosize, offset, data);
+
+	struct nvme_data *nvme_data = (struct nvme_data *)pci_device->host;
+	struct nvme_host *host	    = nvme_data->host;
+
+	if (!host->ans2_wrapper)
+		goto done;
+
+	/*
+	 * The following operation causes macOS not to be able to read
+	 * encrypted-at-rest partitions. It is because it thinks that it
+	 * is not running on the ANS2 Controller.
+	 */
+
+	if (offset < 0xB) {
+		if (offset + iosize < 0xB)
+			goto done;
+
+		/* Change subclass code to from 0x80 to 0x08 */
+		u8 *buf = &data->byte;
+
+		ASSERT (buf[0xA - offset] == 0x80);
+
+		buf[0xA - offset] = 0x08;
+	}
+done:
+	return CORE_IO_RET_DONE;
 }
 
 static int
@@ -1369,12 +1474,27 @@ static struct pci_driver nvme_driver = {
 
 static const char nvme_apple_driver_name[] = "nvme_apple";
 
+/*
+ * == Special options for nvme_apple ==
+ *
+ * To use normal I/O commands on ANS2 Controller, set 'ans2_wrapper' to 1
+ *
+ * Apple ANS2 Controller supports only 128 bytes I/O command size. Using
+ * 64 bytes I/O command size causes the BridgeOS to panic. By the time this
+ * comment is written, No known OS other than macOS supports 128 Bytes I/O
+ * command size. Set 'ans2_wrapper' to 1 when loading nvme_apple_driver
+ * so that a guest OS other than macOS can use the ANS2 controller. Note that
+ * if 'ans2_wrapper' is enabled, macOS and Mac firmware cannot read
+ * encrypted-at-rest APFS volumes. It relies on 128 bytes I/O commands for
+ * hardware accelerated encryption/decryption.
+ *
+ */
 static struct pci_driver nvme_apple_driver = {
 	.name		= nvme_apple_driver_name,
 	.longname	= nvme_driver_longname,
-	.driver_options	= "storage_io,ext",
+	.driver_options	= "storage_io,ext,ans2_wrapper",
 	.device		= "class_code=018002",
-	.new		= nvme_new,
+	.new		= nvme_apple_new,
 	.config_read	= nvme_config_read,
 	.config_write	= nvme_config_write
 };

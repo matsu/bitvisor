@@ -131,7 +131,7 @@ handle_identify_command (struct nvme_host *host,
 			 struct nvme_comp *h_admin_comp,
 			 struct nvme_request *req)
 {
-	struct nvme_cmd *cmd = &req->cmd;
+	struct nvme_cmd *cmd = &req->cmd.std;
 
 	u8 tx_type = NVME_CMD_GET_TX_TYPE (cmd);
 
@@ -186,7 +186,7 @@ process_admin_comp (struct nvme_host *host,
 		    struct nvme_comp *h_admin_comp,
 		    struct nvme_request *req)
 {
-	struct nvme_cmd *h_admin_cmd = &req->cmd;
+	struct nvme_cmd *h_admin_cmd = &req->cmd.std;
 
 	if (req->is_h_req) {
 		if (req->callback)
@@ -248,7 +248,7 @@ process_io_comp (struct nvme_host *host,
 		 struct nvme_comp *comp,
 		 struct nvme_request *req)
 {
-	struct nvme_cmd *cmd = &req->cmd;
+	struct nvme_cmd *cmd = &req->cmd.std;
 
 	u8 status_type = NVME_COMP_GET_STATUS_TYPE (comp);
 	u8 status      = NVME_COMP_GET_STATUS (comp);
@@ -287,11 +287,11 @@ process_comp_queue (struct nvme_host *host,
 	struct nvme_comp first_h_comp = {0}, *first_g_comp = NULL;
 
 	struct nvme_comp *h_comp, *g_comp;
-	for (h_comp = &h_comp_queue_info->queue.comp[h_cur_head],
-	     g_comp = &g_comp_queue_info->queue.comp[g_cur_head];
+	for (h_comp = nvme_comp_queue_at_idx (h_comp_queue_info, h_cur_head),
+	     g_comp = nvme_comp_queue_at_idx (g_comp_queue_info, g_cur_head);
 	     NVME_COMP_GET_PHASE (h_comp) == h_comp_queue_info->phase;
-	     h_comp = &h_comp_queue_info->queue.comp[h_cur_head],
-	     g_comp = &g_comp_queue_info->queue.comp[g_cur_head]) {
+	     h_comp = nvme_comp_queue_at_idx (h_comp_queue_info, h_cur_head),
+	     g_comp = nvme_comp_queue_at_idx (g_comp_queue_info, g_cur_head)) {
 
 		/* This queue ID is submission queue ID */
 		u16 subm_queue_id = h_comp->queue_id;
@@ -306,7 +306,7 @@ process_comp_queue (struct nvme_host *host,
 			printf ("Long time controller response: %llu\n",
 				time_taken);
 			printf ("Submission Queue ID: %u opcode: %u\n",
-				subm_queue_id, req->cmd.opcode);
+				subm_queue_id, req->cmd.std.opcode);
 		}
 
 		if (subm_queue_id == 0)

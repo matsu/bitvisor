@@ -163,7 +163,7 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 	g_buf->buf_list = buf_list;
 
 	if (host->vendor_id == NVME_VENDOR_ID_APPLE &&
-	    g_req->cmd.flags & 0x20) {
+	    g_req->cmd.std.flags & 0x20) {
 		buf_list->addr_phys = g_ptr1_phys;
 		buf_list->addr_in_buflist = 0x0;
 		buf_list->buf = mapmem_gphys (g_ptr1_phys,
@@ -448,13 +448,15 @@ nvme_io_patch_start_lba (struct nvme_host *host,
 			 struct nvme_request *g_req,
 			 u64 new_start_lba)
 {
-	u64 total_lbas = host->ns_metas[g_req->cmd.nsid].n_lbas;
+	struct nvme_cmd *cmd = &g_req->cmd.std;
+
+	u64 total_lbas = host->ns_metas[cmd->nsid].n_lbas;
 
 	/* Sanity check */
 	if (new_start_lba + g_req->n_lbas > total_lbas)
 		return 0;
 
-	u64 *start_lba = (u64 *)&g_req->cmd.cmd_flags[0];
+	u64 *start_lba = (u64 *)&cmd->cmd_flags[0];
 	*start_lba = new_start_lba;
 
 	return 1;
@@ -482,19 +484,21 @@ nvme_io_change_g_req_to_dummy_read (struct nvme_request *g_req,
 	 * causes the controller to stall. dummy_buf is not used for now
 	 * until we could figure out the actual cause of the stall.
 	 */
-	g_req->cmd.opcode = NVME_IO_OPCODE_READ;
+	struct nvme_cmd *g_cmd = &g_req->cmd.std;
+
+	g_cmd->opcode = NVME_IO_OPCODE_READ;
 
 	g_req->h_buf = alloc2 (PAGE_NBYTES, &g_req->buf_phys);
 
-	NVME_CMD_PRP_PTR1 (&g_req->cmd) = g_req->buf_phys;
+	NVME_CMD_PRP_PTR1 (g_cmd) = g_req->buf_phys;
 
-	u64 *start_lba = (u64 *)&g_req->cmd.cmd_flags[0];
+	u64 *start_lba = (u64 *)&g_cmd->cmd_flags[0];
 	*start_lba = dummy_lba;
 
-	g_req->cmd.cmd_flags[2] = 0; /* only 1 lba */
-	g_req->cmd.cmd_flags[3] = 0;
-	g_req->cmd.cmd_flags[4] = 0;
-	g_req->cmd.cmd_flags[5] = 0;
+	g_cmd->cmd_flags[2] = 0; /* only 1 lba */
+	g_cmd->cmd_flags[3] = 0;
+	g_cmd->cmd_flags[4] = 0;
+	g_cmd->cmd_flags[5] = 0;
 }
 
 u16
@@ -535,7 +539,7 @@ nvme_io_set_shadow_buffer (struct nvme_request *g_req,
 	uint nbytes = dmabuf->nbytes;
 	uint n_pages = (nbytes + (PAGE_NBYTES - 1)) >> PAGE_NBYTES_DIV_EXPO;
 
-	struct nvme_cmd *cmd = &g_req->cmd;
+	struct nvme_cmd *cmd = &g_req->cmd.std;
 
 	/* Clear pointer fields */
 	NVME_CMD_PRP_PTR1 (cmd) = 0x0;
@@ -637,12 +641,14 @@ nvme_io_g_buf_io_desc (struct nvme_host *host,
 		return NULL;
 	}
 
+	u32 nsid = g_req->cmd.std.nsid;
+
 	ASSERT (g_buf);
 	struct g_buf_list *cur_buf_list = g_buf->buf_list;
 
 	struct nvme_io_descriptor *io_desc;
 	io_desc = nvme_io_init_descriptor (host,
-					   g_req->cmd.nsid,
+					   nsid,
 				 	   g_req->queue_id,
 				 	   lba_start,
 				 	   n_lbas);
@@ -653,7 +659,7 @@ nvme_io_g_buf_io_desc (struct nvme_host *host,
 	}
 
 	ASSERT (cur_buf_list);
-	u64 lba_nbytes = host->ns_metas[g_req->cmd.nsid].lba_nbytes;
+	u64 lba_nbytes = host->ns_metas[nsid].lba_nbytes;
 	u64 access_nbytes = n_lbas * lba_nbytes;
 	u64 first_data_nbytes = cur_buf_list->nbytes - g_buf_offset;
 
@@ -681,9 +687,11 @@ nvme_io_g_buf_io_desc (struct nvme_host *host,
 
 static struct nvme_request *
 alloc_host_base_request (nvme_io_req_callback_t callback,
-			 void *arg)
+			 void *arg,
+			 uint cmd_nbytes)
 {
 	struct nvme_request *req = zalloc (NVME_REQUEST_NBYTES);
+	req->cmd_nbytes = cmd_nbytes;
 
 	/* Important */
 	req->is_h_req = 1;
@@ -707,12 +715,15 @@ nvme_io_rw_request (struct nvme_host *host,
 	    io_desc->buf_phys1 == 0x0)
 		return 0;
 
-	struct nvme_request *req = alloc_host_base_request (callback, arg);
+	struct nvme_request *req;
+	req = alloc_host_base_request (callback,
+				       arg,
+				       host->h_io_subm_entry_nbytes);
 
 	req->lba_start = io_desc->lba_start;
 	req->n_lbas    = io_desc->n_lbas;
 
-	struct nvme_cmd *h_cmd = &req->cmd;
+	struct nvme_cmd *h_cmd = &req->cmd.std;
 
 	h_cmd->opcode = opcode;
 	h_cmd->nsid   = io_desc->nsid;
@@ -772,9 +783,12 @@ nvme_io_flush_request (struct nvme_host *host,
 	    nsid == 0)
 		return 0;
 
-	struct nvme_request *req = alloc_host_base_request (callback, arg);
+	struct nvme_request *req;
+	req = alloc_host_base_request (callback,
+				       arg,
+				       host->h_io_subm_entry_nbytes);
 
-	struct nvme_cmd *h_cmd = &req->cmd;
+	struct nvme_cmd *h_cmd = &req->cmd.std;
 
 	h_cmd->opcode = NVME_IO_OPCODE_FLUSH;
 	h_cmd->nsid   = nsid;
@@ -797,9 +811,12 @@ nvme_io_identify (struct nvme_host *host,
 	    pagebuf == 0x0)
 		return 0;
 
-	struct nvme_request *req = alloc_host_base_request (callback, arg);
+	struct nvme_request *req;
+	req = alloc_host_base_request (callback,
+				       arg,
+				       NVME_CMD_NBYTES);
 
-	struct nvme_cmd *h_cmd = &req->cmd;
+	struct nvme_cmd *h_cmd = &req->cmd.std;
 
 	h_cmd->opcode = NVME_ADMIN_OPCODE_IDENTIFY;
 	h_cmd->nsid   = nsid;
@@ -822,9 +839,12 @@ nvme_io_get_n_queues (struct nvme_host *host,
 	if (!host)
 		return 0;
 
-	struct nvme_request *req = alloc_host_base_request (callback, arg);
+	struct nvme_request *req;
+	req = alloc_host_base_request (callback,
+				       arg,
+				       NVME_CMD_NBYTES);
 
-	struct nvme_cmd *h_cmd = &req->cmd;
+	struct nvme_cmd *h_cmd = &req->cmd.std;
 
 	h_cmd->opcode = NVME_ADMIN_OPCODE_GET_FEATURE;
 

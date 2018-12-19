@@ -42,7 +42,7 @@
 static void
 handle_delete_queue (struct nvme_host *host, struct nvme_request *req)
 {
-	struct nvme_cmd *cmd = &req->cmd;
+	struct nvme_cmd *cmd = &req->cmd.std;
 
 	u16 queue_id = QUEUE_GET_QID (cmd);
 
@@ -62,7 +62,7 @@ handle_delete_queue (struct nvme_host *host, struct nvme_request *req)
 static void
 handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 {
-	struct nvme_cmd *cmd = &req->cmd;
+	struct nvme_cmd *cmd = &req->cmd.std;
 
 	if (host->h_queue.max_n_subm_queues == 0) {
 		dprintf (1, "Warning: SET_FEATURE for n_queues not found, ");
@@ -129,7 +129,8 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 				      host->page_nbytes,
 				      h_queue_n_entries,
 				      g_queue_n_entries,
-				      host->io_subm_entry_nbytes,
+				      host->h_io_subm_entry_nbytes,
+				      host->g_io_subm_entry_nbytes,
 				      NVME_CMD_PRP_PTR1 (cmd),
 				      0);
 
@@ -162,7 +163,8 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 				      host->page_nbytes,
 				      h_queue_n_entries,
 				      g_queue_n_entries,
-				      host->io_comp_entry_nbytes,
+				      host->h_io_comp_entry_nbytes,
+				      host->g_io_comp_entry_nbytes,
 				      NVME_CMD_PRP_PTR1 (cmd),
 				      MAPMEM_WRITE);
 
@@ -182,7 +184,7 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 static void
 handle_identify (struct nvme_host *host, struct nvme_request *req)
 {
-	struct nvme_cmd *cmd = &req->cmd;
+	struct nvme_cmd *cmd = &req->cmd.std;
 
 	u8 tx_type = NVME_CMD_GET_TX_TYPE (cmd);
 
@@ -214,7 +216,9 @@ admin_cmd_handler (struct nvme_host *host, struct nvme_request *req)
 	struct nvme_queue_info *admin_subm_queue_info;
 	admin_subm_queue_info = host->h_queue.subm_queue_info[0];
 
-	switch (req->cmd.opcode) {
+	struct nvme_cmd *g_cmd = &req->cmd.std;
+
+	switch (g_cmd->opcode) {
 	case NVME_ADMIN_OPCODE_DELETE_SUBM_QUEUE:
 		dprintf (NVME_SUBM_DEBUG, "Admin opcode: %s found\n",
 			 STR (NVME_ADMIN_OPCODE_DELETE_SUBM_QUEUE));
@@ -256,7 +260,7 @@ admin_cmd_handler (struct nvme_host *host, struct nvme_request *req)
 		if (host->io_interceptor) {
 			uint n_entries;
 			n_entries = admin_subm_queue_info->n_entries;
-			u16 *cmd_flag0_word = (u16 *)&req->cmd.cmd_flags[0];
+			u16 *cmd_flag0_word = (u16 *)&g_cmd->cmd_flags[0];
 			cmd_flag0_word[1] = n_entries + 1;
 			dprintf (NVME_SUBM_DEBUG, "Patch Abort command\n");
 		}
@@ -308,7 +312,7 @@ admin_cmd_handler (struct nvme_host *host, struct nvme_request *req)
 		break;
 	default:
 		dprintf (NVME_SUBM_DEBUG,
-			 "Unknown admin opcode: 0x%X\n", req->cmd.opcode);
+			 "Unknown admin opcode: 0x%X\n", g_cmd->opcode);
 		break;
 	}
 }
@@ -324,25 +328,27 @@ call_interceptor (struct nvme_host *host,
 	struct nvme_io_interceptor *io_interceptor;
 	io_interceptor = host->io_interceptor;
 
+	u32 nsid = req->cmd.std.nsid;
+
 	if (io_interceptor->on_read &&
 	    cmd_opcode == NVME_IO_OPCODE_READ) {
 		io_interceptor->on_read (io_interceptor->interceptor,
 					 req,
-					 req->cmd.nsid,
+					 nsid,
 					 req->lba_start,
 					 req->n_lbas);
 	} else if (io_interceptor->on_write &&
 		   cmd_opcode == NVME_IO_OPCODE_WRITE) {
 		io_interceptor->on_write (io_interceptor->interceptor,
 					  req,
-					  req->cmd.nsid,
+					  nsid,
 					  req->lba_start,
 					  req->n_lbas);
 	} else if (io_interceptor->on_compare &&
 		   cmd_opcode == NVME_IO_OPCODE_COMPARE) {
 		io_interceptor->on_compare (io_interceptor->interceptor,
 					    req,
-					    req->cmd.nsid,
+					    nsid,
 					    req->lba_start,
 					    req->n_lbas);
 	}
@@ -351,7 +357,7 @@ call_interceptor (struct nvme_host *host,
 static void
 handle_rw (struct nvme_host *host, struct nvme_request *req)
 {
-	struct nvme_cmd *g_io_cmd = &req->cmd;
+	struct nvme_cmd *g_io_cmd = &req->cmd.std;
 
 	ASSERT (g_io_cmd->nsid != 0);
 
@@ -371,12 +377,12 @@ handle_rw (struct nvme_host *host, struct nvme_request *req)
 static void
 handle_data_management (struct nvme_host *host, struct nvme_request *req)
 {
-	struct nvme_cmd *g_io_cmd = &req->cmd;
+	struct nvme_cmd *g_io_cmd = &req->cmd.std;
 
 	struct nvme_io_interceptor *io_interceptor;
 	io_interceptor = host->io_interceptor;
 
-	u32 type = req->cmd.cmd_flags[1];
+	u32 type = g_io_cmd->cmd_flags[1];
 
 	if (!io_interceptor ||
 	    !io_interceptor->on_data_management ||
@@ -395,9 +401,9 @@ handle_data_management (struct nvme_host *host, struct nvme_request *req)
 
 	unmapmem (g_buf, host->page_nbytes);
 
-	NVME_CMD_PRP_PTR1 (&req->cmd) = req->buf_phys;
+	NVME_CMD_PRP_PTR1 (g_io_cmd) = req->buf_phys;
 
-	u32 orig_range = req->cmd.cmd_flags[0];
+	u32 orig_range = g_io_cmd->cmd_flags[0];
 
 	u32 new_range = io_interceptor->on_data_management (interceptor,
 							    req,
@@ -406,7 +412,7 @@ handle_data_management (struct nvme_host *host, struct nvme_request *req)
 							    host->page_nbytes,
 							    orig_range);
 
-	req->cmd.cmd_flags[0] = new_range;
+	g_io_cmd->cmd_flags[0] = new_range;
 }
 #undef TYPE_DEALLOC
 
@@ -414,29 +420,40 @@ static void
 io_cmd_handler (struct nvme_host *host,
 		struct nvme_request *req)
 {
+	struct nvme_cmd *cmd = &req->cmd.std;
 #if 0
-	/* Debugging strange commands from Apple firmware */
-	if (req->cmd.flags & 0x3C) {
-		struct nvme_cmd *g_io_cmd = &req->cmd;
-		dprintf (1, "Interesting flags: 0x%x\n", g_io_cmd->flags);
-		dprintf (1, "opcode: %u\n", g_io_cmd->opcode);
-		dprintf (1, "TX Type: %u\n", NVME_CMD_GET_TX_TYPE (g_io_cmd));
-		dprintf (1, "NS ID: %u\n", g_io_cmd->nsid);
-		dprintf (1, "meta ptr: 0x%016llX\n", g_io_cmd->meta_ptr);
+	/* Debugging strange commands from Mac firmware, macOS, or others */
+	if (cmd->flags & 0x3C || cmd->opcode >= 0x80) {
+		dprintf (1, "Interesting flags: 0x%x\n", cmd->flags);
+		dprintf (1, "opcode: 0x%x\n", cmd->opcode);
+		dprintf (1, "TX Type: %u\n", NVME_CMD_GET_TX_TYPE (cmd));
+		dprintf (1, "NS ID: %u\n", cmd->nsid);
+		dprintf (1, "meta ptr: 0x%016llX\n", cmd->meta_ptr);
 		dprintf (1, "ptr1: 0x%016llX\n",
-			 g_io_cmd->data_ptr.prp_entry.ptr1);
+			 cmd->data_ptr.prp_entry.ptr1);
 		dprintf (1, "ptr2: 0x%016llX\n",
-			 g_io_cmd->data_ptr.prp_entry.ptr2);
+			 cmd->data_ptr.prp_entry.ptr2);
 
-		dprintf (1, "cmd_flags0: 0x%08X\n", g_io_cmd->cmd_flags[0]);
-		dprintf (1, "cmd_flags1: 0x%08X\n", g_io_cmd->cmd_flags[1]);
-		dprintf (1, "cmd_flags2: 0x%08X\n", g_io_cmd->cmd_flags[2]);
-		dprintf (1, "cmd_flags3: 0x%08X\n", g_io_cmd->cmd_flags[3]);
-		dprintf (1, "cmd_flags4: 0x%08X\n", g_io_cmd->cmd_flags[4]);
-		dprintf (1, "cmd_flags5: 0x%08X\n", g_io_cmd->cmd_flags[5]);
+		dprintf (1, "cmd_flags0: 0x%08X\n", cmd->cmd_flags[0]);
+		dprintf (1, "cmd_flags1: 0x%08X\n", cmd->cmd_flags[1]);
+		dprintf (1, "cmd_flags2: 0x%08X\n", cmd->cmd_flags[2]);
+		dprintf (1, "cmd_flags3: 0x%08X\n", cmd->cmd_flags[3]);
+		dprintf (1, "cmd_flags4: 0x%08X\n", cmd->cmd_flags[4]);
+		dprintf (1, "cmd_flags5: 0x%08X\n", cmd->cmd_flags[5]);
+
+		if (host->vendor_id == NVME_VENDOR_ID_APPLE &&
+		    host->device_id == NVME_DEV_APPLE_2005) {
+			struct nvme_cmd_ans2 *cmd_ans2 = &req->cmd.ans2;
+
+			uint i;
+			for (i = 0; i < 16; i++)
+				dprintf (1, "extend_data[%u]: 0x%08X\n",
+					 i,
+					 cmd_ans2->extended_data[i]);
+		}
 	}
 #endif
-	switch (req->cmd.opcode) {
+	switch (cmd->opcode) {
 	case NVME_IO_OPCODE_READ:
 	case NVME_IO_OPCODE_WRITE:
 	case NVME_IO_OPCODE_COMPARE:
@@ -476,12 +493,22 @@ get_fetching_limit (struct nvme_host *host,
 }
 
 static struct nvme_request *
-request_from_g_cmd (struct nvme_cmd *g_cmd)
+request_from_g_cmd (struct nvme_queue_info *g_subm_queue_info,
+		    uint idx)
 {
+	uint cmd_nbytes = g_subm_queue_info->entry_nbytes;
+
 	struct nvme_request *req = zalloc (NVME_REQUEST_NBYTES);
-	req->cmd	 = *g_cmd;
-	req->orig_cmd_id = g_cmd->cmd_id;
-	req->g_data_ptr  = req->cmd.data_ptr;
+	req->cmd_nbytes = cmd_nbytes;
+
+	union nvme_cmd_union *g_cmd;
+	g_cmd = nvme_subm_queue_at_idx (g_subm_queue_info, idx);
+
+	memcpy (&req->cmd, g_cmd, cmd_nbytes);
+
+	req->orig_cmd_id = g_cmd->std.cmd_id;
+	req->g_data_ptr  = g_cmd->std.data_ptr;
+
 	return req;
 }
 
@@ -502,11 +529,8 @@ fetch_requests_from_guest (struct nvme_host *host, u16 subm_queue_id)
 
 	while (g_cur_tail != g_new_tail &&
 	       n_fetchable != 0) {
-		struct nvme_cmd *g_cmd;
-		g_cmd = &g_subm_queue_info->queue.subm[g_cur_tail];
-
 		struct nvme_request *req;
-		req = request_from_g_cmd (g_cmd);
+		req = request_from_g_cmd (g_subm_queue_info, g_cur_tail);
 		req->queue_id = subm_queue_id;
 
 		if (subm_queue_id == 0)

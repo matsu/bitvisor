@@ -309,30 +309,31 @@ nvme_init_queue_info (struct nvme_queue_info *h_queue_info,
 		      uint page_nbytes,
 		      u16 h_queue_n_entries,
 		      u16 g_queue_n_entries,
-		      uint entry_nbytes,
+		      uint h_entry_nbytes,
+		      uint g_entry_nbytes,
 		      phys_t g_queue_phys,
 		      uint map_flag)
 {
 	h_queue_info->n_entries	   = h_queue_n_entries;
-	h_queue_info->entry_nbytes = entry_nbytes;
+	h_queue_info->entry_nbytes = h_entry_nbytes;
 
 	g_queue_info->n_entries	   = g_queue_n_entries;
-	g_queue_info->entry_nbytes = entry_nbytes;
+	g_queue_info->entry_nbytes = g_entry_nbytes;
 
-	uint h_nbytes = h_queue_n_entries  * entry_nbytes;
+	uint h_nbytes = h_queue_n_entries  * h_entry_nbytes;
 	h_nbytes = (h_nbytes < page_nbytes) ? page_nbytes : h_nbytes;
 
-	uint g_nbytes = g_queue_n_entries * entry_nbytes;
+	uint g_nbytes = g_queue_n_entries * g_entry_nbytes;
 	g_nbytes = (g_nbytes < page_nbytes) ? page_nbytes : g_nbytes;
 
 	phys_t h_queue_phys;
-	h_queue_info->queue.ptr = zalloc2 (h_nbytes, &h_queue_phys);
+	h_queue_info->queue = zalloc2 (h_nbytes, &h_queue_phys);
 	h_queue_info->queue_phys = h_queue_phys;
 
 	g_queue_info->queue_phys = g_queue_phys;
-	g_queue_info->queue.ptr = mapmem_gphys (g_queue_phys,
-						g_nbytes,
-						map_flag);
+	g_queue_info->queue = mapmem_gphys (g_queue_phys,
+					    g_nbytes,
+					    map_flag);
 
 	h_queue_info->paired_comp_queue_id = NVME_NO_PAIRED_COMP_QUEUE_ID;
 	g_queue_info->paired_comp_queue_id = NVME_NO_PAIRED_COMP_QUEUE_ID;
@@ -360,17 +361,30 @@ nvme_get_subm_slot (struct nvme_host *host, u16 subm_queue_id)
 }
 
 static int
-first_free_slot (struct nvme_subm_slot *subm_slot)
+get_free_slot (struct nvme_subm_slot *subm_slot)
 {
+	/*
+	 * Avoid repeatedly reusing a slot especially slot 0. Reusing a
+	 * slot too much causes ANS2 Controller BridgeOS to panic due to
+	 * duplicate tag error. Note that slot index is command ID.
+	 */
+
 	uint n_slots = subm_slot->n_slots;
 
-	uint i;
-	for (i = 0; i < n_slots; i++) {
-		if (!subm_slot->req_slot[i])
-			return i;
+	int slot = -1;
+
+	uint count;
+	for (count = 0; count < n_slots; count++) {
+		if (!subm_slot->req_slot[subm_slot->next_slot])
+			slot = subm_slot->next_slot;
+		subm_slot->next_slot++;
+		if (subm_slot->next_slot == n_slots)
+			subm_slot->next_slot = 0;
+		if (slot != -1)
+			break;
 	}
 
-	return -1;
+	return slot;
 }
 
 void
@@ -463,17 +477,19 @@ nvme_submit_request (struct nvme_request_hub *hub,
 	struct nvme_subm_slot *subm_slot;
 	subm_slot = h_subm_queue_info->subm_slot;
 
-	int slot = first_free_slot (subm_slot);
+	int slot = get_free_slot (subm_slot);
 
 	ASSERT (slot >= 0);
 
-	req->cmd.cmd_id = slot;
+	req->cmd.std.cmd_id = slot;
 
 	req->submit_time = get_time ();
 
 	subm_slot->req_slot[slot] = req;
 
-	h_subm_queue_info->queue.subm[tail] = req->cmd;
+	memcpy (nvme_subm_queue_at_idx (h_subm_queue_info, tail),
+		&req->cmd,
+		req->cmd_nbytes);
 
 	if (!req->is_h_req)
 		hub->n_not_ack_g_reqs++;
@@ -723,9 +739,9 @@ free_queue_info (struct nvme_queue_info *h_queue_info,
 	uint nbytes = g_queue_info->n_entries * g_queue_info->entry_nbytes;
 	nbytes = (nbytes < page_nbytes) ? page_nbytes : nbytes;
 
-	unmapmem (g_queue_info->queue.ptr, nbytes);
+	unmapmem (g_queue_info->queue, nbytes);
 
-	free (h_queue_info->queue.ptr);
+	free (h_queue_info->queue);
 
 	free (h_queue_info);
 	free (g_queue_info);

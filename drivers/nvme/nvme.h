@@ -198,6 +198,18 @@ struct nvme_cmd {
 };
 #define NVME_CMD_NBYTES (sizeof (struct nvme_cmd))
 
+/* The following command structure is for Apple ANS2 NVMe controller */
+struct nvme_cmd_ans2 {
+	struct nvme_cmd std_part;
+	u32 extended_data[16];
+};
+#define NVME_CMD_ANS2_NBYTES (sizeof (struct nvme_cmd_ans2))
+
+union nvme_cmd_union {
+	struct nvme_cmd std;
+	struct nvme_cmd_ans2 ans2;
+};
+
 #define NVME_CMD_TX_TYPE_PRP  (0x0)
 #define NVME_CMD_TX_TYPE_SGL1 (0x1)
 #define NVME_CMD_TX_TYPE_SGL2 (0x2)
@@ -280,6 +292,7 @@ struct nvme_subm_slot {
 
 	uint n_slots_used;
 	uint n_slots;
+	uint next_slot;
 
 	u16 subm_queue_id;
 };
@@ -305,7 +318,7 @@ struct nvme_host;
 #define NVME_TIME_TAKEN_WATERMARK (20 * 1000 * 1000) /* 20 seconds */
 
 struct nvme_request {
-	struct nvme_cmd cmd;
+	union nvme_cmd_union cmd;
 
 	struct nvme_request *next;
 
@@ -330,6 +343,8 @@ struct nvme_request {
 	u64 lba_start;
 	u64 total_nbytes;
 
+	uint cmd_nbytes;
+
 	u16 orig_cmd_id;
 	u16 n_lbas;
 	u16 queue_id;
@@ -342,13 +357,8 @@ struct nvme_request {
 #define NVME_NO_PAIRED_COMP_QUEUE_ID (-1)
 
 struct nvme_queue_info {
+	void *queue;
 	phys_t queue_phys;
-
-	union {
-		void *ptr;
-		struct nvme_cmd	 *subm;
-		struct nvme_comp *comp;
-	} queue;
 
 	struct nvme_subm_slot *subm_slot; /* Ref only */
 
@@ -367,6 +377,24 @@ struct nvme_queue_info {
 	u8 lock;
 };
 #define NVME_QUEUE_INFO_NBYTES (sizeof (struct nvme_queue_info))
+
+static inline void *
+nvme_queue_at_idx (struct nvme_queue_info *queue_info, uint idx)
+{
+	return queue_info->queue + (idx * queue_info->entry_nbytes);
+}
+
+static inline union nvme_cmd_union *
+nvme_subm_queue_at_idx (struct nvme_queue_info *queue_info, uint idx)
+{
+	return nvme_queue_at_idx (queue_info, idx);
+}
+
+static inline struct nvme_comp *
+nvme_comp_queue_at_idx (struct nvme_queue_info *queue_info, uint idx)
+{
+	return nvme_queue_at_idx (queue_info, idx);
+}
 
 struct nvme_queue {
 	/*
@@ -431,8 +459,10 @@ struct nvme_host {
 
 	u32 n_ns;
 	u32 page_nbytes;
-	u32 io_subm_entry_nbytes;
-	u32 io_comp_entry_nbytes;
+	u32 h_io_subm_entry_nbytes;
+	u32 g_io_subm_entry_nbytes;
+	u32 h_io_comp_entry_nbytes;
+	u32 g_io_comp_entry_nbytes;
 
 	u16 default_n_subm_queues;
 	u16 default_n_comp_queues;
@@ -449,6 +479,7 @@ struct nvme_host {
 	u8 io_ready;
 	u8 pause_fetching_g_reqs;
 	u8 serialize_queue_fetch;
+	u8 ans2_wrapper;
 
 	spinlock_t lock;
 	spinlock_t fetch_req_lock;
@@ -458,6 +489,7 @@ struct nvme_host {
 #define NVME_VENDOR_ID_APPLE (0x106B)
 #define NVME_VENDOR_ID_TOSHIBA (0x1179)
 
+#define NVME_DEV_APPLE_2005 (0x2005)
 #define NVME_DEV_TOSHIBA_0115 (0x0115)
 
 struct nvme_data {
@@ -491,7 +523,8 @@ void nvme_init_queue_info (struct nvme_queue_info *h_queue_info,
 			   uint page_nbytes,
 			   u16 h_queue_n_entries,
 			   u16 g_queue_n_entries,
-			   uint entry_nbytes,
+			   uint h_entry_nbytes,
+			   uint g_entry_nbytes,
 			   phys_t g_queue_phys,
 			   uint map_flag);
 
