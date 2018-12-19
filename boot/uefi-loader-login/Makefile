@@ -22,7 +22,7 @@ clean :
 	$(RM) loadvmm.efi
 
 loadvmm.efi : loadvmm.c pass_auth.c pass_auth.h randseed.c randseed.h \
-		$(INC)
+		$(INC) ../uefi-loader/discon.h
 	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
 		-mno-red-zone -mno-sse -nostdinc -mno-ms-bitfields -s -O \
 		-ffreestanding -fno-builtin -fno-stack-protector \

@@ -20,7 +20,7 @@ all : loadvmm.efi
 clean :
 	$(RM) loadvmm.efi
 
-loadvmm.efi : loadvmm.c $(INC)
+loadvmm.efi : loadvmm.c $(INC) discon.h
 	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
 		-mno-red-zone -mno-sse -nostdinc -s -O \
 		-ffreestanding -fno-builtin -fno-stack-protector \

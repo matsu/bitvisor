@@ -44,6 +44,10 @@
 	{0x0992D209, 0x72B0, 0x491F, \
 	{0xA2, 0xBC, 0xC2, 0x3D, 0x39, 0xF9, 0x78, 0x76}}
 
+#define UEFI_BITVISOR_DISCONNECT_CONTROLLER_UUID		\
+	{0x7B50E9DA, 0xE7AD, 0x4E89,				\
+	 {0x9D, 0x93, 0xC3, 0x54, 0x69, 0x33, 0x46, 0x84}}
+
 struct uuid {
 	unsigned int   field1;
 	unsigned short field2;
@@ -85,6 +89,14 @@ struct cpu_type_param_ext {
 };
 
 #define INITIAL_CPU_TYPE_EXT {{UEFI_BITVISOR_CPU_TYPE_UUID}, 0}
+
+/* ------------------------------------------------------------------------- */
+
+struct bitvisor_disconnect_controller {
+	struct param_ext base;
+	/* IN */
+	void *disconnect_controller;
+};
 
 /* ------------------------------------------------------------------------- */
 

@@ -46,6 +46,8 @@
 } while (0)
 
 static struct uuid SECTION_ENTRY_DATA boot_opt_uuid = UEFI_BITVISOR_BOOT_UUID;
+static struct uuid SECTION_ENTRY_DATA disconnect_controller_opt_uuid =
+	UEFI_BITVISOR_DISCONNECT_CONTROLLER_UUID;
 
 static EFI_GUID SECTION_ENTRY_DATA acpi_20_table_guid = {
 	0x8868E871, 0xE4F1, 0x11D3,
@@ -186,6 +188,8 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout;
 	struct bitvisor_boot bitvisor_opt;
 	u64 boot_opt_addr;
+	struct bitvisor_disconnect_controller disconnect_controller_opt;
+	u64 disconnect_controller_opt_addr;
 
 	uefi_boot_param_ext_addr = (ulong)boot_options;
 	uefi_image_handle = (ulong)image;
@@ -253,6 +257,16 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 	uefi_entry_pcpy (uefi_entry_virttophys (&bitvisor_opt),
 			 (void *)(ulong)boot_opt_addr,
 			 sizeof (bitvisor_opt));
+	disconnect_controller_opt_addr =
+		boot_param_get_phys (&disconnect_controller_opt_uuid);
+	if (disconnect_controller_opt_addr) {
+		uefi_entry_pcpy (uefi_entry_virttophys
+				 (&disconnect_controller_opt),
+				 (void *)(ulong)disconnect_controller_opt_addr,
+				 sizeof disconnect_controller_opt);
+		uefi_disconnect_controller = (ulong)
+			disconnect_controller_opt.disconnect_controller;
+	}
 
 	loadaddr = bitvisor_opt.loadaddr;
 	loadsize = bitvisor_opt.loadsize;
