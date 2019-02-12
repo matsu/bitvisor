@@ -1412,16 +1412,23 @@ nvme_config_write (struct pci_device *pci_device,
 					    iosize,
 					    offset,
 					    data);
+	if (i < 0)
+		return CORE_IO_RET_DEFAULT;
 
 	struct nvme_data *nvme_data = (struct nvme_data *)pci_device->host;
 	struct nvme_host *host	    = nvme_data->host;
+
+	u32 type = pci_device->base_address_mask[i] &
+		   PCI_CONFIG_BASE_ADDRESS_TYPEMASK;
 
 	int change_in_bar0 = i == 0 &&
 			     host->regs->iobase != bar_info.base;
 	int change_in_bar_msix = i == host->msix_bar &&
 				 host->msix_regs->iobase != bar_info.base;
+	int final_write = type != PCI_CONFIG_BASE_ADDRESS_TYPE64 ||
+		offset != PCI_CONFIG_SPACE_GET_OFFSET (base_address[i]);
 
-	if (change_in_bar0 || change_in_bar_msix) {
+	if ((change_in_bar0 || change_in_bar_msix) && final_write) {
 		dprintf (NVME_ETC_DEBUG,
 			 "NVMe BAR %u iobase change to 0x%16llX\n",
 			 i,
