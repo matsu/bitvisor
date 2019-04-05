@@ -41,8 +41,12 @@ do_xsetbv_pass (u32 ic, u32 ia, u32 id)
 	switch (ic) {
 	case 0:			/* XCR0 */
 		/* passthrough because these bits does not affect the VMM */
-		if ((ia & ~(XCR0_X87_STATE_BIT | XCR0_SSE_STATE_BIT |
-			    XCR0_AVX_STATE_BIT | XCR0_OPMASK_STATE_BIT |
+		if ((ia & ~(XCR0_X87_STATE_BIT |
+			    XCR0_SSE_STATE_BIT |
+			    XCR0_AVX_STATE_BIT |
+			    XCR0_BNDREGS_STATE_BIT |
+			    XCR0_BNDCSR_STATE_BIT |
+			    XCR0_OPMASK_STATE_BIT |
 			    XCR0_ZMM_HI256_STATE_BIT |
 			    XCR0_HI16_ZMM_STATE_BIT)) || id) {
 			printf ("XSETBV error! ECX:0x%X EAX:0x%X EDX:0x%X\n",
