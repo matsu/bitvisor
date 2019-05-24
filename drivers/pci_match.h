@@ -33,5 +33,6 @@
 bool pci_match (struct pci_device *device, struct pci_driver *driver);
 void pci_match_add_compat (char *str);
 struct pci_driver *pci_match_find_driver (struct pci_device *device);
+struct pci_virtual_device *pci_match_get_virtual_device (char **p);
 
 #endif

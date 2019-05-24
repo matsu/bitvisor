@@ -73,6 +73,8 @@ static pci_config_address_t current_config_addr;
 
 LIST_DEFINE_HEAD(pci_device_list);
 LIST_DEFINE_HEAD(pci_driver_list);
+static struct pci_virtual_device **pci_virtual_devices[32];
+LIST_DEFINE_HEAD (pci_virtual_driver_list);
 struct pci_config_mmio_data *pci_config_mmio_data_head;
 
 void pci_save_config_addr(void)
@@ -226,6 +228,52 @@ pci_find_driver_by_token (struct token *name)
 	return NULL;
 }
 
+struct pci_virtual_driver *
+pci_find_virtual_driver_by_token (struct token *name)
+{
+	struct pci_virtual_driver *driver;
+	int i;
+
+	LIST_FOREACH (pci_virtual_driver_list, driver) {
+		if (!driver->name || driver->name[0] == '\0')
+			continue;
+		for (i = 0; &name->start[i] != name->end; i++)
+			if (driver->name[i] != name->start[i])
+				break;
+		if (&name->start[i] == name->end && driver->name[i] == '\0')
+			return driver;
+	}
+	return NULL;
+}
+
+void
+pci_assign_virtual_device (struct pci_virtual_device *device, u32 bus0_devs,
+			   int *dev, int *fn)
+{
+	int i, j;
+
+	for (i = 0; i < 32; i++) {
+		if (bus0_devs & (1 << i))
+			continue;
+		if (!pci_virtual_devices[i]) {
+			pci_virtual_devices[i] =
+				alloc (sizeof *pci_virtual_devices[i] * 8);
+			for (j = 0; j < 8; j++)
+				pci_virtual_devices[i][j] = NULL;
+			j = 0;
+			goto found;
+		}
+		for (j = 0; j < 8; j++)
+			if (!pci_virtual_devices[i][j])
+				goto found;
+	}
+	panic ("%s: failed 0x%X", __func__, bus0_devs);
+found:
+	pci_virtual_devices[i][j] = device;
+	*dev = i;
+	*fn = j;
+}
+
 static void
 device_disconnect (struct pci_device *dev)
 {
@@ -372,6 +420,9 @@ pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
 	pci_config_address_t new_dev_addr;
 	static struct pci_device *last_dev;
 	static uint last_bus_no, last_device_no, last_func_no;
+	struct pci_virtual_device *virtual_dev;
+	void (*virtual_func) (struct pci_virtual_device *dev, u8 iosize,
+			      u16 offset, union mem *data);
 
 	spinlock_lock (&pci_config_io_lock);
 	if (last_bus_no == bus_no && last_device_no == device_no &&
@@ -382,6 +433,25 @@ pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
 		/* Fast path */
 		dev = last_dev;
 		goto dev_found;
+	}
+	if (!bus_no && pci_virtual_devices[device_no]) {
+		virtual_dev = pci_virtual_devices[device_no][func_no];
+		virtual_func = NULL;
+		if (virtual_dev && virtual_dev->driver)
+			virtual_func = wr ? virtual_dev->driver->config_write :
+				virtual_dev->driver->config_read;
+		if (virtual_func)
+			virtual_func (virtual_dev, len, offset, buf);
+		else if (!wr)
+			memset (buf, 0xFF, len);
+		if (!wr && !func_no && pci_virtual_devices[device_no][1] &&
+		    offset <= PCI_CONFIG_SPACE_GET_OFFSET (header_type) &&
+		    offset + len > PCI_CONFIG_SPACE_GET_OFFSET (header_type)) {
+			u8 *p = PCI_CONFIG_SPACE_GET_OFFSET (header_type) -
+				offset + buf;
+			*p |= 0x80; /* Multifunction */
+		}
+		goto ret;
 	}
 	LIST_FOREACH (pci_device_list, dev) {
 		if (dev->address.bus_no == bus_no &&
@@ -673,6 +743,14 @@ void pci_register_driver(struct pci_driver *driver)
 	if (driver->longname)
 		printf ("%s registered\n", driver->longname);
 	return;
+}
+
+void
+pci_register_virtual_driver (struct pci_virtual_driver *driver)
+{
+	LIST_APPEND (pci_virtual_driver_list, driver);
+	if (driver->longname)
+		printf ("%s registered\n", driver->longname);
 }
 
 void

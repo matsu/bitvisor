@@ -35,6 +35,7 @@
 #include "pci.h"
 #include "pci_internal.h"
 #include "pci_init.h"
+#include "pci_match.h"
 #include <core/acpi.h>
 #include <core/disconnect.h>
 #include <core/mmio.h>
@@ -303,6 +304,10 @@ static void pci_find_devices()
 	pci_config_address_t addr;
 	u16 data;
 	struct pci_driver *driver;
+	u32 bus0_devs = 0;
+	int vnum = 0;
+	char *pci_virtual;
+	struct pci_virtual_device *virtual_device;
 
 	printf ("PCI: finding devices...\n");
 	pci_save_config_addr();
@@ -322,6 +327,8 @@ static void pci_find_devices()
 		if (dev == NULL)
 			goto oom;
 		num++;
+		if (!bn)
+			bus0_devs |= 1 << dn;
 
 		dev->initial_bus_no = bn;
 		if (dev->bridge.yes) {
@@ -343,8 +350,22 @@ static void pci_find_devices()
 			driver->new (dev);
 		}
 	}
+	pci_virtual = NULL;
+	for (;;) {
+		virtual_device = pci_match_get_virtual_device (&pci_virtual);
+		if (!virtual_device)
+			break;
+		pci_assign_virtual_device (virtual_device, bus0_devs,
+					   &dn, &fn);
+		virtual_device->address =
+			pci_make_config_address (0, dn, fn, 0);
+		virtual_device->driver->new (virtual_device);
+		vnum++;
+	}
 	pci_config_pmio_leave ();
 	printf ("PCI: %d devices found\n", num);
+	if (vnum)
+		printf ("PCI: %d virtual devices created\n", vnum);
 	pci_dump_pci_dev_list ();
 	return;
 

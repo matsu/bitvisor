@@ -172,6 +172,24 @@ struct pci_driver {
 	char *driver_options;
 };
 
+struct pci_virtual_device {
+	pci_config_address_t address;
+	void *host;
+	struct pci_virtual_driver *driver;
+	char **driver_options;
+};
+
+struct pci_virtual_driver {
+	LIST_DEFINE (pci_virtual_driver_list);
+	void (*new) (struct pci_virtual_device *dev);
+	void (*config_read) (struct pci_virtual_device *dev, u8 iosize,
+			     u16 offset, union mem *data);
+	void (*config_write) (struct pci_virtual_device *dev, u8 iosize,
+			      u16 offset, union mem *data);
+	const char *name, *longname;
+	char *driver_options;
+};
+
 enum pci_bar_info_type {
 	PCI_BAR_INFO_TYPE_NONE,
 	PCI_BAR_INFO_TYPE_MEM,
@@ -197,6 +215,7 @@ struct pci_bridge_callback {
 
 // exported functions
 extern void pci_register_driver (struct pci_driver *driver);
+void pci_register_virtual_driver (struct pci_virtual_driver *driver);
 extern void pci_register_intr_callback (int (*callback) (void *data, int num),
 					void *data);
 extern void pci_handle_default_config_read (struct pci_device *pci_device,
@@ -235,6 +254,10 @@ int pci_get_modifying_bar_info (struct pci_device *pci_device,
 				u16 offset, union mem *data);
 struct pci_driver *pci_find_driver_for_device (struct pci_device *device);
 struct pci_driver *pci_find_driver_by_token (struct token *name);
+struct pci_virtual_driver *pci_find_virtual_driver_by_token (struct token *
+							     name);
+void pci_assign_virtual_device (struct pci_virtual_device *device,
+				u32 bus0_devs, int *dev, int *fn);
 int pci_driver_option_get_int (char *option, char **e, int base);
 bool pci_driver_option_get_bool (char *option, char **e);
 u8 pci_find_cap_offset (struct pci_device *pci_device, u8 cap_id);

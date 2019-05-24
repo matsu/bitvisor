@@ -383,3 +383,119 @@ pci_match_find_driver (struct pci_device *device)
 	}
 	return NULL;
 }
+
+static void
+alloc_virtual_driver_options (struct pci_virtual_device *device,
+			      struct pci_virtual_driver *driver)
+{
+	int i, n = 0;
+	struct token t;
+	char c, *p = driver->driver_options;
+
+	if (!p)
+		return;
+	for (;; p = t.next, n++) {
+		c = get_token (p, &t);
+		if (t.start == t.end)
+			break;
+		if (!t.start)
+			panic ("%s: driver_options syntax error 1 %s",
+			       __func__, p);
+		if (c != ',' && c != '\0')
+			panic ("%s: driver_options syntax error 2 %s",
+			       __func__, p);
+	}
+	device->driver_options = alloc (sizeof *device->driver_options * n);
+	for (i = 0; i < n; i++)
+		device->driver_options[i] = NULL;
+}
+
+static void
+save_virtual_driver_options (struct pci_virtual_device *device,
+			     struct pci_virtual_driver *driver,
+			     struct token *name, struct token *value)
+{
+	int i = 0;
+	struct token t;
+	char c, *p = driver->driver_options;
+
+	for (;; p = t.next, i++) {
+		c = get_token (p, &t);
+		if (t.start == t.end)
+			break;
+		if (!t.start)
+			panic ("%s: driver_options syntax error 1 %s",
+			       __func__, p);
+		if (c != ',' && c != '\0')
+			panic ("%s: driver_options syntax error 2 %s",
+			       __func__, p);
+		if (t.end - t.start != name->end - name->start)
+			continue;
+		if (memcmp (t.start, name->start, t.end - t.start))
+			continue;
+		goto found;
+	}
+	panic ("%s: invalid option name %s", __func__, name->start);
+found:
+	if (!device)
+		return;
+	if (device->driver_options[i])
+		free (device->driver_options[i]);
+	device->driver_options[i] = alloc (value->end - value->start + 1);
+	memcpy (device->driver_options[i], value->start,
+		value->end - value->start);
+	device->driver_options[i][value->end - value->start] = '\0';
+}
+
+struct pci_virtual_device *
+pci_match_get_virtual_device (char **p)
+{
+	struct pci_virtual_device *device;
+	struct pci_virtual_driver *driver;
+	struct token tname, tvalue;
+	char c;
+
+	if (!*p)
+		*p = config.vmm.driver.pci_virtual;
+	c = get_token (*p, &tname);
+	if (tname.start == tname.end)
+		return NULL;
+	if (!tname.start)
+		panic ("%s: syntax error 1 %s", __func__, *p);
+	if (!match_token ("driver", &tname))
+		panic ("%s: syntax error 2 %s", __func__, *p);
+	if (c != '=')
+		panic ("%s: syntax error 3 %s", __func__, *p);
+	c = get_token (tname.next, &tvalue);
+	if (c != ',' && c != '\0')
+		panic ("%s: syntax error 4 %s", __func__, *p);
+	driver = pci_find_virtual_driver_by_token (&tvalue);
+	if (!driver)
+		panic ("%s: invalid driver name %s", __func__, *p);
+	device = alloc (sizeof *device);
+	memset (device, 0, sizeof *device);
+	device->driver = driver;
+	alloc_virtual_driver_options (device, driver);
+	*p = tvalue.next;
+	for (;;) {
+		c = get_token (*p, &tname);
+		if (tname.start == tname.end)
+			break;
+		if (!tname.start)
+			panic ("%s: syntax error 5 %s", __func__, *p);
+		if (match_token ("and", &tname) && c == ',') {
+			*p = tname.next;
+			break;
+		}
+		if (c != '=')
+			panic ("%s: syntax error 6 %s", __func__, *p);
+		c = get_token (tname.next, &tvalue);
+		if (!tvalue.start)
+			panic ("%s: syntax error 7 %s", __func__, *p);
+		if (c != ',' && c != '\0')
+			panic ("%s: syntax error 8 %s", __func__, *p);
+		save_virtual_driver_options (device, driver, &tname, &tvalue);
+		*p = tvalue.next;
+	}
+	return device;
+}

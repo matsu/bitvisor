@@ -48,6 +48,7 @@
 
 #define APINIT_SIZE		(cpuinit_end - cpuinit_start)
 #define APINIT_POINTER(n)	((void *)(apinit + ((u8 *)&n - cpuinit_start)))
+#define ICR_MODE_FIXED		0x000
 #define ICR_MODE_NMI		0x400
 #define ICR_MODE_INIT		0x500
 #define ICR_MODE_STARTUP	0x600
@@ -62,6 +63,7 @@
 #define ICR_TRIGGER_LEVEL	0x8000
 #define ICR_DEST_OTHER		0xC0000
 #define ICR_DEST_ALL		0x80000
+#define ICR_DEST_SELF		0x40000
 #define SVR_APIC_ENABLED	0x100
 
 static void ap_start (void);
@@ -400,4 +402,28 @@ start_all_processors (void (*bsp_initproc) (void), void (*ap_initproc) (void))
 	initproc_bsp = bsp_initproc;
 	initproc_ap = ap_initproc;
 	bsp_continue (bspinitproc1);
+}
+
+void
+self_ipi (int intnum)
+{
+	static const u32 apic_icr_phys = 0xFEE00300;
+	u32 *_apic_icr;
+	volatile u32 *apic_icr;
+
+	if (intnum < 0x10 || intnum > 0xFF)
+		return;
+	if (!apic_available ())
+		return;
+	if (is_x2apic_supported () && is_x2apic_enabled ()) {
+		asm_wrmsr32 (MSR_IA32_X2APIC_SELF_IPI, intnum, 0);
+		return;
+	}
+	_apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
+			    MAPMEM_PCD, apic_icr_phys, sizeof *_apic_icr);
+	apic_icr = _apic_icr;
+	while ((*apic_icr & ICR_STATUS_BIT) != ICR_STATUS_IDLE);
+	*apic_icr = ICR_DEST_SELF | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
+		ICR_MODE_FIXED | intnum;
+	unmapmem (_apic_icr, sizeof *_apic_icr);
 }

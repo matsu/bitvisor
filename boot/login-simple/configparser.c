@@ -618,6 +618,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.driver.vpn.ve);
 	CONF (vmm.driver.pci_conceal);
 	CONF (vmm.driver.pci);
+	CONF (vmm.driver.pci_virtual);
 	CONF (vmm.iccard.enable);
 	CONF (vmm.iccard.status);
 	if (!dst) {
