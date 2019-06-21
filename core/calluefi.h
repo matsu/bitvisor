@@ -45,6 +45,8 @@ u32 call_uefi_getkey (void);
 void call_uefi_putchar (unsigned char c);
 void call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
 					 ulong func);
+void call_uefi_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev,
+				    ulong func, void *mac, uint len);
 void copy_uefi_bootcode (void);
 
 #endif

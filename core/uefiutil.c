@@ -27,11 +27,37 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CORE_DISCONNECT_H
-#define __CORE_DISCONNECT_H
+#include "calluefi.h"
+#include "cpu.h"
+#include "pcpu.h"
+#include "uefi.h"
+#include "uefiutil.h"
 
-#include <core/types.h>
+static bool
+check_env (void)
+{
+	if (!uefi_booted)
+		return false;
+	if (!currentcpu_available () || currentcpu->pass_vm_created)
+		return false;
+	if (get_cpu_id ())
+		return false;
+	return true;
+}
 
-void disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev, ulong func);
+void
+uefiutil_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev, ulong func)
+{
+	if (!check_env ())
+		return;
+	call_uefi_disconnect_pcidev_driver (seg, bus, dev, func);
+}
 
-#endif
+void
+uefiutil_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
+			      void *mac, uint len)
+{
+	if (!check_env ())
+		return;
+	call_uefi_netdev_get_mac_addr (seg, bus, dev, func, mac, len);
+}

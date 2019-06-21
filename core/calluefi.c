@@ -30,6 +30,8 @@
 #include <EfiCommon.h>
 #include <EfiApi.h>
 #include EFI_PROTOCOL_DEFINITION (PciIo)
+#include EFI_PROTOCOL_DEFINITION (DevicePath)
+#include EFI_PROTOCOL_DEFINITION (SimpleNetwork)
 #undef NULL
 #include "calluefi_asm.h"
 #include "current.h"
@@ -45,6 +47,8 @@
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 static EFI_GUID pci_io_protocol_guid = EFI_PCI_IO_PROTOCOL_GUID;
 static EFI_GUID device_path_protocol_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
+static EFI_GUID simple_network_protocol_guid =
+	EFI_SIMPLE_NETWORK_PROTOCOL_GUID;
 #pragma GCC diagnostic pop
 
 u8 uefi_memory_map_data[16384];
@@ -252,6 +256,94 @@ call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
 		for (ihandles = 0; ihandles < nhandles; ihandles++)
 			disconnect_pcidev_driver (seg, bus, dev, func,
 						  handles_map[ihandles]);
+		unmapmem (handles_map, sizeof *handles_map * nhandles);
+	}
+	calluefi (uefi_free_pool, 1, handles);
+}
+
+static void
+do_netdev_get_mac_addr_from_device_path (u64 dp_interface, void *mac)
+{
+	EFI_DEVICE_PATH_PROTOCOL *dp, *dp_all;
+	unsigned int dp_len;
+	static const unsigned int dp_maxlen = 4096;
+
+	dp_all = mapmem_hphys (dp_interface, dp_maxlen, 0);
+	dp_len = 0;
+	dp = dp_all;
+	while (dp_len + sizeof *dp <= dp_maxlen && !EfiIsDevicePathEnd (dp)) {
+		dp_len += EfiDevicePathNodeLength (dp);
+		if (dp_len > dp_maxlen)
+			break;
+		/* MAC address device path */
+		if (dp->Type == 3 && dp->SubType == 11 &&
+		    EfiDevicePathNodeLength (dp) >= sizeof *dp + 6) {
+			memcpy (mac, &dp[1], 6);
+			break;
+		}
+		dp = EfiNextDevicePathNode (dp);
+	}
+	unmapmem (dp_all, dp_maxlen);
+}
+
+static void
+do_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
+			ulong handle, void *mac, uint len)
+{
+	static u64 dp_interface, pci_io_interface;
+	static u64 controller, c_seg, c_bus, c_dev, c_func;
+	EFI_PCI_IO_PROTOCOL *pci_io;
+
+	if (calluefi (uefi_open_protocol, 6, handle,
+		      sym_to_phys (&device_path_protocol_guid),
+		      sym_to_phys (&dp_interface), uefi_image_handle, NULL,
+		      EFI_OPEN_PROTOCOL_GET_PROTOCOL))
+		return;
+	if (calluefi (uefi_locate_device_path, 3,
+		      sym_to_phys (&pci_io_protocol_guid),
+		      sym_to_phys (&dp_interface), sym_to_phys (&controller)))
+		goto end;
+	if (calluefi (uefi_open_protocol, 6, controller,
+		      sym_to_phys (&pci_io_protocol_guid),
+		      sym_to_phys (&pci_io_interface),
+		      uefi_image_handle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL))
+		goto end;
+	pci_io = mapmem_hphys (pci_io_interface, sizeof *pci_io, 0);
+	if (!calluefi ((ulong)pci_io->GetLocation, 5, pci_io_interface,
+		       sym_to_phys (&c_seg), sym_to_phys (&c_bus),
+		       sym_to_phys (&c_dev), sym_to_phys (&c_func)) &&
+	    seg == c_seg && bus == c_bus && dev == c_dev && func == c_func)
+		do_netdev_get_mac_addr_from_device_path (dp_interface, mac);
+	unmapmem (pci_io, sizeof *pci_io);
+	calluefi (uefi_close_protocol, 4, controller,
+		  sym_to_phys (&pci_io_protocol_guid),
+		  uefi_image_handle, NULL);
+end:
+	calluefi (uefi_close_protocol, 4, handle,
+		  sym_to_phys (&device_path_protocol_guid),
+		  uefi_image_handle, NULL);
+}
+
+void
+call_uefi_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
+			       void *mac, uint len)
+{
+	static u64 nhandles, handles;
+	u64 i;
+	ulong *handles_map;
+
+	if (len < 6 || !mac)
+		return;
+	if (calluefi (uefi_locate_handle_buffer, 5, ByProtocol,
+		      sym_to_phys (&simple_network_protocol_guid), NULL,
+		      sym_to_phys (&nhandles), sym_to_phys (&handles)))
+		return;
+	if (nhandles) {
+		handles_map = mapmem_hphys (handles, sizeof *handles_map *
+					    nhandles, 0);
+		for (i = 0; i < nhandles; i++)
+			do_netdev_get_mac_addr (seg, bus, dev, func,
+						handles_map[i], mac, len);
 		unmapmem (handles_map, sizeof *handles_map * nhandles);
 	}
 	calluefi (uefi_free_pool, 1, handles);

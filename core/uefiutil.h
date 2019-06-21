@@ -27,20 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "calluefi.h"
-#include "cpu.h"
-#include "disconnect.h"
-#include "pcpu.h"
-#include "uefi.h"
+#ifndef _CORE_UEFIUTIL_H
+#define _CORE_UEFIUTIL_H
 
-void
-disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev, ulong func)
-{
-	if (!uefi_booted)
-		return;
-	if (!currentcpu_available () || currentcpu->pass_vm_created)
-		return;
-	if (get_cpu_id ())
-		return;
-	call_uefi_disconnect_pcidev_driver (seg, bus, dev, func);
-}
+#include <core/uefiutil.h>
+
+#endif

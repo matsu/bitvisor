@@ -71,6 +71,7 @@ ulong SECTION_ENTRY_DATA uefi_acpi_20_table = ~0UL;
 ulong SECTION_ENTRY_DATA uefi_acpi_table = ~0UL;
 ulong SECTION_ENTRY_DATA uefi_locate_handle_buffer;
 ulong SECTION_ENTRY_DATA uefi_free_pool;
+ulong SECTION_ENTRY_DATA uefi_locate_device_path;
 ulong SECTION_ENTRY_DATA uefi_open_protocol;
 ulong SECTION_ENTRY_DATA uefi_close_protocol;
 ulong SECTION_ENTRY_DATA uefi_image_handle;
@@ -224,6 +225,9 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 			 sizeof uefi_locate_handle_buffer);
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_free_pool),
 			 &uefi_boot_services->FreePool, sizeof uefi_free_pool);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_locate_device_path),
+			 &uefi_boot_services->LocateDevicePath,
+			 sizeof uefi_open_protocol);
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_open_protocol),
 			 &uefi_boot_services->OpenProtocol,
 			 sizeof uefi_open_protocol);

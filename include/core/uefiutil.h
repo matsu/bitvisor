@@ -27,9 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_DISCONNECT_H
-#define _CORE_DISCONNECT_H
+#ifndef __CORE_DISCONNECT_H
+#define __CORE_DISCONNECT_H
 
-#include <core/disconnect.h>
+#include <core/types.h>
+
+void uefiutil_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
+					ulong func);
+void uefiutil_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
+				   void *mac, uint len);
 
 #endif

@@ -37,8 +37,8 @@
 #include "pci_init.h"
 #include "pci_match.h"
 #include <core/acpi.h>
-#include <core/disconnect.h>
 #include <core/mmio.h>
+#include <core/uefiutil.h>
 
 static const char driver_name[] = "pci_driver";
 
@@ -414,9 +414,9 @@ pci_mcfg_register_handler (void)
 void
 pci_system_disconnect (struct pci_device *pci_device)
 {
-	disconnect_pcidev_driver (0, pci_device->address.bus_no,
-				  pci_device->address.device_no,
-				  pci_device->address.func_no);
+	uefiutil_disconnect_pcidev_driver (0, pci_device->address.bus_no,
+					   pci_device->address.device_no,
+					   pci_device->address.func_no);
 }
 
 static void pci_init()
