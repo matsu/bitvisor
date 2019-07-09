@@ -1492,6 +1492,9 @@ aq_stop (struct aq *aq)
 	free (aq->tx_buf_phys);
 	free (aq->rx_buf_phys);
 
+	free (aq->tx_ring);
+	free (aq->rx_ring);
+
 	aq_mmio_write (aq, AQ_INTR_MASK_CLEAR, 0xFFFFFFFF);
 	aq_mmio_write (aq, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
 	aq->intr_enabled = 0;
