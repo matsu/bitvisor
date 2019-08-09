@@ -148,15 +148,15 @@ static const char driver_longname[] = "Aquantia AQC107 Ethernet Driver";
 #define AQ_INTR_MASK_CLEAR   0x2070
 
 #define AQ_INTR_MAPPING1 0x2100
-#define AQ_INTR_MAPPING_RX0(val)   (((val) & 0x1FF) << 8)
+#define AQ_INTR_MAPPING_RX0(val)   (((val) & 0x1F) << 8)
 #define AQ_INTR_MAPPING_RX0_ENABLE (1 << 15)
-#define AQ_INTR_MAPPING_TX0(val)   (((val) & 0x1FF) << 24)
+#define AQ_INTR_MAPPING_TX0(val)   (((val) & 0x1F) << 24)
 #define AQ_INTR_MAPPING_TX0_ENABLE (1 << 31)
 
 #define AQ_INTR_MAPPING_GENERAL1 0x2180
-#define AQ_INTR_MAPPING_FATAL(val)   (((val) & 0x1FF) << 16)
+#define AQ_INTR_MAPPING_FATAL(val)   (((val) & 0x1F) << 16)
 #define AQ_INTR_MAPPING_FATAL_ENABLE (1 << 23)
-#define AQ_INTR_MAPPING_PCI(val)     (((val) & 0x1FF) << 24)
+#define AQ_INTR_MAPPING_PCI(val)     (((val) & 0x1F) << 24)
 #define AQ_INTR_MAPPING_PCI_ENABLE   (1 << 31)
 
 #define AQ_INTR_GC 0x2300
