@@ -283,7 +283,9 @@ struct aq_tx_desc_reg {
 	u32 tail_ptr;
 	u32 status;
 	u32 threshold;
-	u64 header_wb_base;
+	u32 header_wb_lo;
+	u32 header_wb_hi;
+	u32 padding[7];
 };
 
 struct aq_rx_desc_reg {
