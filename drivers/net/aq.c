@@ -502,7 +502,7 @@ aq_recv (struct aq *aq)
 {
 	struct aq_rx_desc *rx_desc;
 	void *buf;
-	uint hw_head, sw_head, buf_len;
+	uint sw_head, buf_len, update = 0;
 	u64 flags;
 
 	spinlock_lock (&aq->rx_lock);
@@ -510,10 +510,9 @@ aq_recv (struct aq *aq)
 	if (!aq->rx_ready || aq->pause)
 		goto end;
 
-	hw_head = aq->rx_desc_regs->hdr_ptr;
 	sw_head = aq->rx_sw_head;
 
-	while (sw_head != hw_head) {
+	for (;;) {
 		rx_desc = &aq->rx_ring[sw_head];
 		flags = rx_desc->fmt.writeback.pkt_len_flags;
 
@@ -522,6 +521,8 @@ aq_recv (struct aq *aq)
 
 		if (flags & AQ_RX_DESC_MAC_ERROR)
 			goto skip;
+
+		update = 1;
 
 		buf = aq->rx_buf[sw_head];
 		buf_len = (flags >> AQ_RX_DESC_BUF_LEN_SHIFT) &
@@ -542,8 +543,10 @@ aq_recv (struct aq *aq)
 		sw_head = (sw_head + 1) % AQ_DESC_NUM;
 		aq->rx_sw_head = sw_head;
 		aq->rx_sw_tail = (aq->rx_sw_tail + 1) % AQ_DESC_NUM;
-		aq->rx_desc_regs->tail_ptr = aq->rx_sw_tail;
 	}
+
+	if (update)
+		aq->rx_desc_regs->tail_ptr = aq->rx_sw_tail;
 end:
 	spinlock_unlock (&aq->rx_lock);
 }
