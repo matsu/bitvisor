@@ -83,6 +83,8 @@ static const char driver_longname[] = "Aquantia AQC107 Ethernet Driver";
 #define AQ_TIMEOUT 50000000
 #define AQ_DESC_NUM 512
 
+#define AQ_HALFPAGE 2048
+
 #define AQ_MIF_GSC1 0x0
 #define AQ_GSC1_GLOBAL_REG_RESET_DISABLE (1 << 14)
 #define AQ_GSC1_SOFT_RESET               (1 << 15)
@@ -323,11 +325,15 @@ struct aq {
 	phys_t tx_ring_phys;
 	void **tx_buf;
 	phys_t *tx_buf_phys;
+	u8 *tx_pkt_buf_pool;
+	phys_t tx_pkt_buf_pool_phys;
 
 	struct aq_rx_desc *rx_ring;
 	phys_t rx_ring_phys;
 	void **rx_buf;
 	phys_t *rx_buf_phys;
+	u8 *rx_pkt_buf_pool;
+	phys_t rx_pkt_buf_pool_phys;
 
 	struct aq_tx_desc_reg *tx_desc_regs;
 	struct aq_rx_desc_reg *rx_desc_regs;
@@ -476,8 +482,8 @@ aq_xmit (struct aq *aq, void *packet, u64 packet_size, int last)
 	if (!aq->tx_ready || aq->pause)
 		goto end;
 
-	if (packet_size > PAGESIZE)
-		packet_size = PAGESIZE;
+	if (packet_size > AQ_HALFPAGE)
+		packet_size = AQ_HALFPAGE;
 
 	hw_head = aq->tx_desc_regs->hdr_ptr & AQ_TX_DMA_DESC_HDR_MASK;
 	sw_tail = aq->tx_sw_tail;
@@ -487,7 +493,7 @@ aq_xmit (struct aq *aq, void *packet, u64 packet_size, int last)
 
 	memcpy (aq->tx_buf[sw_tail], packet, packet_size);
 	aq->tx_ring[sw_tail].fmt.buf.flags = AQ_TX_DESC_TYPE_DESC |
-					     AQ_TX_DESC_BUF_LEN (PAGESIZE) |
+					     AQ_TX_DESC_BUF_LEN (AQ_HALFPAGE) |
 					     AQ_TX_DESC_LAST (!!last) |
 					     AQ_TX_DESC_PAY_LEN (packet_size);
 	sw_tail = (sw_tail + 1) % AQ_DESC_NUM;
@@ -528,7 +534,7 @@ aq_recv (struct aq *aq)
 		buf_len = (flags >> AQ_RX_DESC_BUF_LEN_SHIFT) &
 			  AQ_RX_DESC_BUF_LEN_MASK;
 
-		ASSERT (buf_len > 0 && buf_len < PAGESIZE);
+		ASSERT (buf_len > 0 && buf_len < AQ_HALFPAGE);
 
 		if (aq->recvphys_func)
 			aq->recvphys_func (aq,
@@ -732,7 +738,7 @@ aq_ring_alloc (struct aq *aq)
 	struct aq_tx_desc *tx_ring;
 	struct aq_rx_desc *rx_ring;
 	void **buf;
-	phys_t phys;
+	phys_t phys, offset, target_phys;
 	uint nbytes, i;
 
 	nbytes = sizeof (*tx_ring) * AQ_DESC_NUM;
@@ -743,9 +749,14 @@ aq_ring_alloc (struct aq *aq)
 	aq->tx_ring_phys = phys;
 	aq->tx_buf = buf;
 	aq->tx_buf_phys = alloc (sizeof (phys_t) * AQ_DESC_NUM);
+	aq->tx_pkt_buf_pool = alloc2 (AQ_HALFPAGE * AQ_DESC_NUM, &phys);
+	aq->tx_pkt_buf_pool_phys = phys;
 	for (i = 0; i < AQ_DESC_NUM; i++) {
-		buf[i] = alloc2 (PAGESIZE, &aq->tx_buf_phys[i]);
-		tx_ring[i].fmt.buf.buf_addr = aq->tx_buf_phys[i];
+		offset = i * AQ_HALFPAGE;
+		target_phys = phys + offset;
+		buf[i] = &aq->tx_pkt_buf_pool[offset];
+		aq->tx_buf_phys[i] = target_phys;
+		tx_ring[i].fmt.buf.buf_addr = target_phys;
 		tx_ring[i].fmt.buf.flags = 0x0;
 	}
 
@@ -757,9 +768,14 @@ aq_ring_alloc (struct aq *aq)
 	aq->rx_ring_phys = phys;
 	aq->rx_buf = buf;
 	aq->rx_buf_phys = alloc (sizeof (phys_t) * AQ_DESC_NUM);
+	aq->rx_pkt_buf_pool = alloc2 (AQ_HALFPAGE * AQ_DESC_NUM, &phys);
+	aq->rx_pkt_buf_pool_phys = phys;
 	for (i = 0; i < AQ_DESC_NUM; i++) {
-		buf[i] = alloc2 (PAGESIZE, &aq->rx_buf_phys[i]);
-		rx_ring[i].fmt.buf.buf_addr = aq->rx_buf_phys[i];
+		offset = i * AQ_HALFPAGE;
+		target_phys = phys + offset;
+		buf[i] = &aq->rx_pkt_buf_pool[offset];;
+		aq->rx_buf_phys[i] = target_phys;
+		rx_ring[i].fmt.buf.buf_addr = target_phys;
 		rx_ring[i].fmt.buf.hdr_addr = 0x0;
 	}
 }
@@ -1141,7 +1157,7 @@ aq_start_rx (struct aq *aq)
 	rx_desc_reg->ring_base_lo = aq->rx_ring_phys & 0xFFFFFFFF;
 	rx_desc_reg->ring_base_hi = (aq->rx_ring_phys >> 32) & 0xFFFFFFFF;
 	rx_desc_reg->ctrl = (AQ_DESC_NUM / 8) << 3;
-	rx_desc_reg->buf_size = PAGESIZE / 1024; /* Unit of 1024 bytes */
+	rx_desc_reg->buf_size = AQ_HALFPAGE / 1024; /* Unit of 1024 bytes */
 	rx_desc_reg->tail_ptr = AQ_DESC_NUM - 1;
 	rx_desc_reg->ctrl |= AQ_RX_DMA_DESC_ENABLE;
 
@@ -1477,8 +1493,6 @@ aq_init (void)
 static void
 aq_stop (struct aq *aq)
 {
-	uint i;
-
 	spinlock_lock (&aq->tx_lock);
 	aq->tx_ready = 0;
 	spinlock_unlock (&aq->tx_lock);
@@ -1487,11 +1501,8 @@ aq_stop (struct aq *aq)
 	aq->rx_ready = 0;
 	spinlock_unlock (&aq->rx_lock);
 
-	for (i = 0; i < AQ_DESC_NUM; i++) {
-		free (aq->tx_buf[i]);
-		free (aq->rx_buf[i]);
-	}
-
+	free (aq->tx_pkt_buf_pool);
+	free (aq->rx_pkt_buf_pool);
 	free (aq->tx_buf);
 	free (aq->rx_buf);
 	free (aq->tx_buf_phys);
