@@ -85,6 +85,8 @@ static const char driver_longname[] = "Aquantia AQC107 Ethernet Driver";
 
 #define AQ_HALFPAGE 2048
 
+#define AQ_XMIT_WATERMARK (AQ_DESC_NUM >> 2)
+
 #define AQ_MIF_GSC1 0x0
 #define AQ_GSC1_GLOBAL_REG_RESET_DISABLE (1 << 14)
 #define AQ_GSC1_SOFT_RESET               (1 << 15)
@@ -338,7 +340,10 @@ struct aq {
 	struct aq_tx_desc_reg *tx_desc_regs;
 	struct aq_rx_desc_reg *rx_desc_regs;
 
+	u32 tx_free_descs;
+
 	u32 tx_sw_tail;
+	u32 tx_sw_head;
 	u32 rx_sw_tail;
 	u32 rx_sw_head;
 
@@ -473,34 +478,71 @@ aq_pause_clear (struct aq *aq)
 }
 
 static void
-aq_xmit (struct aq *aq, void *packet, u64 packet_size, int last)
+do_xmit_reclaim (struct aq *aq)
 {
-	u32 hw_head, sw_tail;
+	u32 hw_head, free_descs;
 
+	if (aq->tx_free_descs >= AQ_XMIT_WATERMARK)
+		return;
+
+	hw_head = aq->tx_desc_regs->hdr_ptr & AQ_TX_DMA_DESC_HDR_MASK;
+	free_descs = ((hw_head + AQ_DESC_NUM) - aq->tx_sw_head) % AQ_DESC_NUM;
+	aq->tx_sw_head = hw_head;
+	aq->tx_free_descs += free_descs;
+	ASSERT (aq->tx_free_descs <= AQ_DESC_NUM);
+}
+
+/* Get called during polling/interrupt clear */
+static void
+aq_xmit_reclaim (struct aq *aq)
+{
 	spinlock_lock (&aq->tx_lock);
-
 	if (!aq->tx_ready || aq->pause)
 		goto end;
+	do_xmit_reclaim (aq);
+end:
+	spinlock_unlock (&aq->tx_lock);
+}
+
+static int
+aq_xmit_ok (struct aq *aq, uint min_n_descs)
+{
+	int ok = 1;
+
+	if (aq->tx_free_descs < min_n_descs) {
+		do_xmit_reclaim (aq);
+		if (aq->tx_free_descs < min_n_descs)
+			ok = 0;
+	}
+
+	return ok;
+}
+
+static void
+aq_xmit_fill (struct aq *aq, void *packet, u64 packet_size)
+{
+	u32 sw_tail;
 
 	if (packet_size > AQ_HALFPAGE)
 		packet_size = AQ_HALFPAGE;
 
-	hw_head = aq->tx_desc_regs->hdr_ptr & AQ_TX_DMA_DESC_HDR_MASK;
 	sw_tail = aq->tx_sw_tail;
 
-	if ((sw_tail + 1) % AQ_DESC_NUM == hw_head)
-		goto end;
-
+	/* We can set DESC_LAST because each packet is complete on its own */
 	memcpy (aq->tx_buf[sw_tail], packet, packet_size);
 	aq->tx_ring[sw_tail].fmt.buf.flags = AQ_TX_DESC_TYPE_DESC |
 					     AQ_TX_DESC_BUF_LEN (AQ_HALFPAGE) |
-					     AQ_TX_DESC_LAST (!!last) |
+					     AQ_TX_DESC_LAST (1) |
 					     AQ_TX_DESC_PAY_LEN (packet_size);
-	sw_tail = (sw_tail + 1) % AQ_DESC_NUM;
-	aq->tx_sw_tail = sw_tail;
-	aq->tx_desc_regs->tail_ptr = sw_tail;
-end:
-	spinlock_unlock (&aq->tx_lock);
+	aq->tx_sw_tail = (sw_tail + 1) % AQ_DESC_NUM;
+	ASSERT (aq->tx_free_descs > 0);
+	aq->tx_free_descs--;
+}
+
+static void
+aq_xmit_flush (struct aq *aq)
+{
+	aq->tx_desc_regs->tail_ptr = aq->tx_sw_tail;
 }
 
 static void
@@ -591,8 +633,21 @@ send_physnic (void *handle,
 	struct aq *aq = handle;
 	uint i;
 
+	spinlock_lock (&aq->tx_lock);
+
+	if (!aq->tx_ready || aq->pause)
+		goto end;
+
+	if (!aq_xmit_ok (aq, n_packets))
+		n_packets = aq->tx_free_descs;
+
 	for (i = 0; i < n_packets; i++)
-		aq_xmit (aq, packets[i], packet_sizes[i], i == n_packets - 1);
+		aq_xmit_fill (aq, packets[i], packet_sizes[i]);
+
+	if (i > 0)
+		aq_xmit_flush (aq);
+end:
+	spinlock_unlock (&aq->tx_lock);
 }
 
 static void
@@ -607,7 +662,10 @@ setrecv_physnic (void *handle, net_recv_callback_t *callback, void *param)
 static void
 poll_physnic (void *handle)
 {
-	aq_recv ((struct aq *)handle);
+	struct aq *aq = handle;
+
+	aq_xmit_reclaim (aq);
+	aq_recv (aq);
 }
 
 static struct nicfunc phys_func = {
@@ -625,6 +683,7 @@ aq_intr_clear (void *param)
 	if (!aq->pause)
 		aq_mmio_write (aq, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
 	spinlock_unlock (&aq->intr_lock);
+	aq_xmit_reclaim (aq);
 	aq_recv (aq);
 }
 
@@ -1069,6 +1128,7 @@ aq_start_tx (struct aq *aq)
 		aq->tx_ring[i].fmt.buf.flags = 0x0;
 	}
 
+	aq->tx_free_descs = AQ_DESC_NUM;
 	tx_desc_reg = &aq->tx_desc_regs[0];
 	tx_desc_reg->ring_base_lo = aq->tx_ring_phys & 0xFFFFFFFF;
 	tx_desc_reg->ring_base_hi = (aq->tx_ring_phys >> 32) & 0xFFFFFFFF;
@@ -1522,6 +1582,7 @@ aq_stop (struct aq *aq)
 	aq->intr_enabled = 0;
 
 	aq->tx_sw_tail = 0;
+	aq->tx_sw_head = 0;
 	aq->rx_sw_tail = 0;
 	aq->rx_sw_head = 0;
 
