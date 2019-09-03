@@ -738,7 +738,7 @@ aq_ring_alloc (struct aq *aq)
 	struct aq_tx_desc *tx_ring;
 	struct aq_rx_desc *rx_ring;
 	void **buf;
-	phys_t phys, offset, target_phys;
+	phys_t phys, offset;
 	uint nbytes, i;
 
 	nbytes = sizeof (*tx_ring) * AQ_DESC_NUM;
@@ -753,11 +753,8 @@ aq_ring_alloc (struct aq *aq)
 	aq->tx_pkt_buf_pool_phys = phys;
 	for (i = 0; i < AQ_DESC_NUM; i++) {
 		offset = i * AQ_HALFPAGE;
-		target_phys = phys + offset;
 		buf[i] = &aq->tx_pkt_buf_pool[offset];
-		aq->tx_buf_phys[i] = target_phys;
-		tx_ring[i].fmt.buf.buf_addr = target_phys;
-		tx_ring[i].fmt.buf.flags = 0x0;
+		aq->tx_buf_phys[i] = phys + offset;
 	}
 
 	nbytes = sizeof (*rx_ring) * AQ_DESC_NUM;
@@ -772,11 +769,8 @@ aq_ring_alloc (struct aq *aq)
 	aq->rx_pkt_buf_pool_phys = phys;
 	for (i = 0; i < AQ_DESC_NUM; i++) {
 		offset = i * AQ_HALFPAGE;
-		target_phys = phys + offset;
 		buf[i] = &aq->rx_pkt_buf_pool[offset];;
-		aq->rx_buf_phys[i] = target_phys;
-		rx_ring[i].fmt.buf.buf_addr = target_phys;
-		rx_ring[i].fmt.buf.hdr_addr = 0x0;
+		aq->rx_buf_phys[i] = phys + offset;
 	}
 }
 
@@ -1043,7 +1037,7 @@ static void
 aq_start_tx (struct aq *aq)
 {
 	struct aq_tx_desc_reg *tx_desc_reg;
-	u32 val;
+	u32 val, i;
 
 	/* Disable Direct Cache Access for TX */
 	val = ~AQ_TX_DCA_ENABLE & AQ_TX_DCA_LEGACY_MODE;
@@ -1069,6 +1063,12 @@ aq_start_tx (struct aq *aq)
 	val = aq_mmio_read (aq, AQ_TX_PKTBUF_CTRL1);
 	aq_mmio_write (aq, AQ_TX_PKTBUF_CTRL1, val | AQ_TX_PKTBUF_ENABLE);
 
+	/* Fill TX descriptors */
+	for (i = 0; i < AQ_DESC_NUM; i++) {
+		aq->tx_ring[i].fmt.buf.buf_addr = aq->tx_buf_phys[i];
+		aq->tx_ring[i].fmt.buf.flags = 0x0;
+	}
+
 	tx_desc_reg = &aq->tx_desc_regs[0];
 	tx_desc_reg->ring_base_lo = aq->tx_ring_phys & 0xFFFFFFFF;
 	tx_desc_reg->ring_base_hi = (aq->tx_ring_phys >> 32) & 0xFFFFFFFF;
@@ -1084,7 +1084,7 @@ static void
 aq_start_rx (struct aq *aq)
 {
 	struct aq_rx_desc_reg *rx_desc_reg;
-	u32 val, lsw, msw;
+	u32 val, lsw, msw, i;
 
 	/* TC mode 1, FC mode 1 */
 	val = aq_mmio_read (aq, AQ_RX_PKTBUF_CTRL1);
@@ -1151,6 +1151,12 @@ aq_start_rx (struct aq *aq)
 	/* Enable RX Buffer */
 	val = aq_mmio_read (aq, AQ_RX_PKTBUF_CTRL1);
 	aq_mmio_write (aq, AQ_RX_PKTBUF_CTRL1, val | AQ_RX_PKTBUF_ENABLE);
+
+	/* Fill RX descriptors */
+	for (i = 0; i < AQ_DESC_NUM; i++) {
+		aq->rx_ring[i].fmt.buf.buf_addr = aq->rx_buf_phys[i];
+		aq->rx_ring[i].fmt.buf.hdr_addr = 0x0;
+	}
 
 	aq->rx_sw_tail = AQ_DESC_NUM - 1;
 	rx_desc_reg = &aq->rx_desc_regs[0];
