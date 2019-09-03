@@ -34,6 +34,8 @@
 #include "pci.h"
 #include "virtio_net.h"
 
+#define VIRTIO_NET_PKT_BATCH 16
+
 struct msix_table {
 	u32 addr;
 	u32 upper;
@@ -71,6 +73,7 @@ struct virtio_net {
 	void (*msix_enable) (void *msix_param);
 	void *msix_param;
 	struct msix_table msix_table_entry[3];
+	u8 buf[VIRTIO_NET_PKT_BATCH][2048];
 };
 
 struct virtio_ring {
@@ -192,9 +195,10 @@ virtio_net_recv (struct virtio_net *vnet)
 {
 	struct virtio_ring *p;
 	u16 idx_a, idx_u, ring;
-	u32 len, desc_len;
+	u32 len, desc_len, count = 0, pkt_sizes[VIRTIO_NET_PKT_BATCH];
 	u32 ring_tmp;
-	u8 buf[2048], *buf_ring;
+	u8 *buf, *buf_ring;
+	void *pkts[VIRTIO_NET_PKT_BATCH];
 	bool intr = false;
 
 	p = mapmem_hphys ((u64)vnet->queue[1] << 12, sizeof *p, MAPMEM_WRITE);
@@ -204,6 +208,7 @@ virtio_net_recv (struct virtio_net *vnet)
 		ring = p->avail.ring[idx_u];
 		ring_tmp = ((u32)ring << 16) | 1;
 		len = 0;
+		buf = vnet->buf[count];
 		while (ring_tmp & 1) {
 			ring_tmp >>= 16;
 			desc_len = p->desc[ring_tmp & 0xFF].len;
@@ -214,12 +219,8 @@ virtio_net_recv (struct virtio_net *vnet)
 			len += desc_len;
 			ring_tmp = p->desc[ring_tmp & 0xFF].flags_next;
 		}
-		{
-			void *packet = &buf[10];
-			unsigned int packet_size = len - 10;
-			vnet->recv_func (vnet, 1, &packet, &packet_size,
-					 vnet->recv_param, NULL);
-		}
+		pkts[count] = &buf[10];
+		pkt_sizes[count] = len - 10;
 #if 0
 		printf ("Send %u bytes %02X:%02X:%02X:%02X:%02X:%02X"
 			" <- %02X:%02X:%02X:%02X:%02X:%02X\n", len - 10,
@@ -230,8 +231,17 @@ virtio_net_recv (struct virtio_net *vnet)
 		p->used.ring[idx_u].len = len;
 		asm volatile ("" : : : "memory");
 		p->used.idx++;
+		count++;
 		intr = true;
+		if (count == VIRTIO_NET_PKT_BATCH) {
+			vnet->recv_func (vnet, count, pkts, pkt_sizes,
+					 vnet->recv_param, NULL);
+			count = 0;
+		}
 	}
+	if (count)
+		vnet->recv_func (vnet, count, pkts, pkt_sizes,
+				 vnet->recv_param, NULL);
 	if (p->avail.flags & 1)	/* No interrupt */
 		intr = false;
 	unmapmem (p, sizeof *p);
