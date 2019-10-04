@@ -47,7 +47,7 @@ nvme_write_subm_db (struct nvme_host *host, u16 queue_id, u64 value)
 
 	memcpy (db_reg_base + ((2 * queue_id) * db_nbytes),
 		&value,
-		db_nbytes);
+		sizeof (u32));
 }
 
 void
@@ -58,7 +58,7 @@ nvme_write_comp_db (struct nvme_host *host, u16 queue_id, u64 value)
 
 	memcpy (db_reg_base + ((2 * queue_id + 1) * db_nbytes),
 		&value,
-		db_nbytes);
+		sizeof (u32));
 }
 
 #define CNS_NS_DATA	    (0x0)

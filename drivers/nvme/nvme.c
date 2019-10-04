@@ -926,7 +926,7 @@ nvme_reg_handler (void *data,
 
 	u32 db_nbytes = sizeof (u32) << host->db_stride;
 
-	if (len != 4 && len != 8 && len != db_nbytes)
+	if (len != 4 && len != 8)
 		return 1;
 
 	phys_t acc_start = gphys;
