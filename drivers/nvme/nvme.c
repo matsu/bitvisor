@@ -844,7 +844,7 @@ nvme_reg_msi_handler (void *data,
 		    !(*(u8 *)buf & 1)) {
 			/* Read the register again to flush the write */
 			nvme_reg_rw (!wr, reg, &dummy_buf, len);
-			nvme_completion_handler (nvme_data, -1);
+			nvme_process_all_comp_queues (host);
 		}
 	}
 
@@ -947,14 +947,14 @@ nvme_reg_handler (void *data,
 
 	} else if (RANGE_CHECK_INTMS (acc_start, acc_end, nvme_regs)) {
 
-		nvme_completion_handler (data, -1);
+		nvme_process_all_comp_queues (host);
 		nvme_reg_rw (wr, NVME_INTMS_REG (nvme_regs), buf, len);
 
 		goto end;
 
 	} else if (RANGE_CHECK_INTMC (acc_start, acc_end, nvme_regs)) {
 
-		nvme_completion_handler (data, -1);
+		nvme_process_all_comp_queues (host);
 		nvme_reg_rw (wr, NVME_INTMC_REG (nvme_regs), buf, len);
 
 		goto end;
