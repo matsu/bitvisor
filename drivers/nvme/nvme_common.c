@@ -409,8 +409,11 @@ nvme_register_request (struct nvme_host *host,
 	spinlock_lock (&hub->lock);
 
 	struct nvme_request *req = reqs;
+	struct nvme_request *next_req;
 
 	while (req) {
+		next_req = req->next;
+		req->next = NULL;
 		if (req->is_h_req) {
 			hub->n_waiting_h_reqs++;
 			if (subm_slot->queuing_h_reqs) {
@@ -430,7 +433,7 @@ nvme_register_request (struct nvme_host *host,
 				subm_slot->queuing_g_reqs_tail = req;
 			}
 		}
-		req = req->next;
+		req = next_req;
 	}
 
 	spinlock_unlock (&hub->lock);
