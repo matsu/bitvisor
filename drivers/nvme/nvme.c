@@ -801,6 +801,30 @@ intercept_db_write (struct nvme_host *host, uint idx, void *buf, uint len)
 	nvme_process_all_comp_queues (host);
 }
 
+static void
+intercept_db_read (struct nvme_host *host, uint idx, void *buf, uint len)
+{
+	struct nvme_queue *g_queue = &host->g_queue;
+
+	u16 queue_id = idx / 2;
+	u32 val = 0;
+
+	/*
+	 * Reading doorbells is not recommended by the specification.
+	 * Reading values are vendor-specific. In case this happens,
+	 * return the latest value that the guest writes
+	 */
+
+	if (idx != 0 && !host->io_ready)
+		val = 0;
+	else if (!(idx & 0x1))
+		val = g_queue->subm_queue_info[queue_id]->new_pos.value;
+	else
+		val = g_queue->comp_queue_info[queue_id]->new_pos.value;
+
+	memcpy (buf, &val, len);
+}
+
 /* ---------- End Queue Doorbell Register handler ---------- */
 
 static inline void
@@ -1045,11 +1069,12 @@ nvme_reg_handler (void *data,
 
 	/* I/O Submission/Completion Doorbell */
 	if (acc_start >= db_start && acc_end <= db_end) {
+		uint idx = (u32)(acc_start - db_start) / db_nbytes;
 
-		if (wr) {
-			uint idx = (u32)(acc_start - db_start) / db_nbytes;
+		if (wr)
 			intercept_db_write (host, idx, buf, len);
-		}
+		else
+			intercept_db_read (host, idx, buf, len);
 
 	} else if (acc_start >= db_start) {
 		/*
