@@ -80,7 +80,7 @@ exint_pass_intr_run_callback_list (int num)
 	struct exint_pass_intr_list *intr;
 
 	LIST1_FOREACH (intr_list, intr)
-		intr->intr.callback (intr->intr.data, num);
+		num = intr->intr.callback (intr->intr.data, num);
 	return num;
 }
 
