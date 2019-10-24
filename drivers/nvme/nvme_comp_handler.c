@@ -473,12 +473,60 @@ nvme_process_all_comp_queues (struct nvme_host *host)
 	nvme_unlock_subm_queue (host, 0);
 }
 
+static void
+filter_unexpected_interrupt (struct nvme_host *host, int *num)
+{
+	static const u32 apic_eoi_phys = 0xFEE000B0;
+	u32 *apic_eoi;
+	int orig_num;
+
+	if (host->intr_mode != NVME_INTR_MSI)
+		return;
+
+	/*
+	 * On machines that use MSI, we found that after interrupt masking,
+	 * it is still possible that there is a pending interrupt indicated by
+	 * APIC IRR. This causes the interrupt to get triggered even though
+	 * the interrupt mask is set. This situation can occur when the NVMe
+	 * driver intercepts IO commands from the guest. We discard the
+	 * interrupts to avoid causing problems to the guest.
+	 */
+
+	spinlock_lock (&host->intr_mask_lock);
+
+	orig_num = *num;
+
+	/*
+	 * NVMe driver allows only a single vector MSI, so (mask & 1) is ok.
+	 * Read INTMS register after interrupt number checking to avoid
+	 * unnecessary MMIO access.
+	 */
+	if (orig_num >= 16 &&
+	    orig_num == host->msi_iv &&
+	    (*(u32 *)NVME_INTMS_REG(host->regs) & 0x1)) {
+		/* Clear APIC EOI to remove the interrupt from its ISR queue */
+		apic_eoi = mapmem_hphys (apic_eoi_phys,
+					 sizeof (*apic_eoi),
+					 MAPMEM_WRITE |
+					 MAPMEM_PWT |
+					 MAPMEM_PCD);
+		*apic_eoi = 0;
+		unmapmem (apic_eoi, sizeof (*apic_eoi));
+		*num = -1;
+	}
+
+	spinlock_unlock (&host->intr_mask_lock);
+}
+
 int
 nvme_completion_handler (void *data, int num)
 {
 	struct nvme_data *nvme_data = data;
+	struct nvme_host *host = nvme_data->host;
 
-	nvme_process_all_comp_queues (nvme_data->host);
+	filter_unexpected_interrupt (host, &num);
+
+	nvme_process_all_comp_queues (host);
 
 	return num;
 }

@@ -1010,15 +1010,19 @@ nvme_reg_handler (void *data,
 
 	} else if (RANGE_CHECK_INTMS (acc_start, acc_end, nvme_regs)) {
 
-		nvme_process_all_comp_queues (host);
+		spinlock_lock (&host->intr_mask_lock);
 		nvme_reg_rw (wr, NVME_INTMS_REG (nvme_regs), buf, len);
+		nvme_process_all_comp_queues (host);
+		spinlock_unlock (&host->intr_mask_lock);
 
 		goto end;
 
 	} else if (RANGE_CHECK_INTMC (acc_start, acc_end, nvme_regs)) {
 
-		nvme_process_all_comp_queues (host);
+		spinlock_lock (&host->intr_mask_lock);
 		nvme_reg_rw (wr, NVME_INTMC_REG (nvme_regs), buf, len);
+		nvme_process_all_comp_queues (host);
+		spinlock_unlock (&host->intr_mask_lock);
 
 		goto end;
 
@@ -1381,6 +1385,7 @@ nvme_new (struct pci_device *pci_device)
 
 	spinlock_init (&host->lock);
 	spinlock_init (&host->fetch_req_lock);
+	spinlock_init (&host->intr_mask_lock);
 
 	pci_register_intr_callback (nvme_completion_handler, nvme_data);
 
