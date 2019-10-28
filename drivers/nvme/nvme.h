@@ -427,6 +427,10 @@ struct nvme_ns_meta {
 };
 #define NVME_NS_META_NBYTES (sizeof (struct nvme_ns_meta))
 
+#define NVME_INTR_PIN  0
+#define NVME_INTR_MSI  1
+#define NVME_INTR_MSIX 2
+
 struct nvme_io_interceptor;
 
 struct nvme_host {
@@ -472,6 +476,10 @@ struct nvme_host {
 	u16 queue_to_fetch; /* Used in process_all_comp_queues() */
 	u16 msix_n_vectors;
 
+	u8 msix_offset;
+	u8 msi_offset;
+	u8 msi_iv;
+	u8 intr_mode;
 	u8 msix_bar;
 	u8 db_stride;
 	u8 cmd_set;

@@ -326,6 +326,44 @@ reset_controller (struct nvme_host *host)
 	spinlock_unlock (&host->lock);
 }
 
+static int
+check_msix_enable (struct nvme_host *host)
+{
+	u16 val;
+	pci_config_read (host->pci, &val, sizeof (val), host->msix_offset + 2);
+	return val >> 15;
+}
+
+static int
+check_msi_enable (struct nvme_host *host)
+{
+	u16 val;
+	pci_config_read (host->pci, &val, sizeof (val), host->msi_offset + 2);
+	return val & 0x1;
+}
+
+static void
+find_interrupt_mode (struct nvme_host *host)
+{
+	if (host->msix_offset && check_msix_enable (host)) {
+		host->intr_mode = NVME_INTR_MSIX;
+		printf ("nvme: interrupt mode MSI-X\n");
+	} else if (host->msi_offset && check_msi_enable (host)) {
+		u16 val;
+		host->intr_mode = NVME_INTR_MSI;
+		printf ("nvme: interrupt mode MSI\n");
+		pci_config_read (host->pci,
+				 &val,
+				 sizeof (val),
+				 host->msi_offset + 0xC);
+		host->msi_iv = val & 0xFF;
+		printf ("nvme: MSI interrupt vector %u\n", host->msi_iv);
+	} else {
+		host->intr_mode = NVME_INTR_PIN;
+		printf ("nvme: interrupt mode pin\n");
+	}
+}
+
 static void
 nvme_cc_reg_write (void *data,
 		   phys_t gphys,
@@ -401,6 +439,7 @@ end:
 		dprintf (NVME_ETC_DEBUG, "NVMe has been disabled\n");
 	} else if (!host->enable && NVME_CC_GET_ENABLE (value)) {
 		spinlock_lock (&host->lock);
+		find_interrupt_mode (host);
 		init_admin_queue (host);
 		host->enable = 1;
 		spinlock_unlock (&host->lock);
@@ -1255,7 +1294,10 @@ nvme_new (struct pci_device *pci_device)
 		dprintf (NVME_ETC_DEBUG,
 			 "MSI-X total vectors: %u\n",
 			 host->msix_n_vectors);
+		host->msix_offset = msix_offset;
 	}
+
+	host->msi_offset = pci_find_cap_offset (pci_device, PCI_CAP_MSI);
 
 	reghook (nvme_data, 0, &bar_info);
 
@@ -1389,6 +1431,10 @@ nvme_apple_new (struct pci_device *pci_device)
 	}
 }
 
+#define MSI_MMC_MASK (7 << 1)
+#define MSI_MME_MASK (7 << 4)
+#define MSI_PVC_MASK (1 << 8)
+
 static int
 nvme_config_read (struct pci_device *pci_device,
 		  u8 iosize,
@@ -1399,6 +1445,15 @@ nvme_config_read (struct pci_device *pci_device,
 
 	struct nvme_data *nvme_data = (struct nvme_data *)pci_device->host;
 	struct nvme_host *host	    = nvme_data->host;
+	u32 msi_cap = host->msi_offset;
+	u32 msg_ctrl = msi_cap + 0x2;
+
+	if (msi_cap && offset <= msg_ctrl && offset + iosize > msg_ctrl) {
+		/* Conceal MMC and PVC */
+		(&data->byte)[msg_ctrl - offset] &= ~MSI_MMC_MASK;
+		if (iosize > 1)
+			(&data->byte)[msg_ctrl - offset + 1] &= ~MSI_PVC_MASK;
+	}
 
 	if (!host->ans2_wrapper)
 		goto done;
@@ -1425,12 +1480,48 @@ done:
 }
 
 static int
+intercept_msi_write (struct nvme_host *host,
+		     struct pci_device *pci_device,
+		     u8 iosize,
+		     u16 offset,
+		     union mem *data)
+{
+	u32 msi_cap, msg_ctrl;
+	union mem val;
+	int done = 0;
+
+	if (!host->msi_offset)
+		goto end;
+
+	msi_cap = host->msi_offset;
+	msg_ctrl = msi_cap + 0x2;
+
+	if (offset <= msg_ctrl && offset + iosize > msg_ctrl) {
+		memcpy (&val, data, iosize);
+		(&val.byte)[msg_ctrl - offset] &= ~MSI_MME_MASK;
+		pci_handle_default_config_write (pci_device,
+						 iosize,
+						 offset,
+						 &val);
+		done = 1;
+	}
+end:
+	return done;
+}
+
+static int
 nvme_config_write (struct pci_device *pci_device,
 		   u8 iosize,
 		   u16 offset,
 		   union mem *data)
 {
 	struct pci_bar_info bar_info;
+
+	struct nvme_data *nvme_data = (struct nvme_data *)pci_device->host;
+	struct nvme_host *host	    = nvme_data->host;
+
+	if (intercept_msi_write (host, pci_device, iosize, offset, data))
+		return CORE_IO_RET_DONE;
 
 	int i = pci_get_modifying_bar_info (pci_device,
 					    &bar_info,
@@ -1439,9 +1530,6 @@ nvme_config_write (struct pci_device *pci_device,
 					    data);
 	if (i < 0)
 		return CORE_IO_RET_DEFAULT;
-
-	struct nvme_data *nvme_data = (struct nvme_data *)pci_device->host;
-	struct nvme_host *host	    = nvme_data->host;
 
 	u32 type = pci_device->base_address_mask[i] &
 		   PCI_CONFIG_BASE_ADDRESS_TYPEMASK;
