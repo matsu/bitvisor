@@ -373,7 +373,8 @@ fill_pagetable (void *pt, u32 prev_phys, void *fillpage)
 	}
 	pmap_seek (&m, 0, 1);
 	pmap_read (&m);
-	pmap_write (&m, sym_to_phys (fillpage) | PTE_P_BIT, PTE_P_BIT);
+	pmap_write (&m, sym_to_phys (fillpage) | PTE_P_BIT,
+		    PTE_P_BIT | PTE_US_BIT);
 	p = pmap_pointer (&m);
 	e = *p;
 	for (i = 1; i < PAGESIZE / sizeof *p; i++)
