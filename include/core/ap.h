@@ -31,5 +31,6 @@
 #define __CORE_AP_H
 
 void self_ipi (int intnum);
+void eoi (void);
 
 #endif

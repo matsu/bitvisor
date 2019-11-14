@@ -34,6 +34,7 @@
  */
 
 #include <core.h>
+#include <core/ap.h>
 #include <core/time.h>
 #include <storage.h>
 #include <storage_io.h>
@@ -476,8 +477,6 @@ nvme_process_all_comp_queues (struct nvme_host *host)
 static void
 filter_unexpected_interrupt (struct nvme_host *host, int *num)
 {
-	static const u32 apic_eoi_phys = 0xFEE000B0;
-	u32 *apic_eoi;
 	int orig_num;
 
 	if (host->intr_mode != NVME_INTR_MSI)
@@ -504,14 +503,7 @@ filter_unexpected_interrupt (struct nvme_host *host, int *num)
 	if (orig_num >= 16 &&
 	    orig_num == host->msi_iv &&
 	    (*(u32 *)NVME_INTMS_REG(host->regs) & 0x1)) {
-		/* Clear APIC EOI to remove the interrupt from its ISR queue */
-		apic_eoi = mapmem_hphys (apic_eoi_phys,
-					 sizeof (*apic_eoi),
-					 MAPMEM_WRITE |
-					 MAPMEM_PWT |
-					 MAPMEM_PCD);
-		*apic_eoi = 0;
-		unmapmem (apic_eoi, sizeof (*apic_eoi));
+		eoi ();
 		*num = -1;
 	}
 

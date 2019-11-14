@@ -427,3 +427,23 @@ self_ipi (int intnum)
 		ICR_MODE_FIXED | intnum;
 	unmapmem (_apic_icr, sizeof *_apic_icr);
 }
+
+void
+eoi (void)
+{
+	static const u32 apic_eoi_phys = 0xFEE000B0;
+	u32 *_apic_eoi;
+	volatile u32 *apic_eoi;
+
+	if (!apic_available ())
+		return;
+	if (is_x2apic_supported () && is_x2apic_enabled ()) {
+		asm_wrmsr32 (MSR_IA32_X2APIC_EOI, 0, 0);
+		return;
+	}
+	_apic_eoi = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
+			    MAPMEM_PCD, apic_eoi_phys, sizeof *_apic_eoi);
+	apic_eoi = _apic_eoi;
+	*apic_eoi = 0;
+	unmapmem (_apic_eoi, sizeof *_apic_eoi);
+}
