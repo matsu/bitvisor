@@ -107,6 +107,18 @@ get_ia32_bios_sign_id (void)
 	return rev;
 }
 
+static asmlinkage void
+do_bios_updt (void *arg)
+{
+	u64 *val = arg;
+
+	/* Flushing caches for Intel Broadwell processors stall
+	 * workaround */
+	mm_flush_wb_cache ();
+	mm_flush_wb_cache ();
+	asm_wrmsr64 (MSR_IA32_BIOS_UPDT_TRIG, *val);
+}
+
 /* Microcode updates cannot be loaded in VMX non-root operation on
  * Intel CPUs.  This function loads the updates in VMX root
  * operation. */
@@ -115,7 +127,6 @@ ia32_bios_updt (virt_t addr)
 {
 	u64 vmm_addr = PAGESIZE | (addr & PAGESIZE_MASK);
 	phys_t phys, mm_phys;
-	struct msrarg m;
 	int num;
 	ulong cr2, lastcr2 = 0, guest_addr;
 	int levels;
@@ -127,8 +138,6 @@ ia32_bios_updt (virt_t addr)
 	int in_mmio_range;
 	bool ret = false;
 
-	m.msrindex = MSR_IA32_BIOS_UPDT_TRIG;
-	m.msrdata = &vmm_addr;
 	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr0);
 	current->vmctl.read_control_reg (CONTROL_REG_CR3, &cr3);
 	current->vmctl.read_control_reg (CONTROL_REG_CR4, &cr4);
@@ -144,7 +153,7 @@ ia32_bios_updt (virt_t addr)
 	mm_phys = mm_process_switch (phys);
 	for (;;) {
 		/* Do update! */
-		num = callfunc_and_getint (do_write_msr_sub, &m);
+		num = callfunc_and_getint (do_bios_updt, &vmm_addr);
 		if (num == -1)	/* Success */
 			break;
 		if (num == EXCEPTION_GP) {
