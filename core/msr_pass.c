@@ -112,10 +112,6 @@ do_bios_updt (void *arg)
 {
 	u64 *val = arg;
 
-	/* Flushing caches for Intel Broadwell processors stall
-	 * workaround */
-	mm_flush_wb_cache ();
-	mm_flush_wb_cache ();
 	asm_wrmsr64 (MSR_IA32_BIOS_UPDT_TRIG, *val);
 }
 
@@ -137,6 +133,7 @@ ia32_bios_updt (virt_t addr)
 	phys_t hphys, gphys;
 	int in_mmio_range;
 	bool ret = false;
+	ulong hcr0 = 0;
 
 	current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr0);
 	current->vmctl.read_control_reg (CONTROL_REG_CR3, &cr3);
@@ -203,7 +200,18 @@ ia32_bios_updt (virt_t addr)
 		if (0)
 			printf ("%s: cr2=0x%lX guest=0x%lX ent=0x%llX\n",
 				__func__, cr2, guest_addr, entries[0]);
+		/* Disable caching temporarily for Intel Broadwell
+		 * processors stall workaround */
+		if (!hcr0) {
+			asm_rdcr0 (&hcr0);
+			ASSERT (hcr0);
+			mm_flush_wb_cache ();
+			asm_wrcr0 ((hcr0 & ~CR0_NW_BIT) | CR0_CD_BIT);
+			asm_wbinvd ();
+		}
 	}
+	if (hcr0)
+		asm_wrcr0 (hcr0);
 	/* Free page tables, switch to previous address space and free
 	 * the page directory. */
 	mm_process_unmapall ();
