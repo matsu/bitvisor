@@ -94,11 +94,14 @@ apinitproc1 (void)
 	num_of_processors++;
 	n = num_of_processors;
 	proc = initproc_ap;
-	printf ("Processor %d (AP)\n", num_of_processors);
 	spinlock_unlock (&ap_lock);
 	segment_init_ap (n);
 	currentcpu->stackaddr = newstack;
 	int_init_ap ();
+	/* Load segments and interrupts as soon as possible, before
+	 * using printf(), because printf() might use complex network
+	 * functions on UEFI systems. */
+	printf ("Processor %d (AP)\n", n);
 	proc ();
 }
 
