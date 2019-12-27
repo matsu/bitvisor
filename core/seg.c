@@ -311,6 +311,46 @@ segment_wakeup (bool bsp)
 	load_segment (gdt);
 }
 
+static bool
+make_segment_gs_accessible_pcpu_comp (struct pcpu *p, void *q)
+{
+	ulong *gdtbase = q;
+	if ((ulong)p->segdesctbl == *gdtbase) {
+		*gdtbase = 0;
+		return true;
+	}
+	return false;
+}
+
+/* Make %gs accessible and return true if possible.  Used by
+ * panic(). */
+bool
+make_segment_gs_accessible (void)
+{
+	/* Verify whether the segment is writable. */
+	u16 gs;
+#ifdef __x86_64__
+	gs = SEG_SEL_PCPU64;
+#else
+	gs = SEG_SEL_PCPU32;
+#endif
+	if (!asm_verw (gs))
+		return false;
+
+	/* Find GDTR base from the pcpu list. */
+	ulong gdtbase, gdtlimit;
+	asm_rdgdtr (&gdtbase, &gdtlimit);
+	if (!gdtbase)
+		return false;
+	pcpu_list_foreach (make_segment_gs_accessible_pcpu_comp, &gdtbase);
+	if (gdtbase)
+		return false;
+
+	/* Load the segment. */
+	asm_wrgs (gs);
+	return true;
+}
+
 /* for initializing AP. this uses alloc() */
 void
 segment_init_ap (int cpunum)

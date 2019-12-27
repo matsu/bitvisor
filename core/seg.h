@@ -54,6 +54,7 @@
 void get_seg_base (ulong gdtbase, u16 ldtr, u16 sel, ulong *segbase);
 u32 get_seg_access_rights (u16 sel);
 void segment_wakeup (bool bsp);
+bool make_segment_gs_accessible (void);
 void segment_init_ap (int cpunum);
 
 #endif

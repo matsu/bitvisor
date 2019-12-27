@@ -42,6 +42,7 @@
 #include "printf.h"
 #include "process.h"
 #include "reboot.h"
+#include "seg.h"
 #include "sleep.h"
 #include "spinlock.h"
 #include "stdarg.h"
@@ -476,7 +477,7 @@ panic (char *format, ...)
 	struct panic_pcpu_data_state *state, local_state;
 
 	va_start (ap, format);
-	if (currentcpu_available ())
+	if (make_segment_gs_accessible ())
 		cpunum = get_cpu_id ();
 	if (cpunum >= 0) {
 		spinlock_lock (&panic_lock);

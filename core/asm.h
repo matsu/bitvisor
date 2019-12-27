@@ -959,4 +959,11 @@ asm_invept (enum invept_type type, struct invept_desc *desc)
 		      : "memory", "cc");
 }
 
+static inline bool
+asm_verw (u16 sel)
+{
+	asm ("verw %%ax ; sete %%al" : "+a" (sel) : : "cc");
+	return !!(sel & 1);
+}
+
 #endif
