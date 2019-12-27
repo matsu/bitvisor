@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "asm.h"
 #include "ap.h"
 #include "callrealmode.h"
 #include "config.h"
@@ -66,14 +67,20 @@ static spinlock_t panic_lock;
 static int panic_process;
 static bool panic_reboot = false;
 static char panicmsg[1024] = "";
-static char panicmsg_tmp[1024];
-static volatile int paniccpu;
 static bool do_wakeup = false;
 static bool bios_area_saved;
 static u8 bios_area_orig[BIOS_AREA_SIZE];
 #ifndef TTY_SERIAL
 static u8 bios_area_panic[BIOS_AREA_SIZE];
 #endif
+/* panicdat should be accessed during state < 0x80 */
+static struct {
+	char msg[1024];
+	int cpunum;
+	u8 fail;
+} panicdat;
+static u32 panic_lock_count;
+static u32 panic_unlock_count;
 
 static void
 copy_bios_area (void *save, void *load)
@@ -380,22 +387,6 @@ dump_vm_other_regs (void)
 		current->vmctl.panic_dump ();
 }
 
-static void
-wait_for_other_cpu (int cpunum)
-{
-	spinlock_lock (&panic_lock);
-	if (paniccpu != cpunum) {
-		while (paniccpu != -1) {
-			spinlock_unlock (&panic_lock);
-			while (paniccpu != -1)
-				asm_pause ();
-			spinlock_lock (&panic_lock);
-		}
-		paniccpu = cpunum;
-	}
-	spinlock_unlock (&panic_lock);
-}
-
 static void __attribute__ ((noreturn))
 call_panic_shell (void)
 {
@@ -448,120 +439,31 @@ catch_exception_sub (void *arg)
 }
 
 static void
-catch_exception (int cpunum, void (*func) (void))
+catch_exception (void (*func) (void))
 {
 	int num;
 
-	if (cpunum >= 0) {
-		num = callfunc_and_getint (catch_exception_sub, func);
-		if (num >= 0)
-			printf ("Exception 0x%02X\n", num);
-	} else {
-		func ();
+	num = callfunc_and_getint (catch_exception_sub, func);
+	if (num >= 0)
+		printf ("Exception 0x%02X\n", num);
+}
+
+static void
+wait_for_dump_completion (u64 timeout)
+{
+	if (panic_lock_count != panic_unlock_count) {
+		u64 time = get_time ();
+		while (get_time () - time < timeout)
+			if (panic_lock_count == panic_unlock_count)
+				break;
 	}
 }
 
-/* print a message and stop */
-void __attribute__ ((noreturn))
-panic (char *format, ...)
+static void
+reset_keyboard_and_screen (void)
 {
-	u64 time;
-	int count;
-	va_list ap;
-	ulong curstk;
-	bool w = false;
-	char *p, *pend;
-	int cpunum = -1;
-	static int panic_count = 0;
-	static ulong panic_shell = 0;
-	struct panic_pcpu_data_state *state, local_state;
-
-	va_start (ap, format);
-	if (make_segment_gs_accessible ())
-		cpunum = get_cpu_id ();
-	if (cpunum >= 0) {
-		spinlock_lock (&panic_lock);
-		count = panic_count++;
-		spinlock_unlock (&panic_lock);
-		wait_for_other_cpu (cpunum);
-		p = panicmsg_tmp;
-		pend = panicmsg_tmp + sizeof panicmsg_tmp;
-		if (panic_reboot)
-			*p = '\0';
-		else
-			snprintf (p, pend - p, "panic(CPU%d): ", cpunum);
-		p += strlen (p);
-		vsnprintf (p, pend - p, format, ap);
-		if (*p != '\0') {
-			printf ("%s\n", panicmsg_tmp);
-			if (panicmsg[0] == '\0')
-				snprintf (panicmsg, sizeof panicmsg, "%s",
-					  panicmsg_tmp);
-		}
-		asm_rdrsp (&curstk);
-		if (count > 5 ||
-		    curstk - (ulong)currentcpu->stackaddr < VMM_MINSTACKSIZE) {
-			spinlock_lock (&panic_lock);
-			paniccpu = -1;
-			spinlock_unlock (&panic_lock);
-			freeze ();
-		}
-		state = &currentcpu->panic.state;
-	} else {
-		spinlock_lock (&panic_lock);
-		count = panic_count++;
-		printf ("panic: ");
-		vprintf (format, ap);
-		printf ("\n");
-		spinlock_unlock (&panic_lock);
-		if (count)
-			freeze ();
-		state = &local_state;
-		state->dump_vmm = false;
-		state->backtrace = false;
-		state->flag_dump_vm = false;
-	}
-	va_end (ap);
-	if (!state->dump_vmm) {
-		state->dump_vmm = true;
-		catch_exception (cpunum, dump_vmm_control_regs);
-		catch_exception (cpunum, dump_vmm_other_regs);
-		state->dump_vmm = false;
-	}
-	if (!state->backtrace) {
-		state->backtrace = true;
-		catch_exception (cpunum, backtrace);
-		state->backtrace = false;
-	}
-	if (cpunum >= 0 && current && !state->flag_dump_vm) {
-		/* Guest state is printed only once.  Because the
-		 * state will not change if panic will have been
-		 * called twice or more. */
-		state->flag_dump_vm = true;
-		printf ("Guest state and registers of cpu %d ------------\n",
-			cpunum);
-		catch_exception (cpunum, dump_vm_general_regs);
-		catch_exception (cpunum, dump_vm_control_regs);
-		catch_exception (cpunum, dump_vm_sregs);
-		catch_exception (cpunum, dump_vm_other_regs);
-		printf ("------------------------------------------------\n");
-	}
-	if (cpunum < 0)
-		freeze ();
-	if (do_wakeup) {
-		do_wakeup = false;
-		w = true;
-	}
-	spinlock_lock (&panic_lock);
-	paniccpu = -1;
-	spinlock_unlock (&panic_lock);
-	if (w) {
-		sleep_set_timer_counter ();
-		panic_wakeup_all ();
-	}
-	call_initfunc ("panic");
-	if (cpunum == 0) {
-		usleep (1000000);	/* wait for dump of other processors */
+	if (!get_cpu_id ()) {
+		wait_for_dump_completion (1000000);
 #ifndef TTY_SERIAL
 		setkbdled (LED_NUMLOCK_BIT | LED_SCROLLLOCK_BIT |
 			   LED_CAPSLOCK_BIT);
@@ -583,26 +485,187 @@ panic (char *format, ...)
 #endif
 	} else {
 		/* setvideomode is expected to be done in 3 seconds */
-		time = get_time ();
+		u64 time = get_time ();
 		while (get_time () - time < 3000000);
 	}
-	if (asm_lock_ulong_swap (&panic_shell, 1)) {
-		for (;;)
-			reboot_test ();
-		clihlt ();
+}
+
+/* Use IDTR limit for panic state storage per processor since it is
+ * always accessible.  It is set to 0x100 * size of descriptor entry
+ * by functions in int.c, but may be set to 0xFFFF by VT-x VM Exit. */
+static u8
+get_panic_state (void)
+{
+	ulong idtbase, idtlimit;
+	asm_rdidtr (&idtbase, &idtlimit);
+	if (idtlimit < 0xFF00)
+		return 0xFF;
+	return idtlimit & 0xFF;
+}
+
+/* Using state 0-0x7F automatically acquires panic_lock. */
+static void
+set_panic_state (u8 state)
+{
+	ulong idtbase, idtlimit;
+	asm_rdidtr (&idtbase, &idtlimit);
+	if (idtlimit < 0xFF00)
+		idtlimit = 0xFFFF;
+	u8 oldstate = idtlimit & 0xFF;
+	if (oldstate >= 0x80 && state < 0x80) {
+		asm_lock_incl (&panic_lock_count);
+		spinlock_lock (&panic_lock);
+	} else if (oldstate < 0x80 && state >= 0x80) {
+		panic_unlock_count++;
+		spinlock_unlock (&panic_lock);
 	}
-	if (panic_reboot)
-		do_panic_reboot ();
-	printf ("%s\n", panicmsg);
-	call_panic_shell ();
+	asm_wridtr (idtbase, 0xFF00 + state);
+}
+
+/* state 0-0xF: Create a panic message and print it.  If another panic
+ * occurs during this state, do not continue to state 0x10-0xEF. */
+/* state 0x10-0x7F: Dump registers and backtrace.  If another panic
+ * occurs during this state, just continue to the next state. */
+/* state 0x80-0xEF: Wake up other processors, reset devices, and start
+ * shell. */
+/* state 0xF0-0xFF: Stop. */
+static u8
+panic_main (u8 state, char *msg)
+{
+	static ulong panic_shell = 0;
+	set_panic_state (state + 1);
+	switch (state) {
+	case 0:
+		memcpy (panicdat.msg, "FATAL", 6);
+		break;
+	case 1:
+		if (make_segment_gs_accessible ())
+			panicdat.cpunum = get_cpu_id ();
+		break;
+	case 2:
+		if (panicmsg[0] != '\0')
+			break;
+		if (!msg)
+			break;
+		if (panic_reboot)
+			snprintf (panicmsg, sizeof panicmsg, "%s", msg);
+		else if (panicdat.cpunum >= 0)
+			snprintf (panicmsg, sizeof panicmsg,
+				  "panic(CPU%d): %s", panicdat.cpunum, msg);
+		else
+			snprintf (panicmsg, sizeof panicmsg,
+				  "panic: %s", msg);
+		break;
+	case 3:
+		if (!msg)
+			break;
+		if (panic_reboot)
+			printf ("%s\n", msg);
+		else if (panicdat.cpunum >= 0)
+			printf ("panic(CPU%d): %s\n", panicdat.cpunum, msg);
+		else
+			printf ("panic: %s\n", msg);
+		break;
+	case 4:
+		if (panicdat.cpunum >= 0 && panicdat.fail == 0xFF) {
+			ulong curstk;
+			asm_rdrsp (&curstk);
+			if (curstk - (ulong)currentcpu->stackaddr >=
+			    VMM_MINSTACKSIZE)
+				return 0x10;
+		}
+		return 0xF0;
+	case 0x10:
+		printf ("CPU%d: ", panicdat.cpunum);
+		catch_exception (dump_vmm_control_regs);
+		catch_exception (dump_vmm_other_regs);
+		break;
+	case 0x11:
+		catch_exception (backtrace);
+		break;
+	case 0x12:
+		printf ("Guest state and registers of cpu %d ------------\n",
+			get_cpu_id ());
+		catch_exception (dump_vm_general_regs);
+		catch_exception (dump_vm_control_regs);
+		catch_exception (dump_vm_sregs);
+		catch_exception (dump_vm_other_regs);
+		printf ("------------------------------------------------\n");
+		break;
+	case 0x13:
+		if (do_wakeup) {
+			do_wakeup = false;
+			return 0x80;
+		}
+		return 0x81;
+	case 0x80:
+		sleep_set_timer_counter ();
+		panic_wakeup_all ();
+		break;
+	case 0x81:
+		call_initfunc ("panic");
+		break;
+	case 0x82:
+		reset_keyboard_and_screen ();
+		break;
+	case 0x83:
+		wait_for_dump_completion (60000000);
+		break;
+	case 0x84:
+		if (asm_lock_ulong_swap (&panic_shell, 1)) {
+			for (;;)
+				reboot_test ();
+			clihlt ();
+		}
+		if (panic_reboot)
+			do_panic_reboot ();
+		printf ("%s\n", panicmsg);
+		call_panic_shell ();
+		break;
+	case 0xF0:
+		freeze ();
+		break;
+	case 0xF1:
+	default:
+		clihlt ();
+		break;
+	}
+	return state + 1;
+}
+
+/* print a message and stop */
+void __attribute__ ((noreturn))
+panic (char *format, ...)
+{
+	va_list ap;
+	va_start (ap, format);
+	u8 state = get_panic_state ();
+	if (state == 0xFF) {
+		set_panic_state (0);
+		panicdat.cpunum = -1;
+		panicdat.fail = 0xFF;
+		vsnprintf (panicdat.msg, sizeof panicdat.msg, format, ap);
+		state = 1;
+	} else if (state < 0x80) {
+		panicdat.fail = state;
+	}
+	va_end (ap);
+	for (;;)
+		state = panic_main (state, panicdat.msg);
 }
 
 /* stop if there is panic on other processors */
 void
 panic_test (void)
 {
-	if (panicmsg[0] != '\0')
-		panic ("%s", "");
+	if (panicmsg[0] != '\0') {
+		set_panic_state (0x10);
+		panicdat.cpunum = get_cpu_id ();
+		panicdat.fail = 0xFF;
+		u8 state = 0x10;
+		for (;;)
+			state = panic_main (state, NULL);
+	}
 }
 
 static void
@@ -611,7 +674,6 @@ panic_init_global (void)
 	spinlock_init (&panic_lock);
 	panic_process = -1;
 	bios_area_saved = false;
-	paniccpu = -1;
 }
 
 static void
@@ -635,9 +697,6 @@ static void
 panic_init_pcpu (void)
 {
 	do_wakeup = true;
-	currentcpu->panic.state.dump_vmm = false;
-	currentcpu->panic.state.backtrace = false;
-	currentcpu->panic.state.flag_dump_vm = false;
 	currentcpu->panic.shell_ready = true;
 }
 
