@@ -205,13 +205,13 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 		return g_buf;
 	}
 
-	phys_t *g_ptr_list = mapmem_gphys (g_ptr2_phys,
-					   page_nbytes,
-					   MAPMEM_WRITE);
+	uint page_idx = (g_ptr2_phys & ~host->page_mask) >> 3;
+	uint page_last_idx = ~host->page_mask >> 3;
+	g_ptr2_phys &= host->page_mask;
+	u64 *g_ptr_list = mapmem_gphys (g_ptr2_phys, page_nbytes, 0);
 
 	struct g_buf_list *remaining_list = NULL, *cur_buf_list = NULL;
 
-	uint page_idx = 0;
 	while (remaining_nbytes != 0) {
 		if (remaining_list) {
 			cur_buf_list->next = alloc_g_buf_list ();
@@ -221,6 +221,13 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 			cur_buf_list = remaining_list;
 		}
 
+		if (page_idx == page_last_idx) {
+			g_ptr2_phys = g_ptr_list[page_idx] & host->page_mask;
+			unmapmem (g_ptr_list, page_nbytes);
+			page_idx = 0;
+			g_ptr_list = mapmem_gphys (g_ptr2_phys, page_nbytes,
+						   0);
+		}
 		cur_buf_list->addr_phys = g_ptr_list[page_idx];
 		cur_buf_list->addr_in_buflist = g_ptr2_phys +
 						(page_idx * sizeof (phys_t));
