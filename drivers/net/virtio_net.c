@@ -35,6 +35,7 @@
 #include "virtio_net.h"
 
 #define VIRTIO_NET_PKT_BATCH 16
+#define VIRTIO_NET_QUEUE_SIZE 256
 
 struct virtio_net {
 	u32 prev_port;
@@ -72,27 +73,38 @@ struct virtio_net {
 	u8 buf[VIRTIO_NET_PKT_BATCH][2048];
 };
 
-struct virtio_ring {
-	struct {
-		u64 addr;
-		u32 len;
-		u32 flags_next;	/* lower is flags, upper is next */
-	} desc[0x100];
-	struct {
-		u16 flags;
-		u16 idx;
-		u16 ring[0x100];
-		u16 padding[0x6FE];
-	} avail;
-	struct {
-		u16 flags;
-		u16 idx;
-		struct {
-			u32 id;
-			u32 len;
-		} ring[0x100];
-	} used;
+struct vr_desc {
+	u64 addr;
+	u32 len;
+	u32 flags_next;	/* lower is flags, upper is next */
 };
+
+struct vr_avail {
+	u16 flags;
+	u16 idx;
+	u16 ring[VIRTIO_NET_QUEUE_SIZE];
+};
+
+struct vr_used {
+	u16 flags;
+	u16 idx;
+	struct {
+		u32 id;
+		u32 len;
+	} ring[VIRTIO_NET_QUEUE_SIZE];
+};
+
+#define DESC_SIZE (sizeof (struct vr_desc) * VIRTIO_NET_QUEUE_SIZE)
+#define AVAIL_SIZE (sizeof (struct vr_avail))
+#define DA_N_PAGES ((DESC_SIZE + AVAIL_SIZE + (PAGESIZE - 1)) / PAGESIZE)
+#define PADDING_SIZE (DA_N_PAGES * PAGESIZE - (DESC_SIZE + AVAIL_SIZE))
+
+struct virtio_ring {
+	struct vr_desc desc[VIRTIO_NET_QUEUE_SIZE];
+	struct vr_avail avail;
+	u8 padding[PADDING_SIZE];
+	struct vr_used used;
+} __attribute__ ((packed));
 
 static void
 virtio_net_get_nic_info (void *handle, struct nicinfo *info)
@@ -141,7 +153,7 @@ virtio_net_send (void *handle, unsigned int num_packets, void **packets,
 	struct virtio_ring *p;
 	u16 idx_a, idx_u, ring;
 	u32 len, desc_len, i, j;
-	u32 ring_tmp;
+	u32 ring_tmp, r;
 	u8 *buf_ring;
 	u8 *buf;
 	int buflen;
@@ -166,15 +178,16 @@ loop:
 		vnet->last_time = now;
 		goto ret;
 	}
-	idx_u &= 0xFF;
+	idx_u %= VIRTIO_NET_QUEUE_SIZE;
 	ring = p->avail.ring[idx_u];
 	ring_tmp = ((u32)ring << 16) | 1;
 	len = 0;
 	while (ring_tmp & 1) {
 		ring_tmp >>= 16;
-		desc_len = p->desc[ring_tmp & 0xFF].len;
+		r = ring_tmp % VIRTIO_NET_QUEUE_SIZE;
+		desc_len = p->desc[r].len;
 		buf_ring = mapmem_as (vnet->as_dma,
-				      p->desc[ring_tmp & 0xFF].addr,
+				      p->desc[r].addr,
 				      desc_len, 0);
 		i = 0;
 		if (len < 10) {
@@ -192,7 +205,7 @@ loop:
 			len += j;
 		}
 		unmapmem (buf_ring, desc_len);
-		ring_tmp = p->desc[ring_tmp & 0xFF].flags_next;
+		ring_tmp = p->desc[r].flags_next;
 	}
 	if (0)
 		printf ("Receive %u bytes %02X:%02X:%02X:%02X:%02X:%02X"
@@ -220,7 +233,7 @@ virtio_net_recv (struct virtio_net *vnet)
 	struct virtio_ring *p;
 	u16 idx_a, idx_u, ring;
 	u32 len, desc_len, count = 0, pkt_sizes[VIRTIO_NET_PKT_BATCH];
-	u32 ring_tmp;
+	u32 ring_tmp, r;
 	u8 *buf, *buf_ring;
 	void *pkts[VIRTIO_NET_PKT_BATCH];
 	bool intr = false;
@@ -229,21 +242,22 @@ virtio_net_recv (struct virtio_net *vnet)
 		       MAPMEM_WRITE);
 	idx_a = p->avail.idx;
 	while (idx_a != p->used.idx) {
-		idx_u = p->used.idx & 0xFF;
+		idx_u = p->used.idx % VIRTIO_NET_QUEUE_SIZE;
 		ring = p->avail.ring[idx_u];
 		ring_tmp = ((u32)ring << 16) | 1;
 		len = 0;
 		buf = vnet->buf[count];
 		while (ring_tmp & 1) {
 			ring_tmp >>= 16;
-			desc_len = p->desc[ring_tmp & 0xFF].len;
+			r = ring_tmp % VIRTIO_NET_QUEUE_SIZE;
+			desc_len = p->desc[r].len;
 			buf_ring = mapmem_as (vnet->as_dma,
-					      p->desc[ring_tmp & 0xFF].addr,
+					      p->desc[r].addr,
 					      desc_len, 0);
 			memcpy (&buf[len], buf_ring, desc_len);
 			unmapmem (buf_ring, desc_len);
 			len += desc_len;
-			ring_tmp = p->desc[ring_tmp & 0xFF].flags_next;
+			ring_tmp = p->desc[r].flags_next;
 		}
 		pkts[count] = &buf[10];
 		pkt_sizes[count] = len - 10;
@@ -313,7 +327,7 @@ virtio_net_iohandler (core_io_t io, union mem *data, void *arg)
 			break;
 		case 0x0C:
 			if (io.size > 1 && vnet->selected_queue < 2)
-				data->word = 0x100;
+				data->word = VIRTIO_NET_QUEUE_SIZE;
 			break;
 		case 0x0E:
 			if (io.size == 1)
