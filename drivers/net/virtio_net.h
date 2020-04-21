@@ -39,7 +39,7 @@ void virtio_net_handle_config_write (void *handle, u8 iosize, u16 offset,
 				     union mem *data);
 void virtio_net_set_multifunction (void *handle, int enable);
 struct msix_table *
-virtio_net_set_msix (void *handle, u32 msix,
+virtio_net_set_msix (void *handle,
 		     void (*msix_disable) (void *msix_param),
 		     void (*msix_enable) (void *msix_param),
 		     void (*msix_vector_change) (void *msix_param,
@@ -47,10 +47,14 @@ virtio_net_set_msix (void *handle, u32 msix,
 						 int vector),
 		     void (*msix_generate) (void *msix_param,
 					    unsigned int queue),
+		     void (*msix_mmio_update) (void *msix_param),
 		     void *msix_param);
-void virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
-		      union mem *data);
-void virtio_net_set_pci_device (void *handle, struct pci_device *dev);
+void virtio_net_set_pci_device (void *handle, struct pci_device *dev,
+				struct pci_bar_info *initial_bar_info,
+				void (*mmio_change) (void *mmio_param,
+						     struct pci_bar_info
+						     *bar_info),
+				void *mmio_param);
 void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       const struct mm_as *as_dma,
 		       void (*intr_clear) (void *intr_param),
@@ -79,7 +83,7 @@ virtio_net_set_multifunction (void *handle, int enable)
 }
 
 static inline struct msix_table *
-virtio_net_set_msix (void *handle, u32 msix,
+virtio_net_set_msix (void *handle,
 		     void (*msix_disable) (void *msix_param),
 		     void (*msix_enable) (void *msix_param),
 		     void (*msix_vector_change) (void *msix_param,
@@ -87,19 +91,18 @@ virtio_net_set_msix (void *handle, u32 msix,
 						 int vector),
 		     void (*msix_generate) (void *msix_param,
 					    unsigned int queue),
+		     void (*msix_mmio_update) (void *msix_param),
 		     void *msix_param)
 {
 	return NULL;
 }
 
 static inline void
-virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
-		 union mem *data)
-{
-}
-
-static inline void
-virtio_net_set_pci_device (void *handle, struct pci_device *dev)
+virtio_net_set_pci_device (void *handle, struct pci_device *dev,
+			   struct pci_bar_info *initial_bar_info,
+			   void (*mmio_change) (void *mmio_param,
+						struct pci_bar_info *bar_info),
+			   void *mmio_param)
 {
 }
 

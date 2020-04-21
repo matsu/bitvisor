@@ -204,14 +204,9 @@ struct re_host {
 	u8 intr_enabled;
 };
 
-void re_core_handle_bar_read (struct re_host *host,
-			      u8 iosize,
-			      u16 offset,
-			      union mem *data);
-void re_core_handle_bar_write (struct re_host *host,
-			       u8 iosize,
-			       u16 offset,
-			       union mem *data);
+void re_core_current_mmio_bar (struct re_host *host,
+			       struct pci_bar_info *bar_info);
+void re_core_mmio_change (void *param, struct pci_bar_info *bar_info);
 
 /* For initialize re_host object */
 void re_core_init (struct re_host *host);

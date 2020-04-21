@@ -39,6 +39,9 @@
 
 #define VIRTIO_NET_PKT_BATCH 16
 #define VIRTIO_NET_QUEUE_SIZE 256
+#define VIRTIO_NET_MSIX_N_VECTORS 4
+#define VIRTIO_NET_MSIX_TAB_LEN (VIRTIO_NET_MSIX_N_VECTORS * 16)
+#define VIRTIO_NET_MSIX_PBA_LEN (VIRTIO_NET_MSIX_N_VECTORS * 8)
 
 struct virtio_pci_regs32 {
 	u32 initial_val;
@@ -106,6 +109,8 @@ struct virtio_pci_cfg_cap {
 #define VIRTIO_NOTIFY_CFG_OFFSET (VIRTIO_COMMON_CFG_OFFSET + VIRTIO_CFG_SIZE)
 #define VIRTIO_ISR_CFG_OFFSET	 (VIRTIO_NOTIFY_CFG_OFFSET + VIRTIO_CFG_SIZE)
 #define VIRTIO_DEV_CFG_OFFSET	 (VIRTIO_ISR_CFG_OFFSET + VIRTIO_CFG_SIZE)
+#define VIRTIO_MSIX_OFFSET	 (VIRTIO_DEV_CFG_OFFSET + VIRTIO_CFG_SIZE)
+#define VIRTIO_PBA_OFFSET	 (VIRTIO_MSIX_OFFSET + VIRTIO_NET_MSIX_TAB_LEN)
 
 #define VIRTIO_COMMON_CFG_LEN 56
 #define VIRTIO_NOTIFY_CFG_LEN 2
@@ -145,7 +150,10 @@ struct virtio_net {
 	u32 device_feature_select;
 	u32 driver_feature_select;
 	void *mmio_handle;
+	void *mmio_param;
+	void (*mmio_change) (void *mmio_param, struct pci_bar_info *bar_info);
 	bool mmio_base_emul;
+	bool mmio_base_emul_1;
 	bool v1;
 	bool v1_legacy; /* Workaround for non-compliant v1 driver */
 	bool ready;
@@ -167,7 +175,7 @@ struct virtio_net {
 	int hd;
 	int multifunction;
 	bool intr;
-	u32 msix;
+	bool msix;
 	u16 msix_cfgvec;
 	u16 msix_quevec[2];
 	bool msix_enabled;
@@ -177,6 +185,7 @@ struct virtio_net {
 	void (*msix_vector_change) (void *msix_param, unsigned int queue,
 				    int vector);
 	void (*msix_generate) (void *msix_param, unsigned int queue);
+	void (*msix_mmio_update) (void *msix_param);
 	void *msix_param;
 	struct virtio_ext_cap ext_caps[VIRTIO_EXT_REGS32_NUM];
 	u16 next_ext_cap;
@@ -185,6 +194,7 @@ struct virtio_net {
 	struct virtio_pci_cfg_cap pci_cfg;
 	struct msix_table msix_table_entry[3];
 	u8 buf[VIRTIO_NET_PKT_BATCH][2048];
+	spinlock_t msix_lock;
 };
 
 struct vr_desc {
@@ -251,7 +261,8 @@ static const struct virtio_pci_regs32 vnet_pci_initial_val[] = {
 	{ 0x00000000, 0x00000000 }, { 0x000001FF, 0xFFFFFFFF },
 
 	/* MSI-X config area */
-	{ 0x00000000 }, { 0x00000000 }, { 0x00000000 }, { 0x00000000 },
+	{ 0x00000000 }, { VIRTIO_MMIO_BAR + VIRTIO_MSIX_OFFSET },
+	{ VIRTIO_MMIO_BAR + VIRTIO_PBA_OFFSET }, { 0x00000000 },
 
 	/* VIRTIO_PCI_CAP_COMMON config area */
 	{ VIRTIO_CAP_1ST_DWORD (VIRTIO_NOTIFY_CFG_CAP_OFFSET, 0,
@@ -385,8 +396,10 @@ virtio_net_trigger_interrupt (struct virtio_net *vnet, unsigned int queue)
 			vnet->intr = false;
 			vnet->intr_clear (vnet->intr_param);
 		}
+		spinlock_lock (&vnet->msix_lock);
 		if (!vnet->msix_mask)
 			vnet->msix_generate (vnet->msix_param, queue);
+		spinlock_unlock (&vnet->msix_lock);
 	} else {
 		vnet->intr = true;
 		vnet->intr_set (vnet->intr_param);
@@ -830,6 +843,7 @@ ccfg_queue_msix_vector (struct virtio_net *vnet, bool wr, union mem *data,
 	u16 n = vnet->selected_queue;
 	if (n > 1)
 		return;
+	spinlock_lock (&vnet->msix_lock);
 	if (wr) {
 		u16 v = data->word;
 		vnet->msix_quevec[n] = v;
@@ -837,6 +851,7 @@ ccfg_queue_msix_vector (struct virtio_net *vnet, bool wr, union mem *data,
 	} else {
 		data->word = vnet->msix_quevec[n];
 	}
+	spinlock_unlock (&vnet->msix_lock);
 }
 
 static void
@@ -1046,6 +1061,36 @@ handle_dev_cfg (struct virtio_net *vnet, bool wr, u32 iosize, u32 offset,
 	handle_io (vnet, wr, iosize, offset, data, d);
 }
 
+static void
+handle_msix (struct virtio_net *vnet, bool wr, u32 iosize, u32 offset,
+	     union mem *data)
+{
+	if (!wr)
+		memset (data, 0, iosize);
+	if (!vnet->msix)
+		return;
+	spinlock_lock (&vnet->msix_lock);
+	if (offset < sizeof vnet->msix_table_entry) {
+		void *p = vnet->msix_table_entry;
+		u32 end = offset + iosize;
+		if (end > sizeof vnet->msix_table_entry)
+			end = sizeof vnet->msix_table_entry;
+		if (wr)
+			memcpy (p + offset, data, end - offset);
+		else
+			memcpy (data, p + offset, end - offset);
+		if (0 && wr)
+			printf ("MSI-X[0x%04X] = 0x%08X\n", offset,
+				data->dword & ((2u << (iosize * 8 - 1)) - 1));
+	} else if (offset <= VIRTIO_NET_MSIX_TAB_LEN &&
+		   offset + iosize > VIRTIO_NET_MSIX_TAB_LEN) {
+		/* Pending bits: not yet implemented */
+	}
+	if (wr)
+		vnet->msix_mmio_update (vnet->msix_param);
+	spinlock_unlock (&vnet->msix_lock);
+}
+
 static int
 virtio_net_mmio (void *handle, phys_t gphys, bool wr, void *data, uint iosize,
 		 u32 flags)
@@ -1055,6 +1100,7 @@ virtio_net_mmio (void *handle, phys_t gphys, bool wr, void *data, uint iosize,
 		handle_notify_cfg,
 		handle_isr_cfg,
 		handle_dev_cfg,
+		handle_msix,
 	};
 	struct virtio_net *vnet = handle;
 	void *d = data;
@@ -1177,29 +1223,38 @@ pci_handle_mmio (struct virtio_net *vnet, bool wr, union mem *data,
 		 const void *extra_info)
 {
 	if (wr) {
-		if ((data->dword & PCI_CONFIG_BASE_ADDRESS_MEMMASK) ==
-		    PCI_CONFIG_BASE_ADDRESS_MEMMASK) {
+		u32 new_base = data->dword & ~(vnet->mmio_len - 1);
+		if (new_base == ~(vnet->mmio_len - 1)) {
+			vnet->mmio_base_emul_1 = true;
+			vnet->mmio_base_emul = true;
+		} else if (!new_base) {
+			vnet->mmio_base_emul_1 = false;
 			vnet->mmio_base_emul = true;
 		} else {
 			vnet->mmio_base_emul = false;
-			u32 old = vnet->mmio_base;
-			vnet->mmio_base = data->dword;
-			vnet->mmio_base &= ~(vnet->mmio_len - 1);
-			if (old == vnet->mmio_base)
+			if (vnet->mmio_base == new_base)
 				return;
+			vnet->mmio_base = new_base;
 			if (vnet->mmio_handle) {
 				mmio_unregister (vnet->mmio_handle);
 				vnet->mmio_handle = NULL;
 			}
-			vnet->mmio_handle = mmio_register (vnet->mmio_base,
+			if (vnet->mmio_change) {
+				struct pci_bar_info bar;
+				bar.type = PCI_BAR_INFO_TYPE_MEM;
+				bar.base = new_base;
+				bar.len = vnet->mmio_len;
+				vnet->mmio_change (vnet->mmio_param, &bar);
+			}
+			vnet->mmio_handle = mmio_register (new_base,
 							   vnet->mmio_len,
 							   virtio_net_mmio,
 							   vnet);
 		}
 	} else {
 		data->dword = vnet->mmio_base_emul ?
-			      ~(vnet->mmio_len - 1) :
-			      vnet->mmio_base;
+			vnet->mmio_base_emul_1 ? ~(vnet->mmio_len - 1) : 0 :
+			vnet->mmio_base;
 	}
 }
 
@@ -1243,22 +1298,6 @@ pci_handle_msix (struct virtio_net *vnet, bool wr, union mem *data,
 			      (2 | (vnet->msix_enabled ? 0x8000 : 0) |
 			      (vnet->msix_mask ? 0x4000 : 0)) << 16;
 	}
-}
-
-static void
-pci_handle_msix_tab (struct virtio_net *vnet, bool wr, union mem *data,
-		     const void *extra_info)
-{
-	if (!wr)
-		data->dword = vnet->msix ? vnet->msix : 0;
-}
-
-static void
-pci_handle_msix_pba (struct virtio_net *vnet, bool wr, union mem *data,
-		     const void *extra_info)
-{
-	if (!wr)
-		data->dword = vnet->msix ? vnet->msix + 0x800 : 0;
 }
 
 static void
@@ -1373,7 +1412,7 @@ virtio_net_set_multifunction (void *handle, int enable)
 }
 
 struct msix_table *
-virtio_net_set_msix (void *handle, u32 msix,
+virtio_net_set_msix (void *handle,
 		     void (*msix_disable) (void *msix_param),
 		     void (*msix_enable) (void *msix_param),
 		     void (*msix_vector_change) (void *msix_param,
@@ -1381,6 +1420,7 @@ virtio_net_set_msix (void *handle, u32 msix,
 						 int vector),
 		     void (*msix_generate) (void *msix_param,
 					    unsigned int queue),
+		     void (*msix_mmio_update) (void *msix_param),
 		     void *msix_param)
 {
 	struct virtio_net *vnet = handle;
@@ -1389,42 +1429,33 @@ virtio_net_set_msix (void *handle, u32 msix,
 	vnet->msix_disable = msix_disable;
 	vnet->msix_vector_change = msix_vector_change;
 	vnet->msix_generate = msix_generate;
+	vnet->msix_mmio_update = msix_mmio_update;
 	vnet->msix_param = msix_param;
-	vnet->msix = msix;
+	vnet->msix = true;
 	return vnet->msix_table_entry;
 }
 
 void
-virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
-		 union mem *data)
-{
-	struct virtio_net *vnet = handle;
-
-	if (!wr)
-		memset (data, 0, iosize);
-	if (offset < sizeof vnet->msix_table_entry) {
-		void *p = vnet->msix_table_entry;
-		u32 end = offset + iosize;
-		if (end > sizeof vnet->msix_table_entry)
-			end = sizeof vnet->msix_table_entry;
-		if (wr)
-			memcpy (p + offset, data, end - offset);
-		else
-			memcpy (data, p + offset, end - offset);
-		if (0 && wr)
-			printf ("MSI-X[0x%04X] = 0x%08X\n", offset,
-				data->dword & ((2u << (iosize * 8 - 1)) - 1));
-	} else if (offset <= 0x800 && offset + iosize > 0x800) {
-		/* Pending bits: not yet implemented */
-	}
-}
-
-void
-virtio_net_set_pci_device (void *handle, struct pci_device *dev)
+virtio_net_set_pci_device (void *handle, struct pci_device *dev,
+			   struct pci_bar_info *initial_bar_info,
+			   void (*mmio_change) (void *mmio_param,
+						struct pci_bar_info *bar_info),
+			   void *mmio_param)
 {
 	struct virtio_net *vnet = handle;
 
 	vnet->dev = dev;
+	if (initial_bar_info) {
+		vnet->mmio_base = initial_bar_info->base;
+		vnet->mmio_len = initial_bar_info->len;
+		if (~(vnet->mmio_len - 1) != vnet->mmio_base)
+			vnet->mmio_handle = mmio_register (vnet->mmio_base,
+							   vnet->mmio_len,
+							   virtio_net_mmio,
+							   vnet);
+	}
+	vnet->mmio_change = mmio_change;
+	vnet->mmio_param = mmio_param;
 }
 
 static void
@@ -1453,8 +1484,6 @@ initalize_vnet_pci_data (struct virtio_net *vnet)
 	vnet_pci_data[13].handler = pci_handle_next;
 	i = OFFSET_TO_DWORD_BLOCK (VIRTIO_MSIX_CAP_OFFSET);
 	vnet_pci_data[i].handler = pci_handle_msix;
-	vnet_pci_data[i + 1].handler = pci_handle_msix_tab;
-	vnet_pci_data[i + 2].handler = pci_handle_msix_pba;
 	i = OFFSET_TO_DWORD_BLOCK (VIRTIO_PCI_CFG_CAP_OFFSET);
 	vnet_pci_data[i].handler = pci_handle_pci_cfg_next;
 	vnet_pci_data[i + 1].handler = pci_handle_pci_cfg_bar;
@@ -1501,6 +1530,7 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->device_feature_select = 0;
 	vnet->driver_feature_select = 0;
 	vnet->mmio_handle = NULL;
+	vnet->mmio_change = NULL;
 	vnet->mmio_base_emul = false;
 	vnet->v1 = false;
 	vnet->v1_legacy = false;
@@ -1524,7 +1554,7 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->queue_enable[1] = 0;
 	vnet->multifunction = 0;
 	vnet->intr = false;
-	vnet->msix = 0;
+	vnet->msix = false;
 	vnet->msix_cfgvec = 0xFFFF;
 	vnet->msix_quevec[0] = 0xFFFF;
 	vnet->msix_quevec[1] = 0xFFFF;
@@ -1539,6 +1569,7 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->msix_table_entry[0].mask = 1;
 	vnet->msix_table_entry[1].mask = 1;
 	vnet->msix_table_entry[2].mask = 1;
+	spinlock_init (&vnet->msix_lock);
 	*func = &virtio_net_func;
 	initalize_vnet_pci_data (vnet);
 	return vnet;

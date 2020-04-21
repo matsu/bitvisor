@@ -792,6 +792,33 @@ aq_mmio_unmap (struct aq *aq)
 }
 
 static void
+aq_mmio_change (void *param, struct pci_bar_info *bar_info)
+{
+	struct aq *aq = param;
+	u32 bar0 = bar_info->base & 0xFFFFFFFF;
+	u32 bar1 = bar_info->base >> 32;
+	printf ("aq: mmio base change from 0x%llX to 0x%llX\n",
+		aq->mmio_base,
+		bar_info->base);
+	aq_pause_set (aq);
+	aq_mmio_unmap (aq);
+	pci_config_write (aq->dev,
+			  &bar0,
+			  sizeof (bar0),
+			  PCI_CONFIG_BASE_ADDRESS0);
+	pci_config_write (aq->dev,
+			  &bar1,
+			  sizeof (bar1),
+			  PCI_CONFIG_BASE_ADDRESS1);
+	aq->dev->config_space.base_address[0] =
+		(aq->dev->config_space.base_address[0] &
+		 0xFFFF) | (bar0 & 0xFFFF0000);
+	aq->dev->config_space.base_address[1] = bar1;
+	aq_mmio_map (aq, bar_info);
+	aq_pause_clear (aq);
+}
+
+static void
 aq_ring_alloc (struct aq *aq)
 {
 	struct aq_tx_desc *tx_ring;
@@ -1364,25 +1391,8 @@ aq_new (struct pci_device *dev)
 	if (!option_virtio)
 		panic ("aq: virtio=1 is required");
 
-	aq->virtio_net = virtio_net_init (&virtio_net_func,
-					  aq->mac,
-					  dev->as_dma,
-					  aq_intr_clear,
-					  aq_intr_set,
-					  aq_intr_disable,
-					  aq_intr_enable,
-					  aq);
-	virtio_net_set_pci_device (aq->virtio_net, dev);
-
 	pci_set_bridge_io (dev);
 	pci_set_bridge_callback (dev, &aq_bridge_callback);
-
-	if (!net_init (aq->nethandle,
-		       aq,
-		       &phys_func,
-		       aq->virtio_net,
-		       virtio_net_func))
-		panic ("aq: net_init() fails");
 
 	/* Clear unused MMIO registers to avoid address conflict */
 	val = 0x0;
@@ -1404,6 +1414,25 @@ aq_new (struct pci_device *dev)
 	pci_enable (dev);
 	aq_make_dev_reg_record (aq);
 	pci_get_bar_info (aq->dev, 0, &bar0);
+
+	aq->virtio_net = virtio_net_init (&virtio_net_func,
+					  aq->mac,
+					  dev->as_dma,
+					  aq_intr_clear,
+					  aq_intr_set,
+					  aq_intr_disable,
+					  aq_intr_enable,
+					  aq);
+	virtio_net_set_pci_device (aq->virtio_net, dev, &bar0, aq_mmio_change,
+				   aq);
+
+	if (!net_init (aq->nethandle,
+		       aq,
+		       &phys_func,
+		       aq->virtio_net,
+		       virtio_net_func))
+		panic ("aq: net_init() fails");
+
 	aq_mmio_map (aq, &bar0);
 	aq_ring_alloc (aq);
 	aq_reset (aq);
@@ -1417,13 +1446,6 @@ aq_new (struct pci_device *dev)
 	printf ("aq: initializtion done\n");
 }
 
-/*
- * We expose BAR0/1 to BAR4/5 to the guest OS. This is not a part of
- * virtio_net. However, it is necessary when the guest OS configures the
- * bridge. BAR0/1 address must be remapped accordingly. macOs is known
- * for reconfigure the bridge.
- */
-
 static int
 aq_config_read (struct pci_device *dev,
 		u8 iosize,
@@ -1431,7 +1453,6 @@ aq_config_read (struct pci_device *dev,
 		union mem *data)
 {
 	struct aq *aq = dev->host;
-	int copy_from, copy_to, copy_len;
 
 	if (!aq->virtio_net) {
 		memset (data, 0, iosize);
@@ -1439,30 +1460,6 @@ aq_config_read (struct pci_device *dev,
 	}
 
 	virtio_net_handle_config_read (aq->virtio_net, iosize, offset, data);
-
-	if (offset + iosize <= PCI_CONFIG_BASE_ADDRESS4 ||
-	    offset >= PCI_CONFIG_BASE_ADDRESS5 + 4)
-		goto done;
-
-	copy_from = PCI_CONFIG_BASE_ADDRESS0;
-	copy_to = PCI_CONFIG_BASE_ADDRESS4 - offset;
-
-	copy_len = iosize;
-
-	if (copy_to >= 0) {
-		copy_len -= copy_to;
-	} else {
-		copy_from -= copy_to;
-		copy_to = 0;
-	}
-
-	if (offset + copy_len >= PCI_CONFIG_BASE_ADDRESS5 + 4)
-		copy_len = (PCI_CONFIG_BASE_ADDRESS5 + 4) - offset;
-
-	if (copy_len > 0)
-		memcpy (&data->byte + copy_to,
-			dev->config_space.regs8 + copy_from,
-			copy_len);
 done:
 	return CORE_IO_RET_DONE;
 }
@@ -1474,60 +1471,11 @@ aq_config_write (struct pci_device *dev,
 		 union mem *data)
 {
 	struct aq *aq = dev->host;
-	struct pci_bar_info bar_info;
-	u32 bar0, bar1;
 
 	if (!aq->virtio_net)
 		goto done;
 
 	virtio_net_handle_config_write (aq->virtio_net, iosize, offset, data);
-
-	if (offset + iosize <= PCI_CONFIG_BASE_ADDRESS4 ||
-	    offset >= PCI_CONFIG_BASE_ADDRESS5 + 4)
-		goto done;
-	if ((offset != PCI_CONFIG_BASE_ADDRESS4 &&
-	     offset != PCI_CONFIG_BASE_ADDRESS5) ||
-	     iosize != 4) {
-		printf ("aq: deny config write at 0x%X iosize %u\n",
-			offset,
-			iosize);
-		goto done;
-	}
-
-	pci_get_modifying_bar_info (dev,
-				    &bar_info,
-				    iosize,
-				    offset - PCI_CONFIG_BASE_ADDRESS0,
-				    data);
-
-	/* XXX macOS does not update BAR5 even though it is 64 bits */
-	if (bar_info.type == PCI_BAR_INFO_TYPE_MEM &&
-	    aq->mmio_base != bar_info.base) {
-		printf ("aq: mmio base change from 0x%llX to 0x%llX\n",
-			aq->mmio_base,
-			bar_info.base);
-		bar0 = bar_info.base & 0xFFFFFFFF;
-		bar1 = bar_info.base >> 32;
-		aq_pause_set (aq);
-		aq_mmio_unmap (aq);
-		pci_config_write (dev,
-				  &bar0,
-				  sizeof (bar0),
-				  PCI_CONFIG_BASE_ADDRESS0);
-		pci_config_write (dev,
-				  &bar1,
-				  sizeof (bar1),
-				  PCI_CONFIG_BASE_ADDRESS1);
-		aq_mmio_map (aq, &bar_info);
-		aq_pause_clear (aq);
-	}
-
-	if (offset == PCI_CONFIG_BASE_ADDRESS4)
-		dev->config_space.base_address[0] =
-			(dev->config_space.base_address[0] &
-			 0xFFFF) | (data->dword & 0xFFFF0000);
-	else
-		dev->config_space.base_address[1] = data->dword;
 done:
 	return CORE_IO_RET_DONE;
 }

@@ -238,109 +238,48 @@ re_core_unmapmem (struct re_host *host)
 }
 
 void
-re_core_handle_bar_read (struct re_host *host,
-			 u8 iosize,
-			 u16 offset,
-			 union mem *data)
+re_core_current_mmio_bar (struct re_host *host, struct pci_bar_info *bar_info)
 {
 	struct re_softc *sc = host->sc;
-	int copy_from, copy_to, copy_len;
 
-	if (offset + iosize <= PCI_CONFIG_BASE_ADDRESS4 ||
-	    offset >= PCI_CONFIG_BASE_ADDRESS5 + 4)
-		return;
-
-	/* Expose MMIO to BAR4/5 to avoid possible MMIO space conflict */
-
-	copy_from = PCI_CONFIG_BASE_ADDRESS0 + (sc->re_res_id * 4);
-	copy_to = PCI_CONFIG_BASE_ADDRESS4 - offset;
-
-	copy_len = iosize;
-
-	if (copy_to >= 0) {
-		copy_len -= copy_to;
-	} else {
-		copy_from -= copy_to;
-		copy_to = 0;
-	}
-
-	if (offset + copy_len >= PCI_CONFIG_BASE_ADDRESS5 + 4)
-		copy_len = (PCI_CONFIG_BASE_ADDRESS5 + 4) - offset;
-
-	if (copy_len > 0)
-		memcpy (&data->byte + copy_to,
-			host->dev->config_space.regs8 + copy_from,
-			copy_len);
+	pci_get_bar_info (host->dev, sc->re_res_id, bar_info);
 }
 
 void
-re_core_handle_bar_write (struct re_host *host,
-			  u8 iosize,
-			  u16 offset,
-			  union mem *data)
+re_core_mmio_change (void *param, struct pci_bar_info *bar_info)
 {
+	struct re_host *host = param;
 	struct re_softc *sc = host->sc;
-	struct pci_bar_info bar_info;
-	int i;
-	u32 bar_lo, bar_hi, base, dst, mask;
-	bool final_write, orig_ready;
+	u32 bar_lo, bar_hi, dst, mask;
+	bool orig_ready;
 
-	if (offset + iosize <= PCI_CONFIG_BASE_ADDRESS4 ||
-	    offset >= PCI_CONFIG_BASE_ADDRESS5 + 4)
-		return;
-	if ((offset != PCI_CONFIG_BASE_ADDRESS4 &&
-	     offset != PCI_CONFIG_BASE_ADDRESS5) ||
-	     iosize != 4) {
-		printf ("re: deny config write at 0x%X iosize %u\n",
-			offset,
-			iosize);
-		return;
-	}
-
-	/* Handle MMIO base address change */
-
-	final_write = sc->re_res_type != PCI_CONFIG_BASE_ADDRESS_TYPE64 ||
-		      offset == PCI_CONFIG_BASE_ADDRESS5;
-	base = 0x10 - (sc->re_res_id * 4); /* 0x8 for BAR2, 0xC for BAR1) */
-	ASSERT (base == 0x8 || base == 0xC);
-	i = pci_get_modifying_bar_info (host->dev,
-					&bar_info,
-					iosize,
-					offset - base,
-					data);
-
-	if (i == sc->re_res_id &&
-	    final_write &&
-	    sc->mmio_base != bar_info.base) {
-		orig_ready = host->ready;
-		printf ("re: mmio base change to 0x%llX\n", bar_info.base);
-		bar_lo = bar_info.base & 0xFFFFFFFF;
-		bar_hi = bar_info.base >> 32;
-		host->ready = 0;
-		re_core_unmapmem (host);
-		dst = PCI_CONFIG_BASE_ADDRESS0 + (sc->re_res_id * 4);
+	orig_ready = host->ready;
+	printf ("re: base address changed from 0x%08llX to %08llX\n",
+		sc->mmio_base, bar_info->base);
+	bar_lo = bar_info->base & 0xFFFFFFFF;
+	bar_hi = bar_info->base >> 32;
+	host->ready = 0;
+	re_core_unmapmem (host);
+	dst = PCI_CONFIG_BASE_ADDRESS0 + (sc->re_res_id * 4);
+	pci_config_write (host->dev,
+			  &bar_lo,
+			  sizeof bar_lo,
+			  dst);
+	if (sc->re_res_type == PCI_CONFIG_BASE_ADDRESS_TYPE64)
 		pci_config_write (host->dev,
-				  &bar_lo,
-				  sizeof bar_lo,
-				  dst);
-		if (sc->re_res_type == PCI_CONFIG_BASE_ADDRESS_TYPE64)
-			pci_config_write (host->dev,
-					  &bar_hi,
-					  sizeof bar_hi,
-					  dst + 4);
-		re_core_mapmem (host, &bar_info);
-		host->ready = orig_ready;
-	}
+				  &bar_hi,
+				  sizeof bar_hi,
+				  dst + 4);
+	re_core_mapmem (host, bar_info);
+	host->ready = orig_ready;
 
-	if (offset == PCI_CONFIG_BASE_ADDRESS4) {
-		mask = sc->mmio_len - 1;
-		host->dev->config_space.base_address[sc->re_res_id] =
-			(host->dev->config_space.base_address[sc->re_res_id] &
-			 mask) | (data->dword & ~mask);
-	} else {
+	mask = sc->mmio_len - 1;
+	host->dev->config_space.base_address[sc->re_res_id] =
+		(host->dev->config_space.base_address[sc->re_res_id] &
+		 mask) | (bar_lo & ~mask);
+	if (sc->re_res_type == PCI_CONFIG_BASE_ADDRESS_TYPE64)
 		host->dev->config_space.base_address[sc->re_res_id + 1] =
-			data->dword;
-	}
+			bar_hi;
 }
 
 void

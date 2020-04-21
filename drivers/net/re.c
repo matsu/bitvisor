@@ -111,6 +111,7 @@ re_new (struct pci_device *dev)
 	int option_virtio = 0;
 	u32 command_orig, command;
 	struct nicfunc *virtio_net_func = NULL;
+	struct pci_bar_info bar_info;
 
 	pci_system_disconnect (dev);
 
@@ -157,6 +158,8 @@ re_new (struct pci_device *dev)
 	option_net = dev->driver_options[1];
 	host->nethandle = net_new_nic (option_net, option_tty);
 
+	re_core_current_mmio_bar (host, &bar_info);
+
 	if (option_virtio) {
 		host->virtio_net = virtio_net_init (&virtio_net_func,
 						    host->mac,
@@ -166,7 +169,8 @@ re_new (struct pci_device *dev)
 						    re_core_intr_disable,
 						    re_core_intr_enable,
 						    host);
-		virtio_net_set_pci_device (host->virtio_net, dev);
+		virtio_net_set_pci_device (host->virtio_net, dev, &bar_info,
+					   re_core_mmio_change, host);
 	}
 
 	if (!net_init (host->nethandle,
@@ -203,7 +207,6 @@ re_config_read (struct pci_device *dev,
 					       iosize,
 					       offset,
 					       data);
-		re_core_handle_bar_read (host, iosize, offset, data);
 	} else {
 		memset (data, 0, iosize);
 	}
@@ -224,7 +227,6 @@ re_config_write (struct pci_device *dev,
 						iosize,
 						offset,
 						data);
-		re_core_handle_bar_write (host, iosize, offset, data);
 	}
 
 	return CORE_IO_RET_DONE;

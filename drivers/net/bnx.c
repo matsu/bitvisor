@@ -665,8 +665,10 @@ bnx_handle_recv (struct bnx *bnx)
 static void
 bnx_mmio_init (struct bnx *bnx)
 {
-	/* FIXME: May need to conceal MMIO space to prevent firmware
-	 * or attackers from accessing registers in the MMIO space. */
+	/*
+	 * Note that MMIO space will be hooked by virtio-net. This should
+	 * prevent unintedned accesses
+	 */
 	phys_t base;
 	u32 len;
 	int i;
@@ -973,6 +975,36 @@ static struct nicfunc phys_func = {
 };
 
 static void
+bnx_update_bar (struct bnx *bnx, phys_t base)
+{
+	u32 bar0, bar1;
+
+	bar0 = base;
+	bar1 = base >> 32;
+	spinlock_lock (&bnx->reg_lock);
+	bnx->base = base;
+	pci_config_write (bnx->pci, &bar0, sizeof bar0,
+			  PCI_CONFIG_BASE_ADDRESS0);
+	pci_config_write (bnx->pci, &bar1, sizeof bar1,
+			  PCI_CONFIG_BASE_ADDRESS1);
+	spinlock_unlock (&bnx->reg_lock);
+}
+
+static void
+bnx_mmio_change (void *param, struct pci_bar_info *bar_info)
+{
+	struct bnx *bnx = param;
+	printf ("bnx: base address changed from 0x%08llX to %08llX\n",
+		bnx->base, bar_info->base);
+	u32 bar0 = bar_info->base, bar1 = bar_info->base >> 32;
+	bnx_update_bar (bnx, bar_info->base);
+	bnx->pci->config_space.base_address[0] =
+		(bnx->pci->config_space.base_address[0] &
+		 0xFFFF) | (bar0 & 0xFFFF0000);
+	bnx->pci->config_space.base_address[1] = bar1;
+}
+
+static void
 bnx_intr_clear (void *param)
 {
 	struct bnx *bnx = param;
@@ -1143,7 +1175,10 @@ bnx_new (struct pci_device *pci_device)
 			virtio_net_set_multifunction (bnx->virtio_net, 1);
 	}
 	if (bnx->virtio_net) {
-		virtio_net_set_pci_device (bnx->virtio_net, pci_device);
+		struct pci_bar_info bar;
+		pci_get_bar_info (pci_device, 0, &bar);
+		virtio_net_set_pci_device (bnx->virtio_net, pci_device, &bar,
+					   bnx_mmio_change, bnx);
 		cap = pci_find_cap_offset (pci_device, PCI_CAP_PCIEXP);
 		if (cap) {
 			pci_config_read (pci_device, &pcie_ver,
@@ -1184,32 +1219,7 @@ static void
 bnx_virtio_config_read (struct pci_device *pci_device, u8 iosize,
 			u16 offset, union mem *buf, struct bnx *bnx)
 {
-	int copy_from, copy_to, copy_len;
-
 	virtio_net_handle_config_read (bnx->virtio_net, iosize, offset, buf);
-	/* The BAR4 in the VM is equal to the BAR0 in the host
-	   machine.  Because it is out of virtio specification, its
-	   memory space is not accessed by the guest OS.  However the
-	   address of the memory space is configured by the guest OS.
-	   This is required because normally a Broadcom network device
-	   in Mac is connected to under a PCIe bridge whose address
-	   space is configured by the guest OS. */
-	if (offset + iosize <= 0x20 || offset >= 0x28)
-		return;
-	copy_from = 0x10;
-	copy_to = 0x20 - offset;
-	copy_len = iosize;
-	if (copy_to >= 0) {
-		copy_len -= copy_to;
-	} else {
-		copy_from -= copy_to;
-		copy_to = 0;
-	}
-	if (offset + copy_len >= 0x28)
-		copy_len = 0x28 - offset;
-	if (copy_len > 0)
-		memcpy (&buf->byte + copy_to, pci_device->config_space.regs8 +
-			copy_from, copy_len);
 }
 
 static int
@@ -1229,53 +1239,10 @@ bnx_config_read (struct pci_device *pci_device, u8 iosize,
 }
 
 static void
-bnx_update_bar (struct bnx *bnx, phys_t base)
-{
-	u32 bar0, bar1;
-
-	bar0 = base;
-	bar1 = base >> 32;
-	spinlock_lock (&bnx->reg_lock);
-	bnx->base = base;
-	pci_config_write (bnx->pci, &bar0, sizeof bar0,
-			  PCI_CONFIG_BASE_ADDRESS0);
-	pci_config_write (bnx->pci, &bar1, sizeof bar1,
-			  PCI_CONFIG_BASE_ADDRESS1);
-	spinlock_unlock (&bnx->reg_lock);
-}
-
-static void
 bnx_virtio_config_write (struct pci_device *pci_device, u8 iosize,
 			 u16 offset, union mem *buf, struct bnx *bnx)
 {
-	struct pci_bar_info bar_info;
-
 	virtio_net_handle_config_write (bnx->virtio_net, iosize, offset, buf);
-	/* Detect change of BAR4 and BAR5.  When 64bit address is
-	   assigned, the base address may be changed two times.  If
-	   so, the base address might point to RAM temporarily.  To
-	   avoid RAM corruption by this driver, apply the address when
-	   BAR5 is written. */
-	if (offset + iosize <= 0x20 || offset >= 0x28)
-		return;
-	if (!(offset == 0x20 || offset == 0x24) || iosize != 4)
-		panic ("%s: invalid offset 0x%X iosize %u",
-		       __func__, offset, iosize);
-	bar_info.type = PCI_BAR_INFO_TYPE_NONE;
-	pci_get_modifying_bar_info (pci_device, &bar_info, iosize,
-				    offset - 0x10, buf);
-	if (bar_info.type == PCI_BAR_INFO_TYPE_MEM && offset == 0x24 &&
-	    bnx->base != bar_info.base) {
-		printf ("bnx: base address changed from 0x%08llX to %08llX\n",
-			bnx->base, bar_info.base);
-		bnx_update_bar (bnx, bar_info.base);
-	}
-	if (offset == 0x20)
-		pci_device->config_space.base_address[0] =
-			(pci_device->config_space.base_address[0] &
-			 0xFFFF) | (buf->dword & 0xFFFF0000);
-	else
-		pci_device->config_space.base_address[1] = buf->dword;
 }
 
 static int

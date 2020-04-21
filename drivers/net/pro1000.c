@@ -220,14 +220,12 @@ struct data2 {
 	LIST1_DEFINE (struct data2);
 
 	void *virtio_net;
-	char virtio_net_bar_emul;
 	struct pci_msi *virtio_net_msi;
 	struct msix_table *msix_tbl;
 	struct pci_msi_callback *msicb;
 	unsigned int msi_intr;
 	bool msi_intr_pass;
 	spinlock_t msi_lock;
-	spinlock_t msix_lock;
 	int msix_qvec[2];
 };
 
@@ -1191,8 +1189,9 @@ skip:
 }
 
 static void
-pro1000_msix_update (struct data2 *d2)
+pro1000_msix_update (void *param)
 {
+	struct data2 *d2 = param;
 	int q0vec = d2->msix_qvec[0];
 	struct msix_table m = { 0, 0, 0, 1 };
 
@@ -1215,15 +1214,6 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 	struct data *d1 = data;
 	struct data2 *d2 = d1->d;
 
-	if (d2->virtio_net && d2->virtio_net_msi && d1 == &d2->d1[0]) {
-		spinlock_lock (&d2->msix_lock);
-		virtio_net_msix (d2->virtio_net, wr, len, gphys - d1->mapaddr,
-				 buf);
-		if (wr)
-			pro1000_msix_update (d2);
-		spinlock_unlock (&d2->msix_lock);
-		return 1;
-	}
 	if (d2->seize) {
 		if (!wr)
 			memset (buf, 0, len);
@@ -1278,41 +1268,29 @@ reghook (struct data *d, int i, struct pci_bar_info *bar)
 	d->e = 1;
 }
 
-/* If reghook() is used for changing BAR0, mmio_register() may return
- * NULL and cause panic while d->map is changed and the real BAR0 is
- * not changed.  This function avoids such condition. */
 static void
-change_bar0 (struct pci_device *pci_device, u8 iosize, u16 offset,
-	     union mem *data)
+pro1000_mmio_change (void *handle, struct pci_bar_info *bar_info)
 {
-	struct data *d = pci_device->host;
-	struct data2 *d2 = d->d;
-	struct pci_bar_info bar_info;
+	struct data2 *d2 = handle;
+	struct data *d = d2->d1;
 	void *old_map;
 	void *new_map;
 
-	ASSERT (offset == 0x10);
-	if (pci_get_modifying_bar_info (pci_device, &bar_info, iosize, offset,
-					data))
-		return;
 	old_map = d->map;
-	new_map = mapmem_as (as_passvm, bar_info.base, bar_info.len,
+	new_map = mapmem_as (as_passvm, bar_info->base, bar_info->len,
 			     MAPMEM_WRITE);
 	if (!new_map)
 		panic ("mapmem failed");
 
 	spinlock_lock (&d2->lock);
-	pci_handle_default_config_write (pci_device, iosize, offset, data);
+	pci_handle_default_config_write (d2->pci_device, sizeof (u32),
+					 PCI_CONFIG_BASE_ADDRESS0,
+					 (union mem *)&bar_info->base);
 	d->map = new_map;
 	spinlock_unlock (&d2->lock);
 
 	unmapmem (old_map, d->maplen);
-	mmio_unregister (d->h);
-	d->mapaddr = bar_info.base;
-	d->h = mmio_register (bar_info.base, bar_info.len, mmhandler,
-			      &d2->d1[0]);
-	if (!d->h)
-		panic ("mmio_register failed");
+	d->mapaddr = bar_info->base;
 }
 
 static bool
@@ -1527,11 +1505,9 @@ pro1000_msix_vector_change (void *param, unsigned int queue, int vector)
 {
 	struct data2 *d2 = param;
 
-	spinlock_lock (&d2->msix_lock);
 	if (queue < 2)
 		d2->msix_qvec[queue] = vector;
 	pro1000_msix_update (d2);
-	spinlock_unlock (&d2->msix_lock);
 }
 
 static void
@@ -1551,21 +1527,20 @@ pro1000_msix_generate (void *param, unsigned int queue)
 		spinlock_unlock (&d2->msi_lock);
 		return;
 	}
-	spinlock_lock (&d2->msix_lock);
 	if (queue < 2)
 		m = d2->msix_tbl[d2->msix_qvec[queue]];
 	if (!(m.mask & 1))
 		pci_msi_to_ipi (d2->pci_device->as_dma, m.addr, m.upper,
 				m.data);
-	spinlock_unlock (&d2->msix_lock);
 }
 
-/* Disable I/O space and unreghook I/O space hooks to avoid I/O space
- * hook collision with virtio-net. */
+/* Disable unused address space to avoid unexpected conflicts. Note that
+ * MMIO handling is done by virtio_net */
 static void
-pro1000_disable_io (struct pci_device *pci_device, struct data *d)
+pro1000_disable_unused_space (struct pci_device *pci_device, struct data *d)
 {
 	u32 command_orig, command;
+	u32 zero = 0;
 	int i;
 
 	pci_config_read (pci_device, &command_orig, sizeof command_orig,
@@ -1574,9 +1549,15 @@ pro1000_disable_io (struct pci_device *pci_device, struct data *d)
 	if (command != command_orig)
 		pci_config_write (pci_device, &command, sizeof command,
 				  PCI_CONFIG_COMMAND);
-	for (i = 0; i < 6; i++)
-		if (d[i].e && d[i].io)
+	for (i = 1; i < 6; i++) {
+		if (d[i].e) {
 			unreghook (&d[i]);
+			pci_config_write (pci_device, &zero, sizeof zero,
+					  PCI_CONFIG_BASE_ADDRESS0 + (i * 4));
+		}
+	}
+
+	mmio_unregister (d[0].h);
 }
 
 static void 
@@ -1636,6 +1617,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	d2->as_dma = pci_device->as_dma;
 	d2->virtio_net = NULL;
 	if (option_virtio) {
+		pro1000_disable_unused_space (pci_device, d);
 		d2->virtio_net = virtio_net_init (&virtio_net_func,
 						  d2->macaddr,
 						  d2->as_dma,
@@ -1645,8 +1627,9 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 						  pro1000_intr_enable, d2);
 	}
 	if (d2->virtio_net) {
-		virtio_net_set_pci_device (d2->virtio_net, pci_device);
-		pro1000_disable_io (pci_device, d);
+		pci_get_bar_info (pci_device, 0, &bar_info);
+		virtio_net_set_pci_device (d2->virtio_net, pci_device,
+					   &bar_info, pro1000_mmio_change, d2);
 		cap = pci_find_cap_offset (pci_device, PCI_CAP_AF);
 		if (cap)
 			virtio_net_add_cap (d2->virtio_net, cap,
@@ -1656,18 +1639,18 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 			d2->msi_intr = 0;
 			d2->msi_intr_pass = false;
 			spinlock_init (&d2->msi_lock);
-			spinlock_init (&d2->msix_lock);
 			d2->msix_qvec[0] = -1;
 			d2->msix_qvec[1] = -1;
 			d2->msicb = pci_register_msi_callback (pci_device,
 							       pro1000_msi,
 							       d2);
 			d2->msix_tbl = virtio_net_set_msix
-				(d2->virtio_net, 0x5,
+				(d2->virtio_net,
 				 pro1000_msix_disable,
 				 pro1000_msix_enable,
 				 pro1000_msix_vector_change,
-				 pro1000_msix_generate, d2);
+				 pro1000_msix_generate,
+				 pro1000_msix_update, d2);
 		}
 		pci_device->driver->options.use_base_address_mask_emulation =
 			0;
@@ -1770,14 +1753,6 @@ pro1000_config_read (struct pci_device *pci_device, u8 iosize,
 	if (d2->virtio_net) {
 		virtio_net_handle_config_read (d2->virtio_net, iosize, offset,
 					       data);
-		if (offset == 0x24) {
-			pci_handle_default_config_read (pci_device, iosize,
-							0x10, data);
-			if (d2->virtio_net_bar_emul)
-				data->dword = pci_device->
-					base_address_mask[0];
-			return CORE_IO_RET_DONE;
-		}
 		return CORE_IO_RET_DONE;
 	}
 	if (!d2->seize)
@@ -1799,15 +1774,6 @@ pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 	if (d2->virtio_net) {
 		virtio_net_handle_config_write (d2->virtio_net, iosize, offset,
 						data);
-		if (offset == 0x24) {
-			if ((data->dword & PCI_CONFIG_BASE_ADDRESS_MEMMASK) ==
-			    PCI_CONFIG_BASE_ADDRESS_MEMMASK) {
-				d2->virtio_net_bar_emul = 1;
-			} else {
-				d2->virtio_net_bar_emul = 0;
-				change_bar0 (pci_device, iosize, 0x10, data);
-			}
-		}
 		return CORE_IO_RET_DONE;
 	}
 	if (!d2->seize)
