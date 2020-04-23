@@ -474,7 +474,7 @@ re_core_handle_send (struct re_host *host,
 {
 	struct re_softc *sc = host->sc;
 
-	uint i, fs = 1, ls = 0, count_free;
+	uint i, count_free;
 
 	if (!host->ready)
 		return;
@@ -491,15 +491,17 @@ re_core_handle_send (struct re_host *host,
 	for (i = 0; i < n_packets; i++) {
 		/* XXX: how should we do with re_coalesce_tx_pkt stuff? */
 		/* XXX: vlan stuff */
-		ls = (i == n_packets - 1);
+		/*
+		 * fs_flag and ls_flag are always one for now because
+		 * each packet buffer contains all packet data.
+		 */
 		WritePacket (sc,
 			     packets[i],
 			     packet_sizes[i],
-			     fs,
-			     ls,
+			     1,
+			     1,
 			     0,
 			     0);
-		fs = 0;
 	}
 end:
 	spinlock_unlock (&host->tx_lock);
