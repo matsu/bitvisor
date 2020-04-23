@@ -466,6 +466,14 @@ re_core_handle_recv (struct re_host *host)
 	spinlock_unlock (&host->tx_lock);
 }
 
+static inline void
+re_core_send_flush (struct re_softc *sc)
+{
+	/* XXX: original implementation flushes two times */
+	CSR_WRITE_1(sc, RE_TPPOLL, RE_NPQ);
+	CSR_WRITE_1(sc, RE_TPPOLL, RE_NPQ);
+}
+
 void
 re_core_handle_send (struct re_host *host,
 		     uint n_packets,
@@ -475,6 +483,7 @@ re_core_handle_send (struct re_host *host,
 	struct re_softc *sc = host->sc;
 
 	uint i, count_free;
+	bool flush;
 
 	if (!host->ready)
 		return;
@@ -488,6 +497,7 @@ re_core_handle_send (struct re_host *host,
 	if (n_packets > count_free)
 		n_packets = count_free;
 
+	flush = false;
 	for (i = 0; i < n_packets; i++) {
 		/* XXX: how should we do with re_coalesce_tx_pkt stuff? */
 		/* XXX: vlan stuff */
@@ -502,7 +512,15 @@ re_core_handle_send (struct re_host *host,
 			     1,
 			     0,
 			     0);
+		flush = true;
+		if (i % 16 == 0) {
+			re_core_send_flush (sc);
+			flush = false;
+		}
 	}
+
+	if (flush)
+		re_core_send_flush (sc);
 end:
 	spinlock_unlock (&host->tx_lock);
 }

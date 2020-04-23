@@ -7169,13 +7169,12 @@ static void WritePacket(struct re_softc	*sc, caddr_t addr, int len,int fs_flag,i
         bus_dmamap_sync(sc->re_desc.tx_desc_tag,
                         sc->re_desc.tx_desc_dmamap,
                         BUS_DMASYNC_PREREAD|BUS_DMASYNC_PREWRITE);
-#endif
 
         if (ls_flag) {
                 CSR_WRITE_1(sc, RE_TPPOLL, RE_NPQ);
                 CSR_WRITE_1(sc, RE_TPPOLL, RE_NPQ);
         }
-
+#endif
         sc->re_desc.tx_cur_index = (sc->re_desc.tx_cur_index+1)%RE_TX_BUF_NUM;
 }
 
