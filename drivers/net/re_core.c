@@ -97,18 +97,18 @@
 		    (((u16)(val) & 0xFF00) >> 8))
 
 #define CSR_WRITE_4(sc, reg, val) \
-	write_io_reg ((sc), (reg), (val), 4)
+	write_reg ((sc), (reg), (val), 4)
 #define CSR_WRITE_2(sc, reg, val) \
-	write_io_reg ((sc), (reg), (val), 2)
+	write_reg ((sc), (reg), (val), 2)
 #define CSR_WRITE_1(sc, reg, val) \
-	write_io_reg ((sc), (reg), (val), 1)
+	write_reg ((sc), (reg), (val), 1)
 
 #define CSR_READ_4(sc, reg) \
-	((u32)read_io_reg ((sc), (reg), 4))
+	((u32)read_reg ((sc), (reg), 4))
 #define CSR_READ_2(sc, reg) \
-	((u16)read_io_reg ((sc), (reg), 2))
+	((u16)read_reg ((sc), (reg), 2))
 #define CSR_READ_1(sc, reg) \
-	((u8)read_io_reg ((sc), (reg), 1))
+	((u8)read_reg ((sc), (reg), 1))
 
 /* cmac write/read MMIO register */
 #define RE_CMAC_WRITE_4(sc, reg, val) \
@@ -126,9 +126,9 @@
 	((u8)cmac_read ((sc), (reg), 1))
 
 void usleep (u32);
-static uint read_io_reg (struct re_softc *sc, uint reg_offset, uint nbytes);
-static void write_io_reg (struct re_softc *sc, uint reg_offset, uint val,
-			  uint nbytes);
+static uint read_reg (struct re_softc *sc, uint reg_offset, uint nbytes);
+static void write_reg (struct re_softc *sc, uint reg_offset, uint val,
+		       uint nbytes);
 static uint cmac_read (struct re_softc *sc, uint reg_offset, uint nbytes);
 static void cmac_write (struct re_softc *sc,uint reg_offset, uint val,
 			uint nbytes);
@@ -139,49 +139,25 @@ static u32 pci_find_cap (device_t dev, u32 cap, int *cap_reg);
 #include "re_mod_impl.h"
 
 static uint
-read_io_reg (struct re_softc *sc, uint reg_offset, uint nbytes)
+read_reg (struct re_softc *sc, uint reg_offset, uint nbytes)
 {
 	uint val = 0;
 
 	if (sc->prohibit_access_reg)
 		return 0xFFFFFFFF;
 
-	switch (nbytes) {
-	case 4:
-		in32 (sc->io_port_base + reg_offset, &val);
-		break;
-	case 2:
-		in16 (sc->io_port_base + reg_offset, (u16 *)&val);
-		break;
-	case 1:
-		in8 (sc->io_port_base + reg_offset, (u8 *)&val);
-		break;
-	default:
-		panic ("re: invalid io size");
-	}
+	memcpy (&val, sc->mmio + reg_offset, nbytes);
 
 	return val;
 }
 
 static void
-write_io_reg (struct re_softc *sc, uint reg_offset, uint val, uint nbytes)
+write_reg (struct re_softc *sc, uint reg_offset, uint val, uint nbytes)
 {
 	if (sc->prohibit_access_reg)
 		return;
 
-	switch (nbytes) {
-	case 4:
-		out32 (sc->io_port_base + reg_offset, val);
-		break;
-	case 2:
-		out16 (sc->io_port_base + reg_offset, val);
-		break;
-	case 1:
-		out8 (sc->io_port_base + reg_offset, val);
-		break;
-	default:
-		panic ("re: invalid io size");
-	}
+	memcpy (sc->mmio + reg_offset, &val, nbytes);
 }
 
 static uint
@@ -195,7 +171,7 @@ cmac_read (struct re_softc *sc, uint reg_offset, uint nbytes)
 	if (sc->cmac_regs)
 		memcpy (&val, sc->cmac_regs + reg_offset, nbytes);
 	else
-		val = read_io_reg (sc, reg_offset, nbytes);
+		val = read_reg (sc, reg_offset, nbytes);
 
 	return val;
 }
@@ -209,7 +185,7 @@ cmac_write (struct re_softc *sc, uint reg_offset, uint val, uint nbytes)
 	if (sc->cmac_regs)
 		memcpy (sc->cmac_regs + reg_offset, &val, nbytes);
 	else
-		write_io_reg (sc, reg_offset, val, nbytes);
+		write_reg (sc, reg_offset, val, nbytes);
 
 }
 
@@ -236,15 +212,148 @@ pci_find_cap (device_t dev, u32 cap, int *cap_reg)
 	return !!(*cap_reg);
 }
 
+static void
+re_core_mapmem (struct re_host *host, struct pci_bar_info *bar_info)
+{
+	struct re_softc *sc = host->sc;
+
+	ASSERT (bar_info->type == PCI_BAR_INFO_TYPE_MEM);
+
+	sc->mmio_base = bar_info->base;
+	sc->mmio_len = bar_info->len;
+	sc->mmio = mapmem_hphys (bar_info->base,
+				 bar_info->len,
+				 MAPMEM_WRITE | MAPMEM_PCD | MAPMEM_PWT);
+}
+
+static void
+re_core_unmapmem (struct re_host *host)
+{
+	struct re_softc *sc = host->sc;
+
+	unmapmem (sc->mmio, sc->mmio_len);
+	sc->mmio_base = 0x0;
+	sc->mmio_len = 0;
+	sc->mmio = NULL;
+}
+
+void
+re_core_handle_bar_read (struct re_host *host,
+			 u8 iosize,
+			 u16 offset,
+			 union mem *data)
+{
+	struct re_softc *sc = host->sc;
+	int copy_from, copy_to, copy_len;
+
+	if (offset + iosize <= PCI_CONFIG_BASE_ADDRESS4 ||
+	    offset >= PCI_CONFIG_BASE_ADDRESS5 + 4)
+		return;
+
+	/* Expose MMIO to BAR4/5 to avoid possible MMIO space conflict */
+
+	copy_from = PCI_CONFIG_BASE_ADDRESS0 + (sc->re_res_id * 4);
+	copy_to = PCI_CONFIG_BASE_ADDRESS4 - offset;
+
+	copy_len = iosize;
+
+	if (copy_to >= 0) {
+		copy_len -= copy_to;
+	} else {
+		copy_from -= copy_to;
+		copy_to = 0;
+	}
+
+	if (offset + copy_len >= PCI_CONFIG_BASE_ADDRESS5 + 4)
+		copy_len = (PCI_CONFIG_BASE_ADDRESS5 + 4) - offset;
+
+	if (copy_len > 0)
+		memcpy (&data->byte + copy_to,
+			host->dev->config_space.regs8 + copy_from,
+			copy_len);
+}
+
+void
+re_core_handle_bar_write (struct re_host *host,
+			  u8 iosize,
+			  u16 offset,
+			  union mem *data)
+{
+	struct re_softc *sc = host->sc;
+	struct pci_bar_info bar_info;
+	int i;
+	u32 bar_lo, bar_hi, base, dst, mask;
+	bool final_write, orig_ready;
+
+	if (offset + iosize <= PCI_CONFIG_BASE_ADDRESS4 ||
+	    offset >= PCI_CONFIG_BASE_ADDRESS5 + 4)
+		return;
+	if ((offset != PCI_CONFIG_BASE_ADDRESS4 &&
+	     offset != PCI_CONFIG_BASE_ADDRESS5) ||
+	     iosize != 4) {
+		printf ("re: deny config write at 0x%X iosize %u\n",
+			offset,
+			iosize);
+		return;
+	}
+
+	/* Handle MMIO base address change */
+
+	final_write = sc->re_res_type != PCI_CONFIG_BASE_ADDRESS_TYPE64 ||
+		      offset == PCI_CONFIG_BASE_ADDRESS5;
+	base = 0x10 - (sc->re_res_id * 4); /* 0x8 for BAR2, 0xC for BAR1) */
+	ASSERT (base == 0x8 || base == 0xC);
+	i = pci_get_modifying_bar_info (host->dev,
+					&bar_info,
+					iosize,
+					offset - base,
+					data);
+
+	if (i == sc->re_res_id &&
+	    final_write &&
+	    sc->mmio_base != bar_info.base) {
+		orig_ready = host->ready;
+		printf ("re: mmio base change to 0x%llX\n", bar_info.base);
+		bar_lo = bar_info.base & 0xFFFFFFFF;
+		bar_hi = bar_info.base >> 32;
+		host->ready = 0;
+		re_core_unmapmem (host);
+		dst = PCI_CONFIG_BASE_ADDRESS0 + (sc->re_res_id * 4);
+		pci_config_write (host->dev,
+				  &bar_lo,
+				  sizeof bar_lo,
+				  dst);
+		if (sc->re_res_type == PCI_CONFIG_BASE_ADDRESS_TYPE64)
+			pci_config_write (host->dev,
+					  &bar_hi,
+					  sizeof bar_hi,
+					  dst + 4);
+		re_core_mapmem (host, &bar_info);
+		host->ready = orig_ready;
+	}
+
+	if (offset == PCI_CONFIG_BASE_ADDRESS4) {
+		mask = sc->mmio_len - 1;
+		host->dev->config_space.base_address[sc->re_res_id] =
+			(host->dev->config_space.base_address[sc->re_res_id] &
+			 mask) | (data->dword & ~mask);
+	} else {
+		host->dev->config_space.base_address[sc->re_res_id + 1] =
+			data->dword;
+	}
+}
+
 void
 re_core_init (struct re_host *host)
 {
 	struct pci_device *dev = host->dev;
 
+	struct pci_bar_info bar_info;
 	u8 eaddr[ETHER_ADDR_LEN];
 	struct re_softc *sc;
 	int error = 0;
 	int cap_offset;
+	u32 zero, upper_bar;
 
 	sc = alloc (sizeof (*sc));
 	memset (sc, 0, sizeof (*sc));
@@ -257,12 +366,33 @@ re_core_init (struct re_host *host)
 	sc->re_device_id = dev->config_space.device_id;
 	sc->re_revid = dev->config_space.revision_id;
 
-	pci_get_bar_info (sc->dev, 0, &sc->reg_bar_io);
+	/* Clear unused BAR to avoid address conflict */
+	zero = 0;
+	pci_config_write (dev, &zero, sizeof zero, PCI_CONFIG_BASE_ADDRESS0);
 
-	ASSERT (sc->reg_bar_io.base);
-	ASSERT (sc->reg_bar_io.type == PCI_BAR_INFO_TYPE_IO);
+	/* PCI Express NIC uses BAR2 for MMIO */
+	if (sc->re_device_id == RT_DEVICEID_8168 ||
+	    sc->re_device_id == RT_DEVICEID_8161 ||
+	    sc->re_device_id == RT_DEVICEID_8136) {
+		sc->re_res_id = 2;
+		pci_config_write (dev, &zero, sizeof zero,
+				  PCI_CONFIG_BASE_ADDRESS1);
+	} else {
+		sc->re_res_id = 1;
+		pci_config_write (dev, &zero, sizeof zero,
+				  PCI_CONFIG_BASE_ADDRESS3);
+	}
+	upper_bar = sc->re_res_id + 1;
+	sc->re_res_type = dev->base_address_mask[sc->re_res_id] &
+			  PCI_CONFIG_BASE_ADDRESS_TYPEMASK;
+	pci_get_bar_info (dev, sc->re_res_id, &bar_info);
+	if (sc->re_res_type != PCI_CONFIG_BASE_ADDRESS_TYPE64)
+		pci_config_write (dev, &zero, sizeof zero,
+				  PCI_CONFIG_BASE_ADDRESS0 + (upper_bar * 4));
+	pci_config_write (dev, &zero, sizeof zero, PCI_CONFIG_BASE_ADDRESS4);
+	pci_config_write (dev, &zero, sizeof zero, PCI_CONFIG_BASE_ADDRESS5);
 
-	sc->io_port_base = sc->reg_bar_io.base;
+	re_core_mapmem (host, &bar_info);
 
 	error = re_check_mac_version (sc);
 
@@ -389,12 +519,20 @@ re_core_suspend (struct re_host *host)
 
 	re_hw_d3_para (sc);
 
+	re_core_unmapmem (host);
+
         sc->prohibit_access_reg = 1;
 }
 
 void
 re_core_resume (struct re_host *host)
 {
+	struct re_softc *sc = host->sc;
+	struct pci_bar_info bar_info;
+
+	pci_get_bar_info (sc->dev, sc->re_res_id, &bar_info);
+	re_core_mapmem (host, &bar_info);
+
 	re_core_start (host);
 }
 

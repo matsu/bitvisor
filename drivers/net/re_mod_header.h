@@ -880,8 +880,9 @@ struct re_softc {
 #endif
         struct re_host		*host;
 
-        struct pci_bar_info	reg_bar_io;
-        ioport_t		io_port_base;
+        u_int64_t		mmio_base;
+        u_int64_t		mmio_len;
+        u_int8_t		*mmio;
 
         u_int64_t		cmac_base;
         u_int8_t		*cmac_regs;

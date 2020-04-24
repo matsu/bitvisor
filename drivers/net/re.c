@@ -96,8 +96,7 @@ enable_device (struct pci_device *dev)
 
 	command = command_orig |
 		  PCI_CONFIG_COMMAND_BUSMASTER |
-		  PCI_CONFIG_COMMAND_MEMENABLE |
-		  PCI_CONFIG_COMMAND_IOENABLE;
+		  PCI_CONFIG_COMMAND_MEMENABLE;
 
 	if (command != command_orig)
 		pci_config_write (dev, &command, sizeof (u32), 4);
@@ -110,6 +109,7 @@ re_new (struct pci_device *dev)
 	char *option_net;
 	int option_tty = 0;
 	int option_virtio = 0;
+	u32 command_orig, command;
 	struct nicfunc *virtio_net_func = NULL;
 
 	pci_system_disconnect (dev);
@@ -130,6 +130,18 @@ re_new (struct pci_device *dev)
 	host->dev = dev;
 
 	enable_device (dev);
+
+	/* Disable IO space */
+	pci_config_read (dev,
+			 &command_orig,
+			 sizeof command_orig,
+			 PCI_CONFIG_COMMAND);
+	command = command_orig & ~PCI_CONFIG_COMMAND_IOENABLE;
+	if (command != command_orig)
+		pci_config_write (dev,
+				  &command,
+				  sizeof command,
+				  PCI_CONFIG_COMMAND);
 
 	re_core_init (host);
 
@@ -190,6 +202,7 @@ re_config_read (struct pci_device *dev,
 					iosize,
 					offset,
 					data);
+		re_core_handle_bar_read (host, iosize, offset, data);
 	} else {
 		memset (data, 0, iosize);
 	}
@@ -205,11 +218,13 @@ re_config_write (struct pci_device *dev,
 {
 	struct re_host *host = dev->host;
 
-	if (host->virtio_net)
+	if (host->virtio_net) {
 		virtio_net_config_write (host->virtio_net,
 					 iosize,
 					 offset,
 					 data);
+		re_core_handle_bar_write (host, iosize, offset, data);
+	}
 
 	return CORE_IO_RET_DONE;
 }

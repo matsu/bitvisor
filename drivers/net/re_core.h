@@ -204,6 +204,15 @@ struct re_host {
 	u8 intr_enabled;
 };
 
+void re_core_handle_bar_read (struct re_host *host,
+			      u8 iosize,
+			      u16 offset,
+			      union mem *data);
+void re_core_handle_bar_write (struct re_host *host,
+			       u8 iosize,
+			       u16 offset,
+			       union mem *data);
+
 /* For initialize re_host object */
 void re_core_init (struct re_host *host);
 
