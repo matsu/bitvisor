@@ -48,9 +48,6 @@
 #include "string.h"
 #include "uefi.h"
 
-#define MAPMEM_HPHYS			0x1
-#define MAPMEM_GPHYS			0x2
-
 #define VMMSIZE_ALL		(128 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
@@ -158,6 +155,7 @@ static phys_t process_virt_to_phys_pdp_phys;
 static u64 *process_virt_to_phys_pdp;
 static u64 hphys_len;
 static int panicmem_start_page;
+static u64 phys_blank;
 
 #define E801_16MB 0x1000000
 #define E801_AX_MAX 0x3C00
@@ -171,6 +169,18 @@ struct memsizetmp {
 
 static void process_create_initial_map (void *virt, phys_t phys);
 static void process_virt_to_phys_prepare (void);
+
+static u64 as_translate_hphys (void *data, unsigned int *npages, u64 address);
+static struct mm_as _as_hphys = {
+	.translate = as_translate_hphys,
+};
+const struct mm_as *const as_hphys = &_as_hphys;
+
+static u64 as_translate_passvm (void *data, unsigned int *npages, u64 address);
+static struct mm_as _as_passvm = {
+	.translate = as_translate_passvm,
+};
+const struct mm_as *const as_passvm = &_as_passvm;
 
 u32
 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
@@ -810,6 +820,7 @@ static void
 mm_init_global (void)
 {
 	int i;
+	void *tmp;
 
 	spinlock_init (&mm_lock);
 	spinlock_init (&mm_lock2);
@@ -856,6 +867,8 @@ mm_init_global (void)
 			continue;
 		mm_page_free (&pagestruct[i]);
 	}
+	alloc_page (&tmp, &phys_blank);
+	memset (tmp, 0, PAGESIZE);
 	mapmem_lastvirt = MAPMEM_ADDR_START;
 	map_hphys ();
 	unmap_user_area ();	/* for detecting null pointer */
@@ -2180,6 +2193,42 @@ cmpxchg_hphys_q (u64 phys, u64 *olddata, u64 data, u32 attr)
 }
 
 /**********************************************************************/
+/*** Address space ***/
+
+static u64
+as_translate_hphys (void *data, unsigned int *npages, u64 address)
+{
+	return address | PTE_P_BIT | PTE_RW_BIT | PTE_US_BIT;
+}
+
+static u64
+as_translate_passvm (void *data, unsigned int *npages, u64 address)
+{
+	u64 ret;
+	unsigned int max_npages;
+
+	if (phys_in_vmm (address))
+		ret = phys_blank | PTE_P_BIT | PTE_US_BIT;
+	else
+		ret = mm_as_translate (as_hphys, npages, address);
+	max_npages = (PAGESIZE2M - (address & PAGESIZE2M_MASK)) / PAGESIZE;
+	if (*npages > max_npages)
+		*npages = max_npages;
+	return ret;
+}
+
+u64
+mm_as_translate (const struct mm_as *as, unsigned int *npages, u64 address)
+{
+	unsigned int npage1 = 1;
+
+	if (!npages)
+		npages = &npage1;
+	address &= ~PAGESIZE_MASK;
+	return as->translate (as->data, npages, address);
+}
+
+/**********************************************************************/
 /*** accessing memory ***/
 
 static void *
@@ -2207,28 +2256,27 @@ mapped_hphys_addr (u64 hphys, uint len, int flags)
 }
 
 static void *
-mapped_gphys_addr (u64 gphys, uint len, int flags)
+mapped_as_addr (const struct mm_as *as, u64 phys, uint len, int flags)
 {
-	u64 p1, p2;
-	u64 hphys, hphys1;
-	bool fakerom = false, *f;
+	const u64 ptemask = ~PAGESIZE_MASK | PTE_P_BIT | PTE_RW_BIT;
+	u64 hphys, pte, pteor, ptenext;
+	unsigned int npages, n;
 
-	if (flags & MAPMEM_WRITE)
-		f = &fakerom;
-	else
-		f = NULL;
-	hphys = current->gmm.gp2hp (gphys, f);
-	if (fakerom)
+	npages = ((phys & PAGESIZE_MASK) + len + PAGESIZE - 1) >>
+		PAGESIZE_SHIFT;
+	n = npages;
+	pteor = flags & MAPMEM_WRITE ? 0 : PTE_RW_BIT;
+	pte = (mm_as_translate (as, &n, phys) | pteor) & ptemask;
+	if (!(pte & PTE_P_BIT) || !(pte & PTE_RW_BIT))
 		return NULL;
-	hphys1 = hphys & ~PAGESIZE_MASK;
-	p1 = gphys & ~PAGESIZE_MASK;
-	p2 = (gphys + len - 1) & ~PAGESIZE_MASK;
-	while (p1 != p2) {
-		p1 += PAGESIZE;
-		hphys1 += PAGESIZE;
-		if (hphys1 != current->gmm.gp2hp (p1, f))
-			return NULL;
-		if (fakerom)
+	hphys = (pte & ~PAGESIZE_MASK) | (phys & PAGESIZE_MASK);
+	while (npages > n) {
+		phys += n << PAGESIZE_SHIFT;
+		ptenext = pte + (n << PAGESIZE_SHIFT);
+		npages -= n;
+		n = npages;
+		pte = (mm_as_translate (as, &n, phys) | pteor) & ptemask;
+		if (pte != ptenext)
 			return NULL;
 	}
 	return mapped_hphys_addr (hphys, len, flags);
@@ -2275,11 +2323,11 @@ retry:
 }
 
 static bool
-mapmem_domap (pmap_t *m, void *virt, int flags, u64 physaddr, uint len)
+mapmem_domap (pmap_t *m, void *virt, const struct mm_as *as, int flags,
+	      u64 physaddr, uint len)
 {
 	virt_t v;
 	u64 p, pte;
-	bool fakerom;
 	uint n, i, offset;
 
 	offset = physaddr & PAGESIZE_MASK;
@@ -2288,17 +2336,12 @@ mapmem_domap (pmap_t *m, void *virt, int flags, u64 physaddr, uint len)
 	p = physaddr & ~PAGESIZE_MASK;
 	for (i = 0; i < n; i++) {
 		pmap_seek (m, v + (i << PAGESIZE_SHIFT), 1);
-		if (flags & MAPMEM_HPHYS) {
-			pte = (p + (i << PAGESIZE_SHIFT)) | PTE_P_BIT;
-		} else if (flags & MAPMEM_GPHYS) {
-			pte = current->gmm.gp2hp (p + (i << PAGESIZE_SHIFT),
-						  &fakerom);
-			if (fakerom && (flags & MAPMEM_WRITE))
-				return true;
-			pte = (pte & ~PAGESIZE_MASK) | PTE_P_BIT;
-		} else {
+		pte = mm_as_translate (as, NULL, p + (i << PAGESIZE_SHIFT));
+		if (!(pte & PTE_P_BIT))
 			return true;
-		}
+		if (!(pte & PTE_RW_BIT) && (flags & MAPMEM_WRITE))
+			return true;
+		pte = (pte & ~PAGESIZE_MASK) | PTE_P_BIT;
 		if (flags & MAPMEM_WRITE)
 			pte |= PTE_RW_BIT;
 		if (flags & MAPMEM_PWT)
@@ -2343,31 +2386,21 @@ unmapmem (void *virt, uint len)
 }
 
 static void *
-mapmem_internal (int flags, u64 physaddr, uint len)
+mapmem_internal (const struct mm_as *as, int flags, u64 physaddr, uint len)
 {
 	void *r;
 	pmap_t m;
 	ulong hostcr3;
 
-	if (flags & MAPMEM_HPHYS) {
-		r = mapped_hphys_addr (physaddr, len, flags);
-		if (!r)
-			goto skip;
+	r = mapped_as_addr (as, physaddr, len, flags);
+	if (r)
 		return r;
-	} else if (flags & MAPMEM_GPHYS) {
-		r = mapped_gphys_addr (physaddr, len, flags);
-		if (!r)
-			goto skip;
-		return r;
-	}
-	return NULL;
-skip:
 	asm_rdcr3 (&hostcr3);
 	pmap_open_vmm (&m, hostcr3, PMAP_LEVELS);
 	r = mapmem_alloc (&m, physaddr & PAGESIZE_MASK, len);
 	if (!r)
 		goto ret;
-	if (!mapmem_domap (&m, r, flags, physaddr, len))
+	if (!mapmem_domap (&m, r, as, flags, physaddr, len))
 		goto ret;
 	unmapmem (r, len);
 	r = NULL;
@@ -2379,13 +2412,13 @@ ret:
 void *
 mapmem_hphys (u64 physaddr, uint len, int flags)
 {
-	return mapmem_internal (MAPMEM_HPHYS | flags, physaddr, len);
+	return mapmem_internal (as_hphys, flags, physaddr, len);
 }
 
 void *
 mapmem_gphys (u64 physaddr, uint len, int flags)
 {
-	return mapmem_internal (MAPMEM_GPHYS | flags, physaddr, len);
+	return mapmem_internal (as_passvm, flags, physaddr, len);
 }
 
 /* Flush all write back caches including other processors */

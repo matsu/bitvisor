@@ -45,8 +45,6 @@
 #include "string.h"
 #include "uefi.h"
 
-static u64 phys_blank;
-
 u64 gmm_pass_gp2hp_2m (u64 gp);
 u32 gmm_pass_getforcemap (u32 n, u64 *base, u64 *len);
 
@@ -65,29 +63,32 @@ static struct gmm_func func = {
 u64
 gmm_pass_gp2hp (u64 gp, bool *fakerom)
 {
+	u64 e = mm_as_translate (as_passvm, NULL, gp);
 	bool f;
-	u64 r;
 
-	if (phys_in_vmm (gp)) {
-		r = phys_blank;
-		f = true;
-	} else {
-		r = gp;
-		f = false;
-	}
+	ASSERT (e & PTE_P_BIT);
+	f = !(e & PTE_RW_BIT);
 	if (fakerom)
 		*fakerom = f;
-	return r;
+	return (e & ~PAGESIZE_MASK) | (gp & PAGESIZE_MASK);
 }
 
 u64
 gmm_pass_gp2hp_2m (u64 gp)
 {
+	u64 e;
+	unsigned int n = PAGESIZE2M / PAGESIZE;
+
 	if (gp & PAGESIZE2M_MASK)
 		return GMM_GP2HP_2M_FAIL;
-	if (phys_in_vmm (gp))	/* VMM is 4MiB aligned */
+	e = mm_as_translate (as_passvm, &n, gp);
+	ASSERT (e & PTE_P_BIT);
+	if (!(e & PTE_RW_BIT))
 		return GMM_GP2HP_2M_FAIL;
-	return gp;
+	e &= ~PAGESIZE_MASK;
+	ASSERT (!(e & PAGESIZE2M_MASK));
+	ASSERT (n == PAGESIZE2M / PAGESIZE);
+	return e;
 }
 
 u32
@@ -202,10 +203,6 @@ get_pte_addr_mask (void)
 static void
 gmm_pass_init (void)
 {
-	void *tmp;
-
-	alloc_page (&tmp, &phys_blank);
-	memset (tmp, 0, PAGESIZE);
 	memcpy ((void *)&current->gmm, (void *)&func, sizeof func);
 	current->pte_addr_mask = get_pte_addr_mask ();
 }

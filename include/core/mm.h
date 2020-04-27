@@ -39,6 +39,14 @@
 
 struct mempool;
 
+struct mm_as {
+	u64 (*translate) (void *data, unsigned int *npages, u64 address);
+	void *data;
+};
+
+extern const struct mm_as *const as_hphys;
+extern const struct mm_as *const as_passvm;
+
 int alloc_pages (void **virt, u64 *phys, int n);
 int alloc_page (void **virt, u64 *phys);
 void free_page (void *virt);
@@ -52,6 +60,10 @@ struct mempool *mempool_new (int blocksize, int numkeeps, bool clear);
 void mempool_free (struct mempool *mp);
 void *mempool_allocmem (struct mempool *mp, uint len);
 void mempool_freemem (struct mempool *mp, void *virt);
+
+/* Address space */
+u64 mm_as_translate (const struct mm_as *handle, unsigned int *npages,
+		     u64 address);
 
 /* accessing memory */
 void unmapmem (void *virt, uint len);
