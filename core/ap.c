@@ -251,8 +251,8 @@ ap_start_addr (u8 addr, bool (*loopcond) (void *data), void *data)
 
 	if (!apic_available ())
 		return;
-	apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
-			   MAPMEM_PCD, apic_icr_phys, sizeof *apic_icr);
+	apic_icr = mapmem_hphys (apic_icr_phys, sizeof *apic_icr,
+				 MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
 	ASSERT (apic_icr);
 	apic_send_init (apic_icr);
 	usleep (10000);
@@ -292,8 +292,7 @@ ap_start (void)
 	p[2] = APINIT_OFFSET >> 8;
 	p[3] = apinit_segment & 0xFF;
 	p[4] = apinit_segment >> 8;
-	apinit = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE, apinit_addr,
-			 APINIT_SIZE);
+	apinit = mapmem_hphys (apinit_addr, APINIT_SIZE, MAPMEM_WRITE);
 	ASSERT (apinit);
 	memcpy (apinit, cpuinit_start, APINIT_SIZE);
 	num = (volatile u32 *)APINIT_POINTER (apinit_procs);
@@ -345,8 +344,8 @@ panic_wakeup_all (void)
 	tmp |= apic_base;
 	asm_wrmsr64 (MSR_IA32_APIC_BASE_MSR, tmp);
 
-	apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
-			   MAPMEM_PCD, apic_icr_phys, sizeof *apic_icr);
+	apic_icr = mapmem_hphys (apic_icr_phys, sizeof *apic_icr,
+				 MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
 	if (!apic_icr)
 		return;
 	apic_send_nmi (apic_icr);
@@ -370,8 +369,8 @@ disable_apic (void)
 	tmp |= apic_base;
 	asm_wrmsr64 (MSR_IA32_APIC_BASE_MSR, tmp);
 
-	apic_svr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
-			   MAPMEM_PCD, apic_svr_phys, sizeof *apic_svr);
+	apic_svr = mapmem_hphys (apic_svr_phys, sizeof *apic_svr,
+				 MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
 	if (!apic_svr)
 		return;
 	write_svr (apic_svr, read_svr (apic_svr) & ~SVR_APIC_ENABLED);
@@ -422,8 +421,8 @@ self_ipi (int intnum)
 		asm_wrmsr32 (MSR_IA32_X2APIC_SELF_IPI, intnum, 0);
 		return;
 	}
-	_apic_icr = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
-			    MAPMEM_PCD, apic_icr_phys, sizeof *_apic_icr);
+	_apic_icr = mapmem_hphys (apic_icr_phys, sizeof *_apic_icr,
+				  MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
 	apic_icr = _apic_icr;
 	while ((*apic_icr & ICR_STATUS_BIT) != ICR_STATUS_IDLE);
 	*apic_icr = ICR_DEST_SELF | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
@@ -444,8 +443,8 @@ eoi (void)
 		asm_wrmsr32 (MSR_IA32_X2APIC_EOI, 0, 0);
 		return;
 	}
-	_apic_eoi = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE | MAPMEM_PWT |
-			    MAPMEM_PCD, apic_eoi_phys, sizeof *_apic_eoi);
+	_apic_eoi = mapmem_hphys (apic_eoi_phys, sizeof *_apic_eoi,
+				  MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
 	apic_eoi = _apic_eoi;
 	*apic_eoi = 0;
 	unmapmem (_apic_eoi, sizeof *_apic_eoi);

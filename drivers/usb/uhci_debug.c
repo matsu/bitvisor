@@ -209,9 +209,10 @@ dump_frame(int level, struct uhci_host *host, int frid,
 		return 0;
 	}
 
-	cur_frame = (phys32_t *)
-		mapmem((flag & MAP_HPHYS) ? MAPMEM_HPHYS : MAPMEM_GPHYS,
-		       framelist_phys, PAGESIZE);
+	if (flag & MAP_HPHYS)
+		cur_frame = mapmem_hphys (framelist_phys, PAGESIZE, 0);
+	else
+		cur_frame = mapmem_gphys (framelist_phys, PAGESIZE, 0);
 	padr = *(cur_frame + frid);
 	unmapmem(cur_frame, PAGESIZE);
 	

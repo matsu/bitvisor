@@ -32,8 +32,6 @@
 
 #include <core/types.h>
 
-#define MAPMEM_HPHYS			0x1
-#define MAPMEM_GPHYS			0x2
 #define MAPMEM_WRITE			0x4
 #define MAPMEM_PWT			0x8
 #define MAPMEM_PCD			0x10
@@ -57,7 +55,6 @@ void mempool_freemem (struct mempool *mp, void *virt);
 
 /* accessing memory */
 void unmapmem (void *virt, uint len);
-void *mapmem (int flags, u64 physaddr, uint len);
 void *mapmem_hphys (u64 physaddr, uint len, int flags);
 void *mapmem_gphys (u64 physaddr, uint len, int flags);
 

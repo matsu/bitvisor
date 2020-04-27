@@ -40,7 +40,7 @@ core_rw_phys (phys_t phys, int rw, void *buf, int len)
 {
 	void *p;
 
-	p = mapmem (MAPMEM_GPHYS | (rw ? MAPMEM_WRITE : 0), phys, len);
+	p = mapmem_gphys (phys, len, rw ? MAPMEM_WRITE : 0);
 	if (!p)
 		panic ("core_rw_phys: mapmem(0x%llX, %d, %p, %d) failed.",
 		       phys, rw, buf, len);

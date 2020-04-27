@@ -230,7 +230,7 @@ acpi_mapmem (u64 addr, int len)
 	if (oldlen)
 		unmapmem (oldmap, oldlen);
 	oldlen = len;
-	oldmap = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE, addr, len);
+	oldmap = mapmem_hphys (addr, len, MAPMEM_WRITE);
 	ASSERT (oldmap);
 	return oldmap;
 }

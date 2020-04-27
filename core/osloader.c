@@ -43,7 +43,7 @@ os_load_bin (u32 destvirt, uint destlen, void *src, uint srclen)
 {
 	void *p;
 
-	p = mapmem (MAPMEM_HPHYS, destvirt, destlen);
+	p = mapmem_hphys (destvirt, destlen, MAPMEM_WRITE);
 	ASSERT (p);
 	memset (p, 0, destlen);
 	memcpy (p, src, srclen);
@@ -82,7 +82,7 @@ osmap (u32 start, u32 size)
 {
 	void *r;
 
-	r = mapmem (MAPMEM_HPHYS, start, size);
+	r = mapmem_hphys (start, size, 0);
 	return r;
 }
 

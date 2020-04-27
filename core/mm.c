@@ -48,6 +48,9 @@
 #include "string.h"
 #include "uefi.h"
 
+#define MAPMEM_HPHYS			0x1
+#define MAPMEM_GPHYS			0x2
+
 #define VMMSIZE_ALL		(128 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
@@ -2062,11 +2065,11 @@ hphys_mapmem (u64 phys, u32 attr, uint len, bool wr)
 {
 	void *p;
 
-	p = mapmem  (MAPMEM_HPHYS |
-		     (wr ? MAPMEM_WRITE : 0) |
-		     ((attr & PTE_PWT_BIT) ? MAPMEM_PWT : 0) |
-		     ((attr & PTE_PCD_BIT) ? MAPMEM_PCD : 0) |
-		     ((attr & PTE_PAT_BIT) ? MAPMEM_PAT : 0), phys, len);
+	p = mapmem_hphys (phys, len,
+			  (wr ? MAPMEM_WRITE : 0) |
+			  ((attr & PTE_PWT_BIT) ? MAPMEM_PWT : 0) |
+			  ((attr & PTE_PCD_BIT) ? MAPMEM_PCD : 0) |
+			  ((attr & PTE_PAT_BIT) ? MAPMEM_PAT : 0));
 	ASSERT (p);
 	return p;
 }
@@ -2339,8 +2342,8 @@ unmapmem (void *virt, uint len)
 	spinlock_unlock (&mapmem_lock);
 }
 
-void *
-mapmem (int flags, u64 physaddr, uint len)
+static void *
+mapmem_internal (int flags, u64 physaddr, uint len)
 {
 	void *r;
 	pmap_t m;
@@ -2376,13 +2379,13 @@ ret:
 void *
 mapmem_hphys (u64 physaddr, uint len, int flags)
 {
-	return mapmem (MAPMEM_HPHYS | flags, physaddr, len);
+	return mapmem_internal (MAPMEM_HPHYS | flags, physaddr, len);
 }
 
 void *
 mapmem_gphys (u64 physaddr, uint len, int flags)
 {
-	return mapmem (MAPMEM_GPHYS | flags, physaddr, len);
+	return mapmem_internal (MAPMEM_GPHYS | flags, physaddr, len);
 }
 
 /* Flush all write back caches including other processors */

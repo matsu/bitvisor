@@ -113,7 +113,7 @@ copy_minios (void)
 
 	minios_startaddr = 0;
 	if (mi.flags.mods && mi.mods_count) {
-		q = mapmem (MAPMEM_HPHYS, mi.mods_addr, sizeof *q * 2);
+		q = mapmem_hphys (mi.mods_addr, sizeof *q * 2, 0);
 		ASSERT (q);
 		minios_paramsaddr = callrealmode_endofcodeaddr ();
 		if (mi.mods_count >= 2)
@@ -159,7 +159,7 @@ clear_guest_pages (void)
 		if (base + len <= 0x100000) /* < 1MiB */
 			continue;
 		while (len >= maxlen) {
-			p = mapmem (MAPMEM_HPHYS | MAPMEM_WRITE, base, maxlen);
+			p = mapmem_hphys (base, maxlen, MAPMEM_WRITE);
 			ASSERT (p);
 			memset (p, 0, maxlen);
 			unmapmem (p, maxlen);
@@ -167,7 +167,7 @@ clear_guest_pages (void)
 			len -= maxlen;
 		}
 		if (len > 0) {
-			p = mapmem (MAPMEM_HPHYS, base, len);
+			p = mapmem_hphys (base, len, MAPMEM_WRITE);
 			ASSERT (p);
 			memset (p, 0, len);
 			unmapmem (p, len);
