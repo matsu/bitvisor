@@ -66,6 +66,120 @@
 #define ICR_DEST_SELF		0x40000
 #define SVR_APIC_ENABLED	0x100
 
+struct local_apic_registers {
+	u32 reserved00[4];	/* 0x000 */
+	u32 reserved01[4];	/* 0x010 */
+	u32 local_apic_id;	/* 0x020 */
+	u32 reserved02[3];
+	u32 local_apic_version; /* 0x030 */
+	u32 reserved03[3];
+	u32 reserved04[4];	/* 0x040 */
+	u32 reserved05[4];	/* 0x050 */
+	u32 reserved06[4];	/* 0x060 */
+	u32 reserved07[4];	/* 0x070 */
+	u32 task_priority;	/* 0x080 */
+	u32 reserved08[3];
+	u32 arbitration_priority; /* 0x090 */
+	u32 reserved09[3];
+	u32 processor_priority; /* 0x0A0 */
+	u32 reserved0a[3];
+	u32 eoi;		/* 0x0B0 */
+	u32 reserved0b[3];
+	u32 remote_read;	/* 0x0C0 */
+	u32 reserved0c[3];
+	u32 logical_destination; /* 0x0D0 */
+	u32 reserved0d[3];
+	u32 destination_format;	/* 0x0E0 */
+	u32 reserved0e[3];
+	u32 spurious_interrupt_vector; /* 0x0F0 */
+	u32 reserved0f[3];
+	u32 in_service_0;	/* 0x100 */
+	u32 reserved10[3];
+	u32 in_service_1;	/* 0x110 */
+	u32 reserved11[3];
+	u32 in_service_2;	/* 0x120 */
+	u32 reserved12[3];
+	u32 in_service_3;	/* 0x130 */
+	u32 reserved13[3];
+	u32 in_service_4;	/* 0x140 */
+	u32 reserved14[3];
+	u32 in_service_5;	/* 0x150 */
+	u32 reserved15[3];
+	u32 in_service_6;	/* 0x160 */
+	u32 reserved16[3];
+	u32 in_service_7;	/* 0x170 */
+	u32 reserved17[3];
+	u32 trigger_mode_0;	/* 0x180 */
+	u32 reserved18[3];
+	u32 trigger_mode_1;	/* 0x190 */
+	u32 reserved19[3];
+	u32 trigger_mode_2;	/* 0x1A0 */
+	u32 reserved1a[3];
+	u32 trigger_mode_3;	/* 0x1B0 */
+	u32 reserved1b[3];
+	u32 trigger_mode_4;	/* 0x1C0 */
+	u32 reserved1c[3];
+	u32 trigger_mode_5;	/* 0x1D0 */
+	u32 reserved1d[3];
+	u32 trigger_mode_6;	/* 0x1E0 */
+	u32 reserved1e[3];
+	u32 trigger_mode_7;	/* 0x1F0 */
+	u32 reserved1f[3];
+	u32 interrupt_request_0; /* 0x200 */
+	u32 reserved20[3];
+	u32 interrupt_request_1; /* 0x210 */
+	u32 reserved21[3];
+	u32 interrupt_request_2; /* 0x220 */
+	u32 reserved22[3];
+	u32 interrupt_request_3; /* 0x230 */
+	u32 reserved23[3];
+	u32 interrupt_request_4; /* 0x240 */
+	u32 reserved24[3];
+	u32 interrupt_request_5; /* 0x250 */
+	u32 reserved25[3];
+	u32 interrupt_request_6; /* 0x260 */
+	u32 reserved26[3];
+	u32 interrupt_request_7; /* 0x270 */
+	u32 reserved27[3];
+	u32 error_status;	/* 0x280 */
+	u32 reserved28[3];
+	u32 reserved29[4];	/* 0x290 */
+	u32 reserved2a[4];	/* 0x2A0 */
+	u32 reserved2b[4];	/* 0x2B0 */
+	u32 reserved2c[4];	/* 0x2C0 */
+	u32 reserved2d[4];	/* 0x2D0 */
+	u32 reserved2e[4];	/* 0x2E0 */
+	u32 lvt_corrected_machine_check_interrupt; /* 0x2F0 */
+	u32 reserved2f[3];
+	u32 interrupt_command_0; /* 0x300 */
+	u32 reserved30[3];
+	u32 interrupt_command_1; /* 0x310 */
+	u32 reserved31[3];
+	u32 lvt_timer;		/* 0x320 */
+	u32 reserved32[3];
+	u32 lvt_thermal_sensor;	/* 0x330 */
+	u32 reserved33[3];
+	u32 lvt_performance_monitoring_counters; /* 0x340 */
+	u32 reserved34[3];
+	u32 lvt_lint0;		/* 0x350 */
+	u32 reserved35[3];
+	u32 lvt_lint1;		/* 0x360 */
+	u32 reserved36[3];
+	u32 lvt_error;		/* 0x370 */
+	u32 reserved37[3];
+	u32 initial_count;	/* 0x380 */
+	u32 reserved38[3];
+	u32 current_count;	/* 0x390 */
+	u32 reserved39[3];
+	u32 reserved3a[4];	/* 0x3A0 */
+	u32 reserved3b[4];	/* 0x3B0 */
+	u32 reserved3c[4];	/* 0x3C0 */
+	u32 reserved3d[4];	/* 0x3D0 */
+	u32 divide_configuration; /* 0x3E0 */
+	u32 reserved3e[3];
+	u32 reserved3f[4];	/* 0x3F0 */
+};
+
 static void ap_start (void);
 
 volatile int num_of_processors; /* number of application processors */
@@ -78,6 +192,8 @@ static volatile u32 sync_count;
 static spinlock_t *apinitlock;
 static u32 apinit_addr;
 static bool ap_started;
+static struct local_apic_registers *lar;
+static const u64 apic_base = 0xFEE00000;
 
 /* this function is called after starting AP and switching a stack */
 /* unlock the spinlock because the stack is switched */
@@ -246,21 +362,18 @@ apic_send_nmi (volatile u32 *apic_icr)
 void
 ap_start_addr (u8 addr, bool (*loopcond) (void *data), void *data)
 {
-	static const u32 apic_icr_phys = 0xFEE00300;
 	volatile u32 *apic_icr;
 
 	if (!apic_available ())
 		return;
-	apic_icr = mapmem_hphys (apic_icr_phys, sizeof *apic_icr,
-				 MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
-	ASSERT (apic_icr);
+	ASSERT (lar);
+	apic_icr = &lar->interrupt_command_0;
 	apic_send_init (apic_icr);
 	usleep (10000);
 	while (loopcond (data)) {
 		apic_send_startup_ipi (apic_icr, addr);
 		usleep (200000);
 	}
-	unmapmem ((void *)apic_icr, sizeof *apic_icr);
 }
 
 static bool
@@ -328,8 +441,6 @@ bsp_continue (asmlinkage void (*initproc_arg) (void))
 void
 panic_wakeup_all (void)
 {
-	static const u64 apic_base = 0xFEE00000;
-	static const u32 apic_icr_phys = 0xFEE00300;
 	u64 tmp;
 	volatile u32 *apic_icr;
 
@@ -344,19 +455,15 @@ panic_wakeup_all (void)
 	tmp |= apic_base;
 	asm_wrmsr64 (MSR_IA32_APIC_BASE_MSR, tmp);
 
-	apic_icr = mapmem_hphys (apic_icr_phys, sizeof *apic_icr,
-				 MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
-	if (!apic_icr)
+	if (!lar)
 		return;
+	apic_icr = &lar->interrupt_command_0;
 	apic_send_nmi (apic_icr);
-	unmapmem ((void *)apic_icr, sizeof *apic_icr);
 }
 
 void
 disable_apic (void)
 {
-	static const u64 apic_base = 0xFEE00000;
-	static const u32 apic_svr_phys = 0xFEE000F0;
 	u64 tmp;
 	volatile u32 *apic_svr;
 
@@ -369,12 +476,10 @@ disable_apic (void)
 	tmp |= apic_base;
 	asm_wrmsr64 (MSR_IA32_APIC_BASE_MSR, tmp);
 
-	apic_svr = mapmem_hphys (apic_svr_phys, sizeof *apic_svr,
-				 MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
-	if (!apic_svr)
+	if (!lar)
 		return;
+	apic_svr = &lar->spurious_interrupt_vector;
 	write_svr (apic_svr, read_svr (apic_svr) & ~SVR_APIC_ENABLED);
-	unmapmem ((void *)apic_svr, sizeof *apic_svr);
 }
 
 void
@@ -401,6 +506,8 @@ sync_all_processors (void)
 void
 start_all_processors (void (*bsp_initproc) (void), void (*ap_initproc) (void))
 {
+	lar = mapmem_hphys (apic_base, sizeof *lar, MAPMEM_WRITE | MAPMEM_PWT |
+			    MAPMEM_PCD);
 	initproc_bsp = bsp_initproc;
 	initproc_ap = ap_initproc;
 	bsp_continue (bspinitproc1);
@@ -409,8 +516,6 @@ start_all_processors (void (*bsp_initproc) (void), void (*ap_initproc) (void))
 void
 self_ipi (int intnum)
 {
-	static const u32 apic_icr_phys = 0xFEE00300;
-	u32 *_apic_icr;
 	volatile u32 *apic_icr;
 
 	if (intnum < 0x10 || intnum > 0xFF)
@@ -421,20 +526,17 @@ self_ipi (int intnum)
 		asm_wrmsr32 (MSR_IA32_X2APIC_SELF_IPI, intnum, 0);
 		return;
 	}
-	_apic_icr = mapmem_hphys (apic_icr_phys, sizeof *_apic_icr,
-				  MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
-	apic_icr = _apic_icr;
+	if (!lar)
+		return;
+	apic_icr = &lar->interrupt_command_0;
 	while ((*apic_icr & ICR_STATUS_BIT) != ICR_STATUS_IDLE);
 	*apic_icr = ICR_DEST_SELF | ICR_TRIGGER_EDGE | ICR_LEVEL_ASSERT |
 		ICR_MODE_FIXED | intnum;
-	unmapmem (_apic_icr, sizeof *_apic_icr);
 }
 
 void
 eoi (void)
 {
-	static const u32 apic_eoi_phys = 0xFEE000B0;
-	u32 *_apic_eoi;
 	volatile u32 *apic_eoi;
 
 	if (!apic_available ())
@@ -443,9 +545,8 @@ eoi (void)
 		asm_wrmsr32 (MSR_IA32_X2APIC_EOI, 0, 0);
 		return;
 	}
-	_apic_eoi = mapmem_hphys (apic_eoi_phys, sizeof *_apic_eoi,
-				  MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
-	apic_eoi = _apic_eoi;
+	if (!lar)
+		return;
+	apic_eoi = &lar->eoi;
 	*apic_eoi = 0;
-	unmapmem (_apic_eoi, sizeof *_apic_eoi);
 }
