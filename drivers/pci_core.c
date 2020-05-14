@@ -47,6 +47,8 @@
 struct pci_msi {
 	u8 cap;
 	struct pci_device *dev;
+	u32 maddr;
+	u32 mupper;
 };
 
 struct pci_bridge_callback_list {
@@ -55,11 +57,24 @@ struct pci_bridge_callback_list {
 	struct pci_bridge_callback *callback;
 };
 
+struct pci_msi_callback {
+	struct pci_msi_callback *next;
+	struct pci_device *pci_device;
+	bool (*callback) (struct pci_device *pci_device, void *data);
+	void *data;
+	u32 maddr;
+	u32 mupper;
+	u16 mdata;
+	bool enable;
+};
+
 enum addrlock_mode {
 	ADDR_LOCK,
 	ADDR_RESTORE_UNLOCK,
 	ADDR_UNLOCK,
 };
+
+u64 pci_msi_dummyaddr;
 
 static void pci_config_pmio_addrlock (enum addrlock_mode mode);
 static void pci_config_pmio_do (bool wr, pci_config_address_t addr,
@@ -67,6 +82,8 @@ static void pci_config_pmio_do (bool wr, pci_config_address_t addr,
 
 static spinlock_t pci_config_io_lock = SPINLOCK_INITIALIZER;
 static pci_config_address_t current_config_addr;
+static spinlock_t pci_msi_callback_lock = SPINLOCK_INITIALIZER;
+static struct pci_msi_callback *msi_callback_list;
 
 /********************************************************************************
  * PCI internal interfaces
@@ -1221,15 +1238,11 @@ pci_find_cap_offset (struct pci_device *pci_device, u8 cap_id)
 }
 
 struct pci_msi *
-pci_msi_init (struct pci_device *pci_device,
-	      int (*callback) (void *data, int num), void *data)
+pci_msi_init (struct pci_device *pci_device)
 {
 	u32 cmd;
 	u8 cap;
-	int num;
 	struct pci_msi *msi;
-	u32 maddr, mupper;
-	u16 mdata;
 
 	if (!pci_device)
 		return NULL;
@@ -1241,19 +1254,36 @@ pci_msi_init (struct pci_device *pci_device,
 		goto found;
 	return NULL;
 found:
-	num = exint_pass_intr_alloc (callback, data);
-	if (num < 0 || num > 0xFF)
-		return NULL;
 	msi = alloc (sizeof *msi);
 	msi->cap = cap;
 	msi->dev = pci_device;
-	maddr = 0xFEEFF000;
-	mupper = 0;
-	mdata = 0x4100 | num;
-	pci_config_write (pci_device, &maddr, sizeof maddr, cap + 4);
+	msi->maddr = 1;
+	msi->mupper = 0;
+	pci_msi_set (msi, 0, 0, 0);
+	return msi;
+}
+
+void
+pci_msi_set (struct pci_msi *msi, u32 maddr, u32 mupper, u16 mdata)
+{
+	struct pci_device *pci_device = msi->dev;
+	u8 cap = msi->cap;
+	u32 mdaddr = pci_msi_dummyaddr;
+	u32 mdupper = 0;
+
+	if (msi->maddr == maddr && msi->mupper == mupper) {
+		pci_config_write (pci_device, &mdata, sizeof mdata, cap + 12);
+		return;
+	}
+	msi->maddr = maddr;
+	msi->mupper = mupper;
+	pci_config_write (pci_device, &mdaddr, sizeof mdaddr, cap + 4);
+	pci_config_write (pci_device, &mdupper, sizeof mdupper, cap + 8);
+	if (!maddr && !mupper)
+		return;
 	pci_config_write (pci_device, &mupper, sizeof mupper, cap + 8);
 	pci_config_write (pci_device, &mdata, sizeof mdata, cap + 12);
-	return msi;
+	pci_config_write (pci_device, &maddr, sizeof maddr, cap + 4);
 }
 
 void
@@ -1281,4 +1311,81 @@ pci_msi_to_ipi (const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata)
 {
 	u64 icr = mm_as_msi_to_icr (as, maddr, mupper, mdata);
 	send_ipi (icr);
+}
+
+static int
+msi_callback (void *data, int num)
+{
+	if (num < 0x10)
+		return num;
+	int hit = 0;
+	int ok = 0;
+	for (struct pci_msi_callback *p = msi_callback_list; p; p = p->next) {
+		if (!p->enable)
+			continue;
+		u64 icr = mm_as_msi_to_icr (p->pci_device->as_dma, p->maddr,
+					    p->mupper, p->mdata);
+		if (!~icr)
+			/* Invalid address */
+			continue;
+		if ((icr & 0xFF) != num)
+			/* Vector is different */
+			continue;
+		if ((icr & 0x700) > 0x100)
+			/* Delivery Mode is not Fixed Mode or Lowest
+			 * Priority */
+			continue;
+		if (!is_icr_destination_me (icr))
+			/* Not to me */
+			continue;
+		hit++;
+		if (p->callback (p->pci_device, p->data))
+			ok++;
+	}
+	if (hit != ok) {
+		if (!ok) {
+			eoi ();
+			return -1;
+		}
+		printf ("MSI(0x%02X): %d callbacks in %d callbacks"
+			" wants to drop.\n", num, hit - ok, hit);
+	}
+	return num;
+}
+
+struct pci_msi_callback *
+pci_register_msi_callback (struct pci_device *pci_device,
+			   bool (*callback) (struct pci_device *pci_device,
+					     void *data), void *data)
+{
+	if (!pci_device || !callback || !data)
+		return NULL;
+	struct pci_msi_callback *p = alloc (sizeof *p);
+	p->pci_device = pci_device;
+	p->callback = callback;
+	p->data = data;
+	p->enable = false;
+	spinlock_lock (&pci_msi_callback_lock);
+	p->next = msi_callback_list;
+	if (!p->next)
+		exint_pass_intr_register_callback (msi_callback, NULL);
+	msi_callback_list = p;
+	spinlock_unlock (&pci_msi_callback_lock);
+	return p;
+}
+
+void
+pci_enable_msi_callback (struct pci_msi_callback *p, u32 maddr, u32 mupper,
+			 u16 mdata)
+{
+	p->maddr = maddr;
+	p->mupper = mupper;
+	p->mdata = mdata;
+	p->enable = true;
+}
+
+void
+pci_disable_msi_callback (struct pci_msi_callback *p)
+{
+	p->enable = false;
 }

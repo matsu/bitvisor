@@ -223,9 +223,12 @@ struct data2 {
 	char virtio_net_bar_emul;
 	struct pci_msi *virtio_net_msi;
 	struct msix_table *msix_tbl;
+	struct pci_msi_callback *msicb;
+	unsigned int msi_intr;
+	bool msi_intr_pass;
+	spinlock_t msi_lock;
+	spinlock_t msix_lock;
 	int msix_qvec[2];
-	bool intr;
-	bool intr2;
 };
 
 struct data {
@@ -1187,6 +1190,25 @@ skip:
 	}
 }
 
+static void
+pro1000_msix_update (struct data2 *d2)
+{
+	int q0vec = d2->msix_qvec[0];
+	struct msix_table m = { 0, 0, 0, 1 };
+
+	if (q0vec >= 0)
+		m = d2->msix_tbl[q0vec];
+	if (m.upper)
+		m.mask = 1;
+	if (m.mask & 1)
+		m.addr = m.upper = 0;
+	pci_msi_set (d2->virtio_net_msi, m.addr, m.upper, m.data);
+	if (m.addr)
+		pci_enable_msi_callback (d2->msicb, m.addr, m.upper, m.data);
+	else
+		pci_disable_msi_callback (d2->msicb);
+}
+
 static int
 mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 {
@@ -1194,8 +1216,12 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 	struct data2 *d2 = d1->d;
 
 	if (d2->virtio_net && d2->virtio_net_msi && d1 == &d2->d1[0]) {
+		spinlock_lock (&d2->msix_lock);
 		virtio_net_msix (d2->virtio_net, wr, len, gphys - d1->mapaddr,
 				 buf);
+		if (wr)
+			pro1000_msix_update (d2);
+		spinlock_unlock (&d2->msix_lock);
 		return 1;
 	}
 	if (d2->seize) {
@@ -1289,42 +1315,24 @@ change_bar0 (struct pci_device *pci_device, u8 iosize, u16 offset,
 		panic ("mmio_register failed");
 }
 
-static int
-virtio_intrnum (struct data2 *d2, int queue)
-{
-	int vec = d2->msix_qvec[queue];
-
-	if (vec >= 0 && vec < 3 && !(d2->msix_tbl[vec].mask & 1) &&
-	    !d2->msix_tbl[vec].upper &&
-	    (d2->msix_tbl[vec].addr & 0xFFF00000) == 0xFEE00000) {
-		if (0)
-			printf ("virtio intr %d %08X%08X, %08X\n", queue,
-				d2->msix_tbl[vec].upper,
-				d2->msix_tbl[vec].addr,
-				d2->msix_tbl[vec].data);
-		return d2->msix_tbl[vec].data & 0xFF;
-	}
-	return -1;
-}
-
-static int
-pro1000_msi (void *data, int num)
+static bool
+pro1000_msi (struct pci_device *pci_device, void *data)
 {
 	struct data2 *d2 = data;
 	volatile u32 *icr = (void *)(u8 *)d2->d1[0].map + 0xC0;
+	bool ret;
 
+	spinlock_lock (&d2->msi_lock);
 	*icr |= 0xFFFFFFFF;
+	d2->msi_intr++;
+	spinlock_unlock (&d2->msi_lock);
 	poll_physnic (d2);
-	if (d2->intr2) {
-		d2->intr2 = false;
-		return virtio_intrnum (d2, 1);
-	} else if (d2->intr) {
-		d2->intr = false;
-		return virtio_intrnum (d2, 0);
-	} else {
-		/* Workaround for Windows driver... */
-		return virtio_intrnum (d2, 0);
-	}
+	spinlock_lock (&d2->msi_lock);
+	ret = d2->msi_intr_pass;
+	if (!--d2->msi_intr)
+		d2->msi_intr_pass = false;
+	spinlock_unlock (&d2->msi_lock);
+	return ret;
 }
 
 static void
@@ -1519,8 +1527,11 @@ pro1000_msix_vector_change (void *param, unsigned int queue, int vector)
 {
 	struct data2 *d2 = param;
 
+	spinlock_lock (&d2->msix_lock);
 	if (queue < 2)
 		d2->msix_qvec[queue] = vector;
+	pro1000_msix_update (d2);
+	spinlock_unlock (&d2->msix_lock);
 }
 
 static void
@@ -1528,12 +1539,25 @@ pro1000_msix_generate (void *param, unsigned int queue)
 {
 	struct data2 *d2 = param;
 	volatile u32 *ics = (void *)(u8 *)d2->d1[0].map + 0xC8;
+	struct msix_table m = { 0, 0, 0, 1 };
 
-	if (queue)
-		d2->intr2 = true;
-	else
-		d2->intr = true;
-	*ics = 1 << 7 | 1 << 4;	/* interrupt */
+	if (!queue) {
+		/* Using ICS instead of IPI reduces number of
+		 * interrupts while receiving a lot. */
+		spinlock_lock (&d2->msi_lock);
+		d2->msi_intr_pass = true;
+		if (!d2->msi_intr)
+			*ics = 1 << 7 | 1 << 4;	/* interrupt */
+		spinlock_unlock (&d2->msi_lock);
+		return;
+	}
+	spinlock_lock (&d2->msix_lock);
+	if (queue < 2)
+		m = d2->msix_tbl[d2->msix_qvec[queue]];
+	if (!(m.mask & 1))
+		pci_msi_to_ipi (d2->pci_device->as_dma, m.addr, m.upper,
+				m.data);
+	spinlock_unlock (&d2->msix_lock);
 }
 
 /* Disable I/O space and unreghook I/O space hooks to avoid I/O space
@@ -1621,13 +1645,17 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	}
 	if (d2->virtio_net) {
 		pro1000_disable_io (pci_device, d);
-		d2->virtio_net_msi = pci_msi_init (pci_device, pro1000_msi,
-						   d2);
+		d2->virtio_net_msi = pci_msi_init (pci_device);
 		if (d2->virtio_net_msi) {
+			d2->msi_intr = 0;
+			d2->msi_intr_pass = false;
+			spinlock_init (&d2->msi_lock);
+			spinlock_init (&d2->msix_lock);
 			d2->msix_qvec[0] = -1;
 			d2->msix_qvec[1] = -1;
-			d2->intr = false;
-			d2->intr2 = false;
+			d2->msicb = pci_register_msi_callback (pci_device,
+							       pro1000_msi,
+							       d2);
 			d2->msix_tbl = virtio_net_set_msix
 				(d2->virtio_net, 0x5,
 				 pro1000_msix_disable,

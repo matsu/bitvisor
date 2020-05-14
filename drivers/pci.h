@@ -128,6 +128,7 @@ struct pci_config_mmio_data;
 struct token;
 struct pci_msi;
 struct pci_bridge_callback_list;
+struct pci_msi_callback;
 
 // data structures
 struct pci_device {
@@ -222,6 +223,8 @@ struct msix_table {
 	u32 mask;
 };
 
+extern u64 pci_msi_dummyaddr;
+
 // exported functions
 extern void pci_register_driver (struct pci_driver *driver);
 void pci_register_virtual_driver (struct pci_virtual_driver *driver);
@@ -278,11 +281,17 @@ int pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 void pci_set_bridge_io (struct pci_device *pci_device);
 void pci_set_bridge_callback (struct pci_device *pci_device,
 			      struct pci_bridge_callback *bridge_callback);
-struct pci_msi *pci_msi_init (struct pci_device *pci_device,
-			      int (*callback) (void *data, int num),
-			      void *data);
+struct pci_msi *pci_msi_init (struct pci_device *pci_device);
+void pci_msi_set (struct pci_msi *msi, u32 maddr, u32 mupper, u16 mdata);
 void pci_msi_enable (struct pci_msi *msi);
 void pci_msi_disable (struct pci_msi *msi);
 void pci_msi_to_ipi (const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata);
+struct pci_msi_callback *
+pci_register_msi_callback (struct pci_device *pci_device,
+			   bool (*callback) (struct pci_device *pci_device,
+					     void *data), void *data);
+void pci_enable_msi_callback (struct pci_msi_callback *p, u32 maddr,
+			      u32 mupper, u16 mdata);
+void pci_disable_msi_callback (struct pci_msi_callback *p);
 
 #endif

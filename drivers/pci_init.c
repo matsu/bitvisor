@@ -423,6 +423,7 @@ pci_system_disconnect (struct pci_device *pci_device)
 
 static void pci_init()
 {
+	alloc2 (4, &pci_msi_dummyaddr);
 	pci_read_mcfg ();
 	pci_find_devices();
 	core_io_register_handler(PCI_CONFIG_ADDR_PORT, 1, pci_config_addr_handler, NULL,

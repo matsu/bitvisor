@@ -618,3 +618,55 @@ msi_to_icr (u32 maddr, u32 mupper, u16 mdata)
 	}
 	return ret.v;
 }
+
+bool
+is_icr_destination_me (u64 icr)
+{
+	union {
+		u64 v;
+		struct icr b;
+	} i;
+	u32 mda;
+	u32 id;
+	u32 tmp;
+	u32 *apic_local_apic_id;
+	u32 *apic_ldr;
+
+	if (!~icr)		/* Special invalid value used by
+				 * msi_to_icr(). */
+		return false;
+	i.v = icr;
+	mda = i.b.destination;
+	if (i.b.destination_shorthand)
+		/* 0: No Shorthand
+		   1: Self
+		   2: All Including Self
+		   3: All Excluding Self */
+		return i.b.destination_shorthand != 3;
+	if (!apic_available ())
+		return false;
+	if (is_x2apic_supported () && is_x2apic_enabled ()) {
+		/* x2APIC */
+		if (!i.b.destination_mode) { /* Physical */
+			asm_rdmsr32 (MSR_IA32_X2APIC_APICID, &id, &tmp);
+			return mda == id;
+		} else {	/* Logical */
+			asm_rdmsr32 (MSR_IA32_X2APIC_LDR, &id, &tmp);
+			return (mda & id & 0xFFFF) &&
+				(mda & 0xFFFF0000) == (id & 0xFFFF0000);
+		}
+	}
+	/* xAPIC */
+	if (!lar)
+		return false;
+	if (!i.b.destination_mode) { /* Physical */
+		apic_local_apic_id = &lar->local_apic_id;
+		id = *apic_local_apic_id;
+		return (mda & 0xFF000000) == (id & 0xFF000000);
+	} else {		/* Logical */
+		/* Flat model is expected. */
+		apic_ldr = &lar->logical_destination;
+		id = *apic_ldr;
+		return !!(mda & id & 0xFF000000);
+	}
+}

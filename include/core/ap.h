@@ -35,5 +35,6 @@
 void self_ipi (int intnum);
 void send_ipi (u64 icr);
 void eoi (void);
+bool is_icr_destination_me (u64 icr);
 
 #endif
