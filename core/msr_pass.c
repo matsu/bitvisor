@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "ap.h"
 #include "asm.h"
 #include "assert.h"
 #include "config.h"
@@ -250,6 +251,7 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 				panic ("relocating APIC Base to VMM address!");
 		}
 		localapic_change_base_msr (msrdata);
+		ap_change_base_msr (msrdata);
 		goto pass;
 	case MSR_IA32_X2APIC_ICR:
 		localapic_x2apic_icr (msrdata);

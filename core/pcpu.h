@@ -50,6 +50,13 @@ enum fullvirtualize_type {
 	FULLVIRTUALIZE_SVM,
 };
 
+enum apic_mode {
+	APIC_MODE_NULL,
+	APIC_MODE_DISABLED,
+	APIC_MODE_XAPIC,
+	APIC_MODE_X2APIC,
+};
+
 struct pcpu_func {
 };
 
@@ -65,6 +72,7 @@ struct pcpu {
 	struct panic_pcpu_data panic;
 	struct thread_pcpu_data thread;
 	enum fullvirtualize_type fullvirtualize;
+	enum apic_mode apic;
 	int cpunum;
 	int pid;
 	void *stackaddr;

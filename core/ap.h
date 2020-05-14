@@ -44,5 +44,6 @@ void disable_apic (void);
 void ap_start_addr (u8 addr, bool (*loopcond) (void *data), void *data);
 u64 msi_to_icr (u32 maddr, u32 mupper, u16 mdata);
 u64 dmar_irte_to_icr (u64 entry_low);
+void ap_change_base_msr (u64 msrdata);
 
 #endif

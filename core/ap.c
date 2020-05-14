@@ -272,14 +272,21 @@ apinitproc0 (void)
 	asm_wrrsp_and_jmp ((ulong)newstack_tmp + VMM_STACKSIZE, apinitproc1);
 }
 
+static bool
+apic_supported (void)
+{
+	u32 a, b, c, d;
+
+	asm_cpuid (1, 0, &a, &b, &c, &d);
+	return !!(d & CPUID_1_EDX_APIC_BIT);
+}
+
 bool
 apic_available (void)
 {
-	u32 a, b, c, d;
 	u64 tmp;
 
-	asm_cpuid (1, 0, &a, &b, &c, &d);
-	if (!(d & CPUID_1_EDX_APIC_BIT))
+	if (!apic_supported ())
 		return false;
 	asm_rdmsr64 (MSR_IA32_APIC_BASE_MSR, &tmp);
 	if (!(tmp & MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT))
@@ -528,19 +535,42 @@ start_all_processors (void (*bsp_initproc) (void), void (*ap_initproc) (void))
 	bsp_continue (bspinitproc1);
 }
 
+static enum apic_mode
+get_apic_mode (void)
+{
+	enum apic_mode ret = currentcpu->apic;
+	u64 tmp;
+
+	if (ret == APIC_MODE_NULL) {
+		if (!apic_supported ())
+			return APIC_MODE_NULL;
+		asm_rdmsr64 (MSR_IA32_APIC_BASE_MSR, &tmp);
+		if (!(tmp & MSR_IA32_APIC_BASE_MSR_APIC_GLOBAL_ENABLE_BIT))
+			ret = APIC_MODE_DISABLED;
+		else if (is_x2apic_supported () && is_x2apic_enabled ())
+			ret = APIC_MODE_X2APIC;
+		else
+			ret = APIC_MODE_XAPIC;
+		currentcpu->apic = ret;
+	}
+	return ret;
+}
+
 void
 self_ipi (int intnum)
 {
+	enum apic_mode mode;
 	volatile u32 *apic_icr;
 
 	if (intnum < 0x10 || intnum > 0xFF)
 		return;
-	if (!apic_available ())
-		return;
-	if (is_x2apic_supported () && is_x2apic_enabled ()) {
+	mode = get_apic_mode ();
+	if (mode == APIC_MODE_X2APIC) {
 		asm_wrmsr32 (MSR_IA32_X2APIC_SELF_IPI, intnum, 0);
 		return;
 	}
+	if (mode != APIC_MODE_XAPIC)
+		return;
 	if (!lar)
 		return;
 	apic_icr = &lar->interrupt_command_0;
@@ -552,6 +582,7 @@ self_ipi (int intnum)
 void
 send_ipi (u64 icr)
 {
+	enum apic_mode mode;
 	volatile u32 *apic_icr;
 	volatile u32 *apic_icr_high;
 
@@ -562,12 +593,13 @@ send_ipi (u64 icr)
 		/* Lowest Priority should be avoided in xAPIC mode or
 		 * is reserved in x2APIC mode. */
 		icr = (icr & ~ICR_MODE_MASK) | ICR_MODE_FIXED;
-	if (!apic_available ())
-		return;
-	if (is_x2apic_supported () && is_x2apic_enabled ()) {
+	mode = get_apic_mode ();
+	if (mode == APIC_MODE_X2APIC) {
 		asm_wrmsr64 (MSR_IA32_X2APIC_ICR, icr);
 		return;
 	}
+	if (mode != APIC_MODE_XAPIC)
+		return;
 	if (!lar)
 		return;
 	apic_icr = &lar->interrupt_command_0;
@@ -580,14 +612,16 @@ send_ipi (u64 icr)
 void
 eoi (void)
 {
+	enum apic_mode mode;
 	volatile u32 *apic_eoi;
 
-	if (!apic_available ())
-		return;
-	if (is_x2apic_supported () && is_x2apic_enabled ()) {
+	mode = get_apic_mode ();
+	if (mode == APIC_MODE_X2APIC) {
 		asm_wrmsr32 (MSR_IA32_X2APIC_EOI, 0, 0);
 		return;
 	}
+	if (mode != APIC_MODE_XAPIC)
+		return;
 	if (!lar)
 		return;
 	apic_eoi = &lar->eoi;
@@ -612,8 +646,7 @@ msi_to_icr (u32 maddr, u32 mupper, u16 mdata)
 		ret.b.trigger_mode = mdata >> 15;
 		ret.b.destination_shorthand = 0; /* No shorthand */
 		ret.b.destination = maddr >> 12 << 24;
-		if (apic_available () && is_x2apic_supported () &&
-		    is_x2apic_enabled ())
+		if (get_apic_mode () == APIC_MODE_X2APIC)
 			ret.b.destination >>= 24;
 	}
 	return ret.v;
@@ -627,6 +660,7 @@ is_icr_destination_me (u64 icr)
 		struct icr b;
 	} i;
 	u32 mda;
+	enum apic_mode mode;
 	u32 id;
 	u32 tmp;
 	u32 *apic_local_apic_id;
@@ -643,9 +677,8 @@ is_icr_destination_me (u64 icr)
 		   2: All Including Self
 		   3: All Excluding Self */
 		return i.b.destination_shorthand != 3;
-	if (!apic_available ())
-		return false;
-	if (is_x2apic_supported () && is_x2apic_enabled ()) {
+	mode = get_apic_mode ();
+	if (mode == APIC_MODE_X2APIC) {
 		/* x2APIC */
 		if (!i.b.destination_mode) { /* Physical */
 			asm_rdmsr32 (MSR_IA32_X2APIC_APICID, &id, &tmp);
@@ -656,6 +689,8 @@ is_icr_destination_me (u64 icr)
 				(mda & 0xFFFF0000) == (id & 0xFFFF0000);
 		}
 	}
+	if (mode != APIC_MODE_XAPIC)
+		return false;
 	/* xAPIC */
 	if (!lar)
 		return false;
@@ -688,11 +723,17 @@ dmar_irte_to_icr (u64 entry_low)
 		ret.b.level = 1;
 		ret.b.trigger_mode = entry_low >> 4; /* TM */
 		ret.b.destination_shorthand = 0; /* No shorthand */
-		if (apic_available () && is_x2apic_supported () &&
-		    is_x2apic_enabled ())
+		if (get_apic_mode () == APIC_MODE_X2APIC)
 			ret.b.destination = entry_low >> 32; /* DST */
 		else
 			ret.b.destination = entry_low >> 40 << 24;
 	}
 	return ret.v;
+}
+
+void
+ap_change_base_msr (u64 msrdata)
+{
+	/* Just clear cached value because WRMSR may fail. */
+	currentcpu->apic = APIC_MODE_NULL;
 }
