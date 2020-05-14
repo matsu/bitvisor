@@ -88,7 +88,7 @@ copy_bios_area (void *save, void *load)
 	void *p;
 
 	if (save) {
-		p = mapmem_hphys (0, BIOS_AREA_SIZE, 0);
+		p = mapmem_hphys (0, BIOS_AREA_SIZE, MAPMEM_CANFAIL);
 		if (p) {
 			memcpy (save, p, BIOS_AREA_SIZE);
 			unmapmem (p, BIOS_AREA_SIZE);
@@ -97,7 +97,8 @@ copy_bios_area (void *save, void *load)
 		}
 	}
 	if (load) {
-		p = mapmem_hphys (0, BIOS_AREA_SIZE, MAPMEM_WRITE);
+		p = mapmem_hphys (0, BIOS_AREA_SIZE, MAPMEM_WRITE |
+				  MAPMEM_CANFAIL);
 		if (p) {
 			memcpy (p, load, BIOS_AREA_SIZE);
 			unmapmem (p, BIOS_AREA_SIZE);

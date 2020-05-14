@@ -36,6 +36,7 @@
 #define MAPMEM_PWT			0x8
 #define MAPMEM_PCD			0x10
 #define MAPMEM_PAT			0x80
+#define MAPMEM_CANFAIL			0x100
 
 struct mempool;
 

@@ -2337,10 +2337,28 @@ mapmem_domap (pmap_t *m, void *virt, const struct mm_as *as, int flags,
 	for (i = 0; i < n; i++) {
 		pmap_seek (m, v + (i << PAGESIZE_SHIFT), 1);
 		pte = mm_as_translate (as, NULL, p + (i << PAGESIZE_SHIFT));
-		if (!(pte & PTE_P_BIT))
+		if (!(pte & PTE_P_BIT)) {
+			if (!(flags & MAPMEM_CANFAIL))
+				panic ("mapmem no page  as=%p%s"
+				       " translate=%p data=%p address=0x%llX"
+				       " pte=0x%llX", as,
+				       as == as_hphys ? "(hphys)" :
+				       as == as_passvm ? "(passvm)" : "",
+				       as->translate, as->data,
+				       p + (i << PAGESIZE_SHIFT), pte);
 			return true;
-		if (!(pte & PTE_RW_BIT) && (flags & MAPMEM_WRITE))
+		}
+		if (!(pte & PTE_RW_BIT) && (flags & MAPMEM_WRITE)) {
+			if (!(flags & MAPMEM_CANFAIL))
+				panic ("mapmem readonly  as=%p%s"
+				       " translate=%p data=%p address=0x%llX"
+				       " pte=0x%llX", as,
+				       as == as_hphys ? "(hphys)" :
+				       as == as_passvm ? "(passvm)" : "",
+				       as->translate, as->data,
+				       p + (i << PAGESIZE_SHIFT), pte);
 			return true;
+		}
 		pte = (pte & ~PAGESIZE_MASK) | PTE_P_BIT;
 		if (flags & MAPMEM_WRITE)
 			pte |= PTE_RW_BIT;
@@ -2398,13 +2416,21 @@ mapmem_internal (const struct mm_as *as, int flags, u64 physaddr, uint len)
 	asm_rdcr3 (&hostcr3);
 	pmap_open_vmm (&m, hostcr3, PMAP_LEVELS);
 	r = mapmem_alloc (&m, physaddr & PAGESIZE_MASK, len);
-	if (!r)
+	if (!r) {
+		if (!(flags & MAPMEM_CANFAIL))
+			panic ("mapmem_alloc failed  as=%p%s"
+			       " translate=%p data=%p physaddr=0x%llX len=%u",
+			       as, as == as_hphys ? "(hphys)" :
+			       as == as_passvm ? "(passvm)" : "",
+			       as->translate, as->data, physaddr, len);
 		goto ret;
+	}
 	if (!mapmem_domap (&m, r, as, flags, physaddr, len))
 		goto ret;
 	unmapmem (r, len);
 	r = NULL;
 ret:
+	ASSERT (r || (flags & MAPMEM_CANFAIL));
 	pmap_close (&m);
 	return r;
 }

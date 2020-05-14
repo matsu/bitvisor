@@ -169,7 +169,7 @@ memdump_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 		num = callfunc_and_getint (memdump_hvirt, &hvirt_data);
 		break;
 	case MEMDUMP_HPHYS:
-		tmp = mapmem_hphys (d->physaddr, sendlen, 0);
+		tmp = mapmem_hphys (d->physaddr, sendlen, MAPMEM_CANFAIL);
 		if (tmp) {
 			hvirt_data.p = tmp;
 			hvirt_data.q = q;

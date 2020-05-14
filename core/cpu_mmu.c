@@ -445,7 +445,7 @@ read_linearaddr_tss (ulong linear, void *tss, uint len)
 
 	RIE (get_pte (linear, false, false, false, &pte));
 	p = mapmem_gphys ((pte & current->pte_addr_mask) | (linear & 0xFFF),
-			  len, 0);
+			  len, MAPMEM_CANFAIL);
 	if (!p)
 		return VMMERR_NOMEM;
 	memcpy (tss, p, len);
@@ -461,7 +461,7 @@ write_linearaddr_tss (ulong linear, void *tss, uint len)
 
 	RIE (get_pte (linear, true, false, false, &pte));
 	p = mapmem_gphys ((pte & current->pte_addr_mask) | (linear & 0xFFF),
-			  len, MAPMEM_WRITE);
+			  len, MAPMEM_WRITE | MAPMEM_CANFAIL);
 	if (!p)
 		return VMMERR_NOMEM;
 	memcpy (p, tss, len);
