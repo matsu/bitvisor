@@ -436,6 +436,7 @@ struct nvme_io_interceptor;
 struct nvme_host {
 	struct pci_device *pci;
 	const struct mm_as *as_dma;
+	struct pci_msi_callback *msi_callback;
 
 	struct nvme_queue h_queue;
 	struct nvme_queue g_queue;
@@ -479,7 +480,6 @@ struct nvme_host {
 
 	u8 msix_offset;
 	u8 msi_offset;
-	u8 msi_iv;
 	u8 intr_mode;
 	u8 msix_bar;
 	u8 db_stride;
@@ -519,6 +519,7 @@ uint nvme_try_process_requests (struct nvme_host *host, u16 queue_id);
 void nvme_process_all_comp_queues (struct nvme_host *host);
 
 int nvme_completion_handler (void *data, int num);
+bool nvme_completion_handler_msi (struct pci_device *pci, void *data);
 
 void nvme_write_comp_db (struct nvme_host *host, u16 queue_id, u64 value);
 

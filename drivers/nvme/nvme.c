@@ -343,22 +343,34 @@ check_msi_enable (struct nvme_host *host)
 }
 
 static void
+nvme_set_msi_callback (struct nvme_host *host)
+{
+	u32 msi_cap = host->msi_offset;
+	u32 addr;
+	u32 upper;
+	u16 val;
+
+	pci_config_read (host->pci, &addr, sizeof addr, msi_cap + 0x4);
+	pci_config_read (host->pci, &upper, sizeof upper, msi_cap + 0x8);
+	pci_config_read (host->pci, &val, sizeof val, msi_cap + 0xC);
+	pci_enable_msi_callback (host->msi_callback, addr, upper, val);
+}
+
+static void
 find_interrupt_mode (struct nvme_host *host)
 {
 	if (host->msix_offset && check_msix_enable (host)) {
+		if (host->msi_offset)
+			pci_disable_msi_callback (host->msi_callback);
 		host->intr_mode = NVME_INTR_MSIX;
 		printf ("nvme: interrupt mode MSI-X\n");
 	} else if (host->msi_offset && check_msi_enable (host)) {
-		u16 val;
 		host->intr_mode = NVME_INTR_MSI;
 		printf ("nvme: interrupt mode MSI\n");
-		pci_config_read (host->pci,
-				 &val,
-				 sizeof (val),
-				 host->msi_offset + 0xC);
-		host->msi_iv = val & 0xFF;
-		printf ("nvme: MSI interrupt vector %u\n", host->msi_iv);
+		nvme_set_msi_callback (host);
 	} else {
+		if (host->msi_offset)
+			pci_disable_msi_callback (host->msi_callback);
 		host->intr_mode = NVME_INTR_PIN;
 		printf ("nvme: interrupt mode pin\n");
 	}
@@ -1304,6 +1316,11 @@ nvme_new (struct pci_device *pci_device)
 	}
 
 	host->msi_offset = pci_find_cap_offset (pci_device, PCI_CAP_MSI);
+	if (host->msi_offset)
+		host->msi_callback =
+			pci_register_msi_callback (pci_device,
+						   nvme_completion_handler_msi,
+						   host);
 
 	reghook (nvme_data, 0, &bar_info);
 
@@ -1511,6 +1528,18 @@ intercept_msi_write (struct nvme_host *host,
 						 offset,
 						 &val);
 		done = 1;
+	}
+	if (!done && offset + iosize > msi_cap + 0x4 &&
+	    offset < msi_cap + 0x10) {
+		pci_handle_default_config_write (pci_device, iosize, offset,
+						 data);
+		done = 1;
+	}
+	if (done) {
+		if (check_msi_enable (host))
+			nvme_set_msi_callback (host);
+		else
+			pci_disable_msi_callback (host->msi_callback);
 	}
 end:
 	return done;

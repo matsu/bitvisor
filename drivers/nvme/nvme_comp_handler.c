@@ -34,7 +34,6 @@
  */
 
 #include <core.h>
-#include <core/ap.h>
 #include <core/time.h>
 #include <storage.h>
 #include <storage_io.h>
@@ -473,13 +472,10 @@ nvme_process_all_comp_queues (struct nvme_host *host)
 	nvme_unlock_subm_queue (host, 0);
 }
 
-static void
-filter_unexpected_interrupt (struct nvme_host *host, int *num)
+static bool
+filter_unexpected_interrupt (struct nvme_host *host)
 {
-	int orig_num;
-
-	if (host->intr_mode != NVME_INTR_MSI)
-		return;
+	bool filter = false;
 
 	/*
 	 * On machines that use MSI, we found that after interrupt masking,
@@ -489,24 +485,14 @@ filter_unexpected_interrupt (struct nvme_host *host, int *num)
 	 * driver intercepts IO commands from the guest. We discard the
 	 * interrupts to avoid causing problems to the guest.
 	 */
-
 	spinlock_lock (&host->intr_mask_lock);
-
-	orig_num = *num;
-
 	/*
 	 * NVMe driver allows only a single vector MSI, so (mask & 1) is ok.
-	 * Read INTMS register after interrupt number checking to avoid
-	 * unnecessary MMIO access.
 	 */
-	if (orig_num >= 16 &&
-	    orig_num == host->msi_iv &&
-	    (*(u32 *)NVME_INTMS_REG(host->regs) & 0x1)) {
-		eoi ();
-		*num = -1;
-	}
-
+	if ((*(u32 *)NVME_INTMS_REG (host->regs) & 0x1))
+		filter = true;
 	spinlock_unlock (&host->intr_mask_lock);
+	return filter;
 }
 
 int
@@ -515,9 +501,17 @@ nvme_completion_handler (void *data, int num)
 	struct nvme_data *nvme_data = data;
 	struct nvme_host *host = nvme_data->host;
 
-	filter_unexpected_interrupt (host, &num);
-
 	nvme_process_all_comp_queues (host);
 
 	return num;
+}
+
+bool
+nvme_completion_handler_msi (struct pci_device *pci, void *data)
+{
+	struct nvme_host *host = data;
+
+	if (host->intr_mode != NVME_INTR_MSI)
+		return false;	/* Should not happen */
+	return !filter_unexpected_interrupt (host);
 }
