@@ -141,7 +141,7 @@ struct usb_operations {
 };
 
 struct usb_init_dev_operations {
-	u8 (*dev_addr) (struct usb_request_block *urb);
+	u8 (*dev_addr) (struct usb_host *host, struct usb_request_block *urb);
 	void (*add_hc_specific_data) (struct usb_host *host,
 				      struct usb_device *dev,
 				      struct usb_request_block *urb);
@@ -157,6 +157,7 @@ struct usb_host {
 #define USB_HOST_TYPE_XHCI     0x08U
 	u64 last_changed_port;
 	void *private;
+	const struct mm_as *as_dma;
 	struct usb_device *device;
 	struct usb_operations *op;
 	struct usb_init_dev_operations *init_op;
@@ -331,12 +332,13 @@ void usb_sc_lock (struct usb_host *usb);
 void usb_sc_unlock (struct usb_host *usb);
 struct usb_host *usb_register_host (void *host, struct usb_operations *op,
 				    struct usb_init_dev_operations *init_op,
-				    u8 type);
+				    const struct mm_as *as_dma, u8 type);
 int usb_unregister_devices (struct usb_host *uhc);
 
 #define DEFINE_GET_U16_FROM_SETUP_FUNC(type)				\
 	static inline u16						\
-	get_##type##_from_setup(struct usb_buffer_list *b)		\
+	get_##type##_from_setup (struct usb_host *host,			\
+				 struct usb_buffer_list *b)		\
 	{								\
 									\
 		u16 val;						\
@@ -347,8 +349,8 @@ int usb_unregister_devices (struct usb_host *uhc);
 		    (b->len < sizeof(struct usb_ctrl_setup)))		\
 			return 0U;					\
 		devrequest = (struct usb_ctrl_setup *)			\
-			mapmem_gphys(b->padr,				\
-				     sizeof(struct usb_ctrl_setup), 0); \
+			mapmem_as (host->as_dma, b->padr,		\
+				   sizeof (struct usb_ctrl_setup), 0);	\
 		val = devrequest->type;					\
 		unmapmem(devrequest, sizeof(struct usb_ctrl_setup));	\
 									\

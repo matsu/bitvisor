@@ -93,7 +93,8 @@ mmio_gphys_access (phys_t gphysaddr, bool wr, void *buf, uint len, u32 flags)
 
 	if (!len)
 		return;
-	p = mapmem_gphys (gphysaddr, len, (wr ? MAPMEM_WRITE : 0) | flags);
+	p = mapmem_as (current->as, gphysaddr, len, (wr ? MAPMEM_WRITE : 0) |
+		       flags);
 	ASSERT (p);
 	if (wr)
 		memcpy (p, buf, len);

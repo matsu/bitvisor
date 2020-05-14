@@ -166,9 +166,8 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 	    g_req->cmd.std.flags & 0x20) {
 		buf_list->addr_phys = g_ptr1_phys;
 		buf_list->addr_in_buflist = 0x0;
-		buf_list->buf = mapmem_gphys (g_ptr1_phys,
-					      g_req->total_nbytes,
-					      MAPMEM_WRITE);
+		buf_list->buf = mapmem_as (host->as_dma, g_ptr1_phys,
+					   g_req->total_nbytes, MAPMEM_WRITE);
 		buf_list->nbytes = g_req->total_nbytes;
 		return g_buf;
 	}
@@ -184,9 +183,8 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 			  page_nbytes - ptr1_offset;
 
 	buf_list->addr_phys = g_ptr1_phys;
-	buf_list->buf = mapmem_gphys (g_ptr1_phys,
-				      ptr1_nbytes,
-				      MAPMEM_WRITE);
+	buf_list->buf = mapmem_as (host->as_dma, g_ptr1_phys, ptr1_nbytes,
+				   MAPMEM_WRITE);
 	buf_list->nbytes = ptr1_nbytes;
 
 	remaining_nbytes -= ptr1_nbytes;
@@ -198,9 +196,9 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 		buf_list->next->addr_phys = g_req->g_data_ptr.prp_entry.ptr2;
 		buf_list->next->addr_in_buflist = 0x0;
 		ASSERT (buf_list->next->addr_phys);
-		buf_list->next->buf = mapmem_gphys (g_ptr2_phys,
-						    remaining_nbytes,
-					     	    MAPMEM_WRITE);
+		buf_list->next->buf = mapmem_as (host->as_dma, g_ptr2_phys,
+						 remaining_nbytes,
+						 MAPMEM_WRITE);
 		buf_list->next->nbytes = remaining_nbytes;
 		return g_buf;
 	}
@@ -208,7 +206,8 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 	uint page_idx = (g_ptr2_phys & ~host->page_mask) >> 3;
 	uint page_last_idx = ~host->page_mask >> 3;
 	g_ptr2_phys &= host->page_mask;
-	u64 *g_ptr_list = mapmem_gphys (g_ptr2_phys, page_nbytes, 0);
+	u64 *g_ptr_list = mapmem_as (host->as_dma, g_ptr2_phys, page_nbytes,
+				     0);
 
 	struct g_buf_list *remaining_list = NULL, *cur_buf_list = NULL;
 
@@ -225,8 +224,8 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 			g_ptr2_phys = g_ptr_list[page_idx] & host->page_mask;
 			unmapmem (g_ptr_list, page_nbytes);
 			page_idx = 0;
-			g_ptr_list = mapmem_gphys (g_ptr2_phys, page_nbytes,
-						   0);
+			g_ptr_list = mapmem_as (host->as_dma, g_ptr2_phys,
+						page_nbytes, 0);
 		}
 		cur_buf_list->addr_phys = g_ptr_list[page_idx];
 		cur_buf_list->addr_in_buflist = g_ptr2_phys +
@@ -235,9 +234,10 @@ nvme_io_alloc_g_buf (struct nvme_host *host,
 		cur_buf_list->nbytes = remaining_nbytes <= page_nbytes ?
 				       remaining_nbytes :
 				       page_nbytes;
-		cur_buf_list->buf = mapmem_gphys (g_ptr_list[page_idx],
-						  cur_buf_list->nbytes,
-						  MAPMEM_WRITE);
+		cur_buf_list->buf = mapmem_as (host->as_dma,
+					       g_ptr_list[page_idx],
+					       cur_buf_list->nbytes,
+					       MAPMEM_WRITE);
 		page_idx++;
 		remaining_nbytes -= cur_buf_list->nbytes;
 	}

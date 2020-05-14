@@ -289,6 +289,7 @@ struct ahci_data {
 	struct ahci_hook ahci_io, ahci_mem;
 	bool enabled, not_ahci;
 	struct pci_device *pci;
+	const struct mm_as *as_dma;
 	struct storage_hc_addr hc_addr;
 	struct storage_hc_driver *hc;
 	u32 pi;
@@ -394,8 +395,9 @@ ahci_get_dmalen (struct command_table *cmdtbl, u16 prdtl, unsigned int *intr)
 }
 
 static void
-ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
-		  struct command_table *cmdtbl, u16 prdtl)
+ahci_copy_dmabuf (struct ahci_data *ad, struct ahci_port *port,
+		  int cmdhdr_index, bool wr, struct command_table *cmdtbl,
+		  u16 prdtl)
 {
 	u8 *mybuf = port->my[cmdhdr_index].dmabuf;
 	u32 dba, dbau, dbc;
@@ -415,7 +417,7 @@ ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 			ASSERT (remain >= dbc);
 			remain -= dbc;
 			db_phys = ahci_get_phys (dba & ~1, dbau);
-			gbuf = mapmem_gphys (db_phys, dbc, 0);
+			gbuf = mapmem_as (ad->as_dma, db_phys, dbc, 0);
 			memcpy (mybuf, gbuf, dbc);
 			mybuf += dbc;
 			unmapmem (gbuf, dbc);
@@ -429,7 +431,8 @@ ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 			ASSERT (remain >= dbc);
 			remain -= dbc;
 			db_phys = ahci_get_phys (dba & ~1, dbau);
-			gbuf = mapmem_gphys (db_phys, dbc, MAPMEM_WRITE);
+			gbuf = mapmem_as (ad->as_dma, db_phys, dbc,
+					  MAPMEM_WRITE);
 			memcpy (gbuf, mybuf, dbc);
 			mybuf += dbc;
 			unmapmem (gbuf, dbc);
@@ -911,8 +914,8 @@ ahci_cmd_complete (struct ahci_data *ad, struct ahci_port *port, u32 pxsact,
 	u16 prdtl;
 	phys_t ctphys;
 
-	cmdlist = mapmem_gphys (ahci_get_phys (port->clb, port->clbu),
-				sizeof *cmdlist, MAPMEM_WRITE);
+	cmdlist = mapmem_as (ad->as_dma, ahci_get_phys (port->clb, port->clbu),
+			     sizeof *cmdlist, MAPMEM_WRITE);
 	for (i = 0; i < NUM_OF_COMMAND_HEADER; i++) {
 		if (!(port->shadowbit & (1 << i)))
 			continue;
@@ -926,11 +929,11 @@ ahci_cmd_complete (struct ahci_data *ad, struct ahci_port *port, u32 pxsact,
 			ctphys = ahci_get_phys
 				(cmdlist->cmdhdr[i].ctba & ~CTBA_MASK,
 				 cmdlist->cmdhdr[i].ctbau);
-			cmdtbl = mapmem_gphys (ctphys, cmdtbl_size (prdtl),
-					       MAPMEM_WRITE);
+			cmdtbl = mapmem_as (ad->as_dma, ctphys,
+					    cmdtbl_size (prdtl), MAPMEM_WRITE);
 			ahci_cmd_posthook (ad, port, i);
 			if (!(port->mycmdlist->cmdhdr[i].w)) /* read */
-				ahci_copy_dmabuf (port, i, false, cmdtbl,
+				ahci_copy_dmabuf (ad, port, i, false, cmdtbl,
 						  prdtl);
 			unmapmem (cmdtbl, cmdtbl_size (prdtl));
 			free (port->my[i].dmabuf);
@@ -954,8 +957,8 @@ ahci_cmd_start (struct ahci_data *ad, struct ahci_port *pt, u32 pxci)
 	u32 totalsize;
 	unsigned int intrflag;
 
-	cmdlist = mapmem_gphys (ahci_get_phys (pt->clb, pt->clbu),
-				sizeof *cmdlist, MAPMEM_WRITE);
+	cmdlist = mapmem_as (ad->as_dma, ahci_get_phys (pt->clb, pt->clbu),
+			     sizeof *cmdlist, MAPMEM_WRITE);
 	for (i = 0; i < NUM_OF_COMMAND_HEADER; i++) {
 		if (!(pxci & (1 << i)))
 			continue;
@@ -966,8 +969,8 @@ ahci_cmd_start (struct ahci_data *ad, struct ahci_port *pt, u32 pxci)
 			ctphys = ahci_get_phys
 				(cmdlist->cmdhdr[i].ctba & ~CTBA_MASK,
 				 cmdlist->cmdhdr[i].ctbau);
-			cmdtbl = mapmem_gphys (ctphys, cmdtbl_size (prdtl),
-					       MAPMEM_WRITE);
+			cmdtbl = mapmem_as (ad->as_dma, ctphys,
+					    cmdtbl_size (prdtl), MAPMEM_WRITE);
 			totalsize = ahci_get_dmalen (cmdtbl, prdtl, &intrflag);
 			ASSERT (totalsize <= 4 * 1024 * 1024);
 			if (pt->my[i].dmabuf != NULL)
@@ -989,7 +992,8 @@ ahci_cmd_start (struct ahci_data *ad, struct ahci_port *pt, u32 pxci)
 			pt->my[i].cmdtbl->prdt[0].i = intrflag;
 			pt->mycmdlist->cmdhdr[i].prdtl = 1;
 			if (pt->mycmdlist->cmdhdr[i].w) /* write */
-				ahci_copy_dmabuf (pt, i, true, cmdtbl, prdtl);
+				ahci_copy_dmabuf (ad, pt, i, true, cmdtbl,
+						  prdtl);
 			ahci_cmd_prehook (ad, pt, i);
 			unmapmem (cmdtbl, cmdtbl_size (prdtl));
 		} else {
@@ -1675,7 +1679,8 @@ reghook (struct ahci_hook *d, int i, int off, struct pci_bar_info *bar,
 			return;
 		d->mapaddr = bar->base;
 		d->maplen = bar->len;
-		d->map = mapmem_gphys (bar->base, bar->len, MAPMEM_WRITE);
+		d->map = mapmem_as (as_passvm, bar->base, bar->len,
+				    MAPMEM_WRITE);
 		if (!d->map)
 			panic ("mapmem failed");
 		d->io = 0;
@@ -1767,6 +1772,7 @@ ahci_new (struct pci_device *pci_device)
 	ad->ahci_io.ad = ad;
 	ad->ahci_mem.ad = ad;
 	ad->pci = pci_device;
+	ad->as_dma = pci_device->as_dma;
 	STORAGE_HC_ADDR_PCI (ad->hc_addr.addr, pci_device);
 	ad->hc_addr.type = STORAGE_HC_TYPE_AHCI;
 	LIST2_HEAD_INIT (ad->ahci_cmd_list, list);

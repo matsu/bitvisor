@@ -205,6 +205,7 @@ gmm_pass_init (void)
 {
 	memcpy ((void *)&current->gmm, (void *)&func, sizeof func);
 	current->pte_addr_mask = get_pte_addr_mask ();
+	current->as = as_passvm;
 }
 
 INITFUNC ("bsp0", install_int0x15_hook);

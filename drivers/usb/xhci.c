@@ -238,8 +238,10 @@ create_h_cmd_ring (struct xhci_host *host, u64 g_cmd_ring, void *handler_data)
 		size_t trb_nbytes = host->g_data.cmd_n_trbs * XHCI_TRB_NBYTES;
 
 		struct xhci_trb *g_cmd_trbs;
-		g_cmd_trbs = (struct xhci_trb *)mapmem_gphys (g_cmd_ring_addr,
-							      trb_nbytes, 0);
+		g_cmd_trbs = (struct xhci_trb *)mapmem_as (host->usb_host->
+							   as_dma,
+							   g_cmd_ring_addr,
+							   trb_nbytes, 0);
 		host->g_data.cmd_trbs = g_cmd_trbs;
 
 		size_t cb_nbytes = host->g_data.cmd_n_trbs * sizeof (after_cb);
@@ -284,9 +286,9 @@ create_h_dev_ctx (struct xhci_host *host, u64 g_dev_ctx, void *handler_data)
 		unmapmem (host->g_data.dev_ctx_array, dev_ctx_phys_nbytes);
 	}
 
-	host->g_data.dev_ctx_array = mapmem_gphys (g_dev_ctx,
-						   dev_ctx_phys_nbytes,
-						   MAPMEM_WRITE);
+	host->g_data.dev_ctx_array = mapmem_as (host->usb_host->as_dma,
+						g_dev_ctx, dev_ctx_phys_nbytes,
+						MAPMEM_WRITE);
 
 	if (host->dev_ctx_array) {
 		return host->dev_ctx_addr;
@@ -379,6 +381,7 @@ take_control_erst (struct xhci_data *xhci_data)
 {
 	struct xhci_host *host = xhci_data->host;
 	struct xhci_regs *regs = host->regs;
+	const struct mm_as *const as = host->usb_host->as_dma;
 
 	struct erst_data erst_data;
 	struct xhci_erst_data *g_erst_data, *h_erst_data;
@@ -397,7 +400,7 @@ take_control_erst (struct xhci_data *xhci_data)
 			continue;
 		}
 
-		xhci_create_shadow_erst (h_erst_data, g_erst_data);
+		xhci_create_shadow_erst (as, h_erst_data, g_erst_data);
 
 		erdp_reg = (u64 *)(INTR_REG (regs, i) + RTS_ERDP_OFFSET);
 		erst_reg = (u64 *)(INTR_REG (regs, i) + RTS_ERSTBA_OFFSET);
@@ -1240,10 +1243,11 @@ reghook (struct xhci_data *xhci_data, struct pci_bar_info *bar)
 
 	regs->iobase  = bar->base;
 	regs->map_len = bar->len;
-	regs->reg_map = mapmem_gphys (bar->base, bar->len, MAPMEM_WRITE);
+	regs->reg_map = mapmem_as (as_passvm, bar->base, bar->len,
+				   MAPMEM_WRITE);
 
 	if (!regs->reg_map) {
-		panic ("Cannot mapmem_gphys() xHC registers.");
+		panic ("Cannot mapmem_as() xHC registers.");
 	}
 
 	xhci_data->handler = mmio_register (bar->base, bar->len,
@@ -1466,7 +1470,7 @@ xhci_set_erst_data (struct xhci_host *host)
 }
 
 static u8
-xhci_dev_addr (struct usb_request_block *h_urb)
+xhci_dev_addr (struct usb_host *usb_host, struct usb_request_block *h_urb)
 {
 	struct usb_host *usbhc = h_urb->host;
 	struct xhci_host *host = (struct xhci_host *)usbhc->private;
@@ -1604,6 +1608,7 @@ xhci_new (struct pci_device *pci_device)
 
 	host->usb_host = usb_register_host ((void *)host, &xhciop,
 					    &xhci_init_dev_op,
+					    pci_device->as_dma,
 					    USB_HOST_TYPE_XHCI);
 	ASSERT (host->usb_host != NULL);
 

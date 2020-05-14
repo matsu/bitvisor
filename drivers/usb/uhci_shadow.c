@@ -309,7 +309,8 @@ uhci_shadow_buffer(struct usb_host *usbhc,
 
 		ASSERT(hub->vadr);
 		if (flag) {
-			gvadr = (virt_t)mapmem_gphys(gub->padr, gub->len, 0);
+			gvadr = (virt_t)mapmem_as (usbhc->as_dma, gub->padr,
+						   gub->len, 0);
 			ASSERT(gvadr);
 			memcpy((void *)hub->vadr, (void *)gvadr, hub->len);
 			unmapmem((void *)gvadr, gub->len);
@@ -1390,7 +1391,7 @@ scan_gframelist(struct uhci_host *host)
 	usb_sc_lock(host->hc);
 
 	host->gframelist_virt = 
-		mapmem_gphys(host->gframelist, PAGESIZE, 0);
+		mapmem_as (host->hc->as_dma, host->gframelist, PAGESIZE, 0);
 	for (frid = 0; frid < UHCI_NUM_FRAMES; frid++) {
 			dprintft(4, "%04x: %s: FRAME[%04d]:", 
 			host->iobase, __FUNCTION__, frid);

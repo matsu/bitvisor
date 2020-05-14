@@ -152,6 +152,7 @@ virtual_virtio_net_new (struct pci_virtual_device *dev)
 	d->mmio_handle = NULL;
 	d->virtio_net = virtio_net_init (&virtio_net_func,
 					 d->macaddr,
+					 dev->as_dma,
 					 virtual_virtio_net_intr_clear,
 					 virtual_virtio_net_intr_set,
 					 virtual_virtio_net_intr_disable,

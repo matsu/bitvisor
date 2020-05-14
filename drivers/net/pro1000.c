@@ -213,6 +213,7 @@ struct data2 {
 	u32 rctl, rfctl, tctl;
 	u8 macaddr[6];
 	struct pci_device *pci_device;
+	const struct mm_as *as_dma;
 	u32 regs_at_init[PCI_CONFIG_REGS32_NUM];
 	bool seize;
 	bool conceal;
@@ -446,7 +447,8 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 		copied = 0;
 		if (i == j)
 			return;
-		rd = mapmem_gphys (k + i * 16, sizeof *rd, MAPMEM_WRITE);
+		rd = mapmem_as (d2->as_dma, k + i * 16, sizeof *rd,
+				MAPMEM_WRITE);
 		ASSERT (rd);
 		if (d2->rfctl & 0x8000) {
 			rd1 = (void *)rd;
@@ -455,7 +457,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 				return;
 			}
 		}
-		buf = mapmem_gphys (rd->addr, bufsize, MAPMEM_WRITE);
+		buf = mapmem_as (d2->as_dma, rd->addr, bufsize, MAPMEM_WRITE);
 		ASSERT (buf);
 		if (pktlen <= bufsize) {
 			if (pktlen > asize) {
@@ -664,7 +666,7 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 	i = BUFSIZE - d2->len;
 	if (i > *len)
 		i = *len;
-	q = mapmem_gphys (*addr, i, 0);
+	q = mapmem_as (d2->as_dma, *addr, i, 0);
 	memcpy (d2->buf + d2->len, q, i);
 	d2->len += i;
 	unmapmem (q, i);
@@ -972,7 +974,8 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 	k = s->base.ll;
 	l = s->len;
 	while (i != j) {
-		td = mapmem_gphys (k + i * 16, sizeof *td, MAPMEM_WRITE);
+		td = mapmem_as (d2->as_dma, k + i * 16, sizeof *td,
+				MAPMEM_WRITE);
 		ASSERT (td);
 		if (process_tdesc (d2, td))
 			break;
@@ -1233,7 +1236,8 @@ reghook (struct data *d, int i, struct pci_bar_info *bar)
 	} else {
 		d->mapaddr = bar->base;
 		d->maplen = bar->len;
-		d->map = mapmem_gphys (bar->base, bar->len, MAPMEM_WRITE);
+		d->map = mapmem_as (as_passvm, bar->base, bar->len,
+				    MAPMEM_WRITE);
 		if (!d->map)
 			panic ("mapmem failed");
 		d->io = 0;
@@ -1262,8 +1266,8 @@ change_bar0 (struct pci_device *pci_device, u8 iosize, u16 offset,
 					data))
 		return;
 	old_map = d->map;
-	new_map = mapmem_gphys (bar_info.base, bar_info.len,
-				MAPMEM_WRITE);
+	new_map = mapmem_as (as_passvm, bar_info.base, bar_info.len,
+			     MAPMEM_WRITE);
 	if (!new_map)
 		panic ("mapmem failed");
 
@@ -1548,10 +1552,12 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
 	d2->pci_device = pci_device;
+	d2->as_dma = pci_device->as_dma;
 	d2->virtio_net = NULL;
 	if (option_virtio) {
 		d2->virtio_net = virtio_net_init (&virtio_net_func,
 						  d2->macaddr,
+						  d2->as_dma,
 						  pro1000_intr_clear,
 						  pro1000_intr_set,
 						  pro1000_intr_disable,

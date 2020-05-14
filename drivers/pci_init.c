@@ -261,6 +261,7 @@ static struct pci_device *pci_new_device(pci_config_address_t addr)
 		else
 			dev->initial_bus_no = 0;
 		dev->config_mmio = pci_search_config_mmio (0, addr.bus_no);
+		dev->as_dma = as_passvm;
 		pci_config_pmio_enter ();
 		pci_read_config_space(dev);
 		pci_save_base_address_masks(dev);
@@ -359,6 +360,7 @@ static void pci_find_devices()
 					   &dn, &fn);
 		virtual_device->address =
 			pci_make_config_address (0, dn, fn, 0);
+		virtual_device->as_dma = as_passvm;
 		virtual_device->driver->new (virtual_device);
 		vnum++;
 	}

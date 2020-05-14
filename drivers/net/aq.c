@@ -1366,6 +1366,7 @@ aq_new (struct pci_device *dev)
 
 	aq->virtio_net = virtio_net_init (&virtio_net_func,
 					  aq->mac,
+					  dev->as_dma,
 					  aq_intr_clear,
 					  aq_intr_set,
 					  aq_intr_disable,

@@ -60,9 +60,10 @@ static struct usb_operations ehciop = {
 DEFINE_GET_U16_FROM_SETUP_FUNC (wValue)
 
 static u8
-ehci_dev_addr (struct usb_request_block *h_urb)
+ehci_dev_addr (struct usb_host *host, struct usb_request_block *h_urb)
 {
-	return (u8)get_wValue_from_setup (h_urb->shadow->buffers) & 0x7fU;
+	return (u8)get_wValue_from_setup (host, h_urb->shadow->buffers) &
+		0x7fU;
 }
 
 static struct usb_init_dev_operations ehci_init_dev_op = {
@@ -92,6 +93,7 @@ ehci_new(struct pci_device *pci_device)
 	LIST2_HEAD_INIT (host->update, update);
 	host->usb_host = usb_register_host ((void *)host, &ehciop,
 					    &ehci_init_dev_op,
+					    pci_device->as_dma,
 					    USB_HOST_TYPE_EHCI);
 	ASSERT(host->usb_host != NULL);
 	usb_init_device_monitor(host->usb_host);
@@ -123,7 +125,8 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 	if (wr)
 		memcpy (&buf32, buf, len);
 	offset = gphys - host->iobase;
-	reg = (u32 *)mapmem_gphys(gphys, sizeof(u32), MAPMEM_WRITE|MAPMEM_PCD);
+	reg = (u32 *)mapmem_as (as_passvm, gphys, sizeof (u32),
+				MAPMEM_WRITE | MAPMEM_PCD);
 
 #define REGPRN(_level, _wr, _regname) {			    \
 		if (_wr)				    \
@@ -571,7 +574,8 @@ ehci_conceal_new(struct pci_device *pci_device)
 		return;
 
 	/* CONFIGFLAG */
-	reg = (u32 *)mapmem_gphys(iobase + 0x20U + 0x40U, sizeof(u32), 0);
+	reg = (u32 *)mapmem_as (as_passvm, iobase + 0x20U + 0x40U,
+				sizeof (u32), MAPMEM_WRITE);
 	printf("EHCI: CONFIGFLAG: %08x -> ", *reg);
 	if (*reg) {
 		*reg = 0U;
@@ -582,12 +586,12 @@ ehci_conceal_new(struct pci_device *pci_device)
 	timer_set(handle, 1000 * 1000);
 
 	/* HCSPARAMS */
-	reg = (u32 *)mapmem_gphys(iobase + 0x04U, sizeof(u32), 0);
+	reg = (u32 *)mapmem_as (as_passvm, iobase + 0x04U, sizeof (u32), 0);
 	printf("EHCI: HCSPARAMS: %08x\n", *reg);
 	unmapmem(reg, sizeof(u32));
 
 	/* HCSP-PORTROUTE */
-	reg = (u32 *)mapmem_gphys(iobase + 0x0cU, sizeof(u32), 0);
+	reg = (u32 *)mapmem_as (as_passvm, iobase + 0x0cU, sizeof (u32), 0);
 	printf("EHCI: HCSP-PORTROUTE: %08x\n", *reg);
 	unmapmem(reg, sizeof(u32));
 

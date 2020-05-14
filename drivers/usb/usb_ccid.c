@@ -168,8 +168,8 @@ select_descriptor(u8 devadr, struct usb_ctrl_setup *setup, size_t *desclen)
 }
 
 static size_t
-write_descriptor(phys_t buf_phys, size_t buflen, 
-		 u8 **desc, size_t *desclen)
+write_descriptor (const struct mm_as *as, phys_t buf_phys, size_t buflen,
+		  u8 **desc, size_t *desclen)
 {
 	u8 *vadr;
 	size_t len;
@@ -177,7 +177,7 @@ write_descriptor(phys_t buf_phys, size_t buflen,
 	if ((*desclen <= 0) || (*desc == NULL))
 		return 0;
 
-	vadr = mapmem_gphys(buf_phys, buflen, MAPMEM_WRITE);
+	vadr = mapmem_as (as, buf_phys, buflen, MAPMEM_WRITE);
 	len = (buflen < *desclen) ? buflen : *desclen;
 	memcpy(vadr, *desc, len);
 	unmapmem(vadr, buflen);
@@ -214,8 +214,8 @@ usbccid_intercept(struct usb_host *usbhc,
 			ASSERT(len == sizeof(struct usb_ctrl_setup));
 			ASSERT(tdm->td->buffer != 0);
 			setup = (struct usb_ctrl_setup *)
-				mapmem_gphys(tdm->td->buffer, 
-					     sizeof(*setup), 0);
+				mapmem_as (usbhc->as_dma, tdm->td->buffer,
+					   sizeof *setup, 0);
 			ASSERT(setup != NULL);
 			desclen = setup->wLength;
 			desc = select_descriptor(dev->devnum, setup, &desclen);
@@ -245,8 +245,9 @@ usbccid_intercept(struct usb_host *usbhc,
 				break;
 			}
 
-			len -= write_descriptor(tdm->td->buffer, len, 
-						&desc, &desclen);
+			len -= write_descriptor (usbhc->as_dma,
+						 tdm->td->buffer, len,
+						 &desc, &desclen);
 			actlen = uhci_td_maxlen(tdm->td) - len;
 			ASSERT(actlen <= 1280);
 			if (actlen == 0)

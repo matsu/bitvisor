@@ -70,7 +70,8 @@ xhci_unmap_guest_erst (struct xhci_erst_data *g_erst_data)
 }
 
 void
-xhci_create_shadow_erst (struct xhci_erst_data *h_erst_data,
+xhci_create_shadow_erst (const struct mm_as *as,
+			 struct xhci_erst_data *h_erst_data,
 			 struct xhci_erst_data *g_erst_data)
 {
 	size_t erst_nbytes = XHCI_ERST_NBYTES * g_erst_data->erst_size;
@@ -126,9 +127,9 @@ xhci_create_shadow_erst (struct xhci_erst_data *h_erst_data,
 
 	phys_t g_erst_addr = g_erst_data->erst_addr;
 
-	g_erst_data->erst = (struct xhci_erst *)mapmem_gphys (g_erst_addr,
-							      erst_nbytes,
-							      0);
+	g_erst_data->erst = (struct xhci_erst *)mapmem_as (as, g_erst_addr,
+							   erst_nbytes,
+							   0);
 
 	struct xhci_erst *g_erst = g_erst_data->erst;
 
@@ -140,9 +141,9 @@ xhci_create_shadow_erst (struct xhci_erst_data *h_erst_data,
 	for (i = 0; i < g_erst_data->erst_size; i++) {
 		trb_nbytes = XHCI_TRB_NBYTES * g_erst[i].n_trbs;
 
-		g_trbs = (struct xhci_trb *)mapmem_gphys (g_erst[i].trb_addr,
-							  trb_nbytes,
-							  MAPMEM_WRITE);
+		g_trbs = (struct xhci_trb *)mapmem_as (as, g_erst[i].trb_addr,
+						       trb_nbytes,
+						       MAPMEM_WRITE);
 		g_erst_data->trb_array[i] = g_trbs;
 
 		if (!h_erst_data->trb_array[i]) {
@@ -296,9 +297,8 @@ clone_dev_ctx_to_guest (struct xhci_host *host, uint slot_id)
 
 		struct xhci_dev_ctx *g_dev_ctx;
 		g_dev_ctx = (struct xhci_dev_ctx *)
-			    mapmem_gphys (dev_ctx_addr,
-					  XHCI_DEV_CTX_NBYTES,
-					  MAPMEM_WRITE);
+			mapmem_as (host->usb_host->as_dma, dev_ctx_addr,
+				   XHCI_DEV_CTX_NBYTES, MAPMEM_WRITE);
 
 		host->g_data.dev_ctx[slot_id] = g_dev_ctx;
 	}
@@ -1102,9 +1102,9 @@ construct_tr (struct xhci_host *host, struct xhci_slot_meta *h_slot_meta,
 	/* Set up guest's tr[0] */
 	g_tr_seg	   = &g_ep_tr->tr_segs[0];
 	g_tr_seg->trb_addr = tr_base;
-	g_tr_seg->trbs	   = (struct xhci_trb *)mapmem_gphys (tr_base,
-							      trb_nbytes,
-							      0);
+	g_tr_seg->trbs	   = (struct xhci_trb *)mapmem_as (host->usb_host->
+							   as_dma, tr_base,
+							   trb_nbytes, 0);
 
 	if (ep_no == 0) {
 		n_trbs	   = XHCI_HOST_N_TRBS;
@@ -1129,9 +1129,8 @@ clone_input_ctx (struct xhci_host *host, uint slot_id, phys_t g_input_ctx_addr)
 
 	struct xhci_input_dev_ctx *g_input_ctx;
 	g_input_ctx = (struct xhci_input_dev_ctx *)
-		      mapmem_gphys (g_input_ctx_addr,
-				    XHCI_INPUT_DEV_CTX_NBYTES,
-				    0);
+		mapmem_as (host->usb_host->as_dma, g_input_ctx_addr,
+			   XHCI_INPUT_DEV_CTX_NBYTES, 0);
 
 	*h_slot_meta->input_ctx = *g_input_ctx;
 
@@ -1968,8 +1967,9 @@ expand_tr_segs (struct xhci_ep_tr *h_ep_tr, struct xhci_ep_tr *g_ep_tr)
 #define NEW_LINK (1 << 1)
 
 static uint
-get_next_seg (struct xhci_trb *link_trb, uint current_seg,
-	      struct xhci_ep_tr *h_ep_tr, struct xhci_ep_tr *g_ep_tr)
+get_next_seg (const struct mm_as *as, struct xhci_trb *link_trb,
+	      uint current_seg, struct xhci_ep_tr *h_ep_tr,
+	      struct xhci_ep_tr *g_ep_tr)
 {
 	uint next_seg = 0;
 
@@ -2015,9 +2015,8 @@ get_next_seg (struct xhci_trb *link_trb, uint current_seg,
 
 		/* Map new found link */
 		struct xhci_trb *next_trbs;
-		next_trbs = (struct xhci_trb *)mapmem_gphys (next_tr,
-							     trb_nbytes,
-							     0);
+		next_trbs = (struct xhci_trb *)mapmem_as (as, next_tr,
+							  trb_nbytes, 0);
 
 		g_ep_tr->tr_segs[next_seg].trbs = next_trbs;
 		break;
@@ -2068,7 +2067,7 @@ init_urb (struct xhci_host *host, uint slot_id, uint ep_no,
 }
 
 static u8
-process_tx_trb (struct usb_request_block *g_urb,
+process_tx_trb (const struct mm_as *as_dma, struct usb_request_block *g_urb,
 		struct xhci_trb *g_trb,
 		uint i_trb,
 		struct xhci_ep_tr *h_ep_tr,
@@ -2113,7 +2112,7 @@ process_tx_trb (struct usb_request_block *g_urb,
 
 	switch (type) {
 	case XHCI_TRB_TYPE_LINK:
-		next_seg = get_next_seg (g_trb,
+		next_seg = get_next_seg (as_dma, g_trb,
 					 current_seg,
 					 h_ep_tr,
 					 g_ep_tr);
@@ -2255,7 +2254,8 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 			struct xhci_urb_private *urb_priv;
 			urb_priv = XHCI_URB_PRIVATE (new_g_urb);
 
-			u8 keep_going = process_tx_trb (new_g_urb,
+			u8 keep_going = process_tx_trb (host->usb_host->as_dma,
+							new_g_urb,
 							&g_trbs[i_trb],
 							i_trb,
 							h_ep_tr,
@@ -2401,7 +2401,8 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 
 		if (clone_content) {
 			void *g_vaddr;
-			g_vaddr = mapmem_gphys (g_ub->padr, g_ub->len, 0);
+			g_vaddr = mapmem_as (usbhc->as_dma, g_ub->padr,
+					     g_ub->len, 0);
 
 			memcpy ((void *)h_ub->vadr, g_vaddr, g_ub->len);
 			unmapmem (g_vaddr, g_ub->len);
@@ -2695,9 +2696,8 @@ xhci_ep0_copyback (struct usb_host *usbhc,
 	while (h_ub && g_ub) {
 
 		if (g_ub->pid == USB_PID_IN) {
-			void *g_vaddr = mapmem_gphys (g_ub->padr,
-						      g_ub->len,
-						      MAPMEM_WRITE);
+			void *g_vaddr = mapmem_as (usbhc->as_dma, g_ub->padr,
+						   g_ub->len, MAPMEM_WRITE);
 			memcpy (g_vaddr, (void *)h_ub->vadr, g_ub->len);
 			unmapmem (g_vaddr, g_ub->len);
 		}

@@ -310,7 +310,8 @@ nvme_set_max_n_queues (struct nvme_host *host,
 }
 
 void
-nvme_init_queue_info (struct nvme_queue_info *h_queue_info,
+nvme_init_queue_info (const struct mm_as *as,
+		      struct nvme_queue_info *h_queue_info,
 		      struct nvme_queue_info *g_queue_info,
 		      uint page_nbytes,
 		      u16 h_queue_n_entries,
@@ -337,9 +338,7 @@ nvme_init_queue_info (struct nvme_queue_info *h_queue_info,
 	h_queue_info->queue_phys = h_queue_phys;
 
 	g_queue_info->queue_phys = g_queue_phys;
-	g_queue_info->queue = mapmem_gphys (g_queue_phys,
-					    g_nbytes,
-					    map_flag);
+	g_queue_info->queue = mapmem_as (as, g_queue_phys, g_nbytes, map_flag);
 
 	h_queue_info->paired_comp_queue_id = NVME_NO_PAIRED_COMP_QUEUE_ID;
 	g_queue_info->paired_comp_queue_id = NVME_NO_PAIRED_COMP_QUEUE_ID;

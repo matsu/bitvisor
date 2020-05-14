@@ -93,16 +93,6 @@ static struct type *calloc_##type(int n)		\
 	return p;					\
 }
 
-phys_t core_mm_read_guest_phys(phys_t phys, void *buf, int len);
-phys_t core_mm_write_guest_phys(phys_t phys, void *buf, int len);
-static inline u64 core_mm_read_guest_phys64(phys_t phys)
-{
-	u64 data;
-
-	core_mm_read_guest_phys (phys, &data, sizeof data);
-	return data;
-}
-
 /** debug functions */
 #include <core/panic.h>
 #include <core/printf.h>

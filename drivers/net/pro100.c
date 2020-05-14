@@ -184,7 +184,8 @@ mmio_gphys_access (phys_t gphysaddr, bool wr, void *buf, uint len, u32 flags)
 
 	if (!len)
 		return;
-	p = mapmem_gphys (gphysaddr, len, (wr ? MAPMEM_WRITE : 0) | flags);
+	p = mapmem_as (as_passvm, gphysaddr, len,
+		       (wr ? MAPMEM_WRITE : 0) | flags);
 	ASSERT (p);
 	if (wr)
 		memcpy (p, buf, len);
@@ -1789,6 +1790,8 @@ void pro100_new(struct pci_device *dev)
 {
 	PRO100_CTX *ctx = SeZeroMalloc(sizeof(PRO100_CTX));
 
+	if (dev->as_dma != as_passvm)
+		panic ("%s: IOMMU pass-through is not supported", __func__);
 	debugprint ("pro100_new\n");
 
 #ifdef VTD_TRANS

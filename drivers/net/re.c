@@ -148,6 +148,7 @@ re_new (struct pci_device *dev)
 	if (option_virtio)
 		host->virtio_net = virtio_net_init (&virtio_net_func,
 						    host->mac,
+						    dev->as_dma,
 						    re_core_intr_clear,
 						    re_core_intr_set,
 						    re_core_intr_disable,

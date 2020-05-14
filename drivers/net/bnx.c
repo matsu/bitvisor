@@ -210,10 +210,8 @@ do_mmio (struct bnx *bnx, phys_t gphysaddr, bool wr, void *buf, uint len)
 
 	if (!len)
 		return;
-	/* use mapmem_hphys to avoid NULL pointer dereference in mm.c
-	 * when application processors are started */
-	p = mapmem_hphys (gphysaddr, len,
-			  (wr ? MAPMEM_WRITE : 0) | MAPMEM_PCD | MAPMEM_PWT);
+	p = mapmem_as (as_passvm, gphysaddr, len,
+		       (wr ? MAPMEM_WRITE : 0) | MAPMEM_PCD | MAPMEM_PWT);
 	ASSERT (p);
 	if (wr)
 		memcpy (p, buf, len);
@@ -1176,6 +1174,7 @@ bnx_new (struct pci_device *pci_device)
 	bnx->virtio_net = NULL;
 	if (option_virtio) {
 		bnx->virtio_net = virtio_net_init (&virtio_net_func, bnx->mac,
+						   pci_device->as_dma,
 						   bnx_intr_clear,
 						   bnx_intr_set,
 						   bnx_intr_disable,

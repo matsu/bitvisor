@@ -150,6 +150,7 @@ struct pci_device {
 		struct pci_bridge_callback_list *callback_list;
 	} bridge;
 	struct pci_device *parent_bridge;
+	const struct mm_as *as_dma;
 	int disconnect;
 	int hotplug;
 	u8 fake_command_mask, fake_command_fixed, fake_command_virtual;
@@ -177,6 +178,7 @@ struct pci_virtual_device {
 	void *host;
 	struct pci_virtual_driver *driver;
 	char **driver_options;
+	const struct mm_as *as_dma;
 };
 
 struct pci_virtual_driver {

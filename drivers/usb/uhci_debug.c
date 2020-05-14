@@ -82,7 +82,8 @@ dump_td_byvirt(int level, struct uhci_host *host, struct uhci_td *td)
 		if (len && td->buffer) {
 			dprintft(level, "%04x:  BUF(%s, %4d/%4d byte(s)) = ", 
 				 host->iobase, dir, actlen, maxlen);
-			va = (virt_t)mapmem_gphys(td->buffer, len, 0);
+			va = (virt_t)mapmem_as (host->hc->as_dma, td->buffer,
+						len, 0);
 			for (i = 0; i < len; i++)
 				dprintf(level, "%02x ", *(u8 *)(va + i));
 			dprintf(level, "\n");
@@ -212,7 +213,8 @@ dump_frame(int level, struct uhci_host *host, int frid,
 	if (flag & MAP_HPHYS)
 		cur_frame = mapmem_hphys (framelist_phys, PAGESIZE, 0);
 	else
-		cur_frame = mapmem_gphys (framelist_phys, PAGESIZE, 0);
+		cur_frame = mapmem_as (host->hc->as_dma, framelist_phys,
+				       PAGESIZE, 0);
 	padr = *(cur_frame + frid);
 	unmapmem(cur_frame, PAGESIZE);
 	

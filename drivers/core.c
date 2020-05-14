@@ -35,35 +35,6 @@
  */
 #include <core.h>
 
-static phys_t
-core_rw_phys (phys_t phys, int rw, void *buf, int len)
-{
-	void *p;
-
-	p = mapmem_gphys (phys, len, rw ? MAPMEM_WRITE : 0);
-	if (!p)
-		panic ("core_rw_phys: mapmem(0x%llX, %d, %p, %d) failed.",
-		       phys, rw, buf, len);
-	if (rw)
-		memcpy (p, buf, len);
-	else
-		memcpy (buf, p, len);
-	unmapmem (p, len);
-	return phys + len;
-}
-
-phys_t core_mm_read_guest_phys(phys_t phys, void *buf, int len)
-{
-//	printf("%s: %x -> %p: %d bytes\n", __func__, (u32)phys, buf, len);
-	return core_rw_phys(phys, 0, buf, len);
-}
-
-phys_t core_mm_write_guest_phys(phys_t phys, void *buf, int len)
-{
-//	printf("%s: %p <- %x: %d\n", __func__, buf, (u32)phys, len);
-	return core_rw_phys(phys, 1, buf, len);
-}
-
 static bool iotype_is_out(enum iotype iotype)
 {
 	switch(iotype) {

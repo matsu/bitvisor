@@ -46,6 +46,7 @@ void virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
 		      union mem *data);
 int virtio_intr (void *handle);
 void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
+		       const struct mm_as *as_dma,
 		       void (*intr_clear) (void *intr_param),
 		       void (*intr_set) (void *intr_param),
 		       void (*intr_disable) (void *intr_param),
@@ -89,6 +90,7 @@ virtio_intr (void *handle)
 
 static inline void *
 virtio_net_init (struct nicfunc **func, u8 *macaddr,
+		 const struct mm_as *as_dma,
 		 void (*intr_clear) (void *intr_param),
 		 void (*intr_set) (void *intr_param),
 		 void (*intr_disable) (void *intr_param),

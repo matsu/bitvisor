@@ -435,6 +435,7 @@ struct nvme_io_interceptor;
 
 struct nvme_host {
 	struct pci_device *pci;
+	const struct mm_as *as_dma;
 
 	struct nvme_queue h_queue;
 	struct nvme_queue g_queue;
@@ -527,7 +528,8 @@ void nvme_set_max_n_queues (struct nvme_host *host,
 			    u16 max_n_subm_queues,
 			    u16 max_n_comp_queues);
 
-void nvme_init_queue_info (struct nvme_queue_info *h_queue_info,
+void nvme_init_queue_info (const struct mm_as *as,
+			   struct nvme_queue_info *h_queue_info,
 			   struct nvme_queue_info *g_queue_info,
 			   uint page_nbytes,
 			   u16 h_queue_n_entries,

@@ -289,7 +289,7 @@ ieee1394log_new (struct pci_device *pci_device)
 
 	ctx->base = bar.base;
 	ctx->len = len;
-	ctx->regs = mapmem_gphys (bar.base, len, MAPMEM_WRITE);
+	ctx->regs = mapmem_as (as_passvm, bar.base, len, MAPMEM_WRITE);
 	ctx->hook = mmio_register (bar.base, len, ieee1394log_mmhandler, ctx);
 	ASSERT (ctx->regs);
 	ASSERT (ctx->hook);

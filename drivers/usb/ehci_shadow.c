@@ -185,7 +185,8 @@ ehci_shadow_buffer(struct usb_host *usbhc,
 		hub->padr += curoff;
 
 		if (flag) {
-			gvadr = (virt_t)mapmem_gphys(gub->padr, gub->len, 0);
+			gvadr = (virt_t)mapmem_as (usbhc->as_dma, gub->padr,
+						   gub->len, 0);
 			ASSERT(gvadr);
 			memcpy((void *)hub->vadr, (void *)gvadr, hub->len);
 			unmapmem((void *)gvadr, gub->len);
@@ -344,7 +345,7 @@ shadow_qtdm_list(struct ehci_qtd_meta *gqtdm,
 }
 
 static struct ehci_qtd_meta *
-register_qtdm(phys_t qtd_phys)
+register_qtdm (const struct mm_as *as, phys_t qtd_phys)
 {
 	struct ehci_qtd_meta *qtdm;
 
@@ -352,8 +353,8 @@ register_qtdm(phys_t qtd_phys)
 	ASSERT(qtdm != NULL);
 	qtdm->qtd_phys = qtd_phys;
 	qtdm->qtd = (struct ehci_qtd *)
-		mapmem_gphys(qtdm->qtd_phys,
-			     sizeof(struct ehci_qtd), MAPMEM_WRITE);
+		mapmem_as (as, qtdm->qtd_phys, sizeof (struct ehci_qtd),
+			   MAPMEM_WRITE);
 	qtdm->altnext = NULL;
 	qtdm->ovlay = NULL;
 	qtdm->check_advance_count = 0;
@@ -365,7 +366,7 @@ register_qtdm(phys_t qtd_phys)
 }
 
 static struct ehci_qtd_meta *
-register_qtdm_list (struct ehci_qh *qh_copy,
+register_qtdm_list (const struct mm_as *as, struct ehci_qh *qh_copy,
 		    struct ehci_qtd_meta **qtdm_tail_p)
 {
 	struct ehci_qtd_meta *qtdm, **qtdm_p, *qtdm_head, **qq;
@@ -396,7 +397,7 @@ register_qtdm_list (struct ehci_qh *qh_copy,
 			if (qtd_phys == (*qq)->qtd_phys)
 				goto out;
 		}
-		qtdm = register_qtdm(qtd_phys);
+		qtdm = register_qtdm (as, qtd_phys);
 		n++;
 		qtd_phys = qtdm->qtd->next;
 		if (ovlay_active) {
@@ -637,21 +638,23 @@ register_gurb (struct ehci_host *host, phys32_t qh_phys)
 	struct usb_request_block *new_urb;
 	struct ehci_qtd_meta *qtdm_tail, *qtdm;
 	u8 status;
+	const struct mm_as *const as = host->usb_host->as_dma;
 
 	/* create a new urb for the found QH */ 
 	new_urb = new_urb_ehci();
 
 	/* QH */
 	URB_EHCI(new_urb)->qh_phys = ehci_link(qh_phys);
-	URB_EHCI(new_urb)->qh = mapmem_gphys(URB_EHCI(new_urb)->qh_phys,
-					     sizeof(struct ehci_qh), 0);
+	URB_EHCI(new_urb)->qh = mapmem_as (as, URB_EHCI(new_urb)->qh_phys,
+					   sizeof (struct ehci_qh), 0);
 
 	/* cache the current QH */
 	URB_EHCI(new_urb)->qh_copy = *URB_EHCI(new_urb)->qh;
 
 	/* next qTDs */
 	URB_EHCI(new_urb)->qtdm_head = 
-		register_qtdm_list (&URB_EHCI(new_urb)->qh_copy, &qtdm_tail);
+		register_qtdm_list (as, &URB_EHCI(new_urb)->qh_copy,
+				    &qtdm_tail);
 	URB_EHCI(new_urb)->qtdm_tail = qtdm_tail;
 
 	/* alternative next qTDs */
@@ -668,8 +671,7 @@ register_gurb (struct ehci_host *host, phys32_t qh_phys)
 					 URB_EHCI(new_urb)->qtdm_head);
 		if (qtdm->altnext)
 			continue;
-		qtdm->altnext =
-			register_qtdm(altnext_phys);
+		qtdm->altnext = register_qtdm (as, altnext_phys);
 		qtdm->altnext->next = NULL;
 		qtdm_tail->next = qtdm->altnext;
 		qtdm_tail = qtdm_tail->next;
@@ -724,8 +726,9 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 #if defined(ENABLE_DELAYED_START)
 	u32 *reg_usbcmd;
 
-	reg_usbcmd = mapmem_gphys(host->iobase + 0x20, sizeof(u32), 
-				  MAPMEM_WRITE|MAPMEM_PWT|MAPMEM_PCD);
+	reg_usbcmd = mapmem_as (host->usb_host->as_dma, host->iobase + 0x20,
+				sizeof (u32),
+				MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
 				  
 #endif /* defined(ENABLE_DELAYED_START) */
 

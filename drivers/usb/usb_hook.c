@@ -40,8 +40,8 @@
 #include "usb_hook.h"
 
 static int
-usb_match_buffers(const struct usb_hook_pattern *data, 
-		  struct usb_buffer_list *buffers)
+usb_match_buffers (const struct mm_as *as, const struct usb_hook_pattern *data,
+		   struct usb_buffer_list *buffers)
 {
 	struct usb_buffer_list *be;
 	size_t len;
@@ -70,7 +70,7 @@ usb_match_buffers(const struct usb_hook_pattern *data,
 				vadr = be->vadr;
 			else
 				vadr = (virt_t)
-					mapmem_gphys(be->padr, be->len, 0);
+					mapmem_as (as, be->padr, be->len, 0);
 			ASSERT(vadr);
 			for (i = len; i > 0; i--)
 				c.bytes[i-1] = *(u8 *)(vadr + data->offset - 
@@ -85,7 +85,7 @@ usb_match_buffers(const struct usb_hook_pattern *data,
 				vadr = be->vadr;
 			else
 				vadr = (virt_t)
-					mapmem_gphys(be->padr, be->len, 0);
+					mapmem_as (as, be->padr, be->len, 0);
 			ASSERT(vadr);
 			for (i = len; i < sizeof(u64); i++)
 				c.bytes[i] = *(u8 *)(vadr + data->offset - 
@@ -99,7 +99,7 @@ usb_match_buffers(const struct usb_hook_pattern *data,
 				vadr = be->vadr;
 			else
 				vadr = (virt_t)
-					mapmem_gphys(be->padr, be->len, 0);
+					mapmem_as (as, be->padr, be->len, 0);
 			ASSERT(vadr);
 			target = *(u64 *)(vadr + data->offset);
 			if (!be->vadr)
@@ -153,8 +153,9 @@ usb_hook_process(struct usb_host *host,
 		   so guest urb buffers can be used for the pattern match. */
 		ASSERT(urb->shadow);
 		if ((hook->match & USB_HOOK_MATCH_DATA) &&
-		    usb_match_buffers(hook->data, (urb->buffers != NULL) ?
-				      urb->buffers : urb->shadow->buffers))
+		    usb_match_buffers (host->as_dma, hook->data,
+				       (urb->buffers != NULL) ?
+				       urb->buffers : urb->shadow->buffers))
 			continue;
 
 		/* reach here if the urb content 

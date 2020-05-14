@@ -226,7 +226,7 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 	struct pci_monitor_host *host = o->host;
 	void *p;
 
-	p = mapmem_gphys (gphys, len, (wr ? MAPMEM_WRITE : 0) | flags);
+	p = mapmem_as (as_passvm, gphys, len, (wr ? MAPMEM_WRITE : 0) | flags);
 	ASSERT (p);
 	if (wr)
 		memcpy (p, buf, len);

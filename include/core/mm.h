@@ -69,6 +69,6 @@ u64 mm_as_translate (const struct mm_as *handle, unsigned int *npages,
 /* accessing memory */
 void unmapmem (void *virt, uint len);
 void *mapmem_hphys (u64 physaddr, uint len, int flags);
-void *mapmem_gphys (u64 physaddr, uint len, int flags);
+void *mapmem_as (const struct mm_as *as, u64 physaddr, uint len, int flags);
 
 #endif

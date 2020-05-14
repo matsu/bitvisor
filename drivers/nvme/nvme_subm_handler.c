@@ -124,7 +124,7 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 
 		u16 comp_queue_id = QUEUE_GET_COMP_QID (cmd);
 
-		nvme_init_queue_info (h_subm_queue_info,
+		nvme_init_queue_info (host->as_dma, h_subm_queue_info,
 				      g_subm_queue_info,
 				      host->page_nbytes,
 				      h_queue_n_entries,
@@ -158,7 +158,7 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 		h_comp_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
 		g_comp_queue_info = zalloc (NVME_QUEUE_INFO_NBYTES);
 
-		nvme_init_queue_info (h_comp_queue_info,
+		nvme_init_queue_info (host->as_dma, h_comp_queue_info,
 				      g_comp_queue_info,
 				      host->page_nbytes,
 				      h_queue_n_entries,
@@ -397,9 +397,8 @@ handle_data_management (struct nvme_host *host, struct nvme_request *req)
 
 	req->h_buf = alloc2 (host->page_nbytes, &req->buf_phys);
 
-	void *g_buf = mapmem_gphys (NVME_CMD_PRP_PTR1 (g_io_cmd),
-				    host->page_nbytes,
-				    0);
+	void *g_buf = mapmem_as (host->as_dma, NVME_CMD_PRP_PTR1 (g_io_cmd),
+				 host->page_nbytes, 0);
 
 	memcpy (req->h_buf, g_buf, host->page_nbytes);
 

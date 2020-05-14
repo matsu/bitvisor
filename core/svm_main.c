@@ -598,7 +598,7 @@ do_vmrun (void)
 		return;
 	}
 	svm_read_general_reg (GENERAL_REG_RAX, &vmcb_phys);
-	vmcb = mapmem_gphys (vmcb_phys, sizeof *vmcb, MAPMEM_WRITE);
+	vmcb = mapmem_as (current->as, vmcb_phys, sizeof *vmcb, MAPMEM_WRITE);
 	orig_tlb_control = vmcb->tlb_control;
 	if (vmcb->guest_asid == svm->vi.vmcb->guest_asid) {
 		svm_paging_flush_guest_tlb ();

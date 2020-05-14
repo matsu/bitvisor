@@ -79,9 +79,10 @@ static struct usb_operations uhciop = {
 DEFINE_GET_U16_FROM_SETUP_FUNC (wValue)
 
 static u8
-uhci_dev_addr (struct usb_request_block *h_urb)
+uhci_dev_addr (struct usb_host *host, struct usb_request_block *h_urb)
 {
-	return (u8)get_wValue_from_setup (h_urb->shadow->buffers) & 0x7fU;
+	return (u8)get_wValue_from_setup (host, h_urb->shadow->buffers) &
+		0x7fU;
 }
 
 static struct usb_init_dev_operations uhci_init_dev_op = {
@@ -124,9 +125,10 @@ uhci_new(struct pci_device *pci_device)
 		LIST2_HEAD_INIT (host->urbhash[i], urbhash);
 	LIST2_HEAD_INIT (host->need_shadow, need_shadow);
 	LIST2_HEAD_INIT (host->update, update);
- 	host->hc = usb_register_host((void *)host, &uhciop, 
-				     &uhci_init_dev_op,
-				     USB_HOST_TYPE_UHCI);
+	host->hc = usb_register_host ((void *)host, &uhciop,
+				      &uhci_init_dev_op,
+				      pci_device->as_dma,
+				      USB_HOST_TYPE_UHCI);
 	ASSERT(host->hc != NULL);
 	usb_init_device_monitor(host->hc);
 #if defined(HANDLE_USBMSC)

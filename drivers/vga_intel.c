@@ -200,8 +200,8 @@ vga_intel_is_ready (struct vga_func_data *data)
 		return 0;
 	if (data->reg)
 		unmapmem (data->reg, data->reg_len);
-	data->reg = reg = mapmem_gphys (data->reg_base, data->reg_len,
-					MAPMEM_WRITE);
+	data->reg = reg = mapmem_as (as_passvm, data->reg_base, data->reg_len,
+				     MAPMEM_WRITE);
 	if (!reg)
 		return 0;
 	ab = -1;
@@ -250,8 +250,8 @@ vga_intel_is_ready (struct vga_func_data *data)
 		 (data->tiled_off & 0xFFF)) * 4;
 	if (data->vram_mapped_len > data->vram_len - off)
 		data->vram_mapped_len = data->vram_len - off;
-	data->vram = mapmem_gphys (data->vram_base + off,
-				   data->vram_mapped_len, MAPMEM_WRITE);
+	data->vram = mapmem_as (as_passvm, data->vram_base + off,
+				data->vram_mapped_len, MAPMEM_WRITE);
 	if (!data->vram)
 		return 0;
 	data->nfence = 0;

@@ -928,8 +928,8 @@ x540_reghook (struct x540_hook_context *context, struct pci_bar_info *bar)
 		/* hooking mmio */
 		context->baseaddr = bar->base;
 		context->mapsize = bar->len;
-		context->mappedaddr = mapmem_gphys (bar->base, bar->len,
-						    MAPMEM_WRITE);
+		context->mappedaddr = mapmem_as (as_passvm, bar->base,
+						 bar->len, MAPMEM_WRITE);
 		if (!context->mappedaddr)
 			panic ("mapmem failed");
 		context->isio = 0;

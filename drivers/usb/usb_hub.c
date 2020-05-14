@@ -35,11 +35,12 @@ usbhub_device_disconnect(struct usb_host *usbhc, u8 devadr, u64 port)
 }
 
 static int
-usbhub_get_portno(struct usb_device *hubdev, struct usb_buffer_list *ub)
+usbhub_get_portno (struct usb_host *usbhc, struct usb_device *hubdev,
+		   struct usb_buffer_list *ub)
 {
 	u16 port;
 
-	port = get_wIndex_from_setup(ub);
+	port = get_wIndex_from_setup (usbhc, ub);
 	return ((hubdev->portno << USB_HUB_SHIFT) + (port & USB_PORT_MASK));
 }
 
@@ -53,11 +54,11 @@ usbhub_connect_changed(struct usb_host *usbhc,
 	int ret = USB_HOOK_PASS;
 
 	devadr = urb->address;
-	port = usbhub_get_portno(urb->dev, urb->shadow->buffers);
+	port = usbhub_get_portno (usbhc, urb->dev, urb->shadow->buffers);
 	if (!port)
 		return ret;
 	
-	feature = get_wValue_from_setup(urb->shadow->buffers);
+	feature = get_wValue_from_setup (usbhc, urb->shadow->buffers);
 	switch (feature) {
 	case 0x0014: /* C_PORT_RESET */
 		ret = usbhub_set_portno(usbhc, devadr, port);

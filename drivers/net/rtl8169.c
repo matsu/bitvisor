@@ -350,9 +350,10 @@ rtl8169_send_virt_nic(SE_HANDLE nic_handle, phys_t rxdescphys, void *data, UINT 
 
 	for(m = 0; m < RTL8169_RXDESC_MAX_NUM; m++)
 	{
-		TargetDesc = mapmem_gphys (rxdescphys + sizeof *TargetDesc *
-					   RxDescNum, sizeof *TargetDesc,
-					   MAPMEM_WRITE);
+		TargetDesc = mapmem_as (ctx->dev->as_dma,
+					rxdescphys + sizeof *TargetDesc *
+					RxDescNum, sizeof *TargetDesc,
+					MAPMEM_WRITE);
 		if (!TargetDesc) {
 			printf ("mapmem err rxdescphys=0x%llX RxDescNum=%u\n",
 				rxdescphys, RxDescNum);
@@ -374,7 +375,10 @@ rtl8169_send_virt_nic(SE_HANDLE nic_handle, phys_t rxdescphys, void *data, UINT 
 		
 		if(TargetDesc->opts & OPT_OWN)
 		{
-			vptr = mapmem_gphys (TargetDesc->addr, size, MAPMEM_WRITE | 0/*MAPMEM_PCD | MAPMEM_PWT*/ | 0/*MAPMEM_PAT*/);
+			vptr = mapmem_as (ctx->dev->as_dma, TargetDesc->addr,
+					  size, MAPMEM_WRITE |
+					  0/*MAPMEM_PCD | MAPMEM_PWT*/ |
+					  0/*MAPMEM_PAT*/);
 			if (vptr)
 			{
 				TargetDesc->opts &= OPT_OWN | OPT_EOR;
@@ -587,9 +591,9 @@ reghook (struct RTL8169_SUB_CTX *sctx, int i, struct pci_bar_info *bar)
 		{
 			sctx->mapaddr = bar->base;
 			sctx->maplen = bar->len;
-			sctx->map = mapmem_gphys (bar->base, bar->len,
-						  MAPMEM_WRITE | MAPMEM_PCD |
-						  MAPMEM_PWT);
+			sctx->map = mapmem_as (as_passvm, bar->base, bar->len,
+					       MAPMEM_WRITE | MAPMEM_PCD |
+					       MAPMEM_PWT);
 			if (!sctx->map)
 				panic ("mapmem failed");
 			sctx->io = 0;
@@ -1262,8 +1266,9 @@ rtl8169_get_txdata_to_vpn(RTL8169_CTX *ctx, RTL8169_SUB_CTX *sctx, int Desckind)
 
 	for(i = 0; i < RTL8169_TXDESC_MAX_NUM; i++)
 	{
-		TargetDesc = mapmem_gphys (txdescphys + sizeof *TargetDesc * i,
-					   sizeof *TargetDesc, MAPMEM_WRITE);
+		TargetDesc = mapmem_as (ctx->dev->as_dma,
+					txdescphys + sizeof *TargetDesc * i,
+					sizeof *TargetDesc, MAPMEM_WRITE);
 		if (!TargetDesc) {
 			printf ("mapmem err txdescphys=0x%llX i=%d\n",
 				txdescphys, i);
@@ -1274,7 +1279,10 @@ rtl8169_get_txdata_to_vpn(RTL8169_CTX *ctx, RTL8169_SUB_CTX *sctx, int Desckind)
 		if ((optsl & OPT_OWN) && BufSize)
 		{
 			//送信用バッファをマップする
-			TxBuf = mapmem_gphys (TargetDesc->addr, BufSize, MAPMEM_WRITE | 0/*MAPMEM_PCD | MAPMEM_PWT*/ | 0/*MAPMEM_PAT*/);
+			TxBuf = mapmem_as (ctx->dev->as_dma, TargetDesc->addr,
+					   BufSize, MAPMEM_WRITE |
+					   0/*MAPMEM_PCD | MAPMEM_PWT*/ |
+					   0/*MAPMEM_PAT*/);
 			if (optsl & OPT_LGSND)
 				panic ("LGSND=1 opts1=0x%08X Target=%p  txdescphys=0x%llX i=%d, kind=%d", optsl, TargetDesc, txdescphys, i, (int)Desckind);
 			if (!(optsl & (OPT_LGSND | OPT_IPCS | OPT_UDPCS |

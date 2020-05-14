@@ -931,7 +931,8 @@ xhci_get_slot_id_from_usb_device (struct usb_device *dev)
 /* g_erst_data->erst_size should be verified before using them */
 void xhci_unmap_guest_erst (struct xhci_erst_data *g_erst_data);
 
-void xhci_create_shadow_erst (struct xhci_erst_data *h_erst_data,
+void xhci_create_shadow_erst (const struct mm_as *as,
+			      struct xhci_erst_data *h_erst_data,
 			      struct xhci_erst_data *g_erst_data);
 
 u8 xhci_process_cmd_trb (struct xhci_host *host, struct xhci_trb *h_cmd_trb,

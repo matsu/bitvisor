@@ -2442,9 +2442,9 @@ mapmem_hphys (u64 physaddr, uint len, int flags)
 }
 
 void *
-mapmem_gphys (u64 physaddr, uint len, int flags)
+mapmem_as (const struct mm_as *as, u64 physaddr, uint len, int flags)
 {
-	return mapmem_internal (as_passvm, flags, physaddr, len);
+	return mapmem_internal (as, flags, physaddr, len);
 }
 
 /* Flush all write back caches including other processors */

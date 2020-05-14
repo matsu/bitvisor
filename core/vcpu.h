@@ -67,6 +67,7 @@ struct vcpu {
 	struct io_io_data io;
 	struct msr_data msr;
 	struct vmctl_func vmctl;
+	const struct mm_as *as;
 	/* vcpu0: data per VM */
 	struct vcpu *vcpu0;
 	struct mmio_data mmio;

@@ -218,7 +218,7 @@ init_admin_queue (struct nvme_host *host)
 
 	/* Initialize admin completion queue */
 	dprintf (NVME_ETC_DEBUG, "Initializing Admin Completion Queue\n");
-	nvme_init_queue_info (h_comp_queue_info,
+	nvme_init_queue_info (host->as_dma, h_comp_queue_info,
 			      g_comp_queue_info,
 			      host->page_nbytes,
 			      host->g_admin_comp_n_entries,
@@ -230,7 +230,7 @@ init_admin_queue (struct nvme_host *host)
 
 	/* Initialize admin submission queue */
 	dprintf (NVME_ETC_DEBUG, "Initializing Admin Submission Queue\n");
-	nvme_init_queue_info (h_subm_queue_info,
+	nvme_init_queue_info (host->as_dma, h_subm_queue_info,
 			      g_subm_queue_info,
 			      host->page_nbytes,
 			      host->g_admin_subm_n_entries,
@@ -1170,11 +1170,12 @@ do_reghook (struct nvme_data *nvme_data,
 				u32 flags))
 {
 	regs->iobase	 = bar->base;
-	regs->reg_map	 = mapmem_gphys (bar->base, bar->len, MAPMEM_WRITE);
+	regs->reg_map	 = mapmem_as (as_passvm, bar->base, bar->len,
+				      MAPMEM_WRITE);
 	regs->map_nbytes = bar->len;
 
 	if (!regs->reg_map)
-		panic ("Cannot mapmem_gphys() NVMe registers");
+		panic ("Cannot mapmem_as() NVMe registers");
 
 	*handler = mmio_register (bar->base,
 				  bar->len,
@@ -1266,6 +1267,7 @@ nvme_new (struct pci_device *pci_device)
 	struct nvme_host *host = zalloc (NVME_HOST_NBYTES);
 
 	host->pci = pci_device;
+	host->as_dma = pci_device->as_dma;
 
 	host->vendor_id = pci_device->config_space.vendor_id;
 	host->device_id = pci_device->config_space.device_id;

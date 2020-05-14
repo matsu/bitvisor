@@ -77,9 +77,9 @@ static inline u16 bswap16(u16 x)
 }
 
 static size_t
-prepare_buffers(struct usb_buffer_list *src_ub, 
-		struct usb_buffer_list *dest_ub, 
-		size_t block_len, virt_t *src_vadr, virt_t *dest_vadr)
+prepare_buffers (const struct mm_as *as, struct usb_buffer_list *src_ub,
+		 struct usb_buffer_list *dest_ub, size_t block_len,
+		 virt_t *src_vadr, virt_t *dest_vadr)
 {
 	size_t len;
 
@@ -116,8 +116,8 @@ prepare_buffers(struct usb_buffer_list *src_ub,
 				vadr = src_ub->vadr;
 			else
 				vadr = (virt_t)
-					mapmem_gphys(src_ub->padr, 
-						     src_ub->len, 0);
+					mapmem_as (as, src_ub->padr,
+						   src_ub->len, 0);
 			memcpy((void *)buf_p, (void *)vadr, src_ub->len);
 			if (!src_ub->vadr)
 				unmapmem((void *)vadr, src_ub->len);
@@ -132,12 +132,12 @@ prepare_buffers(struct usb_buffer_list *src_ub,
 		/* source is shadow buffer */
 		*src_vadr = src_ub->vadr;
 		*dest_vadr = (virt_t)
-			mapmem_gphys(dest_ub->padr, dest_ub->len, 0);
+			mapmem_as (as, dest_ub->padr, dest_ub->len, 0);
 		len = src_ub->len;
 	} else {
 		/* source is guest buffer */
 		*src_vadr = (virt_t)
-			mapmem_gphys(src_ub->padr, src_ub->len, 0);
+			mapmem_as (as, src_ub->padr, src_ub->len, 0);
 		*dest_vadr = dest_ub->vadr;
 		len = src_ub->len;
 	}
@@ -150,7 +150,7 @@ prepare_buffers(struct usb_buffer_list *src_ub,
 }
 
 static int
-windup_buffers(virt_t src_vadr, virt_t dest_vadr, 
+windup_buffers (const struct mm_as *as, virt_t src_vadr, virt_t dest_vadr,
 		struct usb_buffer_list *dest_ub, size_t len)
 {
 	int adv;
@@ -177,8 +177,8 @@ windup_buffers(virt_t src_vadr, virt_t dest_vadr,
 				vadr = dest_ub->vadr;
 			else
 				vadr = (virt_t)
-					mapmem_gphys(dest_ub->padr,
-						     dest_len, 0);
+					mapmem_as (as, dest_ub->padr,
+						   dest_len, 0);
 			memcpy((void *)vadr, (void *)buf_p, dest_len);
 			buf_p += dest_len;
 			len -= dest_len;
@@ -194,10 +194,10 @@ windup_buffers(virt_t src_vadr, virt_t dest_vadr,
 }
 
 static int
-usbmsc_code_buffers(struct usbmsc_device *mscdev,
-		    struct usb_buffer_list *dest_ub,
-		    struct usb_buffer_list *src_ub, 
-		    u8 pid, size_t length, int rw)
+usbmsc_code_buffers (const struct mm_as *as, struct usbmsc_device *mscdev,
+		     struct usb_buffer_list *dest_ub,
+		     struct usb_buffer_list *src_ub,
+		     u8 pid, size_t length, int rw)
 {
 	struct usbmsc_unit *mscunit;
 	struct storage_access access;
@@ -228,8 +228,8 @@ usbmsc_code_buffers(struct usbmsc_device *mscdev,
 			break;
 
 		/* prepare buffers (concat or mapmem) */
-		len = prepare_buffers(src_ub, dest_ub, 
-				      block_len, &src_vadr, &dest_vadr);
+		len = prepare_buffers (as, src_ub, dest_ub,
+				       block_len, &src_vadr, &dest_vadr);
 
 		/* count up coded sectors */
 		access.count = len / block_len;
@@ -256,7 +256,7 @@ usbmsc_code_buffers(struct usbmsc_device *mscdev,
 		}
 
 		/* wind up buffers (distribute or unmapmem) */
-		adv = windup_buffers(src_vadr, dest_vadr, dest_ub, len);
+		adv = windup_buffers (as, src_vadr, dest_vadr, dest_ub, len);
 
 		/* advance both buffer lists for the next */
 		do {
@@ -329,8 +329,8 @@ usbmsc_cbw_parser(u8 devadr,
 }
 
 static void
-usbmsc_copy_buffer(struct usb_buffer_list *dest,
-		   struct usb_buffer_list *src, size_t len)
+usbmsc_copy_buffer (const struct mm_as *as, struct usb_buffer_list *dest,
+		    struct usb_buffer_list *src, size_t len)
 {
 	size_t clen;
 	virt_t src_vadr, dest_vadr;
@@ -340,11 +340,13 @@ usbmsc_copy_buffer(struct usb_buffer_list *dest,
 		if (src->vadr)
 			src_vadr = src->vadr;
 		else
-			src_vadr = (virt_t)mapmem_gphys(src->padr, clen, 0);
+			src_vadr = (virt_t)mapmem_as (as, src->padr,
+						      clen, 0);
 		if (dest->vadr)
 			dest_vadr = dest->vadr;
 		else
-			dest_vadr = (virt_t)mapmem_gphys(dest->padr, clen, 0);
+			dest_vadr = (virt_t)mapmem_as (as, dest->padr,
+						       clen, 0);
 		memcpy((void *)dest_vadr, (void *)src_vadr, clen);
 		if (!dest->vadr)
 			unmapmem((void *)dest_vadr, clen);
@@ -433,6 +435,7 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 	struct usbmsc_device *mscdev;
 	struct usbmsc_unit *mscunit;
 	int n_blocks;
+	const struct mm_as *const as = usbhc->as_dma;
 
 	devadr = urb->address;
 	dev = urb->dev;
@@ -466,7 +469,7 @@ usbmsc_shadow_outbuf(struct usb_host *usbhc,
 		virt_t vadr;
 
 		/* map a guest buffer into the vm area */
-		vadr = (virt_t)mapmem_gphys(gub->padr, gub->len, 0);
+		vadr = (virt_t)mapmem_as (as, gub->padr, gub->len, 0);
 		ASSERT(vadr);
 
 		/* double check */
@@ -513,8 +516,9 @@ shadow_data:
 	case 0x2a: /* WRITE(10) */
 	case 0xaa: /* WRITE(12) */
 		/* encode buffers */
-		n_blocks = usbmsc_code_buffers(mscdev, hub, gub, USB_PID_OUT,
-					       mscunit->length, STORAGE_WRITE);
+		n_blocks = usbmsc_code_buffers (as, mscdev, hub, gub,
+						USB_PID_OUT, mscunit->length,
+						STORAGE_WRITE);
 
 		if (mscunit->n_blocks < n_blocks) {
 			dprintft(0, "MSCD(%02x:%d): WARNING: "
@@ -539,7 +543,7 @@ shadow_data:
 	case 0x1b: /* START/STOP UNIT */
 	case 0xff: /* vendor specific, especially for HIBUN-LE */
 		/* pass though */
-		usbmsc_copy_buffer(hub, gub, mscunit->length);
+		usbmsc_copy_buffer (as, hub, gub, mscunit->length);
 		mscunit->length = 0;
 		spinlock_unlock(&mscdev->lock);
 		return USB_HOOK_PASS;
@@ -631,6 +635,7 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 	struct usbmsc_device *mscdev;
 	struct usbmsc_unit *mscunit;
 	int i, ret, n_blocks;
+	const struct mm_as *const as = usbhc->as_dma;
 
 	devadr = urb->address;
 	dev = urb->dev;
@@ -700,7 +705,7 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 		mscunit->n_blocks = 0U;
 
 		/* copyback */
-		usbmsc_copy_buffer(gub, hub, hub->len);
+		usbmsc_copy_buffer (as, gub, hub, hub->len);
 
 		ASSERT(gub->next == NULL);
 		ASSERT(hub->next == NULL);
@@ -743,7 +748,7 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 		case 0xd8: /* vendor specific, especially for HIBUN-LE */
 		case 0xd9: /* vendor specific, especially for HIBUN-LE */
 		case 0xff: /* vendor specific, especially for HIBUN-LE */
- 			usbmsc_copy_buffer(gub, hub, mscunit->length);
+ 			usbmsc_copy_buffer (as, gub, hub, mscunit->length);
  			mscunit->length = 0;
 			break;
 		case 0x25: /* READ CAPABILITY(10) */
@@ -755,16 +760,16 @@ usbmsc_copyback_shadow(struct usb_host *usbhc,
 				 "[LBAMAX=%08x, BLKLEN=%08x]\n",
 				 devadr, mscdev->lun, mscunit->lba_max, 
 				 mscunit->storage_sector_size);
-			usbmsc_copy_buffer(gub, hub, mscunit->length);
+			usbmsc_copy_buffer (as, gub, hub, mscunit->length);
 			mscunit->length = 0;
 			break;
 		case 0x28: /* READ(10) */
 		case 0xa8: /* READ(12) */
 			/* DATA */
-			n_blocks = usbmsc_code_buffers(mscdev, gub, hub, 
-						       USB_PID_IN, 
-						       urb->actlen,
-						       STORAGE_READ);
+			n_blocks = usbmsc_code_buffers (as, mscdev, gub, hub,
+							USB_PID_IN,
+							urb->actlen,
+							STORAGE_READ);
 
 			if (mscunit->n_blocks < n_blocks) {
 				dprintft(0, "MSCD(%02x:%d): WARNING: "
@@ -841,6 +846,7 @@ usbmsc_getmaxlun(struct usb_host *usbhc,
 	struct usbmsc_device *mscdev;
 	struct usb_buffer_list *ub;
 	int i;
+	const struct mm_as *const as = usbhc->as_dma;
 
 	dev = urb->dev;
 	if (!dev || !dev->handle) {
@@ -859,7 +865,7 @@ usbmsc_getmaxlun(struct usb_host *usbhc,
 
 		if (ub->pid != USB_PID_IN)
 			continue;
-		cp = (u8 *)mapmem_gphys(ub->padr, ub->len, 0);
+		cp = (u8 *)mapmem_as (as, ub->padr, ub->len, 0);
 		mscdev->lun_max = *cp;
 		unmapmem(cp, ub->len);
 		dprintft(1, "MSCD(%02x: ): %d logical unit(s) found\n",

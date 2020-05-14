@@ -10,7 +10,8 @@
 #include "ehci_debug.h"
 
 static void
-_ehci_dump_qtd(int loglvl, int indent, struct ehci_qtd *qtd, phys_t qtd_phys)
+_ehci_dump_qtd (int loglvl, int indent, const struct mm_as *as,
+		struct ehci_qtd *qtd, phys_t qtd_phys)
 {
 	u32 pid;
 	int i;
@@ -96,7 +97,7 @@ _ehci_dump_qtd(int loglvl, int indent, struct ehci_qtd *qtd, phys_t qtd_phys)
 			dprintf(loglvl, "  ");
 		dprintf(loglvl, "buf0[%7d]: ", len);
 
-		buf = (u8 *)mapmem_gphys(qtd->buffer[0], len, 0);
+		buf = (u8 *)mapmem_as (as, qtd->buffer[0], len, 0);
 		for (i = 0; i < len; i++)
 			dprintf(loglvl, "%02x", *(buf + i));
 		unmapmem(buf, len);
@@ -107,15 +108,16 @@ _ehci_dump_qtd(int loglvl, int indent, struct ehci_qtd *qtd, phys_t qtd_phys)
 }
 
 phys32_t
-ehci_dump_qtd(int loglvl, int indent, phys32_t adr, phys32_t *altnext)
+ehci_dump_qtd (int loglvl, int indent, const struct mm_as *as, phys32_t adr,
+	       phys32_t *altnext)
 {
 	struct ehci_qtd *qtd;
 	phys32_t next;
 
-	qtd = mapmem_gphys(adr & 0xfffffffe, 
-			   sizeof(struct ehci_qtd), 0);
+	qtd = mapmem_as (as, adr & 0xfffffffe, sizeof (struct ehci_qtd),
+			 0);
 
-	_ehci_dump_qtd(loglvl, indent, qtd, adr);
+	_ehci_dump_qtd (loglvl, indent, as, qtd, adr);
 
 	if (altnext != NULL)
 		*altnext = qtd->altnext;
@@ -127,18 +129,20 @@ ehci_dump_qtd(int loglvl, int indent, phys32_t adr, phys32_t *altnext)
 }
 		
 void
-ehci_dump_qtdm(int loglvl, struct ehci_qtd_meta *qtdm)
+ehci_dump_qtdm (int loglvl, const struct mm_as *as, struct ehci_qtd_meta *qtdm)
 {
 	while (qtdm) {
-		_ehci_dump_qtd(loglvl, 0, qtdm->qtd, qtdm->qtd_phys);
+		_ehci_dump_qtd (loglvl, 0, as, qtdm->qtd, qtdm->qtd_phys);
 		qtdm = qtdm->next;
 	}
 
 	return;
 
 }
+
 void
-ehci_dump_alist(int loglvl, phys_t headqh_phys, int shadow)
+ehci_dump_alist (int loglvl, const struct mm_as *as, phys_t headqh_phys,
+		 int shadow)
 {
 	phys32_t qh_link;
 	struct ehci_qh *qh;
@@ -149,7 +153,8 @@ ehci_dump_alist(int loglvl, phys_t headqh_phys, int shadow)
 		if (shadow)
 			qh = mapmem_hphys(qh_link, sizeof(struct ehci_qh), 0);
 		else
-			qh = mapmem_gphys(qh_link, sizeof(struct ehci_qh), 0);
+			qh = mapmem_as (as, qh_link,
+					sizeof (struct ehci_qh), 0);
 		qh_link = qh->link;
 		unmapmem(qh, sizeof(struct ehci_qh));
 		if (!qh_link || (qh_link & 0x1) || (qh_link & 0x0000001c)) {
@@ -190,7 +195,8 @@ ehci_dump_urblist(int loglvl, struct usb_request_block *urb)
 }
 
 void
-ehci_dump_urb(int loglvl, struct usb_request_block *urb)
+ehci_dump_urb (int loglvl, const struct mm_as *as,
+	       struct usb_request_block *urb)
 {
 	struct ehci_qh *qh;
 	u32 eps;
@@ -256,7 +262,7 @@ ehci_dump_urb(int loglvl, struct usb_request_block *urb)
 #endif
 
 	/* qTD */
-	ehci_dump_qtdm(loglvl, URB_EHCI(urb)->qtdm_head);
+	ehci_dump_qtdm (loglvl, as, URB_EHCI(urb)->qtdm_head);
 
 	return;
 }
@@ -289,6 +295,7 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 	struct usb_request_block *urb;
 	phys32_t *physlist;
 	int n_phys;
+	const struct mm_as *const as = host->usb_host->as_dma;
 
 	urb = new_urb_ehci();
 
@@ -304,9 +311,9 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 		URB_EHCI(urb)->qh_phys = host->headqh_phys[0];
 		do {
 			URB_EHCI(urb)->qh = 
-				mapmem_gphys(URB_EHCI(urb)->qh_phys,
-					     sizeof(struct ehci_qh), 0);
-			ehci_dump_urb(loglvl, urb);
+				mapmem_as (as, URB_EHCI(urb)->qh_phys,
+					   sizeof (struct ehci_qh), 0);
+			ehci_dump_urb (loglvl, as, urb);
 			nextqtd = (phys32_t)URB_EHCI(urb)->qh_phys + 0x10U;
 		
 			n_phys = 0;
@@ -315,8 +322,8 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 				if (seen_previously(nextqtd, 
 						    &n_phys, physlist))
 					break;
-				nextqtd = ehci_dump_qtd(loglvl, 0, 
-							nextqtd, &altqtd);
+				nextqtd = ehci_dump_qtd (loglvl, 0, as,
+							 nextqtd, &altqtd);
 			} while (nextqtd && !(nextqtd & EHCI_LINK_TE));
 		
 			/* dump altenative qTDs */
@@ -324,8 +331,8 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 				if (seen_previously(altqtd, 
 						    &n_phys, physlist))
 					break;
-				altqtd = ehci_dump_qtd(loglvl, 1, 
-						       altqtd, NULL);
+				altqtd = ehci_dump_qtd (loglvl, 1, as,
+							altqtd, NULL);
 			}
 
 			/* set the next QH address */
@@ -351,7 +358,7 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 			URB_EHCI(urb)->qh = 
 				mapmem_hphys(URB_EHCI(urb)->qh_phys,
 					     sizeof(struct ehci_qh), 0);
-			ehci_dump_urb(loglvl, urb);
+			ehci_dump_urb (loglvl, as, urb);
 			nextqtd = URB_EHCI(urb)->qh_phys + 0x10;
 		
 			/* dump qTDs */
@@ -367,7 +374,7 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 				qtd = mapmem_hphys(nextqtd,
 						   sizeof(struct ehci_qtd), 
 						   0);
-				_ehci_dump_qtd(loglvl, 0, qtd, nextqtd);
+				_ehci_dump_qtd (loglvl, 0, as, qtd, nextqtd);
 				
 				altqtd = qtd->altnext;
 				nextqtd = qtd->next;
@@ -379,8 +386,8 @@ ehci_dump_async(int loglvl, struct ehci_host *host, int which)
 				if (seen_previously(altqtd,
 						    &n_phys, physlist))
 					break;
-				altqtd = ehci_dump_qtd(loglvl, 1, 
-						       altqtd, NULL);
+				altqtd = ehci_dump_qtd (loglvl, 1, as,
+							altqtd, NULL);
 			}
 
 			/* set the next QH address */
@@ -484,11 +491,11 @@ ehci_dump_all(int loglvl, struct ehci_host *host)
 	}
 
 	if (!reg_usbcmd)
-		reg_usbcmd = mapmem_gphys(host->iobase + 0x20U, 
-					  sizeof(u32), 0);
+		reg_usbcmd = mapmem_as (as_passvm, host->iobase + 0x20U,
+					sizeof (u32), 0);
 	if (!reg_usbsts)
-		reg_usbsts = mapmem_gphys(host->iobase + 0x24U, 
-					  sizeof(u32), 0);
+		reg_usbsts = mapmem_as (as_passvm, host->iobase + 0x24U,
+					sizeof (u32), 0);
 	dprintft(loglvl, "USBCMD = ");
 	ehci_print_usbcmd(loglvl, *reg_usbcmd);
 	dprintft(loglvl, "USBSTS = ");

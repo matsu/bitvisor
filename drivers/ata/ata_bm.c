@@ -72,19 +72,28 @@ static int ata_copy_shadow_buf(struct ata_channel *channel, int dir)
 	phys_t guest_prd_phys = channel->guest_prd_phys;
 	u8 *shadow_buf = channel->shadow_buf;
 	ata_prd_table_t guest_prd;
-	phys_t (*copy)(phys_t phys, void *buf, int len);
+	const struct mm_as *const as = channel->host->pci_device->as_dma;
+	u64 *p;
+	void *q;
 
 	// To optimize:
 	// 1. cache the result of mapmem()
 	// 2. eliminate extra copy between the guest and the vmm by integrating encryption
-	copy = (dir == STORAGE_READ) ? core_mm_write_guest_phys : core_mm_read_guest_phys;
 	do {
-		guest_prd.value = core_mm_read_guest_phys64(guest_prd_phys);
+		p = mapmem_as (as, guest_prd_phys, sizeof *p, 0);
+		guest_prd.value = *p;
+		unmapmem (p, sizeof *p);
 		count = ata_get_16bit_count(guest_prd.count);
 		total_count += count;
 		if (total_count > ATA_BM_TOTAL_BUFSIZE)
 			panic("DMA buffer size too small\n");
-		copy(guest_prd.base, shadow_buf, count);
+		q = mapmem_as (as, guest_prd.base, count,
+			       dir == STORAGE_READ ? MAPMEM_WRITE : 0);
+		if (dir == STORAGE_READ)
+			memcpy (q, shadow_buf, count);
+		else
+			memcpy (shadow_buf, q, count);
+		unmapmem (q, count);
 		shadow_buf += count; guest_prd_phys += sizeof(guest_prd);
 	} while (guest_prd.eot == 0);
 	return total_count;
@@ -95,9 +104,13 @@ static int ata_get_total_dma_count(struct ata_channel *channel)
 	int total_count = 0;
 	phys_t guest_prd_phys = channel->guest_prd_phys;
 	ata_prd_table_t guest_prd;
+	u64 *p;
+	const struct mm_as *const as = channel->host->pci_device->as_dma;
 
 	do {
-		guest_prd.value = core_mm_read_guest_phys64(guest_prd_phys);
+		p = mapmem_as (as, guest_prd_phys, sizeof *p, 0);
+		guest_prd.value = *p;
+		unmapmem (p, sizeof *p);
 		total_count += ata_get_16bit_count(guest_prd.count);
 		if (total_count > ATA_BM_TOTAL_BUFSIZE)
 			panic("DMA buffer size too small\n");

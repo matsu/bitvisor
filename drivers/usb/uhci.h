@@ -491,7 +491,8 @@ static inline struct uhci_td *
 uhci_gettdbypaddr(struct uhci_host *host, u32 padr, int flags) 
 {
 	return (struct uhci_td *)
-		mapmem_gphys(uhci_link(padr), sizeof(struct uhci_td), 0);
+		mapmem_as (host->hc->as_dma, uhci_link (padr),
+			   sizeof (struct uhci_td), 0);
 }
 
 /**
@@ -504,7 +505,8 @@ static inline struct uhci_qh *
 uhci_getqhbypaddr(struct uhci_host *host, u32 padr, int flags) 
 {
 	return (struct uhci_qh *)
-		mapmem_gphys(uhci_link(padr), sizeof(struct uhci_qh), 0);
+		mapmem_as (host->hc->as_dma, uhci_link (padr),
+			   sizeof (struct uhci_qh), 0);
 }
 
 #endif

@@ -50,6 +50,7 @@ struct virtio_net {
 	u32 queue[2];
 	bool ready;
 	u8 *macaddr;
+	const struct mm_as *as_dma;
 	net_recv_callback_t *recv_func;
 	void *recv_param;
 	void (*intr_clear) (void *intr_param);
@@ -125,7 +126,8 @@ virtio_net_send (void *handle, unsigned int num_packets, void **packets,
 
 	if (!vnet->ready)
 		return;
-	p = mapmem_hphys ((u64)vnet->queue[0] << 12, sizeof *p, MAPMEM_WRITE);
+	p = mapmem_as (vnet->as_dma, (u64)vnet->queue[0] << 12, sizeof *p,
+		       MAPMEM_WRITE);
 loop:
 	if (!num_packets--)
 		goto ret;
@@ -148,8 +150,9 @@ loop:
 	while (ring_tmp & 1) {
 		ring_tmp >>= 16;
 		desc_len = p->desc[ring_tmp & 0xFF].len;
-		buf_ring = mapmem_hphys (p->desc[ring_tmp & 0xFF].addr,
-					 desc_len, 0);
+		buf_ring = mapmem_as (vnet->as_dma,
+				      p->desc[ring_tmp & 0xFF].addr,
+				      desc_len, 0);
 		i = 0;
 		if (len < 10) {
 			i = 10 - len;
@@ -201,7 +204,8 @@ virtio_net_recv (struct virtio_net *vnet)
 	void *pkts[VIRTIO_NET_PKT_BATCH];
 	bool intr = false;
 
-	p = mapmem_hphys ((u64)vnet->queue[1] << 12, sizeof *p, MAPMEM_WRITE);
+	p = mapmem_as (vnet->as_dma, (u64)vnet->queue[1] << 12, sizeof *p,
+		       MAPMEM_WRITE);
 	idx_a = p->avail.idx;
 	while (idx_a != p->used.idx) {
 		idx_u = p->used.idx & 0xFF;
@@ -212,8 +216,9 @@ virtio_net_recv (struct virtio_net *vnet)
 		while (ring_tmp & 1) {
 			ring_tmp >>= 16;
 			desc_len = p->desc[ring_tmp & 0xFF].len;
-			buf_ring = mapmem_hphys (p->desc[ring_tmp & 0xFF].addr,
-						 desc_len, 0);
+			buf_ring = mapmem_as (vnet->as_dma,
+					      p->desc[ring_tmp & 0xFF].addr,
+					      desc_len, 0);
 			memcpy (&buf[len], buf_ring, desc_len);
 			unmapmem (buf_ring, desc_len);
 			len += desc_len;
@@ -601,6 +606,7 @@ virtio_intr (void *handle)
 
 void *
 virtio_net_init (struct nicfunc **func, u8 *macaddr,
+		 const struct mm_as *as_dma,
 		 void (*intr_clear) (void *intr_param),
 		 void (*intr_set) (void *intr_param),
 		 void (*intr_disable) (void *intr_param),
@@ -624,6 +630,9 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->queue[1] = 0;
 	vnet->ready = false;
 	vnet->macaddr = macaddr;
+	vnet->as_dma = as_passvm; /* Legacy virtio deivces use
+				   * physical addresses.  The argument
+				   * as_dma is for future use. */
 	vnet->intr_clear = intr_clear;
 	vnet->intr_set = intr_set;
 	vnet->intr_disable = intr_disable;

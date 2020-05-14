@@ -161,9 +161,8 @@ handle_identify_command (struct nvme_host *host,
 						      req->h_buf);
 	}
 
-	void *g_buf = mapmem_gphys (req->g_data_ptr.prp_entry.ptr1,
-				    host->page_nbytes,
-				    MAPMEM_WRITE);
+	void *g_buf = mapmem_as (host->as_dma, req->g_data_ptr.prp_entry.ptr1,
+				 host->page_nbytes, MAPMEM_WRITE);
 
 	memcpy (g_buf, req->h_buf, host->page_nbytes);
 

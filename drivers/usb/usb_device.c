@@ -289,7 +289,7 @@ device_state_change(struct usb_host *usbhc,
 
 	devadr = urb->address;
 	dev = urb->dev;
-	confno = get_wValue_from_setup(urb->shadow->buffers);
+	confno = get_wValue_from_setup (usbhc, urb->shadow->buffers);
 	dprintf(1, "%u, %u) found.\n", devadr, confno);
 
 	if (dev)
@@ -317,8 +317,8 @@ device_iface_change(struct usb_host *usbhc,
 
 	devadr = urb->address;
 	dev = urb->dev;
-	alt = (u8) get_wValue_from_setup(urb->shadow->buffers);
-	iface = (u8) get_wIndex_from_setup(urb->shadow->buffers);
+	alt = (u8)get_wValue_from_setup (usbhc, urb->shadow->buffers);
+	iface = (u8)get_wIndex_from_setup (usbhc, urb->shadow->buffers);
 
 	dprintf(1, "%u, %u, %u) found.\n", devadr, iface, alt);
 
@@ -739,7 +739,7 @@ new_usb_device(struct usb_host *usbhc,
 	void usbhid_init_handle (struct usb_host *, struct usb_device *);
 
 	/* get a device address */
-	devadr = usbhc->init_op->dev_addr (urb);
+	devadr = usbhc->init_op->dev_addr (usbhc, urb);
 
 	dprintft(1, "SetAddress(%d) found.\n", devadr);
 
