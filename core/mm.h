@@ -73,7 +73,10 @@ extern struct uefi_mmio_space_struct *uefi_mmio_space;
 
 phys_t sym_to_phys (void *sym);
 bool phys_in_vmm (u64 phys);
+u32 alloc_uppermem (uint len);
 virt_t phys_to_virt (phys_t phys);
+u32 vmm_start_inf (void);
+u32 vmm_term_inf (void);
 int num_of_available_pages (void);
 u32 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type);
 u32 getfakesysmemmap (u32 n, u64 *base, u64 *len, u32 *type);

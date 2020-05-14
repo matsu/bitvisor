@@ -32,7 +32,24 @@
 
 #include <core/types.h>
 
+struct acpi_pci_addr {
+	struct acpi_pci_addr *next;
+	int bus;
+	int dev;
+	int func;
+};
+
+struct dmar_drhd_reg_data;
+
 bool acpi_read_mcfg (uint n, u64 *base, u16 *seg_group, u8 *bus_start,
 		     u8 *bus_end);
+u64 acpi_dmar_translate (struct dmar_drhd_reg_data *d, u8 bus, u8 dev, u8 func,
+			 u64 address);
+u64 acpi_dmar_msi_to_icr (struct dmar_drhd_reg_data *d, u32 maddr, u32 mupper,
+			  u16 mdata);
+struct dmar_drhd_reg_data *acpi_dmar_add_pci_device (u16 segment,
+						     const struct acpi_pci_addr
+						     *addr, bool bridge);
+void acpi_dmar_done_pci_device (void);
 
 #endif

@@ -30,6 +30,7 @@
 #ifndef _CORE_ACPI_H
 #define _CORE_ACPI_H
 
+#include <core/acpi.h>
 #include <core/types.h>
 
 struct acpi_data {

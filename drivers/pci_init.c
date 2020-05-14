@@ -40,6 +40,9 @@
 #include <core/mmio.h>
 #include <core/uefiutil.h>
 
+#define PTE_P_BIT			0x1
+#define PTE_RW_BIT			0x2
+
 static const char driver_name[] = "pci_driver";
 
 DEFINE_ALLOC_FUNC(pci_device)
@@ -272,6 +275,119 @@ static struct pci_device *pci_new_device(pci_config_address_t addr)
 	return dev;
 }
 
+static u64
+dmar_translate (void *data, unsigned int *npages, u64 address)
+{
+	struct pci_device *dev = data;
+	unsigned int i;
+	u64 ret;
+	u64 tmp;
+
+	ret = acpi_dmar_translate (dev->dmar_info, dev->initial_bus_no,
+				   dev->address.device_no,
+				   dev->address.func_no, address);
+	if (!(ret & PTE_P_BIT) || !(ret & PTE_RW_BIT))
+		goto end;
+	for (i = 1; i < *npages; i++) {
+		tmp = acpi_dmar_translate (dev->dmar_info,
+					   dev->initial_bus_no,
+					   dev->address.device_no,
+					   dev->address.func_no,
+					   address + i * PAGESIZE);
+		if (tmp != ret + i * PAGESIZE) {
+			*npages = i;
+			break;
+		}
+	}
+end:
+	return ret;
+}
+
+static u64
+dmar_msi_to_icr (void *data, u32 maddr, u32 mupper, u16 mdata)
+{
+	struct pci_device *dev = data;
+
+	return acpi_dmar_msi_to_icr (dev->dmar_info, maddr, mupper, mdata);
+}
+
+static u64
+virtual_dmar_translate (void *data, unsigned int *npages, u64 address)
+{
+	struct pci_virtual_device *dev = data;
+	unsigned int i;
+	u64 ret;
+	u64 tmp;
+
+	ret = acpi_dmar_translate (dev->dmar_info, 0, dev->address.device_no,
+				   dev->address.func_no, address);
+	if (!(ret & PTE_P_BIT) || !(ret & PTE_RW_BIT))
+		goto end;
+	for (i = 1; i < *npages; i++) {
+		tmp = acpi_dmar_translate (dev->dmar_info, 0,
+					   dev->address.device_no,
+					   dev->address.func_no,
+					   address + i * PAGESIZE);
+		if (tmp != ret + i * PAGESIZE) {
+			*npages = i;
+			break;
+		}
+	}
+end:
+	return ret;
+}
+
+static u64
+virtual_dmar_msi_to_icr (void *data, u32 maddr, u32 mupper, u16 mdata)
+{
+	struct pci_virtual_device *dev = data;
+
+	return acpi_dmar_msi_to_icr (dev->dmar_info, maddr, mupper, mdata);
+}
+
+static const struct mm_as *
+pci_init_as_dma (struct pci_device *dev, struct pci_device *pdev,
+		 struct acpi_pci_addr *next)
+{
+	struct acpi_pci_addr addr;
+
+	addr.bus = pdev->initial_bus_no; /* -1 for hotplug */
+	addr.dev = pdev->address.device_no;
+	addr.func = pdev->address.func_no;
+	addr.next = next;
+	if (pdev->parent_bridge)
+		return pci_init_as_dma (dev, pdev->parent_bridge, &addr);
+	dev->dmar_info = acpi_dmar_add_pci_device (0, &addr,
+						   !!dev->bridge.yes);
+	if (dev->dmar_info) {
+		dev->as_dma_dmar.translate = dmar_translate;
+		dev->as_dma_dmar.msi_to_icr = dmar_msi_to_icr;
+		dev->as_dma_dmar.data = dev;
+		return &dev->as_dma_dmar;
+	}
+	return as_passvm;
+}
+
+static const struct mm_as *
+pci_virtual_init_as_dma (struct pci_virtual_device *dev)
+{
+	struct acpi_pci_addr addr;
+
+	ASSERT (!dev->address.bus_no);
+	addr.bus = 0;
+	addr.dev = dev->address.device_no;
+	addr.func = dev->address.func_no;
+	addr.next = NULL;
+	dev->dmar_info = acpi_dmar_add_pci_device (0, &addr, false);
+	if (dev->dmar_info) {
+		dev->as_dma_dmar.translate = virtual_dmar_translate;
+		dev->as_dma_dmar.msi_to_icr = virtual_dmar_msi_to_icr;
+		dev->as_dma_dmar.data = dev;
+		return &dev->as_dma_dmar;
+	}
+	return as_passvm;
+}
+
 struct pci_device *
 pci_possible_new_device (pci_config_address_t addr,
 			 struct pci_config_mmio_data *mmio)
@@ -294,6 +410,7 @@ pci_possible_new_device (pci_config_address_t addr,
 		if (ret->parent_bridge)
 			ret->initial_bus_no = ret->parent_bridge->bridge.
 				initial_secondary_bus_no;
+		ret->as_dma = pci_init_as_dma (ret, ret, NULL);
 	}
 	return ret;
 }
@@ -345,6 +462,7 @@ static void pci_find_devices()
 	LIST_FOREACH (pci_device_list, dev) {
 		dev->parent_bridge =
 			pci_get_bridge_from_bus_no (dev->address.bus_no);
+		dev->as_dma = pci_init_as_dma (dev, dev, NULL);
 		driver = pci_find_driver_for_device (dev);
 		if (driver) {
 			dev->driver = driver;
@@ -360,10 +478,12 @@ static void pci_find_devices()
 					   &dn, &fn);
 		virtual_device->address =
 			pci_make_config_address (0, dn, fn, 0);
-		virtual_device->as_dma = as_passvm;
+		virtual_device->as_dma =
+			pci_virtual_init_as_dma (virtual_device);
 		virtual_device->driver->new (virtual_device);
 		vnum++;
 	}
+	acpi_dmar_done_pci_device ();
 	pci_config_pmio_leave ();
 	printf ("PCI: %d devices found\n", num);
 	if (vnum)

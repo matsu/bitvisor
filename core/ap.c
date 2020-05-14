@@ -670,3 +670,29 @@ is_icr_destination_me (u64 icr)
 		return !!(mda & id & 0xFF000000);
 	}
 }
+
+u64
+dmar_irte_to_icr (u64 entry_low)
+{
+	union {
+		u64 v;
+		struct icr b;
+	} ret;
+
+	ret.v = ~0ULL;
+	if (entry_low & 1) {	/* Present */
+		ret.v = 0;
+		ret.b.vector = entry_low >> 16; /* V */
+		ret.b.delivery_mode = entry_low >> 5; /* DLM */
+		ret.b.destination_mode = entry_low >> 2; /* DM */
+		ret.b.level = 1;
+		ret.b.trigger_mode = entry_low >> 4; /* TM */
+		ret.b.destination_shorthand = 0; /* No shorthand */
+		if (apic_available () && is_x2apic_supported () &&
+		    is_x2apic_enabled ())
+			ret.b.destination = entry_low >> 32; /* DST */
+		else
+			ret.b.destination = entry_low >> 40 << 24;
+	}
+	return ret.v;
+}

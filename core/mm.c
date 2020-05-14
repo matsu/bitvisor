@@ -470,6 +470,20 @@ alloc_realmodemem (uint len)
 		return alloc_realmodemem_bios (len);
 }
 
+/* alloc_uppermem() is available after "global2" (mm_init_global)
+ * completion and before "bsp0" (install_int0x15_hook) start. */
+u32
+alloc_uppermem (uint len)
+{
+	if (uefi_booted)
+		return 0;
+	len = (len + PAGESIZE - 1) & ~PAGESIZE_MASK;
+	if (e820_vmm_fake_len <= len)
+		return 0;
+	e820_vmm_fake_len -= len;
+	return e820_vmm_base + e820_vmm_fake_len;
+}
+
 static void
 find_realmodemem (void)
 {
