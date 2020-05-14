@@ -42,5 +42,6 @@ void start_all_processors (void (*bsp_initproc) (void),
 			   void (*ap_initproc) (void));
 void disable_apic (void);
 void ap_start_addr (u8 addr, bool (*loopcond) (void *data), void *data);
+u64 msi_to_icr (u32 maddr, u32 mupper, u16 mdata);
 
 #endif

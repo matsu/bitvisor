@@ -42,6 +42,7 @@ struct mempool;
 
 struct mm_as {
 	u64 (*translate) (void *data, unsigned int *npages, u64 address);
+	u64 (*msi_to_icr) (void *data, u32 maddr, u32 mupper, u16 mdata);
 	void *data;
 };
 
@@ -65,6 +66,8 @@ void mempool_freemem (struct mempool *mp, void *virt);
 /* Address space */
 u64 mm_as_translate (const struct mm_as *handle, unsigned int *npages,
 		     u64 address);
+u64 mm_as_msi_to_icr (const struct mm_as *as, u32 maddr, u32 mupper,
+		      u16 mdata);
 
 /* accessing memory */
 void unmapmem (void *virt, uint len);

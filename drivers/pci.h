@@ -215,6 +215,13 @@ struct pci_bridge_callback {
 			     struct pci_device *bridge);
 };
 
+struct msix_table {
+	u32 addr;
+	u32 upper;
+	u32 data;
+	u32 mask;
+};
+
 // exported functions
 extern void pci_register_driver (struct pci_driver *driver);
 void pci_register_virtual_driver (struct pci_virtual_driver *driver);
@@ -276,5 +283,6 @@ struct pci_msi *pci_msi_init (struct pci_device *pci_device,
 			      void *data);
 void pci_msi_enable (struct pci_msi *msi);
 void pci_msi_disable (struct pci_msi *msi);
+void pci_msi_to_ipi (const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata);
 
 #endif

@@ -56,6 +56,9 @@ struct data {
 	bool membase_emul;
 	u32 membase;
 	u8 macaddr[6];
+	const struct mm_as *as_dma;
+	int msix_qvec[2];
+	struct msix_table *msix_tbl;
 };
 
 static void
@@ -99,11 +102,6 @@ virtual_virtio_net_intr_clear (void *param)
 static void
 virtual_virtio_net_intr_set (void *param)
 {
-	struct data *d = param;
-	int intnum = virtio_intr (d->virtio_net);
-
-	if (intnum >= 0x20 && intnum <= 0xFF)
-		self_ipi (intnum);
 }
 
 static void
@@ -124,6 +122,28 @@ virtual_virtio_net_msix_disable (void *param)
 static void
 virtual_virtio_net_msix_enable (void *param)
 {
+}
+
+static void
+virtual_virtio_net_msix_vector_change (void *param, unsigned int queue,
+				       int vector)
+{
+	struct data *d = param;
+
+	if (queue < 2)
+		d->msix_qvec[queue] = vector;
+}
+
+static void
+virtual_virtio_net_msix_generate (void *param, unsigned int queue)
+{
+	struct data *d = param;
+	struct msix_table m = { 0, 0, 0, 1 };
+
+	if (queue < 2)
+		m = d->msix_tbl[d->msix_qvec[queue]];
+	if (!(m.mask & 1))
+		pci_msi_to_ipi (d->as_dma, m.addr, m.upper, m.data);
 }
 
 static void
@@ -158,10 +178,16 @@ virtual_virtio_net_new (struct pci_virtual_device *dev)
 					 virtual_virtio_net_intr_disable,
 					 virtual_virtio_net_intr_enable, d);
 	if (d->virtio_net) {
+		d->as_dma = dev->as_dma;
+		d->msix_qvec[0] = -1;
+		d->msix_qvec[1] = -1;
 		/* BAR5 for MSI-X tables. */
-		virtio_net_set_msix (d->virtio_net, 0x5,
-				     virtual_virtio_net_msix_disable,
-				     virtual_virtio_net_msix_enable, d);
+		d->msix_tbl = virtio_net_set_msix
+			(d->virtio_net, 0x5,
+			 virtual_virtio_net_msix_disable,
+			 virtual_virtio_net_msix_enable,
+			 virtual_virtio_net_msix_vector_change,
+			 virtual_virtio_net_msix_generate, d);
 		/* Use virtio_net_func for phys_func. */
 		net_init (d->nethandle, d->virtio_net, virtio_net_func, d,
 			  &virt_func);

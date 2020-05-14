@@ -48,7 +48,9 @@
 
 #define APINIT_SIZE		(cpuinit_end - cpuinit_start)
 #define APINIT_POINTER(n)	((void *)(apinit + ((u8 *)&n - cpuinit_start)))
+#define ICR_MODE_MASK		0x700
 #define ICR_MODE_FIXED		0x000
+#define ICR_MODE_LOWEST_PRIORITY 0x100
 #define ICR_MODE_NMI		0x400
 #define ICR_MODE_INIT		0x500
 #define ICR_MODE_STARTUP	0x600
@@ -178,6 +180,19 @@ struct local_apic_registers {
 	u32 divide_configuration; /* 0x3E0 */
 	u32 reserved3e[3];
 	u32 reserved3f[4];	/* 0x3F0 */
+};
+
+struct icr {
+	unsigned int vector : 8;
+	unsigned int delivery_mode : 3;
+	unsigned int destination_mode : 1;
+	unsigned int reserved1 : 2;
+	unsigned int level : 1;
+	unsigned int trigger_mode : 1;
+	unsigned int reserved2 : 2;
+	unsigned int destination_shorthand : 2;
+	unsigned int reserved3 : 12;
+	unsigned int destination : 32;
 };
 
 static void ap_start (void);
@@ -535,6 +550,34 @@ self_ipi (int intnum)
 }
 
 void
+send_ipi (u64 icr)
+{
+	volatile u32 *apic_icr;
+	volatile u32 *apic_icr_high;
+
+	if (!~icr)		/* Special invalid value used by
+				 * msi_to_icr(). */
+		return;
+	if ((icr & ICR_MODE_MASK) == ICR_MODE_LOWEST_PRIORITY)
+		/* Lowest Priority should be avoided in xAPIC mode or
+		 * is reserved in x2APIC mode. */
+		icr = (icr & ~ICR_MODE_MASK) | ICR_MODE_FIXED;
+	if (!apic_available ())
+		return;
+	if (is_x2apic_supported () && is_x2apic_enabled ()) {
+		asm_wrmsr64 (MSR_IA32_X2APIC_ICR, icr);
+		return;
+	}
+	if (!lar)
+		return;
+	apic_icr = &lar->interrupt_command_0;
+	apic_icr_high = &lar->interrupt_command_1;
+	while ((*apic_icr & ICR_STATUS_BIT) != ICR_STATUS_IDLE);
+	*apic_icr_high = icr >> 32;
+	*apic_icr = icr;
+}
+
+void
 eoi (void)
 {
 	volatile u32 *apic_eoi;
@@ -549,4 +592,29 @@ eoi (void)
 		return;
 	apic_eoi = &lar->eoi;
 	*apic_eoi = 0;
+}
+
+u64
+msi_to_icr (u32 maddr, u32 mupper, u16 mdata)
+{
+	union {
+		u64 v;
+		struct icr b;
+	} ret;
+
+	ret.v = ~0ULL;
+	if ((maddr & 0xFFF00000) == 0xFEE00000 && !mupper) {
+		ret.v = 0;
+		ret.b.vector = mdata;
+		ret.b.delivery_mode = mdata >> 8;
+		ret.b.destination_mode = maddr >> 2;
+		ret.b.level = mdata >> 14;
+		ret.b.trigger_mode = mdata >> 15;
+		ret.b.destination_shorthand = 0; /* No shorthand */
+		ret.b.destination = maddr >> 12 << 24;
+		if (apic_available () && is_x2apic_supported () &&
+		    is_x2apic_enabled ())
+			ret.b.destination >>= 24;
+	}
+	return ret.v;
 }

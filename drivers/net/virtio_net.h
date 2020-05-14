@@ -38,13 +38,18 @@ void virtio_net_config_read (void *handle, u8 iosize, u16 offset,
 void virtio_net_config_write (void *handle, u8 iosize, u16 offset,
 			      union mem *data);
 void virtio_net_set_multifunction (void *handle, int enable);
-void virtio_net_set_msix (void *handle, u32 msix,
-			  void (*msix_disable) (void *msix_param),
-			  void (*msix_enable) (void *msix_param),
-			  void *msix_param);
+struct msix_table *
+virtio_net_set_msix (void *handle, u32 msix,
+		     void (*msix_disable) (void *msix_param),
+		     void (*msix_enable) (void *msix_param),
+		     void (*msix_vector_change) (void *msix_param,
+						 unsigned int queue,
+						 int vector),
+		     void (*msix_generate) (void *msix_param,
+					    unsigned int queue),
+		     void *msix_param);
 void virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
 		      union mem *data);
-int virtio_intr (void *handle);
 void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       const struct mm_as *as_dma,
 		       void (*intr_clear) (void *intr_param),
@@ -69,23 +74,24 @@ virtio_net_set_multifunction (void *handle, int enable)
 {
 }
 
-static inline void
+static inline struct msix_table *
 virtio_net_set_msix (void *handle, u32 msix,
 		     void (*msix_disable) (void *msix_param),
-		     void (*msix_enable) (void *msix_param), void *msix_param)
+		     void (*msix_enable) (void *msix_param),
+		     void (*msix_vector_change) (void *msix_param,
+						 unsigned int queue,
+						 int vector),
+		     void (*msix_generate) (void *msix_param,
+					    unsigned int queue),
+		     void *msix_param)
 {
+	return NULL;
 }
 
 static inline void
 virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
 		 union mem *data)
 {
-}
-
-static inline int
-virtio_intr (void *handle)
-{
-	return -1;
 }
 
 static inline void *

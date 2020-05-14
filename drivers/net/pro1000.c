@@ -222,6 +222,10 @@ struct data2 {
 	void *virtio_net;
 	char virtio_net_bar_emul;
 	struct pci_msi *virtio_net_msi;
+	struct msix_table *msix_tbl;
+	int msix_qvec[2];
+	bool intr;
+	bool intr2;
 };
 
 struct data {
@@ -1286,11 +1290,41 @@ change_bar0 (struct pci_device *pci_device, u8 iosize, u16 offset,
 }
 
 static int
+virtio_intrnum (struct data2 *d2, int queue)
+{
+	int vec = d2->msix_qvec[queue];
+
+	if (vec >= 0 && vec < 3 && !(d2->msix_tbl[vec].mask & 1) &&
+	    !d2->msix_tbl[vec].upper &&
+	    (d2->msix_tbl[vec].addr & 0xFFF00000) == 0xFEE00000) {
+		if (0)
+			printf ("virtio intr %d %08X%08X, %08X\n", queue,
+				d2->msix_tbl[vec].upper,
+				d2->msix_tbl[vec].addr,
+				d2->msix_tbl[vec].data);
+		return d2->msix_tbl[vec].data & 0xFF;
+	}
+	return -1;
+}
+
+static int
 pro1000_msi (void *data, int num)
 {
 	struct data2 *d2 = data;
+	volatile u32 *icr = (void *)(u8 *)d2->d1[0].map + 0xC0;
 
-	return virtio_intr (d2->virtio_net);
+	*icr |= 0xFFFFFFFF;
+	poll_physnic (d2);
+	if (d2->intr2) {
+		d2->intr2 = false;
+		return virtio_intrnum (d2, 1);
+	} else if (d2->intr) {
+		d2->intr = false;
+		return virtio_intrnum (d2, 0);
+	} else {
+		/* Workaround for Windows driver... */
+		return virtio_intrnum (d2, 0);
+	}
 }
 
 static void
@@ -1480,6 +1514,28 @@ pro1000_msix_enable (void *param)
 	pci_msi_enable (d2->virtio_net_msi);
 }
 
+static void
+pro1000_msix_vector_change (void *param, unsigned int queue, int vector)
+{
+	struct data2 *d2 = param;
+
+	if (queue < 2)
+		d2->msix_qvec[queue] = vector;
+}
+
+static void
+pro1000_msix_generate (void *param, unsigned int queue)
+{
+	struct data2 *d2 = param;
+	volatile u32 *ics = (void *)(u8 *)d2->d1[0].map + 0xC8;
+
+	if (queue)
+		d2->intr2 = true;
+	else
+		d2->intr = true;
+	*ics = 1 << 7 | 1 << 4;	/* interrupt */
+}
+
 /* Disable I/O space and unreghook I/O space hooks to avoid I/O space
  * hook collision with virtio-net. */
 static void
@@ -1567,10 +1623,18 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 		pro1000_disable_io (pci_device, d);
 		d2->virtio_net_msi = pci_msi_init (pci_device, pro1000_msi,
 						   d2);
-		if (d2->virtio_net_msi)
-			virtio_net_set_msix (d2->virtio_net, 0x5,
-					     pro1000_msix_disable,
-					     pro1000_msix_enable, d2);
+		if (d2->virtio_net_msi) {
+			d2->msix_qvec[0] = -1;
+			d2->msix_qvec[1] = -1;
+			d2->intr = false;
+			d2->intr2 = false;
+			d2->msix_tbl = virtio_net_set_msix
+				(d2->virtio_net, 0x5,
+				 pro1000_msix_disable,
+				 pro1000_msix_enable,
+				 pro1000_msix_vector_change,
+				 pro1000_msix_generate, d2);
+		}
 		pci_device->driver->options.use_base_address_mask_emulation =
 			0;
 		net_init (d2->nethandle, d2, &phys_func, d2->virtio_net,

@@ -35,6 +35,7 @@
 
 #include <common.h>
 #include <core.h>
+#include <core/ap.h>
 #include <core/exint_pass.h>
 #include <core/process.h>
 #include <core/strtol.h>
@@ -1273,4 +1274,11 @@ pci_msi_disable (struct pci_msi *msi)
 	u16 mctl = 0;
 
 	pci_config_write (pci_device, &mctl, sizeof mctl, cap + 2);
+}
+
+void
+pci_msi_to_ipi (const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata)
+{
+	u64 icr = mm_as_msi_to_icr (as, maddr, mupper, mdata);
+	send_ipi (icr);
 }

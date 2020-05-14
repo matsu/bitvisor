@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "ap.h"
 #include "asm.h"
 #include "assert.h"
 #include "callrealmode.h"
@@ -2226,6 +2227,14 @@ mm_as_translate (const struct mm_as *as, unsigned int *npages, u64 address)
 		npages = &npage1;
 	address &= ~PAGESIZE_MASK;
 	return as->translate (as->data, npages, address);
+}
+
+u64
+mm_as_msi_to_icr (const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata)
+{
+	if (as->msi_to_icr)
+		return as->msi_to_icr (as->data, maddr, mupper, mdata);
+	return msi_to_icr (maddr, mupper, mdata);
 }
 
 /**********************************************************************/
