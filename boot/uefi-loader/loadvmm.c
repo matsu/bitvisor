@@ -114,6 +114,9 @@ err:
 }
 
 #include "discon.h"
+#include "bsdriver.h"
+#include "bsdriver_load.h"
+#include "acpi_table_mod.h"
 
 EFI_STATUS EFIAPI
 efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
@@ -185,9 +188,14 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 		UEFI_BITVISOR_DISCONNECT_CONTROLLER_UUID,
 		get_disconnect_controller (systab)
 	};
+	struct bitvisor_acpi_table_mod boot_ext3 = {
+		UEFI_BITVISOR_ACPI_TABLE_MOD_UUID,
+		acpi_table_mod
+	};
 	void *boot_exts[] = {
 		&boot_ext,
 		&boot_ext2,
+		&boot_ext3,
 		NULL
 	};
 

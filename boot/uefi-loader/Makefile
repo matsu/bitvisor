@@ -20,7 +20,8 @@ all : loadvmm.efi
 clean :
 	$(RM) loadvmm.efi
 
-loadvmm.efi : loadvmm.c $(INC) discon.h
+loadvmm.efi : loadvmm.c $(INC) discon.h bsdriver.h bsdriver_load.h \
+ acpi_table_mod.h bsdriver.efi
 	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
 		-mno-red-zone -mno-sse -nostdinc -s -O \
 		-ffreestanding -fno-builtin -fno-stack-protector \
@@ -33,3 +34,17 @@ loadvmm.efi : loadvmm.c $(INC) discon.h
 		-I$(EDK_DIR)/Foundation/Include/ \
 		-I$(EDK_DIR)/Foundation/Efi/ \
 		-o loadvmm.efi loadvmm.c
+
+bsdriver.efi : bsdriver.c bsdriver.h
+	$(EXE_CC) -shared -nostdlib -e EfiDriverEntryPoint \
+		-mno-red-zone -mno-sse -nostdinc -s -O \
+		-ffreestanding -fno-builtin -fno-stack-protector \
+		-fno-strict-aliasing \
+		-Wl,--subsystem,11 \
+		-I. \
+		-I$(INC_SHARE_DIR) \
+		-I$(EDK_DIR)/Foundation/Efi/Include/ \
+		-I$(EDK_DIR)/Foundation/Framework/Include/ \
+		-I$(EDK_DIR)/Foundation/Include/ \
+		-I$(EDK_DIR)/Foundation/Efi/ \
+		-o bsdriver.efi bsdriver.c

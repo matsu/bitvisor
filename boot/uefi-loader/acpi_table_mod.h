@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Igel Co., Ltd.
+ * Copyright (c) 2013 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,27 +27,17 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_CALLUEFI_H
-#define _CORE_CALLUEFI_H
+static EFI_STATUS EFIAPI
+acpi_table_mod (UINT32 Signature, UINT64 TableAddr)
+{
+	EFI_HANDLE image;
+	EFI_SYSTEM_TABLE *systab;
+	struct bsdriver_data *bsdriver;
 
-#include "types.h"
-
-extern u8 uefi_memory_map_data[16384];
-extern ulong uefi_memory_map_size;
-extern ulong uefi_memory_map_descsize;
-
-void call_uefi_get_memory_map (void);
-int call_uefi_allocate_pages (int type, int memtype, u64 npages, u64 *phys);
-int call_uefi_free_pages (u64 phys, u64 npages);
-int call_uefi_create_event_exit_boot_services (u64 phys, u64 context,
-					       void **event_ret);
-int call_uefi_boot_acpi_table_mod (char *signature, u64 table_addr);
-u32 call_uefi_getkey (void);
-void call_uefi_putchar (unsigned char c);
-void call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
-					 ulong func);
-void call_uefi_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev,
-				    ulong func, void *mac, uint len);
-void copy_uefi_bootcode (void);
-
-#endif
+	image = saved_image;
+	systab = saved_systab;
+	bsdriver = load_bsdriver (image, systab);
+	if (!bsdriver)
+		return EFI_LOAD_ERROR;
+	return bsdriver->acpi_table_mod (systab, Signature, TableAddr);
+}

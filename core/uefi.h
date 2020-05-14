@@ -53,6 +53,7 @@ extern ulong uefi_boot_param_ext_addr;
 extern ulong uefi_protocols_per_handle;
 extern ulong uefi_uninstall_protocol_interface;
 extern ulong uefi_create_event;
+extern ulong uefi_boot_acpi_table_mod;
 extern bool uefi_booted;
 
 #endif

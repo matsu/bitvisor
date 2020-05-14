@@ -1017,6 +1017,7 @@ acpi_init_global (void)
 			dom_io[i]=create_dom(i) ;
 		memset (r, 0, 4); /* Clear DMAR to prevent guest OS from
 				     using iommu */
+		call_uefi_boot_acpi_table_mod (DMAR_SIGNATURE, 0);
 		disable_vtd (r);
 	}
 

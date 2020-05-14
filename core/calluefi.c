@@ -99,6 +99,23 @@ call_uefi_create_event_exit_boot_services (u64 phys, u64 context,
 	return ret;
 }
 
+int
+call_uefi_boot_acpi_table_mod (char *signature, u64 table_addr)
+{
+	int i;
+	union {
+		u32 signature32;
+		char signature[4];
+	} s;
+
+	if (!uefi_boot_acpi_table_mod)
+		return -1;
+	for (i = 0; i < 4; i++)
+		s.signature[i] = signature[i];
+	return calluefi (uefi_boot_acpi_table_mod, 2, s.signature32,
+			 table_addr);
+}
+
 u32
 call_uefi_getkey (void)
 {

@@ -286,6 +286,9 @@ error1:
 }
 
 #include "../uefi-loader/discon.h"
+#include "../uefi-loader/bsdriver.h"
+#include "../uefi-loader/bsdriver_load.h"
+#include "../uefi-loader/acpi_table_mod.h"
 
 EFI_STATUS EFIAPI
 efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
@@ -337,6 +340,10 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 		UEFI_BITVISOR_DISCONNECT_CONTROLLER_UUID,
 		get_disconnect_controller (systab)
 	};
+	struct bitvisor_acpi_table_mod boot_ext3 = {
+		UEFI_BITVISOR_ACPI_TABLE_MOD_UUID,
+		acpi_table_mod
+	};
 
 	struct pass_auth_param_ext pass_ext = INITIAL_PASS_AUTH_EXT;
 
@@ -345,6 +352,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	void *boot_exts[] = {
 		&boot_ext,
 		&boot_ext2,
+		&boot_ext3,
 		&pass_ext,
 		&cpu_ext,
 		NULL

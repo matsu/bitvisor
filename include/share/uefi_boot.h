@@ -48,6 +48,10 @@
 	{0x7B50E9DA, 0xE7AD, 0x4E89,				\
 	 {0x9D, 0x93, 0xC3, 0x54, 0x69, 0x33, 0x46, 0x84}}
 
+#define UEFI_BITVISOR_ACPI_TABLE_MOD_UUID			\
+	{0x79FF5F54, 0x5392, 0x42E0,				\
+	 {0xA8, 0x92, 0x3B, 0x13, 0xB4, 0x71, 0xD2, 0x88}}
+
 struct uuid {
 	unsigned int   field1;
 	unsigned short field2;
@@ -96,6 +100,14 @@ struct bitvisor_disconnect_controller {
 	struct param_ext base;
 	/* IN */
 	void *disconnect_controller;
+};
+
+/* ------------------------------------------------------------------------- */
+
+struct bitvisor_acpi_table_mod {
+	struct param_ext base;
+	/* IN */
+	void *modify;		/* (UINT32 signature, UINT64 table_addr) */
 };
 
 /* ------------------------------------------------------------------------- */
