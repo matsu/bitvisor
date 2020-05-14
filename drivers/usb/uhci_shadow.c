@@ -291,7 +291,6 @@ uhci_shadow_buffer(struct usb_host *usbhc,
 	struct usb_buffer_list *gub, *hub, *ub_tail;
 	struct uhci_td_meta *tdm;
 	virt_t gvadr;
-	phys_t diff;
 
 	ASSERT(gurb->buffers != NULL);
 	ASSERT(hurb != NULL);
@@ -334,12 +333,11 @@ uhci_shadow_buffer(struct usb_host *usbhc,
 		gub = gurb->buffers;
 		hub = hurb->buffers;
 		while (gub && hub) {
-			ASSERT(hub->padr >= gub->padr);
-			diff = hub->padr - gub->padr;
 			if ((gub->padr <= (phys_t)tdm->td->buffer) &&
 			    ((phys_t)tdm->td->buffer < 
 			     (gub->padr + gub->len))) {
-				tdm->td->buffer += diff;
+				tdm->td->buffer = tdm->td->buffer - gub->padr +
+					hub->padr;
 				break;
 			}
 			gub = gub->next;
