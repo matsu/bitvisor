@@ -70,6 +70,7 @@
 #define ACCESS_SIZE_WORD	2
 #define ACCESS_SIZE_DWORD	3
 #define ACCESS_SIZE_QWORD	4
+#define NFACS_ADDR		6
 
 struct rsdp {
 	u8 signature[8];
@@ -198,10 +199,12 @@ struct mcfg {
 
 static bool rsdp_found;
 static struct rsdpv2 rsdp_copy;
+static bool rsdp1_found;
+static struct rsdp rsdp1_copy;
 static bool pm1a_cnt_found;
 static u32 pm1a_cnt_ioaddr;
 static u32 pm_tmr_ioaddr;
-static u64 facs_addr[4];
+static u64 facs_addr[NFACS_ADDR];
 static u32 smi_cmd;
 static struct gas reset_reg;
 static u8 reset_value;
@@ -282,22 +285,42 @@ find_rsdp (void)
 	return find_rsdp_iapc ();
 }
 
+/* Return ACPIv1 table address if UEFI firmware provides ACPIv1 table
+ * at different address from ACPIv2 table. */
+static u64
+find_rsdp1 (void)
+{
+	/* If uefi_acpi_20_table == ~0UL && uefi_acpi_table != ~0UL,
+	 * uefi_acpi_table is returned by find_rsdp(). */
+	/* If uefi_acpi_20_table == ~0UL && uefi_acpi_table == ~0UL,
+	 * it is BIOS booted. */
+	/* If uefi_acpi_20_table != ~0UL && uefi_acpi_table == ~0UL,
+	 * ACPIv1 table is not provided. */
+	if (uefi_acpi_20_table == ~0UL || uefi_acpi_table == ~0UL)
+		return FIND_RSDP_NOT_FOUND;
+	/* If uefi_acpi_20_table == uefi_acpi_table, uefi_acpi_table
+	 * is returned by find_rsdp(). */
+	if (uefi_acpi_20_table == uefi_acpi_table)
+		return FIND_RSDP_NOT_FOUND;
+	u64 ebda = uefi_acpi_table;
+	return find_rsdp_iapc_sub (ebda, ebda + 0x3FF);
+}
+
 static void *
-foreach_entry_in_rsdt (void *(*func) (void *data, u64 entry), void *data)
+foreach_entry_in_rsdt_at (void *(*func) (void *data, u64 entry), void *data,
+			  u64 rsdt_address)
 {
 	struct rsdt *p;
 	void *ret = NULL;
 	int i, n, len = 0;
 
-	if (!rsdp_found)
-		return NULL;
-	p = mapmem_hphys (rsdp_copy.v1.rsdt_address, sizeof *p, 0);
+	p = mapmem_hphys (rsdt_address, sizeof *p, 0);
 	if (!memcmp (p->header.signature, RSDT_SIGNATURE, SIGNATURE_LEN))
 		len = p->header.length;
 	unmapmem (p, sizeof *p);
 	if (len < sizeof *p)
 		return NULL;
-	p = mapmem_hphys (rsdp_copy.v1.rsdt_address, len, 0);
+	p = mapmem_hphys (rsdt_address, len, 0);
 	if (!acpi_checksum (p, len)) {
 		n = (p->header.length - sizeof p->header) / sizeof p->entry[0];
 		for (i = 0; i < n; i++) {
@@ -308,6 +331,24 @@ foreach_entry_in_rsdt (void *(*func) (void *data, u64 entry), void *data)
 	}
 	unmapmem (p, len);
 	return ret;
+}
+
+static void *
+foreach_entry_in_rsdt (void *(*func) (void *data, u64 entry), void *data)
+{
+	if (!rsdp_found)
+		return NULL;
+	return foreach_entry_in_rsdt_at (func, data,
+					 rsdp_copy.v1.rsdt_address);
+}
+
+static void *
+foreach_entry_in_rsdt1 (void *(*func) (void *data, u64 entry), void *data)
+{
+	if (!rsdp1_found)
+		return NULL;
+	return foreach_entry_in_rsdt_at (func, data,
+					 rsdp1_copy.rsdt_address);
 }
 
 static void *
@@ -359,6 +400,12 @@ static void *
 find_entry_in_rsdt (char *signature)
 {
 	return foreach_entry_in_rsdt (find_entry_sub, signature);
+}
+
+static void *
+find_entry_in_rsdt1 (char *signature)
+{
+	return foreach_entry_in_rsdt1 (find_entry_sub, signature);
 }
 
 static void *
@@ -439,7 +486,7 @@ acpi_pm1_sleep (u32 v)
 		return false;
 #endif
 	old_waking_vector = 0;
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < NFACS_ADDR; i++) {
 		if (!facs_addr[i])
 			continue;
 		facs = acpi_mapmem (facs_addr[i], sizeof *facs);
@@ -459,7 +506,7 @@ acpi_pm1_sleep (u32 v)
 			printf ("Multiple waking vector found\n");
 	}
 	new_waking_vector = prepare_for_sleep (old_waking_vector);
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < NFACS_ADDR; i++) {
 		if (!facs_addr[i])
 			continue;
 		facs = acpi_mapmem (facs_addr[i], sizeof *facs);
@@ -575,6 +622,8 @@ get_facs_addr (u64 facs[2], struct facp *facp)
 {
 	facs[0] = 0;
 	facs[1] = 0;
+	if (!facp)
+		return;
 	if (IS_STRUCT_SIZE_OK (facp->header.length, facp,
 			       facp->x_firmware_ctrl))
 		facs[0] = facp->x_firmware_ctrl;
@@ -773,6 +822,15 @@ copy_rsdp (u64 rsdp, struct rsdpv2 *copyto)
 }
 
 static void
+copy_rsdp1 (u64 rsdp, struct rsdp *copyto)
+{
+	struct rsdp *p;
+
+	p = acpi_mapmem (rsdp, sizeof *p);
+	memcpy (copyto, p, sizeof *copyto);
+}
+
+static void
 remove_dup_facs_addr (u64 facs[], int n)
 {
 	int i, j;
@@ -921,14 +979,21 @@ static void
 acpi_init_global (void)
 {
 	u64 rsdp;
+	u64 rsdp1;
 	struct facp *q;
 	struct acpi_ent_dmar *r;
 	struct domain *create_dom() ;
 
 	wakeup_init ();
 	rsdp_found = false;
+	rsdp1_found = false;
 	pm1a_cnt_found = false;
 
+	rsdp1 = find_rsdp1 ();
+	if (rsdp1 != FIND_RSDP_NOT_FOUND) {
+		copy_rsdp1 (rsdp1, &rsdp1_copy);
+		rsdp1_found = true;
+	}
 	rsdp = find_rsdp ();
 	if (rsdp == FIND_RSDP_NOT_FOUND) {
 		printf ("ACPI RSDP not found.\n");
@@ -965,6 +1030,7 @@ acpi_init_global (void)
 #endif
 	get_pm1a_cnt_ioaddr (q);
 	get_pm_tmr_ioaddr (q);
+	ASSERT (NFACS_ADDR >= 0 + 2);
 	get_facs_addr (&facs_addr[0], q);
 	get_reset_info (q);
 	smi_cmd = q->smi_cmd;
@@ -973,12 +1039,12 @@ acpi_init_global (void)
 	if (0)
 		printf ("PM1a control port is 0x%X\n", pm1a_cnt_ioaddr);
 	q = find_entry_in_rsdt (FACP_SIGNATURE);
-	if (q) {
-		get_facs_addr (&facs_addr[2], q);
-		remove_dup_facs_addr (facs_addr, 4);
-	} else {
-		remove_dup_facs_addr (facs_addr, 2);
-	}
+	ASSERT (NFACS_ADDR >= 2 + 2);
+	get_facs_addr (&facs_addr[2], q);
+	q = find_entry_in_rsdt1 (FACP_SIGNATURE);
+	ASSERT (NFACS_ADDR >= 4 + 2);
+	get_facs_addr (&facs_addr[4], q);
+	remove_dup_facs_addr (facs_addr, NFACS_ADDR);
 	pm1a_cnt_found = true;
 	save_mcfg ();
 }
