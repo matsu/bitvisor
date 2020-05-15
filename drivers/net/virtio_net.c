@@ -473,7 +473,7 @@ virtio_net_config_read (void *handle, u8 iosize, u16 offset, union mem *data)
 
 	replace (iosize, offset, data, 0, 4, 0x10001AF4); /* Device/Vendor
 							   * ID */
-	replace (iosize, offset, data, 4, 2, vnet->cmd & 0x405);
+	replace (iosize, offset, data, 4, 2, vnet->cmd & 0x407);
 	replace (iosize, offset, data, 8, 1, 0);
 	if (!vnet->multifunction)
 		replace (iosize, offset, data, 0xE, 1, 0); /* Single function
@@ -626,7 +626,7 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet = alloc (sizeof *vnet);
 	vnet->prev_port = 0;
 	vnet->port = 0x5000;
-	vnet->cmd = 0x5;       /* Interrupts should not be masked here
+	vnet->cmd = 0x7;       /* Interrupts should not be masked here
 				  because apparently OS X does not
 				  unmask interrupts. */
 	vnet->queue[0] = 0;
