@@ -59,9 +59,11 @@ struct virtio_ext_cap {
 #define VIRTIO_STATUS_FEATURES_OK 0x8
 
 /* Feature bits */
-#define VIRTIO_NET_F_MAC   (1ULL << 5)
-#define VIRTIO_F_VERSION_1 (1ULL << 32)
-#define VIRTIO_NET_DEVICE_FEATURES (VIRTIO_NET_F_MAC | VIRTIO_F_VERSION_1)
+#define VIRTIO_NET_F_MAC	 (1ULL << 5)
+#define VIRTIO_F_VERSION_1	 (1ULL << 32)
+#define VIRTIO_F_ACCESS_PLATFORM (1ULL << 33)
+#define VIRTIO_NET_DEVICE_FEATURES (VIRTIO_NET_F_MAC | VIRTIO_F_VERSION_1 | \
+				    VIRTIO_F_ACCESS_PLATFORM)
 
 #define VIRTIO_PCI_CAP_COMMON_CFG 1
 #define VIRTIO_PCI_CAP_NOTIFY_CFG 2
@@ -770,6 +772,9 @@ eval_status (struct virtio_net *vnet, bool v1, u8 new_status)
 			printf ("virtio_net: assume that the driver uses "
 				"legacy header format\n");
 		}
+		if (v1 && !(vnet->driver_feature & VIRTIO_F_ACCESS_PLATFORM))
+			printf ("virtio_net: the guest driver does not accept "
+				"VIRTIO_F_ACCESS_PLATFORM\n");
 		vnet->ready = true;
 		if (!(vnet->cmd & 0x400) || vnet->msix_enabled)
 			vnet->intr_enable (vnet->intr_param);
@@ -1537,9 +1542,14 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->ready = false;
 	vnet->macaddr = macaddr;
 	vnet->dev = NULL;
-	vnet->as_dma = as_passvm; /* Legacy virtio deivces use
-				   * physical addresses.  The argument
-				   * as_dma is for future use. */
+	/*
+	 * For legacy virtio_net drivers, we should use physical addresses.
+	 * However, macOS seems to always use virtual addresses even though
+	 * VIRTIO_F_ACCESS_PLATFORM is not negotiated. Setting vnet->as_dma
+	 * like this is a workaround for macOS (Assuming that modern
+	 * virtio_net drivers supports v1.1 implementation).
+	 */
+	vnet->as_dma = as_dma;
 	vnet->intr_clear = intr_clear;
 	vnet->intr_set = intr_set;
 	vnet->intr_disable = intr_disable;
