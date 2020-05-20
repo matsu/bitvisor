@@ -228,11 +228,7 @@ virtual_virtio_net_config_read (struct pci_virtual_device *dev, u8 iosize,
 		memset (data, 0xFF, iosize);
 		return;
 	}
-	memset (data, 0x00, iosize);
-	replace (iosize, offset, data, 0x6, 2, 0x0010); /* Status */
-	replace (iosize, offset, data, 0x8, 4, 0x02000000); /* Class */
-	replace (iosize, offset, data, 0x3C, 4, 0x000001FF); /* Interrupt */
-	virtio_net_config_read (d->virtio_net, iosize, offset, data);
+	virtio_net_handle_config_read (d->virtio_net, iosize, offset, data);
 	replace (iosize, offset, data, 0x24, 4,
 		 d->membase_emul ? 0xFFFFF000 : d->membase);
 }
@@ -256,7 +252,7 @@ virtual_virtio_net_config_write (struct pci_virtual_device *dev, u8 iosize,
 
 	if (!d->virtio_net)
 		return;
-	virtio_net_config_write (d->virtio_net, iosize, offset, data);
+	virtio_net_handle_config_write (d->virtio_net, iosize, offset, data);
 	if (offset == 0x24) {
 		if ((data->dword & PCI_CONFIG_BASE_ADDRESS_MEMMASK) ==
 		    PCI_CONFIG_BASE_ADDRESS_MEMMASK) {

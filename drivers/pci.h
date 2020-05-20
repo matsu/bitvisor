@@ -121,8 +121,13 @@ struct pci_config_space {
 
 #define PCI_CAP_RSVD	0x0
 #define PCI_CAP_MSI	0x5
+#define PCI_CAP_VENDOR	0x9
 #define PCI_CAP_PCIEXP	0x10
 #define PCI_CAP_MSIX	0x11
+#define PCI_CAP_AF	0x13
+
+#define PCI_CAP_AF_LEN 0x4
+#define PCI_CAP_PCIEXP_LEN(version) (version > 1 ? 60 : 36)
 
 struct pci_config_mmio_data;
 struct token;

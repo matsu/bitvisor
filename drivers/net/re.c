@@ -157,7 +157,7 @@ re_new (struct pci_device *dev)
 	option_net = dev->driver_options[1];
 	host->nethandle = net_new_nic (option_net, option_tty);
 
-	if (option_virtio)
+	if (option_virtio) {
 		host->virtio_net = virtio_net_init (&virtio_net_func,
 						    host->mac,
 						    dev->as_dma,
@@ -166,6 +166,8 @@ re_new (struct pci_device *dev)
 						    re_core_intr_disable,
 						    re_core_intr_enable,
 						    host);
+		virtio_net_set_pci_device (host->virtio_net, dev);
+	}
 
 	if (!net_init (host->nethandle,
 		       host,
@@ -197,11 +199,10 @@ re_config_read (struct pci_device *dev,
 	struct re_host *host = dev->host;
 
 	if (host->virtio_net) {
-		pci_handle_default_config_read (dev, iosize, offset, data);
-		virtio_net_config_read (host->virtio_net,
-					iosize,
-					offset,
-					data);
+		virtio_net_handle_config_read (host->virtio_net,
+					       iosize,
+					       offset,
+					       data);
 		re_core_handle_bar_read (host, iosize, offset, data);
 	} else {
 		memset (data, 0, iosize);
@@ -219,10 +220,10 @@ re_config_write (struct pci_device *dev,
 	struct re_host *host = dev->host;
 
 	if (host->virtio_net) {
-		virtio_net_config_write (host->virtio_net,
-					 iosize,
-					 offset,
-					 data);
+		virtio_net_handle_config_write (host->virtio_net,
+						iosize,
+						offset,
+						data);
 		re_core_handle_bar_write (host, iosize, offset, data);
 	}
 

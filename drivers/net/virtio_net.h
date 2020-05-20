@@ -33,10 +33,10 @@
 struct nicfunc;
 
 #ifdef VIRTIO_NET
-void virtio_net_config_read (void *handle, u8 iosize, u16 offset,
-			     union mem *data);
-void virtio_net_config_write (void *handle, u8 iosize, u16 offset,
-			      union mem *data);
+void virtio_net_handle_config_read (void *handle, u8 iosize, u16 offset,
+				    union mem *data);
+void virtio_net_handle_config_write (void *handle, u8 iosize, u16 offset,
+				     union mem *data);
 void virtio_net_set_multifunction (void *handle, int enable);
 struct msix_table *
 virtio_net_set_msix (void *handle, u32 msix,
@@ -50,6 +50,7 @@ virtio_net_set_msix (void *handle, u32 msix,
 		     void *msix_param);
 void virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
 		      union mem *data);
+void virtio_net_set_pci_device (void *handle, struct pci_device *dev);
 void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       const struct mm_as *as_dma,
 		       void (*intr_clear) (void *intr_param),
@@ -57,15 +58,18 @@ void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       void (*intr_disable) (void *intr_param),
 		       void (*intr_enable) (void *intr_param),
 		       void *intr_param);
+bool virtio_net_add_cap (void *handle, u8 cap_start, u8 size);
 void virtio_net_unregister_handler (void *handle);
 #else
 static inline void
-virtio_net_config_read (void *handle, u8 iosize, u16 offset, union mem *data)
+virtio_net_handle_config_read (void *handle, u8 iosize, u16 offset,
+			       union mem *data)
 {
 }
 
 static inline void
-virtio_net_config_write (void *handle, u8 iosize, u16 offset, union mem *data)
+virtio_net_handle_config_write (void *handle, u8 iosize, u16 offset,
+				union mem *data)
 {
 }
 
@@ -94,6 +98,11 @@ virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
 {
 }
 
+static inline void
+virtio_net_set_pci_device (void *handle, struct pci_device *dev)
+{
+}
+
 static inline void *
 virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		 const struct mm_as *as_dma,
@@ -103,6 +112,12 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		 void (*intr_enable) (void *intr_param), void *intr_param)
 {
 	return NULL;
+}
+
+static inline bool
+virtio_net_add_cap (void *handle, u8 cap_start, u8 size)
+{
+	return false;
 }
 
 static inline void

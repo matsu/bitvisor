@@ -136,7 +136,6 @@ struct bnx {
 	void *recvphys_param;
 
 	void *virtio_net;
-	u8 config_override[0x100];
 	bool hotplugpass;
 	bool hotplug_detected;
 };
@@ -1044,46 +1043,6 @@ bnx_intr_enable (void *param)
 	printf ("bnx: Enable interrupt\n");
 }
 
-/* Prepares capabilities passthrough except MSI and MSI-X that are not
- * supported by this bnx-virtio implementation */
-static void
-passcap_without_msi (struct bnx *bnx, struct pci_device *pci)
-{
-	u32 val;
-	u8 cap, cur;
-
-	pci_config_read (pci, &cap, sizeof cap,
-			 0x34);	/* CAP - Capabilities Pointer */
-	cur = 0x34;
-	bnx->config_override[cur] = cap;
-	while (cap >= 0x40) {
-		pci_config_read (pci, &val, sizeof val, cap & ~3);
-		switch (val & 0xFF) { /* Cap ID */
-		case 0x05:	/* MSI */
-			printi ("[%02x:%02x.%01x] Capabilities [%02x] MSI\n",
-				pci->address.bus_no, pci->address.device_no,
-				pci->address.func_no, cap);
-			break;
-		case 0x11:	/* MSI-X */
-			printi ("[%02x:%02x.%01x] Capabilities [%02x] MSI-X\n",
-				pci->address.bus_no, pci->address.device_no,
-				pci->address.func_no, cap);
-			break;
-		default:
-			cur = cap + 1;
-			if (bnx->config_override[cur]) {
-				printf ("[%02x:%02x.%01x] Capability loop?\n",
-					pci->address.bus_no,
-					pci->address.device_no,
-					pci->address.func_no);
-				return;
-			}
-		}
-		cap = val >> 8; /* Next Capability */
-		bnx->config_override[cur] = cap;
-	}
-}
-
 static void
 bnx_bridge_pre_config_write (struct pci_device *dev,
 			     struct pci_device *bridge,
@@ -1136,6 +1095,7 @@ bnx_new (struct pci_device *pci_device)
 	bool option_multifunction = false;
 	bool option_hotplugpass = false;
 	struct nicfunc *virtio_net_func;
+	u8 cap, pcie_ver;
 
 	printi ("[%02x:%02x.%01x] A Broadcom NetXtreme GbE found.\n",
 		pci_device->address.bus_no, pci_device->address.device_no,
@@ -1181,9 +1141,17 @@ bnx_new (struct pci_device *pci_device)
 						   bnx_intr_enable, bnx);
 		if (option_multifunction)
 			virtio_net_set_multifunction (bnx->virtio_net, 1);
-		passcap_without_msi (bnx, pci_device);
 	}
 	if (bnx->virtio_net) {
+		virtio_net_set_pci_device (bnx->virtio_net, pci_device);
+		cap = pci_find_cap_offset (pci_device, PCI_CAP_PCIEXP);
+		if (cap) {
+			pci_config_read (pci_device, &pcie_ver,
+					 sizeof pcie_ver, cap + 2);
+			pcie_ver &= 0xF;
+			virtio_net_add_cap (bnx->virtio_net, cap,
+					    PCI_CAP_PCIEXP_LEN (pcie_ver));
+		}
 		static struct pci_bridge_callback bridge_callback = {
 			.pre_config_write = bnx_bridge_pre_config_write,
 			.post_config_write = bnx_bridge_post_config_write,
@@ -1218,8 +1186,7 @@ bnx_virtio_config_read (struct pci_device *pci_device, u8 iosize,
 {
 	int copy_from, copy_to, copy_len;
 
-	pci_handle_default_config_read (pci_device, iosize, offset, buf);
-	virtio_net_config_read (bnx->virtio_net, iosize, offset, buf);
+	virtio_net_handle_config_read (bnx->virtio_net, iosize, offset, buf);
 	/* The BAR4 in the VM is equal to the BAR0 in the host
 	   machine.  Because it is out of virtio specification, its
 	   memory space is not accessed by the guest OS.  However the
@@ -1250,8 +1217,6 @@ bnx_config_read (struct pci_device *pci_device, u8 iosize,
 		 u16 offset, union mem *buf)
 {
 	struct bnx *bnx = pci_device->host;
-	unsigned int i;
-	u8 override;
 
 	if (bnx_hotplugpass (bnx))
 		return CORE_IO_RET_DEFAULT;
@@ -1259,13 +1224,6 @@ bnx_config_read (struct pci_device *pci_device, u8 iosize,
 		bnx_virtio_config_read (pci_device, iosize, offset, buf, bnx);
 	} else {
 		memset (buf, 0, iosize);
-	}
-	for (i = 0; i < iosize; i++) {
-		if (offset + i < sizeof bnx->config_override) {
-			override = bnx->config_override[offset + i];
-			if (override)
-				i[&buf->byte] = override;
-		}
 	}
 	return CORE_IO_RET_DONE;
 }
@@ -1292,7 +1250,7 @@ bnx_virtio_config_write (struct pci_device *pci_device, u8 iosize,
 {
 	struct pci_bar_info bar_info;
 
-	virtio_net_config_write (bnx->virtio_net, iosize, offset, buf);
+	virtio_net_handle_config_write (bnx->virtio_net, iosize, offset, buf);
 	/* Detect change of BAR4 and BAR5.  When 64bit address is
 	   assigned, the base address may be changed two times.  If
 	   so, the base address might point to RAM temporarily.  To

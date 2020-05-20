@@ -1372,6 +1372,7 @@ aq_new (struct pci_device *dev)
 					  aq_intr_disable,
 					  aq_intr_enable,
 					  aq);
+	virtio_net_set_pci_device (aq->virtio_net, dev);
 
 	pci_set_bridge_io (dev);
 	pci_set_bridge_callback (dev, &aq_bridge_callback);
@@ -1437,11 +1438,7 @@ aq_config_read (struct pci_device *dev,
 		goto done;
 	}
 
-	pci_handle_default_config_read (dev, iosize, offset, data);
-	virtio_net_config_read (aq->virtio_net,
-				iosize,
-				offset,
-				data);
+	virtio_net_handle_config_read (aq->virtio_net, iosize, offset, data);
 
 	if (offset + iosize <= PCI_CONFIG_BASE_ADDRESS4 ||
 	    offset >= PCI_CONFIG_BASE_ADDRESS5 + 4)
@@ -1483,10 +1480,7 @@ aq_config_write (struct pci_device *dev,
 	if (!aq->virtio_net)
 		goto done;
 
-	virtio_net_config_write (aq->virtio_net,
-				 iosize,
-				 offset,
-				 data);
+	virtio_net_handle_config_write (aq->virtio_net, iosize, offset, data);
 
 	if (offset + iosize <= PCI_CONFIG_BASE_ADDRESS4 ||
 	    offset >= PCI_CONFIG_BASE_ADDRESS5 + 4)

@@ -1589,6 +1589,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	void *tmp;
 	struct pci_bar_info bar_info;
 	struct nicfunc *virtio_net_func;
+	u8 cap;
 
 	if ((pci_device->config_space.base_address[0] &
 	     PCI_CONFIG_BASE_ADDRESS_SPACEMASK) !=
@@ -1644,7 +1645,12 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 						  pro1000_intr_enable, d2);
 	}
 	if (d2->virtio_net) {
+		virtio_net_set_pci_device (d2->virtio_net, pci_device);
 		pro1000_disable_io (pci_device, d);
+		cap = pci_find_cap_offset (pci_device, PCI_CAP_AF);
+		if (cap)
+			virtio_net_add_cap (d2->virtio_net, cap,
+					    PCI_CAP_AF_LEN);
 		d2->virtio_net_msi = pci_msi_init (pci_device);
 		if (d2->virtio_net_msi) {
 			d2->msi_intr = 0;
@@ -1762,8 +1768,8 @@ pro1000_config_read (struct pci_device *pci_device, u8 iosize,
 	struct data2 *d2 = d1[0].d;
 
 	if (d2->virtio_net) {
-		pci_handle_default_config_read (pci_device, iosize, offset,
-						data);
+		virtio_net_handle_config_read (d2->virtio_net, iosize, offset,
+					       data);
 		if (offset == 0x24) {
 			pci_handle_default_config_read (pci_device, iosize,
 							0x10, data);
@@ -1772,7 +1778,6 @@ pro1000_config_read (struct pci_device *pci_device, u8 iosize,
 					base_address_mask[0];
 			return CORE_IO_RET_DONE;
 		}
-		virtio_net_config_read (d2->virtio_net, iosize, offset, data);
 		return CORE_IO_RET_DONE;
 	}
 	if (!d2->seize)
@@ -1792,7 +1797,8 @@ pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 	struct data2 *d2 = d1[0].d;
 
 	if (d2->virtio_net) {
-		virtio_net_config_write (d2->virtio_net, iosize, offset, data);
+		virtio_net_handle_config_write (d2->virtio_net, iosize, offset,
+						data);
 		if (offset == 0x24) {
 			if ((data->dword & PCI_CONFIG_BASE_ADDRESS_MEMMASK) ==
 			    PCI_CONFIG_BASE_ADDRESS_MEMMASK) {
