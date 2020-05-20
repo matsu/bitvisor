@@ -515,6 +515,13 @@ re_core_suspend (struct re_host *host)
 
 	host->ready = 0;
 
+	/*
+	 * We need TX/RX lock here. it is to avoid unintended register
+	 * accesses during suspending.
+	 */
+	spinlock_lock (&host->rx_lock);
+	spinlock_lock (&host->tx_lock);
+
 	re_stop (sc);
 
 	re_hw_d3_para (sc);
@@ -522,6 +529,9 @@ re_core_suspend (struct re_host *host)
 	re_core_unmapmem (host);
 
         sc->prohibit_access_reg = 1;
+
+	spinlock_unlock (&host->tx_lock);
+	spinlock_unlock (&host->rx_lock);
 }
 
 void
