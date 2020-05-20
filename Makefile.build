@@ -11,7 +11,8 @@ bits-0 = 32
 bits-1 = 64
 CFLAGS = -m$(bits-$(CONFIG_64)) -mno-red-zone -mno-sse -nostdinc -g -O \
 -ffreestanding -fno-builtin -fno-stack-protector $(backtrace) -fno-PIE \
--fno-strict-aliasing -Wall $(CONSTANTS-1) -I$(DIR) -Iinclude
+-fno-strict-aliasing -Wall -Wno-address-of-packed-member $(CONSTANTS-1) \
+-I$(DIR) -Iinclude
 ASFLAGS = -m$(bits-$(CONFIG_64)) -g -Wa,-I,$(DIR) -Wa,--divide
 LDFLAGS = -m$(bits-$(CONFIG_64)) -g -nostdlib -Wl,--build-id=none -static
 outo_p = $(outo)_p
