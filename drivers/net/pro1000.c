@@ -1961,7 +1961,8 @@ static struct pci_driver pro1000_driver = {
  			  "8086:15d8|"
  			  "8086:15d7|"
  			  "8086:15e3|"
- 			  "8086:156f",
+ 			  "8086:156f|"
+			  "8086:15be",
 	.new		= pro1000_new,	
 	.config_read	= pro1000_config_read,
 	.config_write	= pro1000_config_write,
