@@ -124,9 +124,9 @@ virtio_net_trigger_interrupt (struct virtio_net *vnet, unsigned int queue)
 static bool
 virtio_net_untrigger_interrupt (struct virtio_net *vnet)
 {
+	vnet->intr_clear (vnet->intr_param);
 	if (vnet->intr) {
 		vnet->intr = false;
-		vnet->intr_clear (vnet->intr_param);
 		return true;
 	}
 	return false;
