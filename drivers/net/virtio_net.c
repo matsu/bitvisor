@@ -574,6 +574,8 @@ virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
 {
 	struct virtio_net *vnet = handle;
 
+	if (!wr)
+		memset (data, 0, iosize);
 	if (offset < sizeof vnet->msix_table_entry) {
 		void *p = vnet->msix_table_entry;
 		u32 end = offset + iosize;
@@ -587,10 +589,7 @@ virtio_net_msix (void *handle, bool wr, u32 iosize, u32 offset,
 			printf ("MSI-X[0x%04X] = 0x%08X\n", offset,
 				data->dword & ((2u << (iosize * 8 - 1)) - 1));
 	} else if (offset <= 0x800 && offset + iosize > 0x800) {
-		if (!wr) {
-			memset (data, 0, iosize);
-			(&data->byte)[0x800 - offset] = 0;
-		}
+		/* Pending bits: not yet implemented */
 	}
 }
 
