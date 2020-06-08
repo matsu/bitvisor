@@ -1386,6 +1386,8 @@ do_handle_config (struct virtio_net *vnet, u8 iosize, u16 offset, bool wr,
 {
 	/* Readjust offset for optimization */
 	u32 i = OFFSET_TO_DWORD_BLOCK (offset);
+	if (i > PCI_CONFIG_REGS32_NUM)
+		i = PCI_CONFIG_REGS32_NUM;
 	offset = offset - i * sizeof (u32);
 
 	handle_io_with_default (vnet, wr, iosize, offset, data,
