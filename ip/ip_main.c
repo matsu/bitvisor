@@ -148,9 +148,9 @@ ip_main_input (void *arg, void *buf, unsigned int len)
 	int offset;
 
 	ethhdr = buf;
-	switch (ntohs (ethhdr->type)) {
-	case ETHTYPE_IP:
-	case ETHTYPE_ARP:
+	switch (ethhdr->type) {
+	case PP_HTONS (ETHTYPE_IP):
+	case PP_HTONS (ETHTYPE_ARP):
 		p = pbuf_alloc (PBUF_RAW, len, PBUF_POOL);
 		offset = 0;
 		LWIP_ASSERT ("pbuf_alloc", p);
