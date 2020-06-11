@@ -54,7 +54,7 @@ struct net_ip_data {
 };
 
 struct net_ip_input_data {
-	struct net_ip_data *p;
+	void *arg;
 	unsigned int len;
 	u8 buf[];
 };
@@ -115,6 +115,7 @@ net_ip_new_nic (char *arg, void *param)
 {
 	struct net_ip_data *p;
 	static int flag;
+	char *param_str = param;
 
 	if (flag)
 		panic ("net=ip does not work with multiple network"
@@ -123,6 +124,8 @@ net_ip_new_nic (char *arg, void *param)
 	p = alloc (sizeof *p);
 	p->pass = !!param;
 	p->input_ok = false;
+	if (param && *param_str == 'f')
+		p->pass = -1;
 	return p;
 }
 
@@ -163,24 +166,20 @@ net_main_input_direct (void *arg)
 {
 	struct net_ip_input_data *data = arg;
 
-	ip_main_input (data->p->input_arg, data->buf, data->len,
+	ip_main_input (data->arg, data->buf, data->len,
 		       net_main_input_free, data);
 }
 
 static void
-net_main_input_queue (struct net_ip_data *p, void **packets,
-		      unsigned int *packet_sizes, unsigned int num_packets)
+net_main_input_queue (void *arg, void *packet, unsigned int packet_size)
 {
 	struct net_ip_input_data *data;
-	unsigned int i;
 
-	for (i = 0; i < num_packets; i++) {
-		data = alloc (sizeof *data + packet_sizes[i]);
-		data->p = p;
-		data->len = packet_sizes[i];
-		memcpy (data->buf, packets[i], packet_sizes[i]);
-		net_main_task_add (net_main_input_direct, data);
-	}
+	data = alloc (sizeof *data + packet_size);
+	data->arg = arg;
+	data->len = packet_size;
+	memcpy (data->buf, packet, packet_size);
+	net_main_task_add (net_main_input_direct, data);
 }
 
 static void
@@ -188,12 +187,65 @@ net_ip_phys_recv (void *handle, unsigned int num_packets, void **packets,
 		  unsigned int *packet_sizes, void *param, long *premap)
 {
 	struct net_ip_data *p = param;
+	void *arg = p->input_arg;
+	unsigned int i;
+	void *packet;
+	unsigned int size;
 
 	if (p->pass)
 		p->virt_func->send (p->virt_handle, num_packets, packets,
 				    packet_sizes, true);
-	if (p->input_ok)
-		net_main_input_queue (p, packets, packet_sizes, num_packets);
+	if (p->input_ok) {
+		for (i = 0; i < num_packets; i++) {
+			packet = packets[i];
+			size = packet_sizes[i];
+			if (ip_main_input_test (arg, packet, size))
+				net_main_input_queue (arg, packet, size);
+		}
+	}
+}
+
+static void
+net_ip_phys_recv_passfilter (void *handle, unsigned int num_packets,
+			     void **packets, unsigned int *packet_sizes,
+			     void *param, long *premap)
+{
+	struct net_ip_data *p = param;
+	void *arg = p->input_arg;
+	unsigned int i;
+	void *packet;
+	unsigned int size;
+	enum ip_main_destination dest;
+	unsigned int s;
+
+	if (!p->input_ok) {
+		s = 0;
+		i = num_packets;
+		goto end;
+	}
+	s = ~0;
+	for (i = 0; i < num_packets; i++) {
+		packet = packets[i];
+		size = packet_sizes[i];
+		dest = ip_main_input_test_destination (arg, packet, size);
+		if (dest != IP_MAIN_DESTINATION_OTHERS)
+			net_main_input_queue (arg, packet, size);
+		if (dest == IP_MAIN_DESTINATION_ME) {
+			if (~s) {
+				p->virt_func->send (p->virt_handle, i - s,
+						    &packets[s],
+						    &packet_sizes[s], true);
+				s = ~0;
+			}
+		} else {
+			if (!~s)
+				s = i;
+		}
+	}
+end:
+	if (~s && i)
+		p->virt_func->send (p->virt_handle, i - s, &packets[s],
+				    &packet_sizes[s], true);
 }
 
 void
@@ -239,7 +291,9 @@ net_ip_start (void *handle)
 {
 	struct net_ip_data *p = handle;
 
-	p->phys_func->set_recv_callback (p->phys_handle, net_ip_phys_recv, p);
+	p->phys_func->set_recv_callback (p->phys_handle, p->pass < 0 ?
+					 net_ip_phys_recv_passfilter :
+					 net_ip_phys_recv, p);
 	if (p->virt_func)
 		p->virt_func->set_recv_callback (p->virt_handle,
 						 net_ip_virt_recv, p);
@@ -259,6 +313,7 @@ net_main_init (void)
 	LIST1_HEAD_INIT (net_task_list);
 	net_register ("ip", &net_ip_func, NULL);
 	net_register ("ippass", &net_ip_func, "");
+	net_register ("ippassfilter", &net_ip_func, "f");
 }
 
 INITFUNC ("driver1", net_main_init);

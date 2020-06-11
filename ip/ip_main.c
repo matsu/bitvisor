@@ -155,36 +155,76 @@ custom_free (struct pbuf *p)
 	mem_free (cpbuf);
 }
 
+/* This function is not called on a network thread */
+enum ip_main_destination
+ip_main_input_test (void *arg, void *buf, unsigned int len)
+{
+	struct eth_hdr *ethhdr;
+
+	ethhdr = buf;
+	if (len >= sizeof *ethhdr) {
+		switch (ethhdr->type) {
+		case PP_HTONS (ETHTYPE_IP):
+		case PP_HTONS (ETHTYPE_ARP):
+			return IP_MAIN_DESTINATION_ALL;
+		}
+	}
+	return IP_MAIN_DESTINATION_OTHERS;
+}
+
+/* This function is not called on a network thread */
+enum ip_main_destination
+ip_main_input_test_destination (void *arg, void *buf, unsigned int len)
+{
+	struct netif *netif = arg;
+	struct eth_hdr *ethhdr;
+	struct ip_hdr *iphdr;
+	ip_addr_t dest;
+
+	if (len < sizeof *ethhdr + sizeof *iphdr)
+		return ip_main_input_test (arg, buf, len);
+	ethhdr = buf;
+	switch (ethhdr->type) {
+	case PP_HTONS (ETHTYPE_IP):
+		break;
+	case PP_HTONS (ETHTYPE_ARP):
+		return IP_MAIN_DESTINATION_ALL;
+	default:
+		return IP_MAIN_DESTINATION_OTHERS;
+	}
+	/* EtherType IP */
+	iphdr = buf + sizeof *ethhdr;
+	if (IPH_PROTO (iphdr) != IP_PROTO_TCP)
+		return IP_MAIN_DESTINATION_ALL;
+	/* Protocol TCP */
+	ip_addr_copy_from_ip4 (dest, iphdr->dest);
+	if (!ip_addr_cmp (&netif->ip_addr, &dest))
+		return IP_MAIN_DESTINATION_OTHERS;
+	/* Destination IP address == netif->ip_addr */
+	return IP_MAIN_DESTINATION_ME;
+}
+
 void
 ip_main_input (void *arg, void *buf, unsigned int len,
 	       void (*free) (void *free_arg), void *free_arg)
 {
 	struct netif *netif = arg;
-	struct eth_hdr *ethhdr;
 	struct custom_pbuf *cpbuf;
 	struct pbuf *p;
 
-	ethhdr = buf;
-	switch (ethhdr->type) {
-	case PP_HTONS (ETHTYPE_IP):
-	case PP_HTONS (ETHTYPE_ARP):
-		cpbuf = mem_malloc (sizeof *cpbuf);
-		LWIP_ASSERT ("mem_malloc cpbuf", cpbuf);
-		cpbuf->free = free;
-		cpbuf->free_arg = free_arg;
-		cpbuf->buf = buf;
-		cpbuf->p.custom_free_function = custom_free;
-		p = pbuf_alloced_custom (PBUF_RAW, len, PBUF_REF, &cpbuf->p,
-					 buf, len);
-		LWIP_ASSERT ("pbuf_alloc", p);
-		LWIP_ASSERT ("p->tot_len == len", p->tot_len == len);
-		if (netif->input (p, netif) != ERR_OK) {
-			pbuf_free (p);
-			printf ("IP/ARP Input Error.\n");
-		}
-		break;
-	default:
-		free (free_arg);
+	cpbuf = mem_malloc (sizeof *cpbuf);
+	LWIP_ASSERT ("mem_malloc cpbuf", cpbuf);
+	cpbuf->free = free;
+	cpbuf->free_arg = free_arg;
+	cpbuf->buf = buf;
+	cpbuf->p.custom_free_function = custom_free;
+	p = pbuf_alloced_custom (PBUF_RAW, len, PBUF_REF, &cpbuf->p,
+				 buf, len);
+	LWIP_ASSERT ("pbuf_alloc", p);
+	LWIP_ASSERT ("p->tot_len == len", p->tot_len == len);
+	if (netif->input (p, netif) != ERR_OK) {
+		pbuf_free (p);
+		printf ("IP/ARP Input Error.\n");
 	}
 }
 
