@@ -7,6 +7,7 @@ struct ip_main_netif {
 	unsigned char *gateway;
 };
 
-void ip_main_input (void *arg, void *buf, unsigned int len);
+void ip_main_input (void *arg, void *buf, unsigned int len,
+		    void (*free) (void *free_arg), void *free_arg);
 void ip_main_init (struct ip_main_netif *netif_arg, int netif_num);
 void ip_main_task (void);

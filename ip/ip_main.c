@@ -73,6 +73,13 @@ struct tcpip_context {
 	int netif_num;
 };
 
+struct custom_pbuf {
+	struct pbuf_custom p;
+	void (*free) (void *free_arg);
+	void *free_arg;
+	void *buf;
+};
+
 static struct tcpip_context *tcpip_context;
 
 static void
@@ -139,35 +146,45 @@ tcpip_netif_poll (void)
 		net_main_poll (tcpip_context->netif[i].state);
 }
 
+static void
+custom_free (struct pbuf *p)
+{
+	struct custom_pbuf *cpbuf = (void *)p;
+
+	cpbuf->free (cpbuf->free_arg);
+	mem_free (cpbuf);
+}
+
 void
-ip_main_input (void *arg, void *buf, unsigned int len)
+ip_main_input (void *arg, void *buf, unsigned int len,
+	       void (*free) (void *free_arg), void *free_arg)
 {
 	struct netif *netif = arg;
 	struct eth_hdr *ethhdr;
-	struct pbuf *p, *q;
-	int offset;
+	struct custom_pbuf *cpbuf;
+	struct pbuf *p;
 
 	ethhdr = buf;
 	switch (ethhdr->type) {
 	case PP_HTONS (ETHTYPE_IP):
 	case PP_HTONS (ETHTYPE_ARP):
-		p = pbuf_alloc (PBUF_RAW, len, PBUF_POOL);
-		offset = 0;
+		cpbuf = mem_malloc (sizeof *cpbuf);
+		LWIP_ASSERT ("mem_malloc cpbuf", cpbuf);
+		cpbuf->free = free;
+		cpbuf->free_arg = free_arg;
+		cpbuf->buf = buf;
+		cpbuf->p.custom_free_function = custom_free;
+		p = pbuf_alloced_custom (PBUF_RAW, len, PBUF_REF, &cpbuf->p,
+					 buf, len);
 		LWIP_ASSERT ("pbuf_alloc", p);
 		LWIP_ASSERT ("p->tot_len == len", p->tot_len == len);
-		for (q = p; q; q = q->next) {
-			LWIP_ASSERT ("q->payload", q->payload);
-			LWIP_ASSERT ("offset + q->len <= len",
-				     offset + q->len <= len);
-			memcpy (q->payload, buf + offset, q->len);
-			offset += q->len;
-		}
-		LWIP_ASSERT ("offset == len", offset == len);
-		LWIP_ASSERT ("offset > 12 + 4", offset > 12 + 4);
-		LWIP_ASSERT ("p->len > 12 + 4", p->len > 12 + 4);
-		if (netif->input (p, netif) != ERR_OK)
+		if (netif->input (p, netif) != ERR_OK) {
+			pbuf_free (p);
 			printf ("IP/ARP Input Error.\n");
+		}
 		break;
+	default:
+		free (free_arg);
 	}
 }
 

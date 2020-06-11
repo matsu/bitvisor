@@ -55,8 +55,8 @@ struct net_ip_data {
 
 struct net_ip_input_data {
 	struct net_ip_data *p;
-	void *buf;
 	unsigned int len;
+	u8 buf[];
 };
 
 static LIST1_DEFINE_HEAD (struct net_task, net_task_list);
@@ -153,13 +153,18 @@ net_ip_virt_recv (void *handle, unsigned int num_packets, void **packets,
 }
 
 static void
+net_main_input_free (void *arg)
+{
+	free (arg);
+}
+
+static void
 net_main_input_direct (void *arg)
 {
 	struct net_ip_input_data *data = arg;
 
-	ip_main_input (data->p->input_arg, data->buf, data->len);
-	free (data->buf);
-	free (data);
+	ip_main_input (data->p->input_arg, data->buf, data->len,
+		       net_main_input_free, data);
 }
 
 static void
@@ -170,13 +175,8 @@ net_main_input_queue (struct net_ip_data *p, void **packets,
 	unsigned int i;
 
 	for (i = 0; i < num_packets; i++) {
-		/* Note: pbuf_alloc() must be called in the network
-		 * thread, but this function is not. */
-		/* FIXME: memcpy() is called twice for every input
-		 * packet. Copying to pbuf directly is better. */
-		data = alloc (sizeof *data);
+		data = alloc (sizeof *data + packet_sizes[i]);
 		data->p = p;
-		data->buf = alloc (packet_sizes[i]);
 		data->len = packet_sizes[i];
 		memcpy (data->buf, packets[i], packet_sizes[i]);
 		net_main_task_add (net_main_input_direct, data);
