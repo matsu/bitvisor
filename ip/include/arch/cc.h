@@ -46,6 +46,10 @@
 #define LWIP_DBG_TYPES_ON (LWIP_DBG_TRACE|LWIP_DBG_STATE)
 #define LWIP_DBG_MIN_LEVEL LWIP_DBG_LEVEL_ALL
 
+/* Optimization */
+#define lwip_htons(x) inline_lwip_htons (x)
+#define lwip_htonl(x) inline_lwip_htonl (x)
+
 typedef unsigned char u8_t;
 typedef char s8_t;
 typedef unsigned short u16_t;
@@ -61,5 +65,18 @@ int printf (const char *format, ...)
 	__attribute__ ((format (printf, 1, 2)));
 void panic (char *format, ...)
 	__attribute__ ((format (printf, 1, 2), noreturn));
+
+static inline u16_t
+inline_lwip_htons (u16_t n)
+{
+	return n << 8 | n >> 8;
+}
+
+static inline u32_t
+inline_lwip_htonl (u32_t n)
+{
+	asm ("bswap %0" : "+r" (n));
+	return n;
+}
 
 #endif /* __ARCH_CC_H__ */
