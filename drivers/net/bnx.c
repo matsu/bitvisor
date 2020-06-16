@@ -31,6 +31,7 @@
 
 #include <core.h>
 #include <core/mmio.h>
+#include <core/uefiutil.h>
 #include <net/netapi.h>
 #include "pci.h"
 #include "virtio_net.h"
@@ -415,7 +416,7 @@ bnx_status_set (struct bnx *bnx)
 }
 
 static void
-bnx_get_addr (struct bnx *bnx)
+bnx_get_addr (struct bnx *bnx, u8 *mac_fw)
 {
 	u32 addrh, addrl;
 
@@ -428,6 +429,13 @@ bnx_get_addr (struct bnx *bnx)
 	bnx->mac[3] = (addrl >> 16) & 0xff;
 	bnx->mac[4] = (addrl >> 8) & 0xff;
 	bnx->mac[5] = (addrl >> 0) & 0xff;
+	if (mac_fw && memcmp (bnx->mac, mac_fw, sizeof bnx->mac)) {
+		printf ("BNX: The MAC address 0 %02X:%02X:%02X:%02X:%02X:%02X"
+			" is different from the one obtained from the"
+			" firmware.\n", bnx->mac[0], bnx->mac[1], bnx->mac[2],
+			bnx->mac[3], bnx->mac[4], bnx->mac[5]);
+		memcpy (bnx->mac, mac_fw, sizeof bnx->mac);
+	}
 	printd (12, "BNX: MAC Address 0 is %02X:%02X:%02X:%02X:%02X:%02X\n",
 		bnx->mac[0],
 		bnx->mac[1],
@@ -1128,10 +1136,20 @@ bnx_new (struct pci_device *pci_device)
 	bool option_hotplugpass = false;
 	struct nicfunc *virtio_net_func;
 	u8 cap, pcie_ver;
+	u8 mac_fw[6];
+	bool mac_fw_valid = false;
 
 	printi ("[%02x:%02x.%01x] A Broadcom NetXtreme GbE found.\n",
 		pci_device->address.bus_no, pci_device->address.device_no,
 		pci_device->address.func_no);
+	memset (mac_fw, 0xFF, sizeof mac_fw);
+	uefiutil_netdev_get_mac_addr (0, pci_device->address.bus_no,
+				      pci_device->address.device_no,
+				      pci_device->address.func_no,
+				      mac_fw, sizeof mac_fw);
+	if (mac_fw[0] != 0xFF || mac_fw[1] != 0xFF || mac_fw[2] != 0xFF ||
+	    mac_fw[3] != 0xFF || mac_fw[4] != 0xFF || mac_fw[5] != 0xFF)
+		mac_fw_valid = true;
 	pci_system_disconnect (pci_device);
 	if (pci_device->driver_options[2] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[2], NULL))
@@ -1209,7 +1227,7 @@ bnx_new (struct pci_device *pci_device)
 	bnx_mmio_init (bnx);
 	bnx_ring_alloc (bnx);
 	bnx_status_alloc (bnx);
-	bnx_get_addr (bnx);
+	bnx_get_addr (bnx, mac_fw_valid ? mac_fw : NULL);
 	pci_device->host = bnx;
 	bnx_reset (bnx);
 	net_start (bnx->nethandle);
