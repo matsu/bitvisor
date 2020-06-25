@@ -427,7 +427,10 @@ nvme_io_get_lba_nbytes (struct nvme_host *host, u32 nsid)
 	if (nsid == 0 || nsid > host->n_ns)
 		return 0;
 
-	return host->ns_metas[nsid].lba_nbytes;
+	struct nvme_ns_meta *ns_metas = host->ns_metas;
+	if (!ns_metas)
+		return 0;
+	return ns_metas[nsid].lba_nbytes;
 }
 
 u16
