@@ -579,6 +579,8 @@ void
 nvme_free_request (struct nvme_request_hub *hub, struct nvme_request *req)
 {
 	ASSERT (req);
+	if (!req->is_h_req && req->pause)
+		panic ("%s: paused request cannot be freed", __func__);
 
 	spinlock_lock (&hub->lock);
 
