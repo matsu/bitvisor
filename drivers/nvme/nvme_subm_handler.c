@@ -72,6 +72,11 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 				       host->default_n_comp_queues);
 	}
 
+	if ((host->quirks & NVME_QUIRK_CMDID_UNIQUE_254) &&
+	     host->h_queue.max_n_subm_queues > 1)
+		panic ("Does not expect hardware with %s to have more "
+		       "than 1 queue", STR (NVME_QUIRK_CMDID_UNIQUE_254));
+
 	/* Currently support only physical continuous */
 	ASSERT (QUEUE_GET_PC (cmd));
 

@@ -489,7 +489,7 @@ nvme_submit_request (struct nvme_request_hub *hub,
 
 	ASSERT (slot >= 0);
 
-	req->cmd.std.cmd_id = slot;
+	req->cmd.std.cmd_id = slot + hub->cmd_id_offset;
 
 	req->submit_time = get_time ();
 

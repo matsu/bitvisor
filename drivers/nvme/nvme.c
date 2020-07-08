@@ -221,7 +221,7 @@ init_admin_queue (struct nvme_host *host)
 	nvme_init_queue_info (host->as_dma, h_comp_queue_info,
 			      g_comp_queue_info,
 			      host->page_nbytes,
-			      host->g_admin_comp_n_entries,
+			      host->h_admin_comp_n_entries,
 			      host->g_admin_comp_n_entries,
 			      NVME_COMP_NBYTES,
 			      NVME_COMP_NBYTES,
@@ -233,7 +233,7 @@ init_admin_queue (struct nvme_host *host)
 	nvme_init_queue_info (host->as_dma, h_subm_queue_info,
 			      g_subm_queue_info,
 			      host->page_nbytes,
-			      host->g_admin_subm_n_entries,
+			      host->h_admin_subm_n_entries,
 			      host->g_admin_subm_n_entries,
 			      NVME_CMD_NBYTES,
 			      NVME_CMD_NBYTES,
@@ -246,6 +246,12 @@ init_admin_queue (struct nvme_host *host)
 	struct nvme_request_hub *admin_req_hub;
 	admin_req_hub = zalloc (NVME_REQUEST_HUB_NBYTES);
 	spinlock_init (&admin_req_hub->lock);
+	if (host->quirks & NVME_QUIRK_CMDID_UNIQUE_254) {
+		/* See the comment in nvme_aqa_reg_write() */
+		dprintf (NVME_ETC_DEBUG, "Admin cmd's cmd_id offset: %u\n",
+			 host->max_n_entries);
+		admin_req_hub->cmd_id_offset = host->max_n_entries;
+	}
 	nvme_add_subm_slot (host,
 			    admin_req_hub,
 			    h_subm_queue_info,
@@ -494,6 +500,23 @@ nvme_csts_reg_read (void *data,
 /* ---------- Start Admin Queue Attribute register handler ---------- */
 
 static void
+nvme_aqa_reg_read (void *data,
+		   phys_t gphys,
+		   bool wr,
+		   void *buf,
+		   uint len,
+		   u32 flags)
+{
+	struct nvme_data *nvme_data = (struct nvme_data *)data;
+	struct nvme_host *host	    = nvme_data->host;
+
+	u32 value = ((host->g_admin_subm_n_entries - 1) & 0xFFFF) |
+		    ((host->g_admin_comp_n_entries - 1) << 16);
+
+	memcpy (buf, &value, len);
+}
+
+static void
 nvme_aqa_reg_write (void *data,
 		    phys_t gphys,
 		    bool wr,
@@ -507,18 +530,65 @@ nvme_aqa_reg_write (void *data,
 
 	u32 value = TO_U32 (buf);
 
+	bool unique254_quirk = !!(host->quirks & NVME_QUIRK_CMDID_UNIQUE_254);
+
+	/*
+	 * Sanity check, should never happen. We check against 251 because
+	 * admin queue entries must be at least 2.
+	 */
+	if (unique254_quirk && host->max_n_entries > 251)
+		panic ("%s with strange max_n_entries %u",
+		      STR (NVME_QUIRK_CMDID_UNIQUE_254),
+		      host->max_n_entries);
+
+	u32 max254 = 254 - host->max_n_entries;
+
 	/* Need to plus 1 because it is a zero based value */
 	host->g_admin_subm_n_entries = NVME_AQA_GET_ASQS (value) + 1;
 	host->g_admin_comp_n_entries = NVME_AQA_GET_ACQS (value) + 1;
+	host->h_admin_subm_n_entries = host->g_admin_subm_n_entries;
+	host->h_admin_comp_n_entries = host->g_admin_comp_n_entries;
+
+	/*
+	 * To make Apple ANS2 Controller work properly, there are two
+	 * requirements. The first one is cmd_id must be unique for admin
+	 * commands and I/O commands during command execution. The second one
+	 * is cmd_id must be in between 0-253 inclusive. By limiting admin
+	 * queue size and adding admin command's cmd_id with an offset, we can
+	 * achieve both.
+	 *
+	 * Note that there ANS2 Controller has only 1 submission/completion
+	 * queue for I/O. We don't have to deal with the multiple queues case.
+	 */
+	if (unique254_quirk && host->h_admin_subm_n_entries > max254) {
+		dprintf (NVME_ETC_DEBUG,
+			 "Need Admin Submission Entries value workaround\n");
+		host->h_admin_subm_n_entries = max254;
+	}
+
+	if (unique254_quirk && host->h_admin_comp_n_entries > max254) {
+		dprintf (NVME_ETC_DEBUG,
+			 "Need Admin Completion Entries value workaround\n");
+		host->h_admin_comp_n_entries = max254;
+	}
 
 	dprintf (NVME_ETC_DEBUG,
-		 "#entries for admin submission queue: %u\n",
+		 "#entries for host admin submission queue: %u\n",
+		 host->h_admin_subm_n_entries);
+	dprintf (NVME_ETC_DEBUG,
+		 "#entries for guest admin submission queue: %u\n",
 		 host->g_admin_subm_n_entries);
 	dprintf (NVME_ETC_DEBUG,
-		 "#entries for admin completion queue: %u\n",
+		 "#entries for host admin completion queue: %u\n",
+		 host->h_admin_comp_n_entries);
+	dprintf (NVME_ETC_DEBUG,
+		 "#entries for guest admin completion queue: %u\n",
 		 host->g_admin_comp_n_entries);
 
-	memcpy (NVME_AQA_REG (nvme_regs), buf, len);
+	value = ((host->h_admin_subm_n_entries - 1) & 0xFFFF) |
+		((host->h_admin_comp_n_entries - 1) << 16);
+
+	memcpy (NVME_AQA_REG (nvme_regs), &value, len);
 }
 
 /* ---------- End Admin Queue Attribute register handler ---------- */
@@ -1071,7 +1141,7 @@ nvme_reg_handler (void *data,
 	} else if (RANGE_CHECK_AQA (acc_start, acc_end, nvme_regs)) {
 
 		if (!wr)
-			memcpy (buf, NVME_AQA_REG (nvme_regs), len);
+			nvme_aqa_reg_read (data, gphys, wr, buf, len, flags);
 		else
 			nvme_aqa_reg_write (data, gphys, wr, buf, len, flags);
 
@@ -1246,13 +1316,30 @@ nvme_enable_dma_and_memory (struct pci_device *pci_device)
 		pci_config_write (pci_device, &command, sizeof (u32), 4);
 }
 
+static void
+set_quirks (struct nvme_host *host)
+{
+	if (host->vendor_id == NVME_VENDOR_ID_TOSHIBA &&
+	    host->device_id == NVME_DEV_TOSHIBA_0115) {
+		dprintf (NVME_ETC_DEBUG, "%s found\n",
+			 STR (NVME_QUIRK_WAIT_AFTER_RESET));
+		host->quirks |= NVME_QUIRK_WAIT_AFTER_RESET;
+	}
+
+	if (host->vendor_id == NVME_VENDOR_ID_APPLE &&
+	    host->device_id == NVME_DEV_APPLE_2005) {
+		dprintf (NVME_ETC_DEBUG, "%s found\n",
+			 STR (NVME_QUIRK_CMDID_UNIQUE_254));
+		host->quirks |= NVME_QUIRK_CMDID_UNIQUE_254;
+	}
+}
+
 static int
 waiting_quirk (struct nvme_host *host)
 {
 	int ret = 0;
 
-	if (host->vendor_id == NVME_VENDOR_ID_TOSHIBA &&
-	    host->device_id == NVME_DEV_TOSHIBA_0115)
+	if (host->quirks & NVME_QUIRK_WAIT_AFTER_RESET)
 		ret = 1;
 
 	if (ret)
@@ -1405,6 +1492,8 @@ nvme_new (struct pci_device *pci_device)
 	spinlock_init (&host->lock);
 	spinlock_init (&host->fetch_req_lock);
 	spinlock_init (&host->intr_mask_lock);
+
+	set_quirks (host);
 
 	pci_register_intr_callback (nvme_completion_handler, nvme_data);
 

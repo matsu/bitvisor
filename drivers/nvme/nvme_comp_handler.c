@@ -52,6 +52,8 @@ get_request (struct nvme_host *host,
 	struct nvme_subm_slot *subm_slot;
 	subm_slot = nvme_get_subm_slot (host, subm_queue_id);
 
+	cmd_id -= hub->cmd_id_offset;
+
 	struct nvme_request *req = subm_slot->req_slot[cmd_id];
 
 	if (!req)

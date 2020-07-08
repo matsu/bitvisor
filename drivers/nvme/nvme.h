@@ -44,6 +44,9 @@
 
 #define NVME_NSID_WIDECARD (0xFFFFFFFF)
 
+#define NVME_QUIRK_WAIT_AFTER_RESET (1LLU << 0)
+#define NVME_QUIRK_CMDID_UNIQUE_254 (1LLU << 1)
+
 #define NVME_ALIGN_NO (0)
 
 static inline void *
@@ -309,6 +312,8 @@ struct nvme_request_hub {
 
 	uint n_async_g_reqs;
 
+	uint cmd_id_offset;
+
 	spinlock_t lock;
 };
 #define NVME_REQUEST_HUB_NBYTES (sizeof (struct nvme_request_hub))
@@ -454,10 +459,14 @@ struct nvme_host {
 
 	u64 page_mask;
 
+	u64 quirks;
+
 	/* For recording values the guest writes */
 	phys_t g_admin_subm_queue_addr;
 	phys_t g_admin_comp_queue_addr;
+	u32 h_admin_subm_n_entries;
 	u32 g_admin_subm_n_entries;
+	u32 h_admin_comp_n_entries;
 	u32 g_admin_comp_n_entries;
 
 	uint id;
