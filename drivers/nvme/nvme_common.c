@@ -503,6 +503,10 @@ nvme_submit_request (struct nvme_request_hub *hub,
 		hub->n_not_ack_g_reqs++;
 	else
 		hub->n_not_ack_h_reqs++;
+
+	if (subm_slot->subm_queue_id == 0 &&
+	    req->cmd.std.opcode == NVME_ADMIN_OPCODE_ASYNC_EV_REQ)
+		hub->n_async_g_reqs++;
 }
 
 void

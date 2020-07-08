@@ -278,7 +278,6 @@ admin_cmd_handler (struct nvme_host *host, struct nvme_request *req)
 			 NVME_SET_FEATURE_GET_FEATURE_ID (g_cmd));
 		break;
 	case NVME_ADMIN_OPCODE_ASYNC_EV_REQ:
-		host->h_queue.request_hub[0]->n_async_g_reqs++;
 		dprintf (NVME_SUBM_DEBUG, "Admin opcode: %s found\n",
 			 STR (NVME_ADMIN_OPCODE_ASYNC_EV_REQ));
 		break;
