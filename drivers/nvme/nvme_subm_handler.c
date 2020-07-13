@@ -51,6 +51,16 @@ handle_delete_queue (struct nvme_host *host, struct nvme_request *req)
 	ASSERT (type == NVME_ADMIN_OPCODE_DELETE_SUBM_QUEUE ||
 		type == NVME_ADMIN_OPCODE_DELETE_COMP_QUEUE);
 
+	if (queue_id == 0 ||
+	    (type == NVME_ADMIN_OPCODE_DELETE_SUBM_QUEUE &&
+	     queue_id > host->h_queue.max_n_subm_queues) ||
+	    (type == NVME_ADMIN_OPCODE_DELETE_COMP_QUEUE &&
+	     queue_id > host->h_queue.max_n_comp_queues)) {
+		dprintf (1, "Delete Queue type %u queue_id %u is invalid, "
+			 "no action\n", type, queue_id);
+		return;
+	}
+
 	host->io_ready = 0;
 
 	if (type == NVME_ADMIN_OPCODE_DELETE_SUBM_QUEUE)
@@ -91,6 +101,16 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 	u16 queue_id = QUEUE_GET_QID (cmd);
 	u16 g_queue_n_entries = QUEUE_GET_QSIZE (cmd) + 1; /* 0 based */
 	u16 h_queue_n_entries = g_queue_n_entries;
+
+	if (queue_id == 0 ||
+	    (type == NVME_ADMIN_OPCODE_CREATE_SUBM_QUEUE &&
+	     queue_id > host->h_queue.max_n_subm_queues) ||
+	    (type == NVME_ADMIN_OPCODE_CREATE_COMP_QUEUE &&
+	     queue_id > host->h_queue.max_n_comp_queues)) {
+		dprintf (1, "Create Queue type %u queue_id %u is invalid, "
+			 "no action\n", type, queue_id);
+		return;
+	}
 
 	if (host->io_interceptor &&
 	    host->io_interceptor->get_io_entries) {
