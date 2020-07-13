@@ -46,6 +46,7 @@
 
 #define NVME_QUIRK_WAIT_AFTER_RESET (1LLU << 0)
 #define NVME_QUIRK_CMDID_UNIQUE_254 (1LLU << 1)
+#define NVME_QUIRK_IO_CMD_128	    (1LLU << 2)
 
 #define NVME_ALIGN_NO (0)
 
@@ -498,6 +499,7 @@ struct nvme_host {
 	u8 pause_fetching_g_reqs;
 	u8 serialize_queue_fetch;
 	u8 ans2_wrapper;
+	u8 g_cmd_size_check;
 
 	spinlock_t lock;
 	spinlock_t fetch_req_lock;

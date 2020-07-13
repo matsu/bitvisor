@@ -140,7 +140,7 @@ nvme_cap_reg_read (void *data,
 static void
 check_ans2_wrapper (struct nvme_host *host, u32 *value)
 {
-	if (host->ans2_wrapper &&
+	if ((host->quirks & NVME_QUIRK_IO_CMD_128) &&
 	    NVME_CC_GET_IOSQES (*value) == 6) {
 		dprintf (NVME_ETC_DEBUG,
 			 "Patch command size to 128 bytes\n");
@@ -152,16 +152,16 @@ check_ans2_wrapper (struct nvme_host *host, u32 *value)
 static void
 check_subm_entry_size (struct nvme_host *host)
 {
-	if (host->h_io_subm_entry_nbytes == NVME_CMD_NBYTES) {
+	if (host->g_io_subm_entry_nbytes == NVME_CMD_NBYTES) {
 		if (!host->ans2_wrapper &&
-		    host->vendor_id == NVME_VENDOR_ID_APPLE &&
-		    host->device_id == NVME_DEV_APPLE_2005)
+		    host->quirks & NVME_QUIRK_IO_CMD_128) {
 			dprintf (NVME_ETC_DEBUG,
-				 "Warning, ans2_wrapper is not enabled");
+				 "Need to check guest command size later\n");
+			host->g_cmd_size_check = 1;
+		}
 		return;
-	} else if (host->vendor_id == NVME_VENDOR_ID_APPLE &&
-		   host->device_id == NVME_DEV_APPLE_2005 &&
-		   host->h_io_subm_entry_nbytes == NVME_CMD_ANS2_NBYTES) {
+	} else if ((host->quirks & NVME_QUIRK_IO_CMD_128) &&
+		   host->g_io_subm_entry_nbytes == NVME_CMD_ANS2_NBYTES) {
 		return;
 	}
 
@@ -312,6 +312,7 @@ do_reset_controller (struct nvme_host *host)
 	}
 
 	host->n_ns = 0;
+	host->g_cmd_size_check = 0;
 }
 
 static void
@@ -1330,7 +1331,10 @@ set_quirks (struct nvme_host *host)
 	    host->device_id == NVME_DEV_APPLE_2005) {
 		dprintf (NVME_ETC_DEBUG, "%s found\n",
 			 STR (NVME_QUIRK_CMDID_UNIQUE_254));
-		host->quirks |= NVME_QUIRK_CMDID_UNIQUE_254;
+		dprintf (NVME_ETC_DEBUG, "%s found\n",
+			 STR (NVME_QUIRK_IO_CMD_128));
+		host->quirks |= NVME_QUIRK_CMDID_UNIQUE_254 |
+				NVME_QUIRK_IO_CMD_128;
 	}
 }
 
@@ -1722,15 +1726,14 @@ static const char nvme_apple_driver_name[] = "nvme_apple";
 /*
  * == Special options for nvme_apple ==
  *
- * To use normal I/O commands on ANS2 Controller, set 'ans2_wrapper' to 1
+ * In case the guest OS cannot detect ANS2 Controller, set 'ans2_wrapper' to 1
  *
- * Apple ANS2 Controller supports only 128 bytes I/O command size. Using
- * 64 bytes I/O command size causes the BridgeOS to panic. By the time this
- * comment is written, No known OS other than macOS supports 128 Bytes I/O
- * command size. Set 'ans2_wrapper' to 1 when loading nvme_apple_driver
- * so that a guest OS other than macOS can use the ANS2 controller. Note that
- * if 'ans2_wrapper' is enabled, macOS and Mac firmware cannot read
- * encrypted-at-rest APFS volumes. It relies on 128 bytes I/O commands for
+ * Apple ANS2 Controller supports only 128-byte I/O command size. In addition,
+ * its classcode is nonstandard. Setting 'ans2_wrapper' to 1 should allow the
+ * guest to use the controller when loading nvme_apple_driver. This NVMe driver
+ * handles the difference in I/O command size transparently, Note that if
+ * 'ans2_wrapper' is enabled, macOS and Mac firmware cannot read
+ * encrypted-at-rest APFS volumes. It relies on 128-byte I/O commands for
  * hardware accelerated encryption/decryption.
  *
  */

@@ -494,6 +494,64 @@ io_cmd_handler (struct nvme_host *host,
 	}
 }
 
+static void
+try_correct_g_cmd_size (struct nvme_host *host)
+{
+	struct nvme_cmd zero_cmd = { 0 };
+	struct nvme_queue_info *g_subm_queue_info;
+	union nvme_cmd_union *g_cmd;
+	uint cmd_nbytes, subm_queue_nbytes;
+
+	if (!(host->quirks & NVME_QUIRK_IO_CMD_128))
+		return;
+	/*
+	 * The only known hardware that uses 128-byte I/O command size is ANS2
+	 * Controller. It has only 1 submission queue so we don't have to
+	 * deal with the multiple queues case.
+	 */
+	g_subm_queue_info = host->g_queue.subm_queue_info[1];
+
+	cmd_nbytes = g_subm_queue_info->entry_nbytes;
+
+	if (cmd_nbytes == NVME_CMD_ANS2_NBYTES) {
+		dprintf (NVME_SUBM_DEBUG,
+			 "Guest I/O command size is correct\n");
+		return;
+	}
+
+	/*
+	 * This function is called when submission doorbell value is more
+	 * than 1. We can check the second command directly.
+	 */
+	g_cmd = nvme_subm_queue_at_idx (g_subm_queue_info, 1);
+
+	dprintf (NVME_SUBM_DEBUG, "Verify guest I/O command size by checking "
+		 "the second command content\n");
+
+	/* XXX: Currently, we assume that the guest zeroes the buffer */
+	if (memcmp (&g_cmd->std, &zero_cmd, sizeof (zero_cmd)) != 0) {
+		dprintf (NVME_SUBM_DEBUG,
+			 "The guest seems to use 64-byte I/O command size\n");
+		return;
+	}
+
+	dprintf (NVME_SUBM_DEBUG, "The second command content is all zero, "
+		 "assume the guest uses 128-byte I/O command size\n");
+
+	/* Unmap old queue */
+	subm_queue_nbytes = g_subm_queue_info->n_entries * cmd_nbytes;
+	unmapmem (g_subm_queue_info->queue, subm_queue_nbytes);
+
+	/* Remap with new command size */
+	cmd_nbytes = NVME_CMD_ANS2_NBYTES;
+	subm_queue_nbytes = g_subm_queue_info->n_entries * cmd_nbytes;
+	g_subm_queue_info->entry_nbytes = cmd_nbytes;
+	g_subm_queue_info->queue = mapmem_as (host->as_dma,
+					      g_subm_queue_info->queue_phys,
+					      subm_queue_nbytes,
+					      0);
+}
+
 /*
  * XXX: How should we check for the limit properly?
  * If the guest decides to uses all queues the device can provide and decides
@@ -553,6 +611,12 @@ fetch_requests_from_guest (struct nvme_host *host, u16 subm_queue_id)
 	u16 g_new_tail = g_subm_queue_info->new_pos.tail;
 
 	uint n_entries = g_subm_queue_info->n_entries;
+
+	if (host->g_cmd_size_check && (host->quirks & NVME_QUIRK_IO_CMD_128) &&
+	    subm_queue_id != 0 && g_new_tail > 1) {
+		try_correct_g_cmd_size (host);
+		host->g_cmd_size_check = 0;
+	}
 
 	while (g_cur_tail != g_new_tail &&
 	       n_fetchable != 0) {
