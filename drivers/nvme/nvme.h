@@ -47,6 +47,9 @@
 #define NVME_QUIRK_WAIT_AFTER_RESET (1LLU << 0)
 #define NVME_QUIRK_CMDID_UNIQUE_254 (1LLU << 1)
 #define NVME_QUIRK_IO_CMD_128	    (1LLU << 2)
+#define NVME_QUIRK_PATCH_MSQE	    (1LLU << 3)
+
+#define NVME_ANS2_IO_N_ENTIRES (129)
 
 #define NVME_ALIGN_NO (0)
 

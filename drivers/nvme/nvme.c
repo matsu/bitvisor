@@ -106,6 +106,16 @@ matched:
 
 /* ---------- Start Capability register handler ---------- */
 
+/* Remind that CAP.MSQE is zero based */
+static void
+patch_msqe (struct nvme_host *host, u64 *value)
+{
+	if (NVME_CAP_GET_MQES (*value) + 1 > host->max_n_entries) {
+		*value &= ~0xFFFFLLU;
+		*value |= ((host->max_n_entries - 1) & 0xFFFFLLU);
+	}
+}
+
 static void
 nvme_cap_reg_read (void *data,
 		   phys_t gphys,
@@ -127,6 +137,9 @@ nvme_cap_reg_read (void *data,
 
 	/* Force Contiguous Queue Required */
 	buf64 = NVME_CAP_SET_CQR (buf64);
+
+	if (host->quirks & NVME_QUIRK_PATCH_MSQE)
+		patch_msqe (host, &buf64);
 
 	buf64 >>= r_shift_bit;
 
@@ -1335,6 +1348,19 @@ set_quirks (struct nvme_host *host)
 			 STR (NVME_QUIRK_IO_CMD_128));
 		host->quirks |= NVME_QUIRK_CMDID_UNIQUE_254 |
 				NVME_QUIRK_IO_CMD_128;
+	}
+
+	/* Sanity check for Apple ANS2 Controller, unlikely to happen */
+	if ((host->quirks & NVME_QUIRK_CMDID_UNIQUE_254) &&
+	    host->max_n_entries > NVME_ANS2_IO_N_ENTIRES) {
+		dprintf (NVME_ETC_DEBUG, "%s found\n",
+			 STR (NVME_QUIRK_PATCH_MSQE));
+		dprintf (NVME_ETC_DEBUG,
+			 "Found ANS2 Controller that its max number of entries"
+			 " %u is not %u, will patch CAP register read\n",
+			 host->max_n_entries, NVME_ANS2_IO_N_ENTIRES);
+		host->max_n_entries = NVME_ANS2_IO_N_ENTIRES;
+		host->quirks |= NVME_QUIRK_PATCH_MSQE;
 	}
 }
 
