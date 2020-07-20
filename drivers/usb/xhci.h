@@ -550,23 +550,21 @@ struct xhci_erst_data {
 #define WRITTEN (LOWER_WRITE|UPPER_WRITE)
 
 struct xhci_guest_data {
-	u8  cmd_ring_written;
 	u64 cmd_ring; /* CMD ring addr + flags, actual value */
 	u64 cmd_ring_addr;
+	u64 dev_ctx_addr;
 	u16 cmd_n_trbs;
+	u8  cmd_ring_written;
+	u8  dev_ctx_addr_written;
 	struct xhci_trb *cmd_trbs[XHCI_MAX_CMD_N_TRBS * XHCI_TRB_NBYTES /
 				  PAGESIZE + 1];
-
-	u8  dev_ctx_addr_written;
-	u64 dev_ctx_addr;
-
 	phys_t *dev_ctx_array;
 	struct xhci_dev_ctx **dev_ctx;
 
 	struct xhci_erst_data *erst_data;
 
 	struct xhci_slot_meta *slot_meta;
-} __attribute__ ((packed));
+};
 #define XHCI_GUEST_DATA_NBYTES (sizeof (struct xhci_guest_data))
 
 struct xhci_host;
