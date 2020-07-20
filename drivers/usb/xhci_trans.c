@@ -126,7 +126,8 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 	uint start_idx	  = h_ep_tr->current_idx;
 	u8   start_toggle = h_ep_tr->current_toggle;
 
-	struct xhci_trb *trbs = h_ep_tr->tr_segs[start_seg].trbs;
+	struct xhci_trb *trbs;
+	trbs = tr_seg_trbs_get_alloced (&h_ep_tr->tr_segs[start_seg]);
 
 	/* Create a URB */
 	struct usb_request_block *urb = new_urb_xhci ();

@@ -467,9 +467,17 @@ struct xhci_trb {
 #define XHCI_TRB_SET_TC(value)	     (((value) & 0x1)  <<  1)
 #define XHCI_TRB_SET_C(value)	     (((value) & 0x1)  <<  0)
 
+/* The structure length is 64bytes (64bit) or 32bytes (32bit) */
+#define XHCI_TRBS_N_MAP 7
+struct xhci_trbs_map {
+	struct xhci_trbs_map *next;
+	struct xhci_trb *map[XHCI_TRBS_N_MAP];
+};
+
 struct xhci_tr_segment {
 	phys_t trb_addr;
-	struct xhci_trb *trbs; /* Used by the host only */
+	struct xhci_trb *trbs_alloc; /* Used by the host only */
+	struct xhci_trbs_map *trbs_map;
 	uint n_trbs;
 } __attribute__ ((packed));
 #define XHCI_TR_SEGMENT_NBYTES (sizeof (struct xhci_tr_segment))
@@ -546,7 +554,8 @@ struct xhci_guest_data {
 	u64 cmd_ring; /* CMD ring addr + flags, actual value */
 	u64 cmd_ring_addr;
 	u16 cmd_n_trbs;
-	struct xhci_trb *cmd_trbs;
+	struct xhci_trb *cmd_trbs[XHCI_MAX_CMD_N_TRBS * XHCI_TRB_NBYTES /
+				  PAGESIZE + 1];
 
 	u8  dev_ctx_addr_written;
 	u64 dev_ctx_addr;
@@ -997,5 +1006,6 @@ int xhci_shadow_trbs (struct usb_host *usbhc,
 		      u32 clone_content);
 
 void xhci_hc_reset (struct xhci_host *host);
+struct xhci_trb *tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg);
 
 #endif /* _XHCI_H */

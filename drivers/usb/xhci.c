@@ -219,13 +219,17 @@ create_h_cmd_ring (struct xhci_host *host, u64 g_cmd_ring, void *handler_data)
 	phys_t g_cmd_ring_addr = CRCTRL_GET_ADDR (g_cmd_ring);
 
 	if (g_cmd_ring_addr) {
+		ASSERT (!(PAGESIZE % XHCI_TRB_NBYTES));
+		ASSERT (!(g_cmd_ring_addr % XHCI_TRB_NBYTES));
 		host->g_data.cmd_ring_addr = g_cmd_ring_addr;
 
 		/* First, unmap existing guest's cmd TRBs */
-		if (host->g_data.cmd_trbs) {
-			unmapmem (host->g_data.cmd_trbs,
-				  host->g_data.cmd_n_trbs * XHCI_TRB_NBYTES);
-			host->g_data.cmd_trbs = NULL;
+		for (int i = 0; i < (sizeof host->g_data.cmd_trbs /
+				     sizeof host->g_data.cmd_trbs[0]); i++) {
+			if (host->g_data.cmd_trbs[i]) {
+				unmapmem (host->g_data.cmd_trbs[i], PAGESIZE);
+				host->g_data.cmd_trbs[i] = NULL;
+			}
 		}
 
 		host->g_data.cmd_n_trbs = XHCI_MAX_CMD_N_TRBS;
@@ -236,13 +240,6 @@ create_h_cmd_ring (struct xhci_host *host, u64 g_cmd_ring, void *handler_data)
 
 		/* Then, set up host's cmd TRBs */
 		size_t trb_nbytes = host->g_data.cmd_n_trbs * XHCI_TRB_NBYTES;
-
-		struct xhci_trb *g_cmd_trbs;
-		g_cmd_trbs = (struct xhci_trb *)mapmem_as (host->usb_host->
-							   as_dma,
-							   g_cmd_ring_addr,
-							   trb_nbytes, 0);
-		host->g_data.cmd_trbs = g_cmd_trbs;
 
 		size_t cb_nbytes = host->g_data.cmd_n_trbs * sizeof (after_cb);
 
@@ -255,8 +252,14 @@ create_h_cmd_ring (struct xhci_host *host, u64 g_cmd_ring, void *handler_data)
 							     XHCI_ALIGN_64);
 		}
 
-		/* To clean up, just copy what is on the guest memory */
-		memcpy (host->cmd_trbs, g_cmd_trbs, trb_nbytes);
+		/* Clear host's cmd TRBs */
+		memset (host->cmd_trbs, 0, trb_nbytes);
+		if (!host->cmd_toggle) {
+			/* Set Cycle bit of each TRB */
+			unsigned int i;
+			for (i = 0; i < host->g_data.cmd_n_trbs; i++)
+				host->cmd_trbs[i].ctrl.value = 1;
+		}
 
 		dprintft (REG_DEBUG_LEVEL, "host cmd ring base: 0x%016llX\n",
 			  host->cmd_ring_addr);
@@ -958,18 +961,36 @@ end:
 
 /* ---------- Start doorbell related functions ---------- */
 
+static struct xhci_trb *
+get_g_cmd_trb (struct xhci_host *host, u32 idx)
+{
+	phys_t g_cmd_ring_addr = host->g_data.cmd_ring_addr;
+	phys_t g_cmd_trb_addr = g_cmd_ring_addr + idx * XHCI_TRB_NBYTES;
+	unsigned int page_index;
+	page_index = g_cmd_trb_addr / PAGESIZE - g_cmd_ring_addr / PAGESIZE;
+	ASSERT (page_index < (sizeof host->g_data.cmd_trbs /
+			      sizeof host->g_data.cmd_trbs[0]));
+	struct xhci_trb *map = host->g_data.cmd_trbs[page_index];
+	if (!map) {
+		map = mapmem_as (host->usb_host->as_dma,
+				 g_cmd_trb_addr - g_cmd_trb_addr % PAGESIZE,
+				 PAGESIZE, 0);
+		host->g_data.cmd_trbs[page_index] = map;
+	}
+	return &map[g_cmd_trb_addr % PAGESIZE / XHCI_TRB_NBYTES];
+}
+
 static void
 handle_cmd_write (struct xhci_host *host)
 {
 	/* The copied Link TRB will get patched by process_cmd_trb() */
-	struct xhci_trb *g_cmd_trbs = host->g_data.cmd_trbs;
 	struct xhci_trb *h_cmd_trbs = host->cmd_trbs;
 
 	struct xhci_trb *g_current_trb, *h_current_trb;
 
 	struct xhci_trb tmp_trb;
 
-	while ((g_current_trb = &g_cmd_trbs[host->cmd_current_idx]) &&
+	while (g_current_trb = get_g_cmd_trb (host, host->cmd_current_idx),
 	       XHCI_TRB_GET_C (g_current_trb) == host->cmd_toggle) {
 
 		h_current_trb = &h_cmd_trbs[host->cmd_current_idx];
