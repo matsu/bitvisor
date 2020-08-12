@@ -1467,7 +1467,7 @@ virtio_net_set_pci_device (void *handle, struct pci_device *dev,
 }
 
 static void
-initalize_vnet_pci_data (struct virtio_net *vnet)
+initialize_vnet_pci_data (struct virtio_net *vnet)
 {
 	static bool init_done;
 	uint i;
@@ -1584,7 +1584,7 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->msix_table_entry[2].mask = 1;
 	spinlock_init (&vnet->msix_lock);
 	*func = &virtio_net_func;
-	initalize_vnet_pci_data (vnet);
+	initialize_vnet_pci_data (vnet);
 	return vnet;
 }
 
