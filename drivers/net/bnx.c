@@ -416,8 +416,11 @@ static void
 bnx_get_addr (struct bnx *bnx, u8 *mac_fw)
 {
 	u32 addrh, addrl;
+	u16 subvendor, subdevice;
 
 	printd (0, "BNX: Retrieving MAC Address...\n");
+	pci_config_read (bnx->pci, &subvendor, sizeof subvendor, 0x2c);
+	pci_config_read (bnx->pci, &subdevice, sizeof subdevice, 0x2e);
 	bnx_mmioread32 (bnx, BNXREG_ETH_MACADDR, &addrh);
 	bnx_mmioread32 (bnx, BNXREG_ETH_MACADDR + 4, &addrl);
 	bnx->mac[0] = (addrh >> 8) & 0xff;
@@ -426,7 +429,20 @@ bnx_get_addr (struct bnx *bnx, u8 *mac_fw)
 	bnx->mac[3] = (addrl >> 16) & 0xff;
 	bnx->mac[4] = (addrl >> 8) & 0xff;
 	bnx->mac[5] = (addrl >> 0) & 0xff;
-	if (mac_fw && memcmp (bnx->mac, mac_fw, sizeof bnx->mac)) {
+	/*
+	 * On Mac Mini 2018 , we found that the firmware incorrectly assigns
+	 * the same MAC address to any NIC devices connected during booting.
+	 * It seems that the MAC address from the firmware is intended for the
+	 * internal NIC deivce. In addition, macOS uses the MAC address found
+	 * on the Thunderbolt to Gigabit Ethernet device.
+	 *
+	 * Therefore, for Thunderbolt to Gigabit Ethernet adapters, we ignore
+	 * the MAC address from the firmware to avoid MAC address conflict.
+	 */
+	if (mac_fw && subvendor == 0x106b && subdevice == 0x00f6) {
+		printf ("BNX: ignore the MAC address from the firmware for"
+			" Thunderbolt to Gigabit Ethernet Adapter.\n");
+	} else if (mac_fw && memcmp (bnx->mac, mac_fw, sizeof bnx->mac)) {
 		printf ("BNX: The MAC address 0 %02X:%02X:%02X:%02X:%02X:%02X"
 			" is different from the one obtained from the"
 			" firmware.\n", bnx->mac[0], bnx->mac[1], bnx->mac[2],
