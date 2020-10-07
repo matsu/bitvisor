@@ -456,7 +456,8 @@ loop:
 		ring_tmp >>= 16;
 		d = ring_tmp % vnet->queue_size[0];
 		desc_len = desc[d].len;
-		buf_ring = mapmem_as (vnet->as_dma, desc[d].addr, desc_len, 0);
+		buf_ring = mapmem_as (vnet->as_dma, desc[d].addr, desc_len,
+				      MAPMEM_WRITE);
 		i = 0;
 		if (len < desc_hdr_len) {
 			i = desc_hdr_len - len;
