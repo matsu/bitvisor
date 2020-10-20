@@ -112,7 +112,6 @@ struct bnx {
 	phys_t tx_ring_phys;
 	u32 tx_ring_len;
 	u32 tx_producer;
-	u32 tx_consumer;
 	void **tx_buf;
 	spinlock_t tx_lock, rx_lock;
 	spinlock_t reg_lock;
@@ -122,11 +121,9 @@ struct bnx {
 	phys_t rx_prod_ring_phys;
 	u32 rx_prod_ring_len;
 	u32 rx_prod_producer;
-	u32 rx_prod_consumer;
 	struct bnx_rx_desc *rx_retr_ring;
 	phys_t rx_retr_ring_phys;
 	u32 rx_retr_ring_len;
-	u32 rx_retr_producer;
 	u32 rx_retr_consumer;
 	void **rx_buf;
 	bool rx_enabled;
@@ -536,16 +533,8 @@ bnx_handle_status (struct bnx *bnx)
 			bnx_handle_link_state (bnx);
 		if (status & 4)
 			bnx_handle_error (bnx);
-		if (status & 1) {
-			spinlock_lock (&bnx->tx_lock);
-			bnx->tx_consumer = bnx->status->tx_consumer;
-			spinlock_unlock (&bnx->tx_lock);
-
-			bnx->rx_prod_consumer =
-				bnx->status->rx_producer_consumer;
-			bnx->rx_retr_producer = bnx->status->rx_producer;
+		if (status & 1)
 			bnx_handle_recv (bnx);
-		}
 	}
 	spinlock_unlock (&bnx->status_lock);
 }
@@ -613,12 +602,14 @@ bnx_handle_recv (struct bnx *bnx)
 	if (!bnx->rx_enabled)
 		return;
 
+	u32 rx_prod_consumer = bnx->status->rx_producer_consumer;
+	u32 rx_retr_producer = bnx->status->rx_producer;
 	for (i = 0; i < 16; i++) {
-		if (bnx_ring_is_empty (bnx->rx_retr_producer,
+		if (bnx_ring_is_empty (rx_retr_producer,
 				       bnx->rx_retr_consumer))
 			break;
 		if (bnx_ring_is_full (bnx->rx_prod_producer,
-				      bnx->rx_prod_consumer,
+				      rx_prod_consumer,
 				      bnx->rx_prod_ring_len))
 			break;
 
@@ -665,8 +656,8 @@ bnx_handle_recv (struct bnx *bnx)
 		printd (15, "Received %d packets ("
 			"Return Producer: %d, Consumer: %d / "
 			"Producer Producer: %d, Consumer: %d)\n",
-			num, bnx->rx_retr_producer, bnx->rx_retr_consumer,
-			bnx->rx_prod_producer, bnx->rx_prod_consumer);
+			num, rx_retr_producer, bnx->rx_retr_consumer,
+			bnx->rx_prod_producer, rx_prod_consumer);
 	}
 }
 
@@ -715,8 +706,8 @@ bnx_xmit (struct bnx *bnx, void *buf, int buflen)
 	if (!bnx->tx_enabled)
 		return;
 	spinlock_lock (&bnx->tx_lock);
-	bnx->tx_consumer = bnx->status->tx_consumer;
-	if ((bnx->tx_producer + 1) % bnx->tx_ring_len != bnx->tx_consumer) {
+	u32 tx_consumer = bnx->status->tx_consumer;
+	if ((bnx->tx_producer + 1) % bnx->tx_ring_len != tx_consumer) {
 		memcpy (bnx->tx_buf[bnx->tx_producer], buf, buflen);
 		bnx->tx_ring[bnx->tx_producer].len_flags = buflen << 16 | 0x84;
 		bnx->tx_ring[bnx->tx_producer].vlan_tag = 0;
