@@ -604,7 +604,7 @@ bnx_handle_recv (struct bnx *bnx)
 
 	u32 rx_prod_consumer = bnx->status->rx_producer_consumer;
 	u32 rx_retr_producer = bnx->status->rx_producer;
-	for (i = 0; i < 16; i++) {
+	for (i = 0;; i++) {
 		if (bnx_ring_is_empty (rx_retr_producer,
 				       bnx->rx_retr_consumer))
 			break;
