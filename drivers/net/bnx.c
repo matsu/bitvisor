@@ -524,17 +524,19 @@ static void
 bnx_handle_status (struct bnx *bnx)
 {
 	spinlock_lock (&bnx->status_lock);
-	if (bnx->status_enabled) {
-		if (bnx->status->status & 1) {
-			if (bnx->status->status & 2) {
-				bnx_handle_link_state (bnx);
-				bnx->status->status &= ~2;
-			}
-			if (bnx->status->status & 4) {
-				bnx_handle_error (bnx);
-				bnx->status->status &= ~4;
-			}
-
+	u32 status = 0;
+	if (bnx->status_enabled)
+		status = bnx->status->status & 7;
+	if (status) {
+		asm volatile ("lock andl %1,%0"
+			      : "+m" (bnx->status->status)
+			      : "r" (~status)
+			      : "cc");
+		if (status & 2)
+			bnx_handle_link_state (bnx);
+		if (status & 4)
+			bnx_handle_error (bnx);
+		if (status & 1) {
 			spinlock_lock (&bnx->tx_lock);
 			bnx->tx_consumer = bnx->status->tx_consumer;
 			spinlock_unlock (&bnx->tx_lock);
@@ -543,8 +545,6 @@ bnx_handle_status (struct bnx *bnx)
 				bnx->status->rx_producer_consumer;
 			bnx->rx_retr_producer = bnx->status->rx_producer;
 			bnx_handle_recv (bnx);
-
-			bnx->status->status &= ~1;
 		}
 	}
 	spinlock_unlock (&bnx->status_lock);
