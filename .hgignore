@@ -25,5 +25,6 @@ boot/login-simple/module1.bin
 boot/login-simple/module2.bin
 boot/login-simple/readdata
 *.bin
+*.bin.debug
 *.bin.s
 syntax: regexp

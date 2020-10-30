@@ -53,7 +53,8 @@ clean-dir : $(subclean_p)
 	$(V-info) CLEAN $(dir)
 	$(RM) $(dir)$(target) $(dir)$(outo) $(dir)$(outa) $(objs) $(deps)
 	$(RM) $(dir)$(flags) $(dir)$(depends) $(dir)$(objects)
-	$(RM) $(dir)$(outp) $(bobjs) $(bins) $(bins:%=%.s) $(dir)$(boptions)
+	$(RM) $(dir)$(outp) $(bobjs) $(bins) $(bins:%=%.s) $(dir)$(boptions) \
+		$(bins:%=%.debug)
 
 .PHONY : $(subclean_p)
 $(subclean_p) :

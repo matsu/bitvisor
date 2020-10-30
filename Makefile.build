@@ -79,8 +79,9 @@ $(bins) : $(bobjs) $(blibs-1) $(objs) $(dir)$(boptions)
 	echo 'prc_$(*F)_name: .string "$(*F)"' >> $@.s
 	echo 'prc_$(*F)_bin: .incbin "$@"' >> $@.s
 	echo 'prc_$(*F)_bin_end:' >> $@.s
-	$(CC) $(LDFLAGS) -o $@ $($(*F)-objs:%=$(dir)%) \
+	$(CC) $(LDFLAGS) -o $@.debug $($(*F)-objs:%=$(dir)%) \
 		$($(*F)-libs) $(objs)
+	$(STRIP) -o $@ $@.debug
 
 $(objs) $(bobjs) : $(dir)$(flags)
 

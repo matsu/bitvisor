@@ -7,6 +7,7 @@ RM = rm -f
 OBJCOPY = objcopy
 SED = sed
 SIZE = size
+STRIP = strip
 
 # files
 CONFIG = .config
