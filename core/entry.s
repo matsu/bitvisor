@@ -305,7 +305,18 @@ uefi64_entry:
 	push	%r13
 	push	%r14
 	push	%r15
-	push	%rcx
+	mov	%es,%eax
+	push	%rax
+	mov	%ss,%eax
+	push	%rax
+	mov	%ds,%eax
+	push	%rax
+	mov	%fs,%eax
+	push	%rax
+	mov	%gs,%eax
+	push	%rax
+	sldt	%ax
+	push	%rax
 	xor	%ecx,%ecx
 	lea	entry_pd(%rip),%ebx
 	lea	head-0x100000+0x3(%rip),%eax
@@ -324,19 +335,6 @@ uefi64_entry:
 	addq	$entry_pd-entry_pd0,entry_pdp+8(%rip)
 	sub	$head-0x100000,%rax
 	mov	%rax,uefi_entry_physoff(%rip)
-	pop	%rcx
-	mov	%es,%eax
-	push	%rax
-	mov	%ss,%eax
-	push	%rax
-	mov	%ds,%eax
-	push	%rax
-	mov	%fs,%eax
-	push	%rax
-	mov	%gs,%eax
-	push	%rax
-	sldt	%ax
-	push	%rax
 	mov	%cr3,%rax
 	mov	%rax,uefi_entry_cr3(%rip)
 	mov	%rsp,uefi_entry_rsp(%rip)
@@ -344,19 +342,18 @@ uefi64_entry:
 	mov	%rax,uefi_entry_ret_addr(%rip)
 	lea	entry_pml4(%rip),%rax
 	cli
+	# The uefi_init() in virtual address space uses entry_pml4 and
+	# start_stack.  GDT is not switched.  No interrupt is allowed.
 	mov	%rax,%cr3
 	mov	$start_stack,%rsp
-	mov	$1f,%rax
-	jmp	*%rax
-1:
-	call	uefi_init
-	mov	%rax,1b(%rip)
-	mov	uefi_entry_physoff(%rip),%rax
-	call	uefi_entry_rip_plus_rax
+	mov	$uefi_init,%rax
+	call	*%rax	# Use register indirect to jump to virtual address
+	# If the uefi_init() loaded the binary properly, it would jump
+	# to uefi_entry_start().  Otherwise, in case of error, the
+	# following code returns to the caller.
 	mov	uefi_entry_rsp(%rip),%rsp
-	mov	uefi_entry_cr3(%rip),%rax
-	mov	%rax,%cr3
-	mov	1b(%rip),%rax
+	mov	uefi_entry_cr3(%rip),%rdi
+	mov	%rdi,%cr3
 uefi_entry_ret:
 	pop	%rbx
 	lldt	%bx
@@ -370,6 +367,8 @@ uefi_entry_ret:
 	mov	%ebx,%ss
 	pop	%rbx
 	mov	%ebx,%es
+	cld
+	sti
 	pop	%r15
 	pop	%r14
 	pop	%r13
