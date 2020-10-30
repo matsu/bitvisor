@@ -44,6 +44,8 @@ extern u8 cpuinit_start[], cpuinit_end[];
 extern u32 apinit_procs;
 extern u8 apinit_lock;
 extern u64 uefi_entry_rsp, uefi_entry_ret_addr;
+extern u64 uefi_entry_cr3;
+extern struct descreg uefi_entry_gdtr;
 
 asmlinkage ulong uefi_entry_call (ulong procaddr, int dummy, ...);
 asmlinkage void *uefi_entry_virttophys (void *virt);

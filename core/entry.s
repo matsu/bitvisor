@@ -63,6 +63,9 @@
 	CR4_MCE_BIT = 0x40
 	CR4_PGE_BIT = 0x80
 	EFLAGS_ID_BIT = 0x200000
+	MSR_IA32_SYSENTER_CS = 0x174
+	MSR_IA32_SYSENTER_ESP = 0x175
+	MSR_IA32_SYSENTER_EIP = 0x176
 	MSR_IA32_EFER = 0xC0000080
 	MSR_IA32_EFER_LME_BIT = 0x100
 	GUEST_APINIT_OFFSET = 0x0000
@@ -305,18 +308,9 @@ uefi64_entry:
 	push	%r13
 	push	%r14
 	push	%r15
-	mov	%es,%eax
-	push	%rax
-	mov	%ss,%eax
-	push	%rax
-	mov	%ds,%eax
-	push	%rax
-	mov	%fs,%eax
-	push	%rax
-	mov	%gs,%eax
-	push	%rax
-	sldt	%ax
-	push	%rax
+	sub	$uefi_entry_save_regs_size,%rsp
+	mov	%rsp,%rdi
+	call	uefi_entry_save_regs
 	xor	%ecx,%ecx
 	lea	entry_pd(%rip),%ebx
 	lea	head-0x100000+0x3(%rip),%eax
@@ -340,6 +334,8 @@ uefi64_entry:
 	mov	%rsp,uefi_entry_rsp(%rip)
 	lea	uefi_entry_ret(%rip),%rax
 	mov	%rax,uefi_entry_ret_addr(%rip)
+	mov	%cs,uefi_entry_ret_addr+4(%rip)
+	sgdt	uefi_entry_gdtr(%rip)
 	lea	entry_pml4(%rip),%rax
 	cli
 	# The uefi_init() in virtual address space uses entry_pml4 and
@@ -355,18 +351,11 @@ uefi64_entry:
 	mov	uefi_entry_cr3(%rip),%rdi
 	mov	%rdi,%cr3
 uefi_entry_ret:
-	pop	%rbx
-	lldt	%bx
-	pop	%rbx
-	mov	%ebx,%gs
-	pop	%rbx
-	mov	%ebx,%fs
-	pop	%rbx
-	mov	%ebx,%ds
-	pop	%rbx
-	mov	%ebx,%ss
-	pop	%rbx
-	mov	%ebx,%es
+	# Here is the starting address of the virtual machine.
+	# The saved regs on the stack are used by here and calluefi.
+	mov	%rsp,%rdi
+	call	uefi_entry_restore_regs
+	add	$uefi_entry_save_regs_size,%rsp
 	cld
 	sti
 	pop	%r15
@@ -382,6 +371,95 @@ uefi_entry_ret:
 	xor	%eax,%eax
 	ret
 .endif
+
+	.globl	uefi_entry_save_regs_size
+	uefi_entry_save_regs_size = 56
+
+# uefi_entry_save_regs: save system registers to memory at %rdi,
+# called by above and calluefi.
+# Do not use absolute address in this routine.
+	.globl	uefi_entry_save_regs
+uefi_entry_save_regs:
+	push	%rax
+	push	%rcx
+	push	%rdx
+	mov	%es,0(%rdi)
+	mov	%cs,2(%rdi)
+	mov	%ss,4(%rdi)
+	sgdt	6(%rdi)
+	mov	%ds,16(%rdi)
+	mov	%fs,18(%rdi)
+	mov	%gs,20(%rdi)
+	sidt	22(%rdi)
+	sldt	32(%rdi)
+	str	34(%rdi)
+	mov	$MSR_IA32_SYSENTER_CS,%rcx
+	rdmsr
+	mov	%eax,36(%rdi)
+	mov	$MSR_IA32_SYSENTER_ESP,%ecx
+	rdmsr
+	mov	%eax,40(%rdi)
+	mov	%edx,44(%rdi)
+	mov	$MSR_IA32_SYSENTER_EIP,%ecx
+	rdmsr
+	mov	%eax,48(%rdi)
+	mov	%edx,52(%rdi)
+	pop	%rdx
+	pop	%rcx
+	pop	%rax
+	ret
+
+# uefi_entry_restore_regs: restore system registers from memory at %rdi,
+# called by above and calluefi.
+# Do not use absolute address in this routine.
+	.globl	uefi_entry_restore_regs
+uefi_entry_restore_regs:
+	push	%rax
+	push	%rcx
+	push	%rdx
+	lgdt	6(%rdi)
+	lidt	22(%rdi)
+	lldt	32(%rdi)
+	mov	0(%rdi),%es
+	movzwl	2(%rdi),%eax
+	push	%rax
+	lea	1f(%rip),%rax
+	push	%rax
+	lretq
+1:
+	mov	4(%rdi),%ss
+	mov	16(%rdi),%ds
+	mov	18(%rdi),%fs
+	mov	20(%rdi),%gs
+	# TR is normally not set by firmware.  Use LAR to check
+	# whether the selector points to a busy TSS.
+	movzwl	34(%rdi),%ecx
+	lar	%cx,%eax
+	jne	1f		# Jump if ZF=0
+	and	$0x9F,%ah
+	cmp	$0x8B,%ah	# P=1, S=0 and type=0xB TSS (Busy)
+	jne	1f
+	mov	%ecx,%eax
+	or	$0x7,%eax
+	add	8(%rdi),%rax	# GDTR.base
+	andb	$~2,-2(%rax)	# TSS (Busy) -> TSS (Available)
+	ltr	%cx
+1:
+	mov	$MSR_IA32_SYSENTER_CS,%rcx
+	mov	36(%rdi),%eax
+	wrmsr
+	mov	$MSR_IA32_SYSENTER_ESP,%ecx
+	mov	40(%rdi),%eax
+	mov	44(%rdi),%edx
+	wrmsr
+	mov	$MSR_IA32_SYSENTER_EIP,%ecx
+	mov	48(%rdi),%eax
+	mov	52(%rdi),%edx
+	wrmsr
+	pop	%rdx
+	pop	%rcx
+	pop	%rax
+	ret
 
 	.globl	uefi_entry_virttophys
 uefi_entry_virttophys:
@@ -468,17 +546,6 @@ uefi_entry_start:
 	lea	entry_pml4-DIFFPHYS(%rdi),%rax
 	mov	%rax,%cr3
 	mov	%edi,vmm_start_phys
-	sgdtq	calluefi_uefi_gdtr
-	sidtq	calluefi_uefi_idtr
-	sldt	calluefi_uefi_ldtr
-	mov	%es,calluefi_uefi_sregs+0
-	mov	%cs,calluefi_uefi_sregs+2
-	mov	%ss,calluefi_uefi_sregs+4
-	mov	%ds,calluefi_uefi_sregs+6
-	mov	%fs,calluefi_uefi_sregs+8
-	mov	%gs,calluefi_uefi_sregs+10
-	mov	uefi_entry_cr3(%rip),%rax
-	mov	%rax,calluefi_uefi_cr3
 	mov	$bss,%edi		# Clear BSS
 	mov	$end+3,%ecx		#
 	sub	%edi,%ecx		#
@@ -502,6 +569,7 @@ uefi_entry_start:
 	ret
 .endif
 
+	.globl	uefi_entry_cr3
 uefi_entry_cr3:
 	.quad	0
 	.globl	uefi_entry_rsp
@@ -510,6 +578,9 @@ uefi_entry_rsp:
 	.globl	uefi_entry_ret_addr
 uefi_entry_ret_addr:
 	.quad	0
+	.globl	uefi_entry_gdtr
+uefi_entry_gdtr:
+	.space	16
 uefi_entry_physoff:
 	.quad	0
 

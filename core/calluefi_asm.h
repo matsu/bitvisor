@@ -33,10 +33,6 @@
 #include "linkage.h"
 #include "types.h"
 
-extern u64 calluefi_uefi_cr3;
-extern struct descreg calluefi_uefi_gdtr, calluefi_uefi_idtr;
-extern u16 calluefi_uefi_sregs[];
-
-asmlinkage int calluefi (ulong func, ulong num_args, ...);
+asmlinkage int calluefi (ulong func, uint num_args, ...);
 
 #endif

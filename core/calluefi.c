@@ -415,22 +415,19 @@ copy_uefi_bootcode (void)
 	current->vmctl.write_ip (bootcode & 0xF);
 	asm_rdcr0 (&cr0);
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, cr0 & ~CR0_TS_BIT);
-	current->vmctl.write_control_reg (CONTROL_REG_CR3, calluefi_uefi_cr3);
+	current->vmctl.write_control_reg (CONTROL_REG_CR3, uefi_entry_cr3);
 	asm_rdcr4 (&cr4);
 	current->vmctl.write_control_reg (CONTROL_REG_CR4, cr4 & ~CR4_PGE_BIT);
 	asm_rdmsr64 (MSR_IA32_EFER, &efer);
 	current->vmctl.write_msr (MSR_IA32_EFER,
 				  efer & ~MSR_IA32_EFER_SVME_BIT);
-	current->vmctl.write_gdtr (calluefi_uefi_gdtr.base,
-				   calluefi_uefi_gdtr.limit);
-	current->vmctl.write_idtr (calluefi_uefi_idtr.base,
-				   calluefi_uefi_idtr.limit);
+	current->vmctl.write_gdtr (uefi_entry_gdtr.base,
+				   uefi_entry_gdtr.limit);
 	/* bootcode:
 	   0f 22 c0                mov    %eax,%cr0
 	   66 ea 00 00 00 00 00 00 ljmpl  $0x0,$0x0 */
 	p = mapmem_hphys (bootcode, 11, MAPMEM_WRITE);
 	memcpy (&p[0], "\x0F\x22\xC0\x66\xEA", 5);
-	memcpy (&p[5], &uefi_entry_ret_addr, 4);
-	memcpy (&p[9], &calluefi_uefi_sregs[1], 2);
+	memcpy (&p[5], &uefi_entry_ret_addr, 6);
 	unmapmem (p, 11);
 }
