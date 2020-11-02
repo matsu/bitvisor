@@ -36,6 +36,7 @@
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
+#include "process.h"
 #include "spinlock.h"
 #include "string.h"
 #include "thread.h"
@@ -309,6 +310,42 @@ thread_exit (void)
 	schedule ();
 }
 
+static int
+wait_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
+{
+	if (m == MSG_BUF && bufcnt >= 1) {
+		union {
+			u8 c1;
+			u16 c2;
+			int c;
+		} u, *p;
+		u.c = c;
+		p = buf[0].base;
+		for (;; schedule ()) {
+			switch (buf[0].len) {
+			case sizeof p->c1:
+				if (p->c1 == u.c1)
+					continue;
+				break;
+			case sizeof p->c2:
+				if (p->c2 == u.c2)
+					continue;
+				break;
+			case sizeof p->c:
+				if (p->c == u.c)
+					continue;
+				break;
+			default:
+				schedule ();
+				break;
+			}
+			return 0;
+		}
+	}
+	schedule ();
+	return 0;
+}
+
 static void
 thread_init_global (void)
 {
@@ -339,5 +376,12 @@ thread_init_pcpu (void)
 	LOCK_UNLOCK (&thread_lock);
 }
 
+static void
+thread_init_msg (void)
+{
+	msgregister ("wait", wait_msghandler);
+}
+
 INITFUNC ("global3", thread_init_global);
 INITFUNC ("pcpu0", thread_init_pcpu);
+INITFUNC ("msg1", thread_init_msg);

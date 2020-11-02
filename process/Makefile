@@ -8,6 +8,7 @@ bins-$(CONFIG_VPN) += vpn
 asubdirs-1 += lib
 bins-$(CONFIG_IP) += echoctl
 bins-$(CONFIG_PCI_MONITOR) += monitor
+psubdirs-$(CONFIG_SQLITE) += sqlite
 
 debug-objs = debug.o
 help-objs = help.o

@@ -48,26 +48,27 @@ bstacksize-1-b := $(bstacksize-1-name:%=$(%).)
 bstacksize-1-g := $(foreach i,$(bstacksize-1-name),$($(i)).)
 bstacksize-1 := $(bstacksize-1-$(m))
 bobjs = $(bobjs-1:%=$(dir)%)
-objs = $(objs-1:%=$(dir)%) $(subouto) $(subouta) $(suboutp)
+objs = $(objs-1:%=$(dir)%) $(subouto) $(subouta)
 deps = $(objs-1:%.o=$(dir)%.d) $(bobjs-1:%.o=$(dir)%.d)
 bins = $(bins-1:%=$(dir)%.bin)
 flags-data := CFLAGS=$(CFLAGS) ASFLAGS=$(ASFLAGS) LDFLAGS=$(LDFLAGS)
 depends-data := include $(deps)
-objects-data := $(objs) $(bobjs)
+objects-data := $(objs) $(suboutp) $(bobjs)
 boptions-data := bobjs=$(bobjs) blibs=$(blibs-1) bstacksize=$(bstacksize-1)
 
-$(defouto) : $(objs) $(dir)$(depends) $(dir)$(objects)
+$(defouto) : $(objs) $(suboutp) $(dir)$(depends) $(dir)$(objects)
 	$(V-info) LD $(defouto)
-	$(CC) $(LDFLAGS) -Wl,-r -o $(defouto) $(objs)
+	$(CC) $(LDFLAGS) -Wl,-r -o $(defouto) $(objs) $(suboutp)
 
 $(defouta) : $(objs) $(dir)$(depends)
 	$(V-info) AR $(defouta)
 	$(RM) $(defouta)
 	$(AR) cr $(defouta) $(objs)
 
-$(defoutp) : $(bins) $(dir)$(depends) $(dir)$(objects)
+$(defoutp) : $(bins) $(suboutp) $(dir)$(depends) $(dir)$(objects)
 	$(V-info) LD $(defoutp)
-	$(CC) $(ASFLAGS) $(LDFLAGS) -Wl,-r -o $(defoutp) $(bins:%=%.s)
+	$(CC) $(ASFLAGS) $(LDFLAGS) -Wl,-r -o $(defoutp) $(bins:%=%.s) \
+		$(suboutp)
 
 $(bins) : $(bobjs) $(blibs-1) $(objs) $(dir)$(boptions)
 	$(V-info) LD $@
