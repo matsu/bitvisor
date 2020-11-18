@@ -226,7 +226,7 @@ struct data2 {
 	unsigned int msi_intr;
 	bool msi_intr_pass;
 	spinlock_t msi_lock;
-	int msix_qvec[2];
+	int msix_qvec[3];
 };
 
 struct data {
@@ -1505,7 +1505,7 @@ pro1000_msix_vector_change (void *param, unsigned int queue, int vector)
 {
 	struct data2 *d2 = param;
 
-	if (queue < 2)
+	if (queue < 3)
 		d2->msix_qvec[queue] = vector;
 	pro1000_msix_update (d2);
 }
@@ -1527,7 +1527,7 @@ pro1000_msix_generate (void *param, unsigned int queue)
 		spinlock_unlock (&d2->msi_lock);
 		return;
 	}
-	if (queue < 2)
+	if (queue < 3)
 		m = d2->msix_tbl[d2->msix_qvec[queue]];
 	if (!(m.mask & 1))
 		pci_msi_to_ipi (d2->pci_device->as_dma, m.addr, m.upper,
@@ -1641,6 +1641,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 			spinlock_init (&d2->msi_lock);
 			d2->msix_qvec[0] = -1;
 			d2->msix_qvec[1] = -1;
+			d2->msix_qvec[2] = -1;
 			d2->msicb = pci_register_msi_callback (pci_device,
 							       pro1000_msi,
 							       d2);

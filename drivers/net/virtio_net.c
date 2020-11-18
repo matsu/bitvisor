@@ -37,6 +37,8 @@
 
 #define OFFSET_TO_DWORD_BLOCK(offset) ((offset) / sizeof (u32))
 
+#define VIRTIO_N_QUEUES 3
+
 #define VIRTIO_NET_PKT_BATCH 16
 #define VIRTIO_NET_QUEUE_SIZE 256
 #define VIRTIO_NET_MSIX_N_VECTORS 4
@@ -60,10 +62,32 @@ struct virtio_ext_cap {
 
 /* Feature bits */
 #define VIRTIO_NET_F_MAC	 (1ULL << 5)
+#define VIRTIO_NET_F_CTRL_VQ	 (1ULL << 17)
+#define VIRTIO_NET_F_CTRL_RX	 (1ULL << 18)
 #define VIRTIO_F_VERSION_1	 (1ULL << 32)
 #define VIRTIO_F_ACCESS_PLATFORM (1ULL << 33)
-#define VIRTIO_NET_DEVICE_FEATURES (VIRTIO_NET_F_MAC | VIRTIO_F_VERSION_1 | \
+#define VIRTIO_NET_DEVICE_FEATURES (VIRTIO_NET_F_MAC | VIRTIO_NET_F_CTRL_VQ | \
+				    VIRTIO_NET_F_CTRL_RX | \
+				    VIRTIO_F_VERSION_1 | \
 				    VIRTIO_F_ACCESS_PLATFORM)
+
+/* For ctrl commands */
+#define VIRTIO_NET_ACK_OK  0
+#define VIRTIO_NET_ACK_ERR 1
+
+/* Ctrl command class */
+#define VIRTIO_NET_CTRL_RX  0
+#define VIRTIO_NET_CTRL_MAC 1
+
+/* Ctrl command code for VIRTIO_NET_CTRL_RX */
+#define VIRTIO_NET_CTRL_RX_PROMISC  0
+#define VIRTIO_NET_CTRL_RX_ALLMULTI 1
+
+#define VIRTIO_NET_CTRL_MAC_TABLE_MAX_ENTRIES 16
+
+/* Ctrl command code for VIRTIO_NET_CTRL_MAC */
+#define VIRTIO_NET_CTRL_MAC_TABLE_SET  0
+#define VIRTIO_NET_CTRL_MAC_ADDR_SET   1
 
 #define VIRTIO_PCI_CAP_COMMON_CFG 1
 #define VIRTIO_PCI_CAP_NOTIFY_CFG 2
@@ -141,10 +165,10 @@ struct virtio_net {
 	u32 prev_port;
 	u32 port;
 	u32 cmd;
-	u32 queue[2];
-	u64 desc[2];
-	u64 avail[2];
-	u64 used[2];
+	u32 queue[VIRTIO_N_QUEUES];
+	u64 desc[VIRTIO_N_QUEUES];
+	u64 avail[VIRTIO_N_QUEUES];
+	u64 used[VIRTIO_N_QUEUES];
 	u32 mmio_base;
 	u32 mmio_len;
 	u64 device_feature;
@@ -172,14 +196,14 @@ struct virtio_net {
 	u64 last_time;
 	u8 dev_status;
 	u16 selected_queue;
-	u16 queue_size[2];
-	bool queue_enable[2];
+	u16 queue_size[VIRTIO_N_QUEUES];
+	bool queue_enable[VIRTIO_N_QUEUES];
 	int hd;
 	int multifunction;
 	bool intr;
 	bool msix;
 	u16 msix_cfgvec;
-	u16 msix_quevec[2];
+	u16 msix_quevec[VIRTIO_N_QUEUES];
 	bool msix_enabled;
 	bool msix_mask;
 	void (*msix_disable) (void *msix_param);
@@ -194,9 +218,15 @@ struct virtio_net {
 	u16 next_ext_cap_offset;
 	bool pcie_cap;
 	struct virtio_pci_cfg_cap pci_cfg;
-	struct msix_table msix_table_entry[3];
+	struct msix_table msix_table_entry[VIRTIO_N_QUEUES];
 	u8 buf[VIRTIO_NET_PKT_BATCH][2048];
 	spinlock_t msix_lock;
+	u8 unicast_filter[VIRTIO_NET_CTRL_MAC_TABLE_MAX_ENTRIES][6];
+	u8 multicast_filter[VIRTIO_NET_CTRL_MAC_TABLE_MAX_ENTRIES][6];
+	u32 unicast_filter_entries;
+	u32 multicast_filter_entries;
+	bool allow_multicast;
+	bool allow_promisc;
 };
 
 struct vr_desc {
@@ -368,6 +398,41 @@ handle_io (struct virtio_net *vnet, bool wr, u32 iosize, u32 offset, void *buf,
 	   const struct handle_io_data *d)
 {
 	handle_io_with_default (vnet, wr, iosize, offset, buf, d, NULL);
+}
+
+static void
+virtio_net_reset_ctrl_mac (struct virtio_net *vnet)
+{
+	memset (vnet->unicast_filter, 0, sizeof vnet->unicast_filter);
+	memset (vnet->multicast_filter, 0, sizeof vnet->multicast_filter);
+	vnet->unicast_filter_entries = 0;
+	vnet->multicast_filter_entries = 0;
+}
+
+static void
+virtio_net_reset_dev (struct virtio_net *vnet)
+{
+	uint i;
+
+	for (i = 0; i < VIRTIO_N_QUEUES; i++) {
+		vnet->queue[i] = 0;
+		vnet->desc[i] = 0;
+		vnet->avail[i] = 0;
+		vnet->used[i] = 0;
+		vnet->queue_size[i] = VIRTIO_NET_QUEUE_SIZE;
+		vnet->queue_enable[i] = false;
+	}
+	vnet->driver_feature = 0;
+	vnet->device_feature_select = 0;
+	vnet->driver_feature_select = 0;
+	vnet->v1 = false;
+	vnet->v1_legacy = false;
+	vnet->ready = false;
+	vnet->dev_status = 0;
+	vnet->selected_queue = 0;
+	virtio_net_reset_ctrl_mac (vnet);
+	vnet->allow_multicast = false;
+	vnet->allow_promisc = false;
 }
 
 static uint
@@ -649,7 +714,7 @@ virtio_net_recv (struct virtio_net *vnet)
 		used = mapmem_as (vnet->as_dma, vnet->used[1],
 				  USED_MAP_SIZE (queue_size), MAPMEM_WRITE);
 
-		do_net_recv (vnet,desc, avail, used, vnet->v1_legacy);
+		do_net_recv (vnet, desc, avail, used, vnet->v1_legacy);
 
 		unmapmem (used, USED_MAP_SIZE (queue_size));
 		unmapmem (avail, AVAIL_MAP_SIZE (queue_size));
@@ -659,6 +724,262 @@ virtio_net_recv (struct virtio_net *vnet)
 			       sizeof *p, MAPMEM_WRITE);
 
 		do_net_recv (vnet, p->desc, &p->avail, &p->used, true);
+
+		unmapmem (p, sizeof *p);
+	}
+}
+
+static u8
+process_ctrl_rx_cmd (struct virtio_net *vnet, u8 *cmd, unsigned int cmd_size)
+{
+	u8 ack = VIRTIO_NET_ACK_OK;
+
+	if (cmd_size < 4) {
+		printf ("virtio_net: invalid command size for "
+			"VIRTIO_NET_CTRL_RX\n");
+		ack = VIRTIO_NET_ACK_ERR;
+		goto end;
+	}
+
+	switch (cmd[1]) {
+	case VIRTIO_NET_CTRL_RX_PROMISC:
+		vnet->allow_promisc = !!cmd[2];
+		if (0)
+			printf ("virtio_net: allow_promisc %u\n", !!cmd[2]);
+		break;
+	case VIRTIO_NET_CTRL_RX_ALLMULTI:
+		vnet->allow_multicast = !!cmd[2];
+		if (0)
+			printf ("virtio_net: allow_multicast %u\n", !!cmd[2]);
+		break;
+	default:
+		printf ("virtio_net: unsupported code %u for "
+			"VIRTIO_NET_CTRL_RX\n", cmd[1]);
+		ack = VIRTIO_NET_ACK_ERR;
+	}
+end:
+	return ack;
+}
+
+static u8
+process_ctrl_mac_cmd (struct virtio_net *vnet, u8 *cmd, unsigned int cmd_size)
+{
+	u8 ack = VIRTIO_NET_ACK_OK;
+	u32 uni_n_entries, multi_n_entries, uni_table_size, multi_table_size;
+	u8 *c;
+
+	if (cmd[1] != VIRTIO_NET_CTRL_MAC_TABLE_SET) {
+		printf ("virtio_net: currently support only "
+			"VIRTIO_NET_CTRL_MAC_TABLE_SET for "
+			"VIRTIO_NET_CTRL_MAC\n");
+		ack = VIRTIO_NET_ACK_ERR;
+		goto end;
+	}
+
+	/* VIRTIO_NET_CTRL_MAC_TABLE_SET must be at least 11 bytes */
+	if (cmd_size < 11) {
+		printf ("virtio_net: invalid command size for "
+			"VIRTIO_NET_CTRL_MAC_TABLE_SET\n");
+		ack = VIRTIO_NET_ACK_ERR;
+		goto end;
+	}
+
+	uni_n_entries = *(u32 *)&cmd[2];
+	if (uni_n_entries > VIRTIO_NET_CTRL_MAC_TABLE_MAX_ENTRIES) {
+		printf ("virtio_net: unicast filtering table too large, "
+			"ignore the command\n");
+		ack = VIRTIO_NET_ACK_ERR;
+		goto end;
+	}
+	uni_table_size = sizeof vnet->unicast_filter[0] * uni_n_entries;
+
+	multi_n_entries = *(u32 *)&cmd[2 + 4 + uni_table_size];
+	if (multi_n_entries > VIRTIO_NET_CTRL_MAC_TABLE_MAX_ENTRIES) {
+		printf ("virtio_net: multicast filtering table too large, "
+			"ignore the command\n");
+		ack = VIRTIO_NET_ACK_ERR;
+		goto end;
+	}
+	multi_table_size = sizeof vnet->multicast_filter[0] * multi_n_entries;
+
+	virtio_net_reset_ctrl_mac (vnet);
+	c = &cmd[2 + 4];
+	vnet->unicast_filter_entries = uni_n_entries;
+	if (uni_table_size)
+		memcpy (vnet->unicast_filter, c, uni_table_size);
+
+	c = &cmd[2 + 4 + uni_table_size + 4];
+	vnet->multicast_filter_entries = multi_n_entries;
+	if (multi_table_size)
+		memcpy (vnet->multicast_filter, c, multi_table_size);
+
+	if (0) {
+		uint i;
+
+		printf ("virtio_net: unicast filter %u entries\n",
+			uni_n_entries);
+		for (i = 0; i < uni_n_entries; i++) {
+			printf ("%u: %02X %02X %02X %02X %02X %02X\n", i,
+				vnet->unicast_filter[i][0],
+				vnet->unicast_filter[i][1],
+				vnet->unicast_filter[i][2],
+				vnet->unicast_filter[i][3],
+				vnet->unicast_filter[i][4],
+				vnet->unicast_filter[i][5]);
+		}
+
+		printf ("virtio_net: multicast filter %u entries\n",
+			multi_n_entries);
+		for (i = 0; i < multi_n_entries; i++) {
+			printf ("%u: %02X %02X %02X %02X %02X %02X\n", i,
+				vnet->multicast_filter[i][0],
+				vnet->multicast_filter[i][1],
+				vnet->multicast_filter[i][2],
+				vnet->multicast_filter[i][3],
+				vnet->multicast_filter[i][4],
+				vnet->multicast_filter[i][5]);
+		}
+	}
+end:
+	return ack;
+}
+
+static u8
+process_ctrl_cmd (struct virtio_net *vnet, u8 *cmd, unsigned int cmd_size)
+{
+	u8 ack;
+
+	/* Sanity check */
+	if (cmd_size < 3) {
+		printf ("virtio_net: ignore possible invalid ctrl command\n");
+		ack = VIRTIO_NET_ACK_ERR;
+		goto end;
+	}
+
+	switch (cmd[0]) {
+	case VIRTIO_NET_CTRL_RX:
+		ack = process_ctrl_rx_cmd (vnet, cmd, cmd_size);
+		break;
+	case VIRTIO_NET_CTRL_MAC:
+		ack = process_ctrl_mac_cmd (vnet, cmd, cmd_size);
+		break;
+	default:
+		printf ("virtio_net: unsupport class %u\n", cmd[0]);
+		ack = VIRTIO_NET_ACK_ERR;
+	}
+end:
+	return ack;
+}
+
+static void
+do_net_ctrl (struct virtio_net *vnet, struct vr_desc *desc,
+	     struct vr_avail *avail, struct vr_used *used)
+{
+	u16 idx_a, idx_u, ring, queue_size;
+	u32 len, desc_len, copied;
+	u32 ring_tmp, d;
+	u8 *buf_ring, *cmd, ack;
+	bool intr = false, last;
+
+	queue_size = vnet->queue_size[2];
+	idx_a = avail->idx;
+	while (idx_a != used->idx) {
+		idx_u = used->idx % queue_size;
+		ring = avail->ring[idx_u];
+		ring_tmp = ((u32)ring << 16) | 1;
+		/* Ctrl command is variable in size, find the size first */
+		len = 0;
+		while (ring_tmp & 1) {
+			ring_tmp >>= 16;
+			d = ring_tmp % queue_size;
+			desc_len = desc[d].len;
+			len += desc_len;
+			ring_tmp = desc[d].flags_next;
+		}
+		if (len > PAGESIZE) {
+			printf ("virtio_net: ctrl command size is too large, "
+				"skip processing\n");
+			goto skip;
+		}
+		/* Merge command scatter-gather buffers into a single buffer */
+		copied = 0;
+		cmd = alloc (len);
+		ring_tmp = ((u32)ring << 16) | 1;
+		while (ring_tmp & 1) {
+			ring_tmp >>= 16;
+			d = ring_tmp % queue_size;
+			desc_len = desc[d].len;
+			ring_tmp = desc[d].flags_next;
+			last = !(ring_tmp & 0x1);
+			if ((copied + desc_len > len) ||
+			    (last && copied + desc_len != len)) {
+				printf ("virtio_net: strange ctrl command "
+					"buffers, skip processing\n");
+			}
+			buf_ring = mapmem_as (vnet->as_dma, desc[d].addr,
+					      desc_len, 0);
+			memcpy (cmd + copied, buf_ring, desc_len);
+			copied += desc_len;
+			/* We reach the last buffer, process and set ack */
+			if (last) {
+				ack = process_ctrl_cmd (vnet, cmd, len);
+				buf_ring[desc_len - 1] = ack;
+			}
+			unmapmem (buf_ring, desc_len);
+		}
+		free (cmd);
+	skip:
+		used->ring[idx_u].id = ring;
+		used->ring[idx_u].len = len;
+		asm volatile ("" : : : "memory");
+		used->idx++;
+		intr = true;
+	}
+	if (avail->flags & VIRTQ_AVAIL_F_NO_INTERRUPT)
+		intr = false;
+	if (intr)
+		virtio_net_trigger_interrupt (vnet, 2);
+}
+
+static void
+virtio_net_ctrl (struct virtio_net *vnet)
+{
+	struct virtio_ring *p;
+	struct vr_desc *desc;
+	struct vr_avail *avail;
+	struct vr_used *used;
+
+	if (!vnet->ready)
+		return;
+
+	if (!(vnet->driver_feature & VIRTIO_NET_F_CTRL_VQ))
+		return;
+
+	if (vnet->v1) {
+		uint queue_size;
+
+		if (!vnet->queue_enable[2])
+			return;
+
+		queue_size = vnet->queue_size[2];
+
+		desc = mapmem_as (vnet->as_dma, vnet->desc[2],
+				  sizeof *desc * queue_size, MAPMEM_WRITE);
+		avail = mapmem_as (vnet->as_dma, vnet->avail[2],
+				   AVAIL_MAP_SIZE (queue_size), MAPMEM_WRITE);
+		used = mapmem_as (vnet->as_dma, vnet->used[2],
+				  USED_MAP_SIZE (queue_size), MAPMEM_WRITE);
+
+		do_net_ctrl (vnet, desc, avail, used);
+
+		unmapmem (used, USED_MAP_SIZE (queue_size));
+		unmapmem (avail, AVAIL_MAP_SIZE (queue_size));
+		unmapmem (desc, sizeof *desc * queue_size);
+	} else {
+		p = mapmem_as (vnet->as_dma, (u64)vnet->queue[2] << 12,
+			       sizeof *p, MAPMEM_WRITE);
+
+		do_net_ctrl (vnet, p->desc, &p->avail, &p->used);
 
 		unmapmem (p, sizeof *p);
 	}
@@ -735,7 +1056,7 @@ ccfg_num_queues (struct virtio_net *vnet, bool wr, union mem *data,
 		 const void *extra_info)
 {
 	if (!wr)
-		data->word = 2;
+		data->word = VIRTIO_N_QUEUES;
 }
 
 static void
@@ -744,23 +1065,19 @@ eval_status (struct virtio_net *vnet, bool v1, u8 new_status)
 	if (new_status == 0x0) {
 		printf ("virtio_net: reset\n");
 		vnet->intr_disable (vnet->intr_param);
-		vnet->ready = false;
-		vnet->v1 = false;
-		vnet->v1_legacy = false;
-		vnet->dev_status = 0;
-		vnet->queue_size[0] = VIRTIO_NET_QUEUE_SIZE;
-		vnet->queue_size[1] = VIRTIO_NET_QUEUE_SIZE;
-		vnet->queue_enable[0] = false;
-		vnet->queue_enable[1] = false;
-		vnet->driver_feature = 0;
-		vnet->device_feature_select = 0;
-		vnet->driver_feature_select = 0;
+		virtio_net_reset_dev (vnet);
 		return;
 	}
 	if (new_status & VIRTIO_STATUS_FEATURES_OK) {
 		if (v1 && (vnet->driver_feature & ~vnet->device_feature)) {
 			printf ("virtio_net: unsupport features found %llX\n",
 				vnet->driver_feature);
+			return;
+		}
+		if (vnet->driver_feature & VIRTIO_NET_F_CTRL_RX &&
+		    !(vnet->driver_feature & VIRTIO_NET_F_CTRL_VQ)) {
+			printf ("virtio_net: VIRTIO_NET_F_CTRL_RX requires "
+				"VIRTIO_NET_F_CTRL_VQ\n");
 			return;
 		}
 	}
@@ -830,7 +1147,7 @@ ccfg_queue_size (struct virtio_net *vnet, bool wr, union mem *data,
 		 const void *extra_info)
 {
 	u16 n = vnet->selected_queue;
-	if (n > 1)
+	if (n >= VIRTIO_N_QUEUES)
 		return;
 	if (wr) {
 		vnet->queue_size[n] = data->word;
@@ -847,7 +1164,7 @@ ccfg_queue_msix_vector (struct virtio_net *vnet, bool wr, union mem *data,
 			const void *extra_info)
 {
 	u16 n = vnet->selected_queue;
-	if (n > 1)
+	if (n >= VIRTIO_N_QUEUES)
 		return;
 	spinlock_lock (&vnet->msix_lock);
 	if (wr) {
@@ -865,7 +1182,7 @@ ccfg_queue_enable (struct virtio_net *vnet, bool wr, union mem *data,
 		   const void *extra_info)
 {
 	u16 n = vnet->selected_queue;
-	if (n > 1)
+	if (n >= VIRTIO_N_QUEUES)
 		return;
 	if (wr)
 		vnet->queue_enable[n] = data->word;
@@ -886,7 +1203,7 @@ ccfg_queue_legacy (struct virtio_net *vnet, bool wr, union mem *data,
 		   const void *extra_info)
 {
 	u16 n = vnet->selected_queue;
-	if (n < 2) {
+	if (n < VIRTIO_N_QUEUES) {
 		if (wr)
 			vnet->queue[n] = data->dword;
 		else
@@ -908,7 +1225,7 @@ ccfg_queue_desc (struct virtio_net *vnet, bool wr, union mem *data,
 		 const void *extra_info)
 {
 	u16 n = vnet->selected_queue;
-	if (n < 2)
+	if (n < VIRTIO_N_QUEUES)
 		do_queue_access (vnet, wr, data, &vnet->desc[n]);
 }
 
@@ -917,7 +1234,7 @@ ccfg_queue_driver (struct virtio_net *vnet, bool wr, union mem *data,
 		   const void *extra_info)
 {
 	u16 n = vnet->selected_queue;
-	if (n < 2)
+	if (n < VIRTIO_N_QUEUES)
 		do_queue_access (vnet, wr, data, &vnet->avail[n]);
 }
 
@@ -926,7 +1243,7 @@ ccfg_queue_device (struct virtio_net *vnet, bool wr, union mem *data,
 		   const void *extra_info)
 {
 	u16 n = vnet->selected_queue;
-	if (n < 2)
+	if (n < VIRTIO_N_QUEUES)
 		do_queue_access (vnet, wr, data, &vnet->used[n]);
 }
 
@@ -934,8 +1251,12 @@ static void
 queue_notify (struct virtio_net *vnet, bool wr, union mem *data,
 	      const void *extra_info)
 {
-	if (wr && data->word == 1)
-		virtio_net_recv (vnet);
+	if (wr) {
+		if (data->word == 1)
+			virtio_net_recv (vnet);
+		else if (data->word == 2)
+			virtio_net_ctrl (vnet);
+	}
 }
 
 static void
@@ -1516,6 +1837,7 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		.set_recv_callback = virtio_net_set_recv_callback,
 	};
 	struct virtio_net *vnet;
+	uint i;
 
 	vnet = alloc (sizeof *vnet);
 	vnet->prev_port = 0;
@@ -1523,26 +1845,12 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->cmd = 0x7;       /* Interrupts should not be masked here
 				  because apparently OS X does not
 				  unmask interrupts. */
-	vnet->queue[0] = 0;
-	vnet->queue[1] = 0;
-	vnet->desc[0] = 0;
-	vnet->desc[1] = 0;
-	vnet->avail[0] = 0;
-	vnet->avail[1] = 0;
-	vnet->used[0] = 0;
-	vnet->used[1] = 0;
 	vnet->mmio_base = 0xFFFFF000;
 	vnet->mmio_len = 0x1000;
 	vnet->device_feature = VIRTIO_NET_DEVICE_FEATURES;
-	vnet->driver_feature = 0;
-	vnet->device_feature_select = 0;
-	vnet->driver_feature_select = 0;
 	vnet->mmio_handle = NULL;
 	vnet->mmio_change = NULL;
 	vnet->mmio_base_emul = false;
-	vnet->v1 = false;
-	vnet->v1_legacy = false;
-	vnet->ready = false;
 	vnet->macaddr = macaddr;
 	vnet->dev = NULL;
 	/*
@@ -1559,18 +1867,10 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->intr_enable = intr_enable;
 	vnet->intr_param = intr_param;
 	vnet->last_time = 0;
-	vnet->dev_status = 0;
-	vnet->selected_queue = 0;
-	vnet->queue_size[0] = VIRTIO_NET_QUEUE_SIZE;
-	vnet->queue_size[1] = VIRTIO_NET_QUEUE_SIZE;
-	vnet->queue_enable[0] = 0;
-	vnet->queue_enable[1] = 0;
 	vnet->multifunction = 0;
 	vnet->intr = false;
 	vnet->msix = false;
 	vnet->msix_cfgvec = 0xFFFF;
-	vnet->msix_quevec[0] = 0xFFFF;
-	vnet->msix_quevec[1] = 0xFFFF;
 	vnet->msix_enabled = false;
 	vnet->msix_mask = false;
 	memset (&vnet->ext_caps, 0, sizeof vnet->ext_caps);
@@ -1579,10 +1879,12 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->pcie_cap = false;
 	memset (&vnet->pci_cfg, 0, sizeof vnet->pci_cfg);
 	memset (&vnet->msix_table_entry, 0, sizeof vnet->msix_table_entry);
-	vnet->msix_table_entry[0].mask = 1;
-	vnet->msix_table_entry[1].mask = 1;
-	vnet->msix_table_entry[2].mask = 1;
 	spinlock_init (&vnet->msix_lock);
+	for (i = 0; i < VIRTIO_N_QUEUES; i++) {
+		vnet->msix_quevec[i] = 0xFFFF;
+		vnet->msix_table_entry[i].mask = 1;
+	}
+	virtio_net_reset_dev (vnet);
 	*func = &virtio_net_func;
 	initialize_vnet_pci_data (vnet);
 	return vnet;

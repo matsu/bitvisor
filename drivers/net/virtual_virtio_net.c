@@ -53,7 +53,7 @@ struct data {
 	void *virtio_net;
 	u8 macaddr[6];
 	const struct mm_as *as_dma;
-	int msix_qvec[2];
+	int msix_qvec[3];
 	struct msix_table *msix_tbl;
 };
 
@@ -126,7 +126,7 @@ virtual_virtio_net_msix_vector_change (void *param, unsigned int queue,
 {
 	struct data *d = param;
 
-	if (queue < 2)
+	if (queue < 3)
 		d->msix_qvec[queue] = vector;
 }
 
@@ -136,7 +136,7 @@ virtual_virtio_net_msix_generate (void *param, unsigned int queue)
 	struct data *d = param;
 	struct msix_table m = { 0, 0, 0, 1 };
 
-	if (queue < 2)
+	if (queue < 3)
 		m = d->msix_tbl[d->msix_qvec[queue]];
 	if (!(m.mask & 1))
 		pci_msi_to_ipi (d->as_dma, m.addr, m.upper, m.data);
@@ -178,6 +178,7 @@ virtual_virtio_net_new (struct pci_virtual_device *dev)
 		d->as_dma = dev->as_dma;
 		d->msix_qvec[0] = -1;
 		d->msix_qvec[1] = -1;
+		d->msix_qvec[2] = -1;
 		/* BAR5 for MSI-X tables. */
 		d->msix_tbl = virtio_net_set_msix
 			(d->virtio_net,
