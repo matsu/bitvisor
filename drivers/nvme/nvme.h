@@ -376,8 +376,7 @@ struct nvme_queue_info {
 
 	int paired_comp_queue_id; /* Only for submission queue */
 
-	union {
-		u16 value;
+	struct {
 		u16 tail;
 		u16 head;
 	} new_pos, cur_pos;

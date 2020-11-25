@@ -953,9 +953,9 @@ intercept_db_read (struct nvme_host *host, uint idx, void *buf, uint len)
 	if (idx != 0 && !host->io_ready)
 		val = 0;
 	else if (!(idx & 0x1))
-		val = g_queue->subm_queue_info[queue_id]->new_pos.value;
+		val = g_queue->subm_queue_info[queue_id]->new_pos.tail;
 	else
-		val = g_queue->comp_queue_info[queue_id]->new_pos.value;
+		val = g_queue->comp_queue_info[queue_id]->new_pos.head;
 
 	memcpy (buf, &val, len);
 }

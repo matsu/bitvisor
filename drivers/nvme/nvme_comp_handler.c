@@ -279,8 +279,12 @@ process_comp_queue (struct nvme_host *host,
 		    struct nvme_queue_info *h_comp_queue_info,
 		    struct nvme_queue_info *g_comp_queue_info)
 {
+	struct nvme_queue_info *h_subm_queue_info;
 	struct nvme_request_hub *hub;
-	hub = host->h_queue.request_hub[comp_queue_id];
+	struct nvme_queue *h_queue;
+
+	h_queue = &host->h_queue;
+	hub = h_queue->request_hub[comp_queue_id];
 
 	u16 h_cur_head = h_comp_queue_info->cur_pos.head;
 	u16 g_cur_head = g_comp_queue_info->cur_pos.head;
@@ -322,6 +326,7 @@ process_comp_queue (struct nvme_host *host,
 			h_cur_head = 0;
 		}
 
+		spinlock_lock (&hub->lock);
 		if (!req->is_h_req) {
 			struct nvme_comp comp = *h_comp;
 			comp.cmd_id = req->orig_cmd_id;
@@ -351,17 +356,16 @@ process_comp_queue (struct nvme_host *host,
 				g_cur_head = 0;
 			}
 
-			spinlock_lock (&hub->lock);
 			g_comp_queue_info->cur_pos.head = g_cur_head;
 			h_comp_queue_info->cur_pos.head = h_cur_head;
-			spinlock_unlock (&hub->lock);
 		} else {
-			spinlock_lock (&hub->lock);
 			nvme_write_comp_db (host, comp_queue_id, h_cur_head);
 			hub->n_not_ack_h_reqs--;
 			h_comp_queue_info->cur_pos.head = h_cur_head;
-			spinlock_unlock (&hub->lock);
 		}
+		h_subm_queue_info = h_queue->subm_queue_info[subm_queue_id];
+		h_subm_queue_info->cur_pos.head = h_comp->queue_head;
+		spinlock_unlock (&hub->lock);
 
 		nvme_free_request (hub, req);
 	}

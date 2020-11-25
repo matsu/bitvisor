@@ -525,6 +525,7 @@ nvme_submit_queuing_requests (struct nvme_host *host, u16 subm_queue_id)
 	spinlock_lock (&hub->lock);
 
 	u16 h_cur_tail = h_subm_queue_info->cur_pos.tail;
+	u16 h_cur_head = h_subm_queue_info->cur_pos.head;
 
 	uint count = 0;
 
@@ -547,9 +548,12 @@ nvme_submit_queuing_requests (struct nvme_host *host, u16 subm_queue_id)
 
 	/*
 	 * Use n_entries - 1 because it is possible that the tail value wraps
-	 * and some controllers might stop generating interrupts.
+	 * and some controllers might stop generating interrupts. In addition,
+	 * also check h_cur_tail against the last known h_cur_head to avoid
+	 * unexpected command overwrite.
 	 */
-	while (subm_slot->n_slots_used < n_entries - 1) {
+	while (subm_slot->n_slots_used < n_entries - 1 &&
+	       (h_cur_tail + 1) % n_entries != h_cur_head) {
 		struct nvme_request *req;
 		req = nvme_dequeue_request (subm_slot, dequeue_host_req);
 
