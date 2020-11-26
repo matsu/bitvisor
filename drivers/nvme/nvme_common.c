@@ -40,25 +40,62 @@
 #include "nvme_io.h"
 
 static void
-nvme_write_subm_db (struct nvme_host *host, u16 queue_id, u64 value)
+nvme_write_subm_db (struct nvme_host *host, u16 queue_id, u32 value)
 {
 	u32 db_nbytes = sizeof (u32) << host->db_stride;
 	u8 *db_reg_base = NVME_DB_REG (host->regs);
 
 	memcpy (db_reg_base + ((2 * queue_id) * db_nbytes),
-		&value,
-		sizeof (u32));
+		&value, sizeof value);
 }
 
-void
-nvme_write_comp_db (struct nvme_host *host, u16 queue_id, u64 value)
+static void
+nvme_write_comp_db (struct nvme_host *host, u16 queue_id, u32 value)
 {
 	u32 db_nbytes = sizeof (u32) << host->db_stride;
 	u8 *db_reg_base = NVME_DB_REG (host->regs);
 
 	memcpy (db_reg_base + ((2 * queue_id + 1) * db_nbytes),
-		&value,
-		sizeof (u32));
+		&value, sizeof value);
+}
+
+void
+nvme_update_comp_db (struct nvme_host *host, u16 comp_queue_id)
+{
+	struct nvme_queue_info *h_comp_queue_info, *g_comp_queue_info;
+	uint h_n_entries, g_n_entries, diff, val;
+	u16 h_cur_head, g_cur_head, g_new_head;
+
+	h_comp_queue_info = host->h_queue.comp_queue_info[comp_queue_id];
+	g_comp_queue_info = host->g_queue.comp_queue_info[comp_queue_id];
+
+	h_cur_head = h_comp_queue_info->cur_pos.head;
+	g_cur_head = g_comp_queue_info->cur_pos.head;
+
+	/*
+	 * BitVisor does not write a completion doorbell on behalf of
+	 * the guest to let interrupts go to the guest. Note that cur_pos.head
+	 * is the index pointing to the completion entry the host is going
+	 * to process next. It is updated during completion handling.
+	 * The guest writes to this doorbell with its index it is going to
+	 * process next. It is possible that the guest does not acknowledge
+	 * all completion entries it receives. That is why we have calculate
+	 * the difference between our g_cur_head and guest's new_head.
+	 * We then write the doorbell with the correct value.
+	 */
+	h_n_entries = h_comp_queue_info->n_entries;
+	g_n_entries = g_comp_queue_info->n_entries;
+	g_new_head = g_comp_queue_info->new_pos.head;
+	diff = ((g_cur_head + g_n_entries) - g_new_head) % g_n_entries;
+	val = ((h_cur_head + h_n_entries) - diff) % h_n_entries;
+
+	if (h_comp_queue_info->last_write != val) {
+		nvme_write_comp_db (host, comp_queue_id, val);
+		h_comp_queue_info->last_write = val;
+	} else {
+		printf ("Write doorbell value %u is as same as the previous "
+			"write on Completion Queue %u\n", val, comp_queue_id);
+	}
 }
 
 #define CNS_NS_DATA	    (0x0)

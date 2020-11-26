@@ -759,9 +759,7 @@ update_comp_db (struct nvme_host *host, u16 comp_queue_id, u16 new_head)
 
 	spinlock_lock (&req_hub->lock);
 
-	struct nvme_queue_info *g_comp_queue_info, *h_comp_queue_info;
-
-	h_comp_queue_info = host->h_queue.comp_queue_info[comp_queue_id];
+	struct nvme_queue_info *g_comp_queue_info;
 
 	g_comp_queue_info = host->g_queue.comp_queue_info[comp_queue_id];
 
@@ -779,6 +777,10 @@ update_comp_db (struct nvme_host *host, u16 comp_queue_id, u16 new_head)
 	 */
 	if (n_ack_reqs == 0 ||
 	    req_hub->n_not_ack_g_reqs < n_ack_reqs) {
+		struct nvme_queue *h_queue;
+		struct nvme_queue_info *h_comp_queue_info;
+		h_queue = &host->h_queue;
+		h_comp_queue_info = h_queue->comp_queue_info[comp_queue_id];
 		printf ("comp queue id: %u\n", comp_queue_id);
 		printf ("new_head: %u\n", new_head);
 		printf ("old_head: %u\n", old_head);
@@ -796,28 +798,7 @@ update_comp_db (struct nvme_host *host, u16 comp_queue_id, u16 new_head)
 	req_hub->n_not_ack_g_reqs -= n_ack_reqs;
 	g_comp_queue_info->new_pos.head = new_head;
 
-	/*
-	 * BitVisor does not write a completion doorbell on behalf of
-	 * the guest to let interrupts go to the guest. Note that cur_pos.head
-	 * is the index pointing to the completion entry the host is going
-	 * to process next. It is updated during completion handling.
-	 * The guest writes to this doorbell with its index it is going to
-	 * process next. It is possible that the guest does not acknowledge
-	 * all completion entris it receives. That is why we have calculate
-	 * the difference between our g_cur_head and guest's new_head.
-	 * We then write the doorbell with the correct value.
-	 */
-
-	u16 h_cur_head = h_comp_queue_info->cur_pos.head;
-	u16 g_cur_head = g_comp_queue_info->cur_pos.head;
-
-	uint h_n_entries = h_comp_queue_info->n_entries;
-
-	uint diff = ((g_cur_head + g_n_entries) - new_head) % g_n_entries;
-
-	u64 val = ((h_cur_head + h_n_entries) - diff) % h_n_entries;
-
-	nvme_write_comp_db (host, comp_queue_id, val);
+	nvme_update_comp_db (host, comp_queue_id);
 end:
 	spinlock_unlock (&req_hub->lock);
 }

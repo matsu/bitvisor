@@ -381,6 +381,7 @@ struct nvme_queue_info {
 		u16 tail;
 		u16 head;
 	} new_pos, cur_pos;
+	u16 last_write;
 
 	u8 phase; /* Only for completion queue */
 	u8 lock;
@@ -535,7 +536,7 @@ void nvme_process_all_comp_queues (struct nvme_host *host);
 int nvme_completion_handler (void *data, int num);
 bool nvme_completion_handler_msi (struct pci_device *pci, void *data);
 
-void nvme_write_comp_db (struct nvme_host *host, u16 queue_id, u64 value);
+void nvme_update_comp_db (struct nvme_host *host, u16 comp_queue_id);
 
 void nvme_get_drive_info (struct nvme_host *host);
 

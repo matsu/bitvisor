@@ -375,9 +375,9 @@ process_comp_queue (struct nvme_host *host,
 			g_comp_queue_info->cur_pos.head = g_cur_head;
 			h_comp_queue_info->cur_pos.head = h_cur_head;
 		} else {
-			nvme_write_comp_db (host, comp_queue_id, h_cur_head);
 			hub->n_not_ack_h_reqs--;
 			h_comp_queue_info->cur_pos.head = h_cur_head;
+			nvme_update_comp_db (host, comp_queue_id);
 		}
 		h_subm_queue_info = h_queue->subm_queue_info[subm_queue_id];
 		h_subm_queue_info->cur_pos.head = h_comp->queue_head;
