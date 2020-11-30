@@ -63,10 +63,15 @@ handle_delete_queue (struct nvme_host *host, struct nvme_request *req)
 
 	host->io_ready = 0;
 
-	if (type == NVME_ADMIN_OPCODE_DELETE_SUBM_QUEUE)
-		nvme_free_subm_queue_info (host, queue_id);
-	else
-		nvme_free_comp_queue_info (host, queue_id);
+	if (type == NVME_ADMIN_OPCODE_DELETE_SUBM_QUEUE) {
+		nvme_lock_subm_queue (host, queue_id);
+		host->g_queue.subm_queue_info[queue_id]->disabled = true;
+		nvme_unlock_subm_queue (host, queue_id);
+	} else {
+		nvme_lock_comp_queue (host, queue_id);
+		host->g_queue.comp_queue_info[queue_id]->disabled = true;
+		nvme_unlock_comp_queue (host, queue_id);
+	}
 }
 
 static void
@@ -140,6 +145,8 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 	struct nvme_queue *g_queue = &host->g_queue;
 
 	if (type == NVME_ADMIN_OPCODE_CREATE_SUBM_QUEUE) {
+		nvme_free_subm_queue_info (host, queue_id);
+
 		ASSERT (!h_queue->subm_queue_info[queue_id]);
 		ASSERT (!g_queue->subm_queue_info[queue_id]);
 
@@ -176,6 +183,8 @@ handle_create_queue (struct nvme_host *host, struct nvme_request *req)
 		h_queue->subm_queue_info[queue_id] = h_subm_queue_info;
 		g_queue->subm_queue_info[queue_id] = g_subm_queue_info;
 	} else {
+		nvme_free_comp_queue_info (host, queue_id);
+
 		ASSERT (!h_queue->comp_queue_info[queue_id]);
 		ASSERT (!g_queue->comp_queue_info[queue_id]);
 
@@ -660,6 +669,9 @@ uint
 nvme_try_process_requests (struct nvme_host *host, u16 subm_queue_id)
 {
 	uint fetched = 0;
+
+	if (host->g_queue.subm_queue_info[subm_queue_id]->disabled)
+		goto end;
 	if (!host->pause_fetching_g_reqs) {
 		try_fetch_req_lock (host);
 		fetched = fetch_requests_from_guest (host, subm_queue_id);
@@ -667,5 +679,6 @@ nvme_try_process_requests (struct nvme_host *host, u16 subm_queue_id)
 	}
 
 	nvme_submit_queuing_requests (host, subm_queue_id);
+end:
 	return fetched;
 }

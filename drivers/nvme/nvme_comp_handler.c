@@ -344,6 +344,16 @@ process_comp_queue (struct nvme_host *host,
 
 		spinlock_lock (&hub->lock);
 		if (!req->is_h_req) {
+			/*
+			 * If we happen to find guest completions after the
+			 * guest queue is disabled, update only host head
+			 * position and write the doorbell for them.
+			 */
+			if (g_comp_queue_info->disabled) {
+				h_comp_queue_info->cur_pos.head = h_cur_head;
+				nvme_update_comp_db (host, comp_queue_id);
+				goto update_sq_head;
+			}
 			struct nvme_comp comp = *h_comp;
 			comp.cmd_id = req->orig_cmd_id;
 			comp.status &= ~0x1;
@@ -379,6 +389,7 @@ process_comp_queue (struct nvme_host *host,
 			h_comp_queue_info->cur_pos.head = h_cur_head;
 			nvme_update_comp_db (host, comp_queue_id);
 		}
+	update_sq_head:
 		h_subm_queue_info = h_queue->subm_queue_info[subm_queue_id];
 		h_subm_queue_info->cur_pos.head = h_comp->queue_head;
 		spinlock_unlock (&hub->lock);
@@ -400,24 +411,6 @@ process_comp_queue (struct nvme_host *host,
 		cpu_sfence ();
 		first_g_comp->status = first_h_comp.status;
 	}
-}
-
-static void
-nvme_lock_comp_queue (struct nvme_host *host, u16 comp_queue_id)
-{
-	struct nvme_queue_info *queue_info;
-	queue_info = host->h_queue.comp_queue_info[comp_queue_id];
-
-	spinlock_lock (&queue_info->lock);
-}
-
-static void
-nvme_unlock_comp_queue (struct nvme_host *host, u16 comp_queue_id)
-{
-	struct nvme_queue_info *queue_info;
-	queue_info = host->h_queue.comp_queue_info[comp_queue_id];
-
-	spinlock_unlock (&queue_info->lock);
 }
 
 void

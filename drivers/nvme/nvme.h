@@ -385,6 +385,7 @@ struct nvme_queue_info {
 
 	u8 phase; /* Only for completion queue */
 	u8 lock;
+	bool disabled;
 };
 #define NVME_QUEUE_INFO_NBYTES (sizeof (struct nvme_queue_info))
 
@@ -583,5 +584,9 @@ void nvme_free_comp_queue_info (struct nvme_host *host, u16 queue_id);
 void nvme_lock_subm_queue (struct nvme_host *host, u16 queue_id);
 
 void nvme_unlock_subm_queue (struct nvme_host *host, u16 queue_id);
+
+void nvme_lock_comp_queue (struct nvme_host *host, u16 comp_queue_id);
+
+void nvme_unlock_comp_queue (struct nvme_host *host, u16 comp_queue_id);
 
 #endif /* _NVME_H */

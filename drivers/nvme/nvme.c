@@ -291,10 +291,8 @@ init_admin_queue (struct nvme_host *host)
 }
 
 static void
-do_reset_controller (struct nvme_host *host)
+reset_queues (struct nvme_host *host)
 {
-	printf ("Controller reset occurs\n");
-
 	uint max_n_subm_queues = host->h_queue.max_n_subm_queues;
 	uint max_n_comp_queues = host->h_queue.max_n_comp_queues;
 
@@ -314,23 +312,18 @@ do_reset_controller (struct nvme_host *host)
 	g_queue->max_n_subm_queues = 0;
 	g_queue->max_n_comp_queues = 0;
 
-	host->g_admin_subm_queue_addr = 0x0;
-	host->g_admin_comp_queue_addr = 0x0;
-	host->g_admin_subm_n_entries = 0;
-	host->g_admin_comp_n_entries = 0;
-
 	if (host->ns_metas) {
 		free (host->ns_metas);
 		host->ns_metas = NULL;
 	}
 
 	host->n_ns = 0;
-	host->g_cmd_size_check = 0;
 }
 
 static void
 reset_controller (struct nvme_host *host)
 {
+	printf ("Controller reset occurs\n");
 	host->io_ready = 0;
 	wait_for_interceptor (host);
 	spinlock_lock (&host->lock);
@@ -342,7 +335,11 @@ reset_controller (struct nvme_host *host)
 		schedule ();
 		spinlock_lock (&host->lock);
 	}
-	do_reset_controller (host);
+	host->g_admin_subm_queue_addr = 0x0;
+	host->g_admin_comp_queue_addr = 0x0;
+	host->g_admin_subm_n_entries = 0;
+	host->g_admin_comp_n_entries = 0;
+	host->g_cmd_size_check = 0;
 	spinlock_unlock (&host->lock);
 }
 
@@ -471,6 +468,7 @@ end:
 		dprintf (NVME_ETC_DEBUG, "NVMe has been disabled\n");
 	} else if (!host->enable && NVME_CC_GET_ENABLE (value)) {
 		spinlock_lock (&host->lock);
+		reset_queues (host);
 		find_interrupt_mode (host);
 		init_admin_queue (host);
 		host->enable = 1;

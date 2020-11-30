@@ -804,8 +804,7 @@ free_queue_info (struct nvme_queue_info *h_queue_info,
 }
 
 void
-nvme_free_subm_queue_info (struct nvme_host *host,
-			   u16 subm_queue_id)
+nvme_free_subm_queue_info (struct nvme_host *host, u16 subm_queue_id)
 {
 	remove_subm_slot (host, subm_queue_id);
 	free_queue_info (host->h_queue.subm_queue_info[subm_queue_id],
@@ -816,8 +815,7 @@ nvme_free_subm_queue_info (struct nvme_host *host,
 }
 
 void
-nvme_free_comp_queue_info (struct nvme_host *host,
-			   u16 comp_queue_id)
+nvme_free_comp_queue_info (struct nvme_host *host, u16 comp_queue_id)
 {
 	free_req_hub (host, comp_queue_id);
 	free_queue_info (host->h_queue.comp_queue_info[comp_queue_id],
@@ -841,6 +839,24 @@ nvme_unlock_subm_queue (struct nvme_host *host, u16 subm_queue_id)
 {
 	struct nvme_queue_info *queue_info;
 	queue_info = host->h_queue.subm_queue_info[subm_queue_id];
+
+	spinlock_unlock (&queue_info->lock);
+}
+
+void
+nvme_lock_comp_queue (struct nvme_host *host, u16 comp_queue_id)
+{
+	struct nvme_queue_info *queue_info;
+	queue_info = host->h_queue.comp_queue_info[comp_queue_id];
+
+	spinlock_lock (&queue_info->lock);
+}
+
+void
+nvme_unlock_comp_queue (struct nvme_host *host, u16 comp_queue_id)
+{
+	struct nvme_queue_info *queue_info;
+	queue_info = host->h_queue.comp_queue_info[comp_queue_id];
 
 	spinlock_unlock (&queue_info->lock);
 }
