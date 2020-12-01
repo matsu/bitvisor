@@ -412,9 +412,8 @@ handle_data_management (struct nvme_host *host, struct nvme_request *req)
 
 	u32 type = g_io_cmd->cmd_flags[1];
 
-	if (!io_interceptor ||
-	    !io_interceptor->on_data_management ||
-	    type != TYPE_DEALLOC)
+	if (!io_interceptor || !io_interceptor->on_data_management ||
+	    !(type & TYPE_DEALLOC))
 		return;
 
 	void *interceptor = io_interceptor->interceptor;
