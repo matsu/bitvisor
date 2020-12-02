@@ -371,7 +371,7 @@ nvme_io_memset_g_buf (struct nvme_io_g_buf *g_buf,
 int
 nvme_io_host_ready (struct nvme_host *host)
 {
-	return host->io_ready;
+	return host->io_ready && host->enable;
 }
 
 struct pci_device *
@@ -720,10 +720,10 @@ nvme_io_rw_request (struct nvme_host *host,
 		    nvme_io_req_callback_t callback,
 		    void *arg)
 {
-	if (!nvme_io_host_ready (host) ||
-	    !io_desc ||
-	    io_desc->buf_phys1 == 0x0)
-		return 0;
+	int ret = 0;
+	rw_spinlock_lock_sh (&host->enable_lock);
+	if (!nvme_io_host_ready (host) || !io_desc || !io_desc->buf_phys1)
+		goto end;
 
 	struct nvme_request *req;
 	req = alloc_host_base_request (callback,
@@ -752,8 +752,10 @@ nvme_io_rw_request (struct nvme_host *host,
 	nvme_submit_queuing_requests (host, subm_queue_id);
 
 	free (io_desc);
-
-	return 1;
+	ret = 1;
+end:
+	rw_spinlock_unlock_sh (&host->enable_lock);
+	return ret;
 }
 
 int
@@ -788,10 +790,12 @@ nvme_io_flush_request (struct nvme_host *host,
 		       nvme_io_req_callback_t callback,
 		       void *arg)
 {
+	int ret = 0;
+	rw_spinlock_lock_sh (&host->enable_lock);
 	if (!host ||
 	    !nvme_io_host_ready (host) ||
 	    nsid == 0)
-		return 0;
+		goto end;
 
 	struct nvme_request *req;
 	req = alloc_host_base_request (callback,
@@ -805,8 +809,10 @@ nvme_io_flush_request (struct nvme_host *host,
 
 	nvme_register_request (host, req, 1);
 	nvme_submit_queuing_requests (host, 1);
-
-	return 1;
+	ret = 1;
+end:
+	rw_spinlock_unlock_sh (&host->enable_lock);
+	return ret;
 }
 
 int
@@ -817,9 +823,10 @@ nvme_io_identify (struct nvme_host *host,
 		  nvme_io_req_callback_t callback,
 		  void *arg)
 {
-	if (!host ||
-	    pagebuf == 0x0)
-		return 0;
+	int ret = 0;
+	rw_spinlock_lock_sh (&host->enable_lock);
+	if (!host || !host->enable || !pagebuf)
+		goto end;
 
 	struct nvme_request *req;
 	req = alloc_host_base_request (callback,
@@ -837,8 +844,10 @@ nvme_io_identify (struct nvme_host *host,
 
 	nvme_register_request (host, req, 0);
 	nvme_submit_queuing_requests (host, 0);
-
-	return 1;
+	ret = 1;
+end:
+	rw_spinlock_unlock_sh (&host->enable_lock);
+	return ret;
 }
 
 int
@@ -846,8 +855,10 @@ nvme_io_get_n_queues (struct nvme_host *host,
 		      nvme_io_req_callback_t callback,
 		      void *arg)
 {
-	if (!host)
-		return 0;
+	int ret = 0;
+	rw_spinlock_lock_sh (&host->enable_lock);
+	if (!host || !host->enable)
+		goto end;
 
 	struct nvme_request *req;
 	req = alloc_host_base_request (callback,
@@ -868,8 +879,10 @@ nvme_io_get_n_queues (struct nvme_host *host,
 
 	nvme_register_request (host, req, 0);
 	nvme_submit_queuing_requests (host, 0);
-
-	return 1;
+	ret = 1;
+end:
+	rw_spinlock_unlock_sh (&host->enable_lock);
+	return ret;
 }
 
 /* ----- End I/O related functions ----- */

@@ -416,9 +416,11 @@ process_comp_queue (struct nvme_host *host,
 void
 nvme_process_all_comp_queues (struct nvme_host *host)
 {
+	rw_spinlock_lock_sh (&host->enable_lock);
 	spinlock_lock (&host->lock);
 	if (!host->enable) {
 		spinlock_unlock (&host->lock);
+		rw_spinlock_unlock_sh (&host->enable_lock);
 		return;
 	}
 	host->handling_comp++;
@@ -485,6 +487,7 @@ nvme_process_all_comp_queues (struct nvme_host *host)
 		nvme_try_process_requests (host, 0);
 	spinlock_unlock (&host->lock);
 	nvme_unlock_subm_queue (host, 0);
+	rw_spinlock_unlock_sh (&host->enable_lock);
 }
 
 static bool

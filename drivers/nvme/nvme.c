@@ -324,6 +324,8 @@ static void
 reset_controller (struct nvme_host *host)
 {
 	printf ("Controller reset occurs\n");
+	rw_spinlock_unlock_sh (&host->enable_lock);
+	rw_spinlock_lock_ex (&host->enable_lock);
 	host->io_ready = 0;
 	wait_for_interceptor (host);
 	spinlock_lock (&host->lock);
@@ -341,6 +343,8 @@ reset_controller (struct nvme_host *host)
 	host->g_admin_comp_n_entries = 0;
 	host->g_cmd_size_check = 0;
 	spinlock_unlock (&host->lock);
+	rw_spinlock_unlock_ex (&host->enable_lock);
+	rw_spinlock_lock_sh (&host->enable_lock);
 }
 
 static int
@@ -1063,9 +1067,11 @@ nvme_reg_handler (void *data,
 	struct nvme_regs *nvme_regs = host->regs;
 
 	u32 db_nbytes = sizeof (u32) << host->db_stride;
+	int ret = 1;
 
+	rw_spinlock_lock_sh (&host->enable_lock);
 	if (len != 4 && len != 8)
-		return 1;
+		goto end;
 
 	phys_t acc_start = gphys;
 	phys_t acc_end	 = acc_start + len;
@@ -1199,18 +1205,14 @@ nvme_reg_handler (void *data,
 		 * MSI/MSI-X registers located in BAR 0 at the offset beyond
 		 * all controller registers. We need to allow accessing them.
 		 */
-		return nvme_reg_msi_handler (data,
-					     gphys,
-					     wr,
-					     buf,
-					     len,
-					     flags);
+		ret = nvme_reg_msi_handler (data, gphys, wr, buf, len, flags);
 	} else {
 		if (!wr)
 			memset (buf, 0, len);
 	}
 end:
-	return 1;
+	rw_spinlock_unlock_sh (&host->enable_lock);
+	return ret;
 }
 
 static void
@@ -1501,6 +1503,7 @@ nvme_new (struct pci_device *pci_device)
 	spinlock_init (&host->lock);
 	spinlock_init (&host->fetch_req_lock);
 	spinlock_init (&host->intr_mask_lock);
+	rw_spinlock_init (&host->enable_lock);
 
 	set_quirks (host);
 

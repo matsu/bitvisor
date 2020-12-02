@@ -509,6 +509,7 @@ struct nvme_host {
 	spinlock_t lock;
 	spinlock_t fetch_req_lock;
 	spinlock_t intr_mask_lock;
+	rw_spinlock_t enable_lock;
 };
 #define NVME_HOST_NBYTES (sizeof (struct nvme_host))
 
