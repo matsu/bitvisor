@@ -36,6 +36,7 @@ static void
 do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 {
 	u32 tmpa, tmpb, tmpc, tmpd;
+	ulong cr4;
 
 	if (ia < CPUID_EXT_0)
 		asm_cpuid (0, 0, &tmpa, &tmpb, &tmpc, &tmpd);
@@ -48,6 +49,11 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		*oc &= ~(CPUID_1_ECX_SMX_BIT | CPUID_1_ECX_PCID_BIT);
 		if (current->cpuid.pcid)
 			*oc |= CPUID_1_ECX_PCID_BIT;
+		current->vmctl.read_control_reg (CONTROL_REG_CR4, &cr4);
+		if (cr4 & CR4_OSXSAVE_BIT)
+			*oc |= CPUID_1_ECX_OSXSAVE_BIT;
+		else
+			*oc &= ~CPUID_1_ECX_OSXSAVE_BIT;
 		/* *od &= ~CPUID_1_EDX_PAE_BIT; */
 		/* *od &= ~CPUID_1_EDX_APIC_BIT; */
 	} else if (tmpa >= 4 && ia == 4) {
@@ -58,6 +64,11 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		if (current->cpuid.invpcid)
 			*ob |= CPUID_7_EBX_INVPCID_BIT;
 		*ob |= CPUID_7_EBX_TSCADJUSTMSR_BIT;
+		current->vmctl.read_control_reg (CONTROL_REG_CR4, &cr4);
+		if (cr4 & CR4_PKE_BIT)
+			*oc |= CPUID_7_ECX_OSPKE_BIT;
+		else
+			*oc &= ~CPUID_7_ECX_OSPKE_BIT;
 	} else if (tmpa >= 0xD && ia == 0xD && ic == 0) {
 		/* Processor Extended State Enumeration Leaf */
 		/* see xsetbv_pass.c */
