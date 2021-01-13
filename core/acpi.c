@@ -1646,7 +1646,7 @@ drhd_mmio_register (void *data, void *entry)
 	vp.reg[*num].segment = q->segment_number;
 	vp.reg[*num].devlist = q->flags & 1 ? /* INCLUDE_PCI_ALL */
 		dmar_pass_create_devlist_all () :
-		dmar_pass_create_devlist (data + sizeof *q,
+		dmar_pass_create_devlist (entry + sizeof *q,
 					  q->header.length - sizeof *q);
 	spinlock_init (&vp.reg[*num].lock);
 	if (++*num == vp.drhd_num)
