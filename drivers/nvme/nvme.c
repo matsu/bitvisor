@@ -1248,7 +1248,7 @@ do_reghook (struct nvme_data *nvme_data,
 {
 	regs->iobase	 = bar->base;
 	regs->reg_map	 = mapmem_as (as_passvm, bar->base, bar->len,
-				      MAPMEM_WRITE);
+				      MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
 	regs->map_nbytes = bar->len;
 
 	if (!regs->reg_map)
