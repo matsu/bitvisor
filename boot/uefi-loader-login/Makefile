@@ -19,7 +19,7 @@ all : loadvmm.efi
 
 .PHONY : clean
 clean :
-	$(RM) loadvmm.efi
+	$(RM) loadvmm.efi bsdriver.efi
 
 loadvmm.efi : loadvmm.c pass_auth.c pass_auth.h randseed.c randseed.h \
  $(INC) ../uefi-loader/discon.h ../uefi-loader/bsdriver.h \

@@ -18,7 +18,7 @@ all : loadvmm.efi
 
 .PHONY : clean
 clean :
-	$(RM) loadvmm.efi
+	$(RM) loadvmm.efi bsdriver.efi
 
 loadvmm.efi : loadvmm.c $(INC) discon.h bsdriver.h bsdriver_load.h \
  acpi_table_mod.h bsdriver.efi
