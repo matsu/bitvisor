@@ -459,10 +459,12 @@ static void pci_find_devices()
 		if (fn == 0 && dev->config_space.multi_function == 0)
 			break;
 	    }
-	LIST_FOREACH (pci_device_list, dev) {
+	LIST_FOREACH (pci_device_list, dev)
 		dev->parent_bridge =
 			pci_get_bridge_from_bus_no (dev->address.bus_no);
+	LIST_FOREACH (pci_device_list, dev)
 		dev->as_dma = pci_init_as_dma (dev, dev, NULL);
+	LIST_FOREACH (pci_device_list, dev) {
 		driver = pci_find_driver_for_device (dev);
 		if (driver) {
 			dev->driver = driver;
