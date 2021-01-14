@@ -917,7 +917,7 @@ cache_init_pass (void)
 	if (currentcpu->cache.syscfg_exist)
 		current->cache.pass_mtrrfix = true;
 	for (i = 0; i < GMTRR_VCNT; i++)
-		set_gmtrr_range (MSR_IA32_MTRR_PHYSBASE0 + i * 2 + 1, 0);
+		set_gmtrr_range (MSR_IA32_MTRR_PHYSMASK0 + i * 2, 0);
 	vcnt = currentcpu->cache.mtrrcap & MSR_IA32_MTRRCAP_VCNT_MASK;
 	for (i = 0; i < vcnt; i++) {
 		if (set_gmtrr_range (MSR_IA32_MTRR_PHYSBASE0 + i * 2,
