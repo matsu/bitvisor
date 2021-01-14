@@ -1261,7 +1261,7 @@ dmar_lookup (struct dmar_drhd_reg_data *d, u64 address, u64 ptr,
 	u64 entry = d->cache.slpt[cache_index]->entry[address >> bit & 0777];
 	if (!(entry & 3)) /* ReadWrite = 0 */
 		return 0;
-	if (bit <= 30 && (entry & 0x80)) /* Page Size = 1 */
+	if (bit <= 30 && bit > 12 && (entry & 0x80)) /* Page Size = 1 */
 		return ((entry & mask) >> bit << bit) |
 			(address & ((1 << bit) - PAGESIZE)) | PTE_P_BIT |
 			PTE_US_BIT | PTE_RW_BIT;
