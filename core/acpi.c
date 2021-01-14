@@ -1192,7 +1192,7 @@ dmar_add_pci_device (u16 segment, u8 bus, u8 dev, u8 func, bool bridge)
 	struct dmar_rmrr *p;
 	struct dmar_device_scope_pci *q;
 
-	if (segment || bus)
+	if (segment)
 		return;
 	if (!vp.new_rmrr)
 		vp.new_rmrr = dmar_pass_create_rmrr (segment);
@@ -1201,6 +1201,10 @@ dmar_add_pci_device (u16 segment, u8 bus, u8 dev, u8 func, bool bridge)
 	/* Find insertion point to avoid overlap and sort entries. */
 	for (q = vp.new_rmrr + sizeof *p; q != vp.new_rmrr + p->header.length;
 	     q++) {
+		if (q->start_bus_number > bus)
+			break;
+		if (q->start_bus_number < bus)
+			continue;
 		if (q->pci_path[0].device_number > dev)
 			break;
 		if (q->pci_path[0].device_number == dev) {
@@ -1223,7 +1227,7 @@ dmar_add_pci_device (u16 segment, u8 bus, u8 dev, u8 func, bool bridge)
 	q->length = sizeof *q;
 	q->reserved = 0;
 	q->enumeration_id = 0;
-	q->start_bus_number = 0;
+	q->start_bus_number = bus;
 	q->pci_path[0].device_number = dev;
 	q->pci_path[0].function_number = func;
 	header->checksum -= acpi_checksum (header, header->length);
@@ -1403,14 +1407,13 @@ struct dmar_drhd_reg_data *
 acpi_dmar_add_pci_device (u16 segment, const struct acpi_pci_addr *addr,
 			  bool bridge)
 {
-	const struct acpi_pci_addr *a;
-
 	if (!vp.npages || !addr)
 		return NULL;
-	for (a = addr; a->next; a = a->next)
+	if (addr->next)
 		bridge = true;
-	if (vp.new_dmar && a->bus >= 0)
-		dmar_add_pci_device (segment, a->bus, a->dev, a->func, bridge);
+	if (vp.new_dmar && addr->bus >= 0)
+		dmar_add_pci_device (segment, addr->bus, addr->dev, addr->func,
+				     bridge);
 	return dmar_pass_find_reg (segment, addr);
 }
 
