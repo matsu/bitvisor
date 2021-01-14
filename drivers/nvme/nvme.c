@@ -1573,11 +1573,13 @@ nvme_config_read (struct pci_device *pci_device,
 	u32 msi_cap = host->msi_offset;
 	u32 msg_ctrl = msi_cap + 0x2;
 
-	if (msi_cap && offset <= msg_ctrl && offset + iosize > msg_ctrl) {
+	if (msi_cap) {
 		/* Conceal MMC and PVC */
-		(&data->byte)[msg_ctrl - offset] &= ~MSI_MMC_MASK;
-		if (iosize > 1)
-			(&data->byte)[msg_ctrl - offset + 1] &= ~MSI_PVC_MASK;
+		u8 *buf = &data->byte;
+		if (offset <= msg_ctrl && offset + iosize > msg_ctrl)
+			buf[msg_ctrl - offset] &= ~MSI_MMC_MASK;
+		if (offset <= msg_ctrl + 1 && offset + iosize > msg_ctrl + 1)
+			buf[msg_ctrl + 1 - offset] &= ~(MSI_PVC_MASK >> 8);
 	}
 
 	if (!host->ans2_wrapper)
