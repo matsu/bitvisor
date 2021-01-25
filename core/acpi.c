@@ -1537,6 +1537,17 @@ drhd_num_count (void *data, void *entry)
 	return false;
 }
 
+static void
+filter_data64 (u64 *data, u64 base, u64 off, uint len, u64 filter)
+{
+	if (off < base + 8 && off + len > base) {
+		if (off >= base)
+			*data &= ~(filter >> (off - base) * 8);
+		else
+			*data &= ~(filter << (base - off) * 8);
+	}
+}
+
 static int
 drhd_reghandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f)
 {
@@ -1551,22 +1562,24 @@ drhd_reghandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f)
 		spinlock_unlock (&d->lock);
 		return 1;
 	}
-	if (!wr && off < 0x18 && off + len > 0x10) { /* Extended
-						      * Capability
-						      * Register */
-		/* Conceal following capabilities for simplification:
-		 * Bit 40 = 8*5+0: Process Address Space ID Support
-		 * Bit 29 = 8*3+5: Page Request Support
-		 * Bit 24 = 8*3+0: Extended Context Support
-		 * Bit  2 = 8*0+2: Device-TLB support */
-		u8 *p = buf;
-		memcpy (p, (void *)d->reg + off, len);
-		if (off <= 0x15 && off + len > 0x15)
-			p[0x15 - off] &= ~(1 << 0);
-		if (off <= 0x13 && off + len > 0x13)
-			p[0x13 - off] &= ~(1 << 0 | 1 << 5);
-		if (off <= 0x10 && off + len > 0x10)
-			p[0x10 - off] &= ~(1 << 2);
+	/* For Capability Register and Extended Capability Register read */
+	if (!wr && off < 0x18 && off + len > 0x8) {
+		u64 tmp;
+		memcpy (&tmp, (void *)d->reg + off, len);
+		/*
+		 * For Capability Register, we conceal FLTS related
+		 * capabilities. We also conceal reserved bits and deprecated
+		 * bits for correctness.
+		 */
+		filter_data64 (&tmp, 0x8, off, len, 0x370000400080E000ULL);
+		/*
+		 * For Extended Capability Register, we conceal SMTS, PASID,
+		 * and Device-TLB related capabilities for simplification.
+		 * We also conceal reserved bits and deprecated bits for
+		 * correctness.
+		 */
+		filter_data64 (&tmp, 0x10, off, len, 0xFFFFFFFFFF0C0024ULL);
+		memcpy (buf, &tmp, len);
 		return 1;
 	}
 	return 0;
