@@ -252,7 +252,7 @@ struct drhd_devlist {
 	u8 bus;
 	u8 pathlen;
 	u8 path[];
-};
+} __attribute__ ((packed));
 
 struct dmar_drhd_reg_data {
 	void *mmio;
