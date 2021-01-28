@@ -30,6 +30,7 @@
 #include "initfunc.h"
 #include "mm.h"
 #include "msg.h"
+#include "printf.h"
 #include "spinlock.h"
 #include "string.h"
 
@@ -88,7 +89,7 @@ msg_register (char *name, int pid, int gen, int desc)
 	d = LIST1_POP (msg_data_free);
 	if (d == NULL)
 		d = alloc (sizeof *d);
-	memcpy (d->name, name, MSG_NAMELEN);
+	snprintf (d->name, sizeof d->name, "%s", name);
 	d->name[MSG_NAMELEN - 1] = '\0';
 	d->pid = pid;
 	d->gen = gen;

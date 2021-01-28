@@ -635,7 +635,7 @@ sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 		return (ulong)-1L;
 	if (process[currentcpu->pid].setlimit)
 		return (ulong)-1L;
-	memcpy (name, (void *)si, MSG_NAMELEN);
+	snprintf (name, sizeof name, "%s", (char *)si);
 	name[MSG_NAMELEN - 1] = '\0';
 	return _msgregister (currentcpu->pid, name, (void *)di);
 }
@@ -668,7 +668,7 @@ sys_msgopen (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 		return (ulong)-1L;
 	if (process[currentcpu->pid].setlimit)
 		return (ulong)-1L;
-	memcpy (name, (void *)si, MSG_NAMELEN);
+	snprintf (name, sizeof name, "%s", (char *)si);
 	name[MSG_NAMELEN - 1] = '\0';
 	return _msgopen (currentcpu->pid, name);
 }
@@ -832,7 +832,7 @@ sys_newprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 
 	if (process[currentcpu->pid].setlimit)
 		return (ulong)-1L;
-	memcpy (name, (void *)si, PROCESS_NAMELEN);
+	snprintf (name, sizeof name, "%s", (char *)si);
 	name[PROCESS_NAMELEN - 1] = '\0';
 	return (ulong)_newprocess (currentcpu->pid, name);
 }
