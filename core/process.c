@@ -245,6 +245,8 @@ _msgopen_2 (int pid, int mpid, int mgen, int mdesc)
 {
 	int i, r;
 
+	ASSERT (pid >= 0);
+	ASSERT (pid < NUM_OF_PID);
 	spinlock_lock (&process_lock);
 	for (i = 0; i < NUM_OF_MSGDSC; i++) {
 		if (process[pid].msgdsc[i].pid == 0 &&
@@ -567,6 +569,10 @@ _msgsetfunc (int pid, int desc, void *func)
 {
 	void *oldfunc;
 
+	ASSERT (pid >= 0);
+	ASSERT (pid < NUM_OF_PID);
+	ASSERT (desc >= 0);
+	ASSERT (desc < NUM_OF_MSGDSC);
 	spinlock_lock (&process_lock);
 	oldfunc = process[pid].msgdsc[desc].func;
 	process[pid].msgdsc[desc].func = func;
@@ -598,6 +604,8 @@ _msgregister (int pid, char *name, void *func)
 {
 	int r, i;
 
+	ASSERT (pid >= 0);
+	ASSERT (pid < NUM_OF_PID);
 	spinlock_lock (&process_lock);
 	for (i = 0; i < NUM_OF_MSGDSC; i++) {
 		if (!process[pid].msgdsc[i].func)
@@ -678,6 +686,8 @@ static int
 _msgclose (int pid, int desc)
 {
 	if (desc >= 0 && desc < NUM_OF_MSGDSC) {
+		ASSERT (pid >= 0);
+		ASSERT (pid < NUM_OF_PID);
 		spinlock_lock (&process_lock);
 		process[pid].msgdsc[desc].pid = 0;
 		process[pid].msgdsc[desc].gen = 0;
@@ -710,6 +720,10 @@ _msgsendint (int pid, int desc, int data)
 
 	d[0] = MSG_INT;
 	d[1] = data;
+	ASSERT (pid >= 0);
+	ASSERT (pid < NUM_OF_PID);
+	ASSERT (desc >= 0);
+	ASSERT (desc < NUM_OF_MSGDSC);
 	spinlock_lock (&process_lock);
 	mpid = process[pid].msgdsc[desc].pid;
 	mgen = process[pid].msgdsc[desc].gen;
@@ -729,6 +743,8 @@ msgsendint (int desc, int data)
 ulong
 sys_msgsendint (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
+	if (si >= NUM_OF_MSGDSC)
+		return (ulong)-1L;
 	return _msgsendint (currentcpu->pid, si, di);
 }
 
@@ -749,6 +765,8 @@ _msgsenddesc (int frompid, int todesc, int senddesc)
 	if (senddesc < 0 || senddesc >= NUM_OF_MSGDSC)
 		return -1;
 	if (todesc < 0 || todesc >= NUM_OF_MSGDSC)
+		return -1;
+	if (frompid < 0 || frompid >= NUM_OF_PID)
 		return -1;
 	spinlock_lock (&process_lock);
 	topid = process[frompid].msgdsc[todesc].pid;
@@ -844,6 +862,10 @@ _msgsendbuf (int pid, int desc, int data, struct msgbuf *buf, int bufcnt)
 	int mpid, mgen, mdesc;
 	long d[2];
 
+	ASSERT (pid >= 0);
+	ASSERT (pid < NUM_OF_PID);
+	ASSERT (desc >= 0);
+	ASSERT (desc < NUM_OF_MSGDSC);
 	d[0] = MSG_BUF;
 	d[1] = data;
 	spinlock_lock (&process_lock);
@@ -884,6 +906,8 @@ sys_msgsendbuf (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 	if (!is_range_valid ((ulong)arg.buf, sizeof *arg.buf * arg.bufcnt))
 		return (ulong)-1L;
 	if (arg.bufcnt > MAXNUM_OF_MSGBUF)
+		return (ulong)-1L;
+	if (si >= NUM_OF_MSGDSC)
 		return (ulong)-1L;
 	memcpy (buf, arg.buf, sizeof *arg.buf * arg.bufcnt);
 	for (i = 0; i < arg.bufcnt; i++) {
@@ -974,6 +998,8 @@ msgpremapbuf (int desc, struct msgbuf *buf)
 	int topid, togen;
 	void *base_user = NULL;
 
+	ASSERT (desc >= 0);
+	ASSERT (desc < NUM_OF_MSGDSC);
 	spinlock_lock (&process_lock);
 	topid = process[0].msgdsc[desc].pid;
 	togen = process[0].msgdsc[desc].gen;
