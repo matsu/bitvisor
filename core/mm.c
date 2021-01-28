@@ -2222,10 +2222,12 @@ as_translate_passvm (void *data, unsigned int *npages, u64 address)
 	u64 ret;
 	unsigned int max_npages;
 
-	if (phys_in_vmm (address))
+	if (phys_in_vmm (address)) {
 		ret = phys_blank | PTE_P_BIT | PTE_US_BIT;
-	else
-		ret = mm_as_translate (as_hphys, npages, address);
+		*npages = 1;
+		return ret;
+	}
+	ret = mm_as_translate (as_hphys, npages, address);
 	max_npages = (PAGESIZE2M - (address & PAGESIZE2M_MASK)) / PAGESIZE;
 	if (*npages > max_npages)
 		*npages = max_npages;
