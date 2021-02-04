@@ -181,6 +181,8 @@ ept_init (void)
 		return;
 	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_EPTSTRUCT_WB_BIT))
 		return;
+	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_2MPAGE_BIT))
+		return;
 	current->u.vt.ept_available = true;
 	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_INVEPT_BIT))
 		return;
