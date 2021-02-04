@@ -138,7 +138,6 @@ static spinlock_t mm_lock, mm_lock2;
 static spinlock_t mm_lock_process_virt_to_phys;
 static LIST1_DEFINE_HEAD (struct page, list1_freepage[NUM_OF_ALLOCSIZE]);
 static LIST1_DEFINE_HEAD (struct allocdata, alloclist[NUM_OF_ALLOCLIST]);
-static int allocsize[NUM_OF_ALLOCSIZE];
 static struct page pagestruct[NUM_OF_PAGES];
 static spinlock_t mapmem_lock;
 static virt_t mapmem_lastvirt;
@@ -563,6 +562,14 @@ u32 vmm_term_inf()
         return vmm_start_phys+VMMSIZE_ALL ;
 }
 
+static int
+mm_page_get_allocsize (int n)
+{
+	ASSERT (n >= 0);
+	ASSERT (n < NUM_OF_ALLOCSIZE);
+	return 4096 << n;
+}
+
 static struct page *
 mm_page_alloc (int n)
 {
@@ -572,7 +579,7 @@ mm_page_alloc (int n)
 	enum page_type old_type;
 
 	ASSERT (n < NUM_OF_ALLOCSIZE);
-	s = allocsize[n];
+	s = mm_page_get_allocsize (n);
 	spinlock_lock (&mm_lock);
 	while ((p = LIST1_POP (list1_freepage[n])) == NULL) {
 		spinlock_unlock (&mm_lock);
@@ -610,7 +617,7 @@ mm_page_free (struct page *p)
 	n = p->allocsize;
 	p->type = PAGE_TYPE_FREE;
 	LIST1_ADD (list1_freepage[n], p);
-	s = allocsize[n];
+	s = mm_page_get_allocsize (n);
 	virt = page_to_virt (p);
 	while (n < (NUM_OF_ALLOCSIZE - 1) &&
 	       (q = virt_to_page (virt ^ s))->type == PAGE_TYPE_FREE &&
@@ -625,7 +632,7 @@ mm_page_free (struct page *p)
 		q->type = PAGE_TYPE_NOT_HEAD;
 		n = ++p->allocsize;
 		LIST1_ADD (list1_freepage[n], p);
-		s = allocsize[n];
+		s = mm_page_get_allocsize (n);
 		virt = page_to_virt (p);
 	}
 	spinlock_unlock (&mm_lock);
@@ -644,7 +651,7 @@ num_of_available_pages (void)
 		n = 0;
 		LIST1_FOREACH (list1_freepage[i], p)
 			n++;
-		r += n * (allocsize[i] >> PAGESIZE_SHIFT);
+		r += n * (mm_page_get_allocsize (i) >> PAGESIZE_SHIFT);
 	}
 	spinlock_unlock (&mm_lock);
 	return r;
@@ -862,10 +869,8 @@ mm_init_global (void)
 	}
 	for (i = 0; i < NUM_OF_ALLOCLIST; i++)
 		LIST1_HEAD_INIT (alloclist[i]);
-	for (i = 0; i < NUM_OF_ALLOCSIZE; i++) {
-		allocsize[i] = 4096 << i;
+	for (i = 0; i < NUM_OF_ALLOCSIZE; i++)
 		LIST1_HEAD_INIT (list1_freepage[i]);
-	}
 	for (i = 0; i < NUM_OF_PAGES; i++) {
 		pagestruct[i].type = PAGE_TYPE_RESERVED;
 		pagestruct[i].allocsize = 0;
@@ -927,7 +932,7 @@ alloc_pages (void **virt, u64 *phys, int n)
 
 	s = n * PAGESIZE;
 	for (i = 0; i < NUM_OF_ALLOCSIZE; i++)
-		if (allocsize[i] >= s)
+		if (mm_page_get_allocsize (i) >= s)
 			goto found;
 	panic ("alloc_pages (%d) failed.", n);
 	return -1;
@@ -1081,7 +1086,7 @@ get_alloc_len (void *virt, uint *len, int *n)
 	offset = (virt_t)virt & PAGESIZE_MASK;
 	if (offset == 0) {
 		*n = virt_to_page ((virt_t)virt)->allocsize;
-		*len = allocsize[*n];
+		*len = mm_page_get_allocsize (*n);
 		return true;
 	} else {
 		p = (struct allocdata *)((virt_t)virt & ~PAGESIZE_MASK);
@@ -1123,7 +1128,7 @@ realloc (void *virt, uint len)
 	/* need to shrink, or not */
 	if (pagemode) {
 		if (n > 0)
-			smaller = allocsize[n - 1];
+			smaller = mm_page_get_allocsize (n - 1);
 		else
 			smaller = ALLOCLIST_SIZE (NUM_OF_ALLOCLIST - 1);
 	} else {
