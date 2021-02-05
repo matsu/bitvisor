@@ -78,6 +78,7 @@ enum page_type {
 	PAGE_TYPE_FREE,
 	PAGE_TYPE_NOT_HEAD,
 	PAGE_TYPE_ALLOCATED,
+	PAGE_TYPE_ALLOCATED_CONT,
 	PAGE_TYPE_RESERVED,
 };
 
@@ -570,27 +571,47 @@ mm_page_get_allocsize (int n)
 }
 
 static struct page *
+mm_page_free_2ndhalf (struct page *p)
+{
+	int n = p->allocsize;
+	ASSERT (n > 0);
+	n--;
+	virt_t virt = page_to_virt (p);
+	int s = mm_page_get_allocsize (n);
+	ASSERT (!(virt & s));
+	p->allocsize = n;
+	struct page *q = virt_to_page (virt | s);
+	q->type = PAGE_TYPE_FREE;
+	LIST1_ADD (list1_freepage[n], q);
+	return q;
+}
+
+static struct page *
+mm_page_alloc_sub (int n)
+{
+	for (int i = n; i < NUM_OF_ALLOCSIZE; i++) {
+		struct page *p = LIST1_POP (list1_freepage[i]);
+		if (p) {
+			while (p->allocsize > n)
+				mm_page_free_2ndhalf (p);
+			return p;
+		}
+	}
+	return NULL;
+}
+
+static struct page *
 mm_page_alloc (int n)
 {
-	int s;
-	virt_t virt;
-	struct page *p, *q;
+	struct page *p;
 	enum page_type old_type;
 
 	ASSERT (n < NUM_OF_ALLOCSIZE);
-	s = mm_page_get_allocsize (n);
 	spinlock_lock (&mm_lock);
-	while ((p = LIST1_POP (list1_freepage[n])) == NULL) {
+	p = mm_page_alloc_sub (n);
+	if (!p) {
 		spinlock_unlock (&mm_lock);
-		p = mm_page_alloc (n + 1);
-		spinlock_lock (&mm_lock);
-		virt = page_to_virt (p);
-		q = virt_to_page (virt ^ s);
-		p->allocsize = n;
-		p->type = PAGE_TYPE_FREE;
-		q->type = PAGE_TYPE_FREE;
-		LIST1_ADD (list1_freepage[n], p);
-		LIST1_ADD (list1_freepage[n], q);
+		panic ("%s(%d): Out of memory", __func__, n);
 	}
 	/* p->type must be set before unlock, because the
 	 * mm_page_free() function may merge blocks if the type is
@@ -605,19 +626,81 @@ mm_page_alloc (int n)
 	return p;
 }
 
-static void
-mm_page_free (struct page *p)
+static struct page *
+mm_page_alloc_cont (int n, int m)
+{
+	int s;
+	virt_t virt;
+	struct page *p, *q;
+	enum page_type old_ptype, old_qtype;
+
+	ASSERT (n < NUM_OF_ALLOCSIZE);
+	ASSERT (m < NUM_OF_ALLOCSIZE);
+	s = mm_page_get_allocsize (n);
+	spinlock_lock (&mm_lock);
+	LIST1_FOREACH (list1_freepage[n], p) {
+		virt = page_to_virt (p);
+		if (virt & s)
+			goto not_found;
+		q = virt_to_page (virt | s);
+		if (q->type == PAGE_TYPE_FREE && q->allocsize >= m) {
+			LIST1_DEL (list1_freepage[n], p);
+			goto found;
+		}
+	}
+not_found:
+	p = mm_page_alloc_sub (n + 1);
+	if (!p) {
+		spinlock_unlock (&mm_lock);
+		panic ("%s(%d,%d): Out of memory", __func__, n, m);
+	}
+	q = mm_page_free_2ndhalf (p);
+found:
+	LIST1_DEL (list1_freepage[q->allocsize], q);
+	old_ptype = p->type;
+	old_qtype = q->type;
+	p->type = PAGE_TYPE_ALLOCATED_CONT;
+	while (q->allocsize > m)
+		mm_page_free_2ndhalf (q);
+	q->type = PAGE_TYPE_ALLOCATED;
+	spinlock_unlock (&mm_lock);
+	ASSERT (old_ptype == PAGE_TYPE_FREE);
+	ASSERT (old_qtype == PAGE_TYPE_FREE);
+	return p;
+}
+
+static char *
+mm_page_free_sub (struct page *p)
 {
 	int s, n;
 	struct page *q, *tmp;
 	virt_t virt;
 
-	spinlock_lock (&mm_lock);
 	n = p->allocsize;
-	p->type = PAGE_TYPE_FREE;
-	LIST1_ADD (list1_freepage[n], p);
 	s = mm_page_get_allocsize (n);
 	virt = page_to_virt (p);
+	if (p->type == PAGE_TYPE_ALLOCATED_CONT) {
+		if (virt & s)
+			return "bad address";
+		p->type = PAGE_TYPE_ALLOCATED;
+		mm_page_free_sub (virt_to_page (virt | s));
+	}
+	switch (p->type) {
+	case PAGE_TYPE_FREE:
+		return "double free";
+	case PAGE_TYPE_NOT_HEAD:
+		return "not head free";
+	case PAGE_TYPE_ALLOCATED:
+	case PAGE_TYPE_RESERVED:
+		break;
+	default:
+		return "bad type";
+	}
+	p->type = PAGE_TYPE_FREE;
+	if (virt & s)
+		LIST1_ADD (list1_freepage[n], p);
+	else
+		LIST1_PUSH (list1_freepage[n], p);
 	while (n < (NUM_OF_ALLOCSIZE - 1) &&
 	       (q = virt_to_page (virt ^ s))->type == PAGE_TYPE_FREE &&
 		q->allocsize == n) {
@@ -630,11 +713,24 @@ mm_page_free (struct page *p)
 		LIST1_DEL (list1_freepage[n], q);
 		q->type = PAGE_TYPE_NOT_HEAD;
 		n = ++p->allocsize;
-		LIST1_ADD (list1_freepage[n], p);
 		s = mm_page_get_allocsize (n);
+		if (virt & s)
+			LIST1_ADD (list1_freepage[n], p);
+		else
+			LIST1_PUSH (list1_freepage[n], p);
 		virt = page_to_virt (p);
 	}
+	return NULL;
+}
+
+static void
+mm_page_free (struct page *p)
+{
+	spinlock_lock (&mm_lock);
+	char *fail = mm_page_free_sub (p);
 	spinlock_unlock (&mm_lock);
+	if (fail)
+		panic ("%s: %s", __func__, fail);
 }
 
 /* returns number of available pages */
@@ -921,21 +1017,46 @@ mm_free_panicmem (void)
 		mm_page_free (&pagestruct[s + i]);
 }
 
+static int
+get_alloc_pages_size (int n, int *second)
+{
+	int sz = n * PAGESIZE;
+	for (int i = 0; i < NUM_OF_ALLOCSIZE; i++) {
+		int allocsize = mm_page_get_allocsize (i);
+		if (allocsize >= sz) {
+			*second = -1;
+			return i;
+		}
+		if (i > 0 && allocsize + mm_page_get_allocsize (i - 1) >= sz) {
+			int secondsz = sz - allocsize;
+			int j;
+			for (j = 0; j < i - 1; j++)
+				if (mm_page_get_allocsize (j) >= secondsz)
+					break;
+			*second = j;
+			return i;
+		}
+	}
+	return -1;
+}
+
 /* allocate n or more pages */
 int
 alloc_pages (void **virt, u64 *phys, int n)
 {
 	struct page *p;
-	int i, s;
+	int i, j;
 
-	s = n * PAGESIZE;
-	for (i = 0; i < NUM_OF_ALLOCSIZE; i++)
-		if (mm_page_get_allocsize (i) >= s)
-			goto found;
+	i = get_alloc_pages_size (n, &j);
+	if (i >= 0)
+		goto found;
 	panic ("alloc_pages (%d) failed.", n);
 	return -1;
 found:
-	p = mm_page_alloc (i);
+	if (j < 0)
+		p = mm_page_alloc (i);
+	else
+		p = mm_page_alloc_cont (i, j);
 	if (virt)
 		*virt = (void *)page_to_virt (p);
 	if (phys)
@@ -1005,6 +1126,15 @@ alloclist_free (struct allocdata *p, int n, uint offset)
 	p->data[i] &= ~(1 << j);
 }
 
+static int
+get_alloclist_size (uint len)
+{
+	for (int i = 0; i < NUM_OF_ALLOCLIST; i++)
+		if (len <= ALLOCLIST_SIZE (i))
+			return i;
+	return -1;
+}
+
 /* allocate n bytes */
 /* FIXME: bad implementation */
 void *
@@ -1014,10 +1144,9 @@ alloc (uint len)
 	int i;
 	struct allocdata *p;
 
-	for (i = 0; i < NUM_OF_ALLOCLIST; i++) {
-		if (len <= ALLOCLIST_SIZE (i))
-			goto found;
-	}
+	i = get_alloclist_size (len);
+	if (i >= 0)
+		goto found;
 	/* allocate pages if len is larger than 1024 */
 	alloc_pages (&r, NULL, (len + 4095) / 4096);
 	return r;
@@ -1075,23 +1204,37 @@ free (void *virt)
 	spinlock_unlock (&mm_lock2);
 }
 
-static bool
-get_alloc_len (void *virt, uint *len, int *n)
+static void
+get_alloc_len (void *virt, uint *len)
 {
 	uint offset;
-	struct allocdata *p;
 
 	offset = (virt_t)virt & PAGESIZE_MASK;
 	if (offset == 0) {
-		*n = virt_to_page ((virt_t)virt)->allocsize;
-		*len = mm_page_get_allocsize (*n);
-		return true;
+		struct page *p = virt_to_page ((virt_t)virt);
+		*len = mm_page_get_allocsize (p->allocsize);
+		if (p->type == PAGE_TYPE_ALLOCATED_CONT) {
+			struct page *q = virt_to_page ((virt_t)virt | *len);
+			*len += mm_page_get_allocsize (q->allocsize);
+		}
 	} else {
+		struct allocdata *p;
 		p = (struct allocdata *)((virt_t)virt & ~PAGESIZE_MASK);
-		*n = p->n & ~0x80;
-		*len = ALLOCLIST_SIZE (*n);
-		return false;
+		*len = ALLOCLIST_SIZE (p->n & ~0x80);
 	}
+}
+
+static int
+get_actual_allocate_size (unsigned int len)
+{
+	int i = get_alloclist_size (len);
+	if (i >= 0)
+		return ALLOCLIST_SIZE (i);
+	int j;
+	i = get_alloc_pages_size ((len + 4095) / 4096, &j);
+	ASSERT (i >= 0);
+	return mm_page_get_allocsize (i) +
+		(j >= 0 ? mm_page_get_allocsize (j) : 0);
 }
 
 /* realloc n bytes */
@@ -1100,9 +1243,7 @@ void *
 realloc (void *virt, uint len)
 {
 	void *p;
-	uint oldlen, smaller;
-	int n;
-	bool pagemode;
+	uint oldlen;
 
 	if (!virt && !len)
 		return NULL;
@@ -1112,7 +1253,7 @@ realloc (void *virt, uint len)
 		free (virt);
 		return NULL;
 	}
-	pagemode = get_alloc_len (virt, &oldlen, &n);
+	get_alloc_len (virt, &oldlen);
 	if (oldlen == len)	/* len is not changed */
 		return virt;
 	if (oldlen < len) {	/* need to extend */
@@ -1124,18 +1265,9 @@ realloc (void *virt, uint len)
 		return p;
 	}
 	/* need to shrink, or not */
-	if (pagemode) {
-		if (n > 0)
-			smaller = mm_page_get_allocsize (n - 1);
-		else
-			smaller = ALLOCLIST_SIZE (NUM_OF_ALLOCLIST - 1);
-	} else {
-		if (n > 0)
-			smaller = ALLOCLIST_SIZE (n - 1);
-		else
-			smaller = ALLOCLIST_SIZE (0);
-	}
-	if (smaller < len)	/* not */
+	int new_actual_size = get_actual_allocate_size (len);
+	ASSERT (oldlen >= new_actual_size);
+	if (oldlen == new_actual_size) /* not */
 		return virt;
 	p = alloc (len);
 	if (p) {
