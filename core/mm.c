@@ -86,7 +86,6 @@ struct page {
 	enum page_type type;
 	int allocsize;
 	phys_t phys;
-	virt_t virt;
 };
 
 struct allocdata {
@@ -540,16 +539,16 @@ phys_to_page (phys_t phys)
 	return virt_to_page (phys_to_virt (phys));
 }
 
-static virt_t
-page_to_virt (struct page *p)
-{
-	return p->virt;
-}
-
 static phys_t
 page_to_phys (struct page *p)
 {
 	return p->phys;
+}
+
+static virt_t
+page_to_virt (struct page *p)
+{
+	return phys_to_virt (page_to_phys (p));
 }
 
 u32 vmm_start_inf()
@@ -875,13 +874,12 @@ mm_init_global (void)
 		pagestruct[i].type = PAGE_TYPE_RESERVED;
 		pagestruct[i].allocsize = 0;
 		pagestruct[i].phys = vmm_start_phys + PAGESIZE * i;
-		pagestruct[i].virt = VMM_START_VIRT + PAGESIZE * i;
 	}
 	panicmem_start_page = ((u64)(virt_t)end + PAGESIZE - 1 -
 			       VMM_START_VIRT) >> PAGESIZE_SHIFT;
 	for (i = 0; i < NUM_OF_PAGES; i++) {
-		if ((u64)(virt_t)head <= pagestruct[i].virt &&
-		    pagestruct[i].virt < (u64)(virt_t)end)
+		if ((u64)(virt_t)head <= page_to_virt (&pagestruct[i]) &&
+		    page_to_virt (&pagestruct[i]) < (u64)(virt_t)end)
 			continue;
 		if (i < panicmem_start_page + NUM_OF_PANICMEM_PAGES)
 			continue;
@@ -907,7 +905,7 @@ mm_get_panicmem (int *len)
 		return NULL;
 	if (len)
 		*len = NUM_OF_PANICMEM_PAGES << PAGESIZE_SHIFT;
-	return (void *)pagestruct[s].virt;
+	return (void *)page_to_virt (&pagestruct[s]);
 }
 
 void
