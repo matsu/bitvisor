@@ -37,15 +37,16 @@
 #include "svm_np.h"
 #include "svm_paging.h"
 
-#define NUM_OF_NPTBL 1024
+#define MAXNUM_OF_NPTBL 256
+#define DEFNUM_OF_NPTBL 16
 
 struct svm_np {
 	int cnt;
 	int cleared;
 	void *ncr3tbl;
 	phys_t ncr3tbl_phys;
-	void *tbl[NUM_OF_NPTBL];
-	phys_t tbl_phys[NUM_OF_NPTBL];
+	void *tbl[MAXNUM_OF_NPTBL];
+	phys_t tbl_phys[MAXNUM_OF_NPTBL];
 	struct {
 		int level;
 		phys_t gphys;
@@ -63,7 +64,9 @@ svm_np_init (void)
 	alloc_page (&np->ncr3tbl, &np->ncr3tbl_phys);
 	memset (np->ncr3tbl, 0, PAGESIZE);
 	np->cleared = 1;
-	for (i = 0; i < NUM_OF_NPTBL; i++)
+	for (i = 0; i < MAXNUM_OF_NPTBL; i++)
+		np->tbl[i] = NULL;
+	for (i = 0; i < DEFNUM_OF_NPTBL; i++)
 		alloc_page (&np->tbl[i], &np->tbl_phys[i]);
 	np->cnt = 0;
 	np->cur.level = PMAP_LEVELS;
@@ -107,13 +110,20 @@ cur_move (struct svm_np *np, u64 gphys)
 	}
 }
 
+static void
+np_tbl_alloc (struct svm_np *np, int i)
+{
+	if (!np->tbl[i])
+		alloc_page (&np->tbl[i], &np->tbl_phys[i]);
+}
+
 static u64 *
 cur_fill (struct svm_np *np, u64 gphys, int level)
 {
 	int l;
 	u64 *p, e;
 
-	if (np->cnt + np->cur.level - level > NUM_OF_NPTBL) {
+	if (np->cnt + np->cur.level - level > MAXNUM_OF_NPTBL) {
 		memset (np->ncr3tbl, 0, PAGESIZE);
 		np->cleared = 1;
 		np->cnt = 0;
@@ -122,6 +132,7 @@ cur_fill (struct svm_np *np, u64 gphys, int level)
 	}
 	l = np->cur.level;
 	for (p = np->cur.entry[l]; l > level; l--) {
+		np_tbl_alloc (np, np->cnt);
 		e = np->tbl_phys[np->cnt] | PDE_P_BIT;
 		if (PMAP_LEVELS != 3 || l != 2)
 			e |= PDE_RW_BIT | PDE_US_BIT | PDE_A_BIT;

@@ -40,7 +40,8 @@
 #include "vt_paging.h"
 #include "vt_regs.h"
 
-#define NUM_OF_EPTBL	1024
+#define MAXNUM_OF_EPTBL	256
+#define DEFNUM_OF_EPTBL	16
 #define EPTE_READ	0x1
 #define EPTE_READEXEC	0x5
 #define EPTE_WRITE	0x2
@@ -54,8 +55,8 @@ struct vt_ept {
 	int cleared;
 	void *ncr3tbl;
 	phys_t ncr3tbl_phys;
-	void *tbl[NUM_OF_EPTBL];
-	phys_t tbl_phys[NUM_OF_EPTBL];
+	void *tbl[MAXNUM_OF_EPTBL];
+	phys_t tbl_phys[MAXNUM_OF_EPTBL];
 	struct {
 		int level;
 		phys_t gphys;
@@ -73,7 +74,9 @@ vt_ept_init (void)
 	alloc_page (&ept->ncr3tbl, &ept->ncr3tbl_phys);
 	memset (ept->ncr3tbl, 0, PAGESIZE);
 	ept->cleared = 1;
-	for (i = 0; i < NUM_OF_EPTBL; i++)
+	for (i = 0; i < MAXNUM_OF_EPTBL; i++)
+		ept->tbl[i] = NULL;
+	for (i = 0; i < DEFNUM_OF_EPTBL; i++)
 		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
@@ -118,13 +121,20 @@ cur_move (struct vt_ept *ept, u64 gphys)
 	}
 }
 
+static void
+ept_tbl_alloc (struct vt_ept *ept, int i)
+{
+	if (!ept->tbl[i])
+		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
+}
+
 static u64 *
 cur_fill (struct vt_ept *ept, u64 gphys, int level)
 {
 	int l;
 	u64 *p;
 
-	if (ept->cnt + ept->cur.level - level > NUM_OF_EPTBL) {
+	if (ept->cnt + ept->cur.level - level > MAXNUM_OF_EPTBL) {
 		memset (ept->ncr3tbl, 0, PAGESIZE);
 		ept->cleared = 1;
 		ept->cnt = 0;
@@ -133,6 +143,7 @@ cur_fill (struct vt_ept *ept, u64 gphys, int level)
 	}
 	l = ept->cur.level;
 	for (p = ept->cur.entry[l]; l > level; l--) {
+		ept_tbl_alloc (ept, ept->cnt);
 		*p = ept->tbl_phys[ept->cnt] | EPTE_READEXEC | EPTE_WRITE;
 		p = ept->tbl[ept->cnt++];
 		memset (p, 0, PAGESIZE);
