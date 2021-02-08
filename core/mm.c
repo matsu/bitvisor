@@ -54,12 +54,12 @@
 #define NUM_OF_ALLOCSIZE	13
 #define MAPMEM_ADDR_START	0xD0000000
 #define MAPMEM_ADDR_END		0xFF000000
-#define NUM_OF_ALLOCLIST	7
-#define ALLOCLIST_SIZE(n)	((1 << (n)) * 16)
-#define ALLOCLIST_DATABIT(n)	(PAGESIZE / ALLOCLIST_SIZE (n))
-#define ALLOCLIST_DATASIZE(n)	((ALLOCLIST_DATABIT (n) + 7) / 8)
-#define ALLOCLIST_HEADERSIZE(n)	(sizeof (struct allocdata) + \
-				 ALLOCLIST_DATASIZE(n) - 1)
+#define NUM_OF_SMALL_ALLOCSIZE	5
+#define SMALL_ALLOCSIZE(n)	(0x80 << (n))
+#define NUM_OF_TINY_ALLOCSIZE	3
+#define TINY_ALLOCSIZE(n)	(0x10 << (n))
+#define FIND_NEXT_BIT(bitmap)	(~(bitmap) & ((bitmap) + 1))
+#define BIT_TO_INDEX(bit)	(__builtin_ffs ((bit)) - 1)
 #define MAXNUM_OF_SYSMEMMAP	256
 #define NUM_OF_PANICMEM_PAGES	256
 
@@ -79,19 +79,23 @@ enum page_type {
 	PAGE_TYPE_NOT_HEAD,
 	PAGE_TYPE_ALLOCATED,
 	PAGE_TYPE_ALLOCATED_CONT,
+	PAGE_TYPE_ALLOCATED_SMALL,
 	PAGE_TYPE_RESERVED,
 };
 
 struct page {
 	LIST1_DEFINE (struct page);
-	enum page_type type;
-	int allocsize;
 	phys_t phys;
+	u32 small_bitmap;
+	enum page_type type : 8;
+	unsigned int allocsize : 8;
+	unsigned int small_allocsize : 8;
 };
 
-struct allocdata {
-	LIST1_DEFINE (struct allocdata);
-	u8 n, data[1];
+struct tiny_allocdata {
+	LIST1_DEFINE (struct tiny_allocdata);
+	u32 tiny_bitmap;
+	u8 tiny_allocsize;
 };
 
 struct sysmemmapdata {
@@ -134,10 +138,14 @@ u64 memorysize = 0, vmmsize = 0;
 struct uefi_mmio_space_struct *uefi_mmio_space;
 static u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
 u32 __attribute__ ((section (".data"))) vmm_start_phys;
-static spinlock_t mm_lock, mm_lock2;
+static spinlock_t mm_lock;
+static spinlock_t mm_small_lock;
+static spinlock_t mm_tiny_lock;
 static spinlock_t mm_lock_process_virt_to_phys;
 static LIST1_DEFINE_HEAD (struct page, list1_freepage[NUM_OF_ALLOCSIZE]);
-static LIST1_DEFINE_HEAD (struct allocdata, alloclist[NUM_OF_ALLOCLIST]);
+static LIST1_DEFINE_HEAD (struct page, small_freelist[NUM_OF_SMALL_ALLOCSIZE]);
+static LIST1_DEFINE_HEAD (struct tiny_allocdata,
+			  tiny_freelist[NUM_OF_TINY_ALLOCSIZE]);
 static struct page pagestruct[NUM_OF_PAGES];
 static spinlock_t mapmem_lock;
 static virt_t mapmem_lastvirt;
@@ -940,7 +948,8 @@ mm_init_global (void)
 	void *tmp;
 
 	spinlock_init (&mm_lock);
-	spinlock_init (&mm_lock2);
+	spinlock_init (&mm_small_lock);
+	spinlock_init (&mm_tiny_lock);
 	spinlock_init (&mm_lock_process_virt_to_phys);
 	spinlock_init (&mapmem_lock);
 	if (uefi_booted) {
@@ -962,10 +971,12 @@ mm_init_global (void)
 			VMMSIZE_ALL >> 20);
 		move_vmm ();
 	}
-	for (i = 0; i < NUM_OF_ALLOCLIST; i++)
-		LIST1_HEAD_INIT (alloclist[i]);
 	for (i = 0; i < NUM_OF_ALLOCSIZE; i++)
 		LIST1_HEAD_INIT (list1_freepage[i]);
+	for (i = 0; i < NUM_OF_SMALL_ALLOCSIZE; i++)
+		LIST1_HEAD_INIT (small_freelist[i]);
+	for (i = 0; i < NUM_OF_TINY_ALLOCSIZE; i++)
+		LIST1_HEAD_INIT (tiny_freelist[i]);
 	for (i = 0; i < NUM_OF_PAGES; i++) {
 		pagestruct[i].type = PAGE_TYPE_RESERVED;
 		pagestruct[i].allocsize = 0;
@@ -1071,97 +1082,188 @@ alloc_page (void **virt, u64 *phys)
 	return alloc_pages (virt, phys, 1);
 }
 
-static struct allocdata *
-alloclist_new (int n)
-{
-	struct allocdata *r;
-	uint i, headlen;
-	void *tmp;
-
-	alloc_page (&tmp, NULL);
-	r = tmp;
-	headlen = ALLOCLIST_HEADERSIZE (n);
-	memset (r, 0, headlen);
-	r->n = n;
-	for (i = 0; i * ALLOCLIST_SIZE (n) < headlen; i++)
-		r->data[i / 8] |= 1 << (i % 8);
-	return r;
-}
-
-static bool
-alloclist_alloc (struct allocdata *p, int n, void **r)
-{
-	uint i, j, datalen, offset;
-
-	datalen = ALLOCLIST_DATASIZE (n);
-	for (i = 0; i < datalen; i++) {
-		if (p->data[i] != 0xFF)
-			goto found;
-	}
-	return false;
-found:
-	for (j = 0; j < 8; j++) {
-		if ((p->data[i] & (1 << j)) == 0)
-			break;
-	}
-	if (i * 8 + j >= ALLOCLIST_DATABIT (n))
-		return false;
-	p->data[i] |= (1 << j);
-	offset = (i * 8 + j) * ALLOCLIST_SIZE (n);
-	ASSERT (offset != 0);
-	ASSERT (offset < PAGESIZE);
-	*r = (u8 *)p + offset;
-	return true;
-}
-
-static void
-alloclist_free (struct allocdata *p, int n, uint offset)
-{
-	uint bit, i, j;
-
-	bit = offset / ALLOCLIST_SIZE (n);
-	i = bit / 8;
-	j = bit % 8;
-	ASSERT (p->data[i] & (1 << j));	/* double free check */
-	p->data[i] &= ~(1 << j);
-}
-
 static int
-get_alloclist_size (uint len)
+get_small_allocsize (unsigned int len)
 {
-	for (int i = 0; i < NUM_OF_ALLOCLIST; i++)
-		if (len <= ALLOCLIST_SIZE (i))
+	for (int i = 0; i < NUM_OF_SMALL_ALLOCSIZE; i++)
+		if (len <= SMALL_ALLOCSIZE (i))
 			return i;
 	return -1;
 }
 
+static virt_t
+small_alloc (int small_allocsize)
+{
+	ASSERT (small_allocsize >= 0);
+	ASSERT (small_allocsize < NUM_OF_SMALL_ALLOCSIZE);
+	int nbits = PAGESIZE / SMALL_ALLOCSIZE (small_allocsize);
+	u32 full = (2U << (nbits - 1)) - 1;
+	u32 n;
+	struct page *p;
+	spinlock_lock (&mm_small_lock);
+	LIST1_FOREACH (small_freelist[small_allocsize], p) {
+		n = FIND_NEXT_BIT (p->small_bitmap);
+		p->small_bitmap |= n;
+		if (p->small_bitmap == full)
+			LIST1_DEL (small_freelist[small_allocsize], p);
+		goto ok;
+	}
+	spinlock_unlock (&mm_small_lock);
+	p = mm_page_alloc (0);
+	ASSERT (p);
+	ASSERT (p->type == PAGE_TYPE_ALLOCATED);
+	p->type = PAGE_TYPE_ALLOCATED_SMALL;
+	n = 1;
+	p->small_allocsize = small_allocsize;
+	p->small_bitmap = n;
+	spinlock_lock (&mm_small_lock);
+	LIST1_PUSH (small_freelist[small_allocsize], p);
+ok:
+	spinlock_unlock (&mm_small_lock);
+	int i = BIT_TO_INDEX (n);
+	ASSERT (i >= 0);
+	ASSERT (i < nbits);
+	return page_to_virt (p) + SMALL_ALLOCSIZE (small_allocsize) * i;
+}
+
+static unsigned int
+small_getlen (struct page *p)
+{
+	ASSERT (p->type == PAGE_TYPE_ALLOCATED_SMALL);
+	int small_allocsize = p->small_allocsize;
+	ASSERT (small_allocsize >= 0);
+	ASSERT (small_allocsize < NUM_OF_SMALL_ALLOCSIZE);
+	return SMALL_ALLOCSIZE (small_allocsize);
+}
+
+static void
+small_free (struct page *p, u32 page_offset)
+{
+	ASSERT (p->type == PAGE_TYPE_ALLOCATED_SMALL);
+	int small_allocsize = p->small_allocsize;
+	ASSERT (small_allocsize >= 0);
+	ASSERT (small_allocsize < NUM_OF_SMALL_ALLOCSIZE);
+	int nbits = PAGESIZE / SMALL_ALLOCSIZE (small_allocsize);
+	u32 full = (2U << (nbits - 1)) - 1;
+	ASSERT (!(page_offset % SMALL_ALLOCSIZE (small_allocsize)));
+	int i = page_offset / SMALL_ALLOCSIZE (small_allocsize);
+	ASSERT (i < nbits);
+	u32 n = 1 << i;
+	spinlock_lock (&mm_small_lock);
+	if (p->small_bitmap == full)
+		LIST1_PUSH (small_freelist[small_allocsize], p);
+	u32 new_small_bitmap = p->small_bitmap ^ n;
+	p->small_bitmap = new_small_bitmap;
+	if (!new_small_bitmap)
+		LIST1_DEL (small_freelist[small_allocsize], p);
+	spinlock_unlock (&mm_small_lock);
+	if (new_small_bitmap & n)
+		panic ("%s: double free", __func__);
+	if (!new_small_bitmap) {
+		p->type = PAGE_TYPE_ALLOCATED;
+		mm_page_free (p);
+	}
+}
+
+static int
+get_tiny_allocsize (unsigned int len)
+{
+	for (int i = 0; i < NUM_OF_TINY_ALLOCSIZE; i++)
+		if (len <= TINY_ALLOCSIZE (i))
+			return i;
+	return -1;
+}
+
+static virt_t
+tiny_alloc (int tiny_allocsize)
+{
+	ASSERT (tiny_allocsize >= 0);
+	ASSERT (tiny_allocsize < NUM_OF_TINY_ALLOCSIZE);
+	int nbits = 32;
+	u32 n;
+	struct tiny_allocdata *p;
+	ASSERT (sizeof *p <= 2 * TINY_ALLOCSIZE (0));
+	ASSERT (sizeof *p <= TINY_ALLOCSIZE (1));
+	u32 empty_bitmap = tiny_allocsize ? 1 : 3;
+	spinlock_lock (&mm_tiny_lock);
+	LIST1_FOREACH (tiny_freelist[tiny_allocsize], p) {
+		n = FIND_NEXT_BIT (p->tiny_bitmap);
+		p->tiny_bitmap |= n;
+		if (!~p->tiny_bitmap)
+			LIST1_DEL (tiny_freelist[tiny_allocsize], p);
+		goto ok;
+	}
+	spinlock_unlock (&mm_tiny_lock);
+	int plen = TINY_ALLOCSIZE (tiny_allocsize) * nbits;
+	p = (void *)small_alloc (get_small_allocsize (plen));
+	n = FIND_NEXT_BIT (empty_bitmap);
+	p->tiny_allocsize = tiny_allocsize;
+	p->tiny_bitmap = empty_bitmap | n;
+	spinlock_lock (&mm_tiny_lock);
+	LIST1_PUSH (tiny_freelist[tiny_allocsize], p);
+ok:
+	spinlock_unlock (&mm_tiny_lock);
+	int i = BIT_TO_INDEX (n);
+	ASSERT (i > 0);
+	ASSERT (i < nbits);
+	return (virt_t)p + TINY_ALLOCSIZE (tiny_allocsize) * i;
+}
+
+static unsigned int
+tiny_getlen (virt_t start_of_block)
+{
+	struct tiny_allocdata *p = (void *)start_of_block;
+	int tiny_allocsize = p->tiny_allocsize;
+	ASSERT (tiny_allocsize >= 0);
+	ASSERT (tiny_allocsize < NUM_OF_TINY_ALLOCSIZE);
+	return TINY_ALLOCSIZE (tiny_allocsize);
+}
+
+static void
+tiny_free (struct page *page, virt_t start_of_block, u32 block_offset)
+{
+	struct tiny_allocdata *p = (void *)start_of_block;
+	int tiny_allocsize = p->tiny_allocsize;
+	ASSERT (tiny_allocsize >= 0);
+	ASSERT (tiny_allocsize < NUM_OF_TINY_ALLOCSIZE);
+	int nbits = 32;
+	ASSERT (!(block_offset % TINY_ALLOCSIZE (tiny_allocsize)));
+	int i = block_offset / TINY_ALLOCSIZE (tiny_allocsize);
+	ASSERT (i < nbits);
+	u32 n = 1 << i;
+	ASSERT (sizeof *p <= 2 * TINY_ALLOCSIZE (0));
+	ASSERT (sizeof *p <= TINY_ALLOCSIZE (1));
+	u32 empty_bitmap = tiny_allocsize ? 1 : 3;
+	ASSERT (!(empty_bitmap & n));
+	spinlock_lock (&mm_tiny_lock);
+	if (!~p->tiny_bitmap)
+		LIST1_PUSH (tiny_freelist[tiny_allocsize], p);
+	u32 new_tiny_bitmap = p->tiny_bitmap ^ n;
+	p->tiny_bitmap = new_tiny_bitmap;
+	if (new_tiny_bitmap == empty_bitmap)
+		LIST1_DEL (tiny_freelist[tiny_allocsize], p);
+	spinlock_unlock (&mm_tiny_lock);
+	if (new_tiny_bitmap & n)
+		panic ("%s: double free", __func__);
+	if (new_tiny_bitmap == empty_bitmap)
+		small_free (page, start_of_block & PAGESIZE_MASK);
+}
+
 /* allocate n bytes */
-/* FIXME: bad implementation */
 void *
 alloc (uint len)
 {
 	void *r;
-	int i;
-	struct allocdata *p;
-
-	i = get_alloclist_size (len);
-	if (i >= 0)
-		goto found;
-	/* allocate pages if len is larger than 1024 */
-	alloc_pages (&r, NULL, (len + 4095) / 4096);
-	return r;
-found:
-	spinlock_lock (&mm_lock2);
-	for (;;) {
-		p = LIST1_POP (alloclist[i]);
-		if (p == NULL)
-			p = alloclist_new (i);
-		if (alloclist_alloc (p, i, &r))
-			break;
-		p->n |= 0x80;
+	int small = get_small_allocsize (len);
+	if (small < 0) {
+		alloc_pages (&r, NULL, (len + 4095) / 4096);
+	} else {
+		int tiny = !small ? get_tiny_allocsize (len) : -1;
+		if (tiny < 0)
+			r = (void *)small_alloc (small);
+		else
+			r = (void *)tiny_alloc (tiny);
 	}
-	LIST1_PUSH (alloclist[i], p);
-	spinlock_unlock (&mm_lock2);
 	return r;
 }
 
@@ -1186,55 +1288,64 @@ alloc2 (uint len, u64 *phys)
 void
 free (void *virt)
 {
-	struct allocdata *p;
-	uint offset;
-
-	offset = (virt_t)virt & PAGESIZE_MASK;
-	if (offset == 0) {
-		mm_page_free (virt_to_page ((virt_t)virt));
-		return;
+	virt_t v = (virt_t)virt;
+	struct page *p = virt_to_page (v);
+	if (p->type == PAGE_TYPE_ALLOCATED_SMALL) {
+		int small_allocsize = p->small_allocsize;
+		u32 page_offset = v & PAGESIZE_MASK;
+		u32 block_offset = page_offset %
+			SMALL_ALLOCSIZE (small_allocsize);
+		if (block_offset)
+			tiny_free (p, v - block_offset, block_offset);
+		else
+			small_free (p, page_offset);
+	} else {
+		mm_page_free (p);
 	}
-	spinlock_lock (&mm_lock2);
-	p = (struct allocdata *)((virt_t)virt & ~PAGESIZE_MASK);
-	if (p->n & 0x80) {
-		p->n &= ~0x80;
-		LIST1_PUSH (alloclist[p->n], p);
-	}
-	alloclist_free (p, p->n, offset);
-	spinlock_unlock (&mm_lock2);
 }
 
 static void
 get_alloc_len (void *virt, uint *len)
 {
-	uint offset;
-
-	offset = (virt_t)virt & PAGESIZE_MASK;
-	if (offset == 0) {
-		struct page *p = virt_to_page ((virt_t)virt);
+	virt_t v = (virt_t)virt;
+	struct page *p = virt_to_page (v);
+	if (p->type == PAGE_TYPE_ALLOCATED_SMALL) {
+		int small_allocsize = p->small_allocsize;
+		u32 page_offset = v & PAGESIZE_MASK;
+		u32 block_offset = page_offset %
+			SMALL_ALLOCSIZE (small_allocsize);
+		if (block_offset)
+			*len = tiny_getlen (v - block_offset);
+		else
+			*len = small_getlen (p);
+	} else {
 		*len = mm_page_get_allocsize (p->allocsize);
 		if (p->type == PAGE_TYPE_ALLOCATED_CONT) {
 			struct page *q = virt_to_page ((virt_t)virt | *len);
 			*len += mm_page_get_allocsize (q->allocsize);
 		}
-	} else {
-		struct allocdata *p;
-		p = (struct allocdata *)((virt_t)virt & ~PAGESIZE_MASK);
-		*len = ALLOCLIST_SIZE (p->n & ~0x80);
 	}
 }
 
 static int
 get_actual_allocate_size (unsigned int len)
 {
-	int i = get_alloclist_size (len);
-	if (i >= 0)
-		return ALLOCLIST_SIZE (i);
-	int j;
-	i = get_alloc_pages_size ((len + 4095) / 4096, &j);
-	ASSERT (i >= 0);
-	return mm_page_get_allocsize (i) +
-		(j >= 0 ? mm_page_get_allocsize (j) : 0);
+	int ret;
+	int small = get_small_allocsize (len);
+	if (small < 0) {
+		int j;
+		int i = get_alloc_pages_size ((len + 4095) / 4096, &j);
+		ASSERT (i >= 0);
+		ret = mm_page_get_allocsize (i) +
+			(j >= 0 ? mm_page_get_allocsize (j) : 0);
+	} else {
+		int tiny = !small ? get_tiny_allocsize (len) : -1;
+		if (tiny < 0)
+			ret = SMALL_ALLOCSIZE (small);
+		else
+			ret = TINY_ALLOCSIZE (tiny);
+	}
+	return ret;
 }
 
 /* realloc n bytes */
@@ -1454,7 +1565,8 @@ void
 mm_force_unlock (void)
 {
 	spinlock_unlock (&mm_lock);
-	spinlock_unlock (&mm_lock2);
+	spinlock_unlock (&mm_small_lock);
+	spinlock_unlock (&mm_tiny_lock);
 	spinlock_unlock (&mm_lock_process_virt_to_phys);
 	spinlock_unlock (&mapmem_lock);
 }
