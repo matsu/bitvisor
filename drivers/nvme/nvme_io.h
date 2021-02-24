@@ -76,7 +76,7 @@
  * nvme_io_change_g_req_to_dummy_read(). Finally, it need to resume
  * the guest request by calling nvme_io_resume_guest_request().
  * It is also possible to get a guest request completion event by
- * setting up a callback with nvme_io_set_req_callback().
+ * setting up a callback with nvme_io_set_g_req_callback().
  *
  * The NVMe driver implementation, by default, does not shadow guest
  * requests' buffers. If an interceptor wants to create a shadow buffer,
@@ -84,13 +84,26 @@
  * Copying data between the guest buffer and the allocated nvme_io_dmabuf
  * can be done by nvme_io_memcpy_g_buf().
  *
- * Sending I/O requests to the NVMe driver can be done through
- * nvme_io_descriptor objects. Sender will create an nvme_io_descriptor
- * object through nvme_io_init_descriptor(), set up buffer by
- * nvme_io_set_phys_buffers(), and send a request with either
- * nvme_io_read_request() or nvme_io_write_request(). It is possible
- * to create an nvme_io_descriptor object using a guest request's buffer
- * through nvme_io_g_buf_io_desc().
+ * To send I/O requests, senders need to create nvme_io_descriptor and
+ * nvme_io_req_handle objects. Senders create an nvme_io_descriptor object
+ * by calling nvme_io_init_descriptor(), and set up its buffer by calling
+ * nvme_io_set_phys_buffers(). To submit requests, senders create an
+ * nvme_io_req_handle object by calling nvme_io_prepare_requests(). Senders
+ * then pass nvme_io_descriptor objects to nvme_io_add_read_request()/
+ * nvme_io_add_write_request() to prepare requests to be submitted.
+ * nvme_io_descriptor objects are freed automatically after they are added to
+ * an nvme_io_req_handle object. Senders call nvme_io_submit_requests() to
+ * submit requests to the controller and wait for completion by calling
+ * nvme_io_wait_for_completion() for a specified time in seconds
+ * (0 means indefinitely). nvme_io_wait_for_completion() frees the
+ * nvme_io_req_handle object automatically.
+ *
+ * We provide nvme_io_read_request() and nvme_io_write_request() in case
+ * Senders need only a request. We also provide nvme_io_flush_request() for
+ * submitting a flush command. Senders can destroy an nvme_io_req_handle object
+ * by calling nvme_io_destroy_handle() if the nvme_io_req_handle object is not
+ * yet submitted. For admin commands, we provides only nvme_io_identify() and
+ * nvme_io_get_n_queues() for now.
  *
  */
 
@@ -102,6 +115,16 @@ struct nvme_request;
 
 #define PAGE_NBYTES (4096)
 #define PAGE_NBYTES_DIV_EXPO (12)
+
+typedef enum _nvme_io_error_t {
+	NVME_IO_ERROR_OK,
+	NVME_IO_ERROR_NOT_READY,
+	NVME_IO_ERROR_INVALID_PARAM,
+	NVME_IO_ERROR_IO_ERROR,
+	NVME_IO_ERROR_TIMEOUT,
+	NVME_IO_ERROR_NO_OPERATION,
+	NVME_IO_ERROR_INTERNAL_ERROR,
+} nvme_io_error_t;
 
 /* Return value for on_init() */
 #define NVME_IO_RESUME_FETCHING_GUEST_CMDS (0)
@@ -166,7 +189,6 @@ struct nvme_io_interceptor {
 	 */
 	u8 serialize_queue_fetch;
 };
-#define NVME_IO_INTERCEPTOR_NBYTES (sizeof (struct nvme_io_interceptor))
 
 /* ----- Start buffer related functions ----- */
 
@@ -178,72 +200,74 @@ struct nvme_io_dmabuf {
 	u64 nbytes;
 };
 
+/* Return NULL if nbytes is 0 */
 struct nvme_io_dmabuf * nvme_io_alloc_dmabuf (u64 nbytes);
 
 void nvme_io_free_dmabuf (struct nvme_io_dmabuf *dmabuf);
 
 struct nvme_io_g_buf;
 
+/* Return NULL if a parameter is invalid */
 struct nvme_io_g_buf * nvme_io_alloc_g_buf (struct nvme_host *host,
 					    struct nvme_request *g_req);
 
 void nvme_io_free_g_buf (struct nvme_io_g_buf *g_buf);
 
-void nvme_io_memcpy_g_buf (struct nvme_io_g_buf *g_buf,
-			   u8 *buf,
-			   u64 buf_nbytes,
-			   u64 g_buf_offset,
-			   int g_buf_to_buf);
+nvme_io_error_t nvme_io_memcpy_g_buf (struct nvme_io_g_buf *g_buf,
+				      u8 *buf, u64 buf_nbytes,
+				      u64 g_buf_offset, int g_buf_to_buf);
 
-void nvme_io_memset_g_buf (struct nvme_io_g_buf *g_buf,
-			   u8  value,
-			   u64 buf_nbytes,
-			   u64 g_buf_offset);
+nvme_io_error_t nvme_io_memset_g_buf (struct nvme_io_g_buf *g_buf,
+				      u8 value, u64 buf_nbytes,
+				      u64 g_buf_offset);
 
 /* ----- End buffer related functions ----- */
 
 /* ----- Start NVMe host controller driver related functions ----- */
 
-int nvme_io_host_ready (struct nvme_host *host);
+nvme_io_error_t nvme_io_host_ready (struct nvme_host *host);
 
-struct pci_device * nvme_io_get_pci_device (struct nvme_host *host);
+nvme_io_error_t nvme_io_get_pci_device (struct nvme_host *host,
+					struct pci_device **pci);
 
-/* Return 1 on success */
-int nvme_io_install_interceptor (struct nvme_host *host,
-				 struct nvme_io_interceptor *io_interceptor);
+nvme_io_error_t
+nvme_io_install_interceptor (struct nvme_host *host,
+			     struct nvme_io_interceptor *io_interceptor);
 
-void nvme_io_start_fetching_g_reqs (struct nvme_host *host);
+nvme_io_error_t nvme_io_start_fetching_g_reqs (struct nvme_host *host);
 
-u32 nvme_io_get_n_ns (struct nvme_host *host);
+nvme_io_error_t nvme_io_get_n_ns (struct nvme_host *host, u32 *n_ns);
 
-u64 nvme_io_get_total_lbas (struct nvme_host *host, u32 nsid);
+nvme_io_error_t nvme_io_get_total_lbas (struct nvme_host *host, u32 nsid,
+					u64 *total_lbas);
 
-u64 nvme_io_get_lba_nbytes (struct nvme_host *host, u32 nsid);
+nvme_io_error_t nvme_io_get_lba_nbytes (struct nvme_host *host, u32 nsid,
+					u32 *lba_nbytes);
 
-u16 nvme_io_get_max_n_lbas (struct nvme_host *host, u32 nsid);
+nvme_io_error_t nvme_io_get_max_n_lbas (struct nvme_host *host, u32 nsid,
+					u16 *max_n_lbas);
 
 /* ----- End NVMe host controller driver related functions ----- */
 
 /* ----- Start NVMe guest request related functions ----- */
 
-void nvme_io_pause_guest_request (struct nvme_request *g_req);
+nvme_io_error_t nvme_io_pause_guest_request (struct nvme_request *g_req);
 
 /* Change a guest request's access area */
-int nvme_io_patch_start_lba (struct nvme_host *host,
-			     struct nvme_request *g_req,
-			     u64 new_start_lba);
+nvme_io_error_t nvme_io_patch_start_lba (struct nvme_host *host,
+					 struct nvme_request *g_req,
+					 u64 new_start_lba);
 
-#define NVME_IO_NO_TRIGGER_SUBMIT (0)
-#define NVME_IO_TRIGGER_SUBMIT    (1)
-void nvme_io_resume_guest_request (struct nvme_host *host,
-				   struct nvme_request *g_req,
-			      	   int trigger_submit);
+nvme_io_error_t nvme_io_resume_guest_request (struct nvme_host *host,
+					      struct nvme_request *g_req,
+					      bool trigger_submit);
 
-void nvme_io_change_g_req_to_dummy_read (struct nvme_request *g_req,
-					 phys_t dummy_buf,
-				    	 u64 dummy_lba);
+nvme_io_error_t nvme_io_change_g_req_to_dummy_read (struct nvme_request *g_req,
+						    phys_t dummy_buf,
+						    u64 dummy_lba);
 
-u16 nvme_io_req_queue_id (struct nvme_request *g_req);
+nvme_io_error_t nvme_io_req_queue_id (struct nvme_request *g_req,
+				      u16 *queue_id);
 
 typedef void (*nvme_io_req_callback_t) (struct nvme_host *host,
 					u8 status_type,
@@ -251,33 +275,34 @@ typedef void (*nvme_io_req_callback_t) (struct nvme_host *host,
 					u32 cmd_specific,
 					void *arg);
 
-void nvme_io_set_req_callback (struct nvme_request *req,
-			       nvme_io_req_callback_t callback,
-			       void *arg);
+nvme_io_error_t nvme_io_set_g_req_callback (struct nvme_request *g_req,
+					    nvme_io_req_callback_t callback,
+					    void *arg);
 
-/* Overide buffer provided by the guest */
-int nvme_io_set_shadow_buffer (struct nvme_request *g_req,
-			       struct nvme_io_dmabuf *dmabuf);
+/* Override buffer provided by the guest */
+nvme_io_error_t nvme_io_set_shadow_buffer (struct nvme_request *g_req,
+					   struct nvme_io_dmabuf *dmabuf);
 
 /* ----- End NVMe guest request related functions ----- */
 
 /* ----- Start I/O related functions ----- */
 
+struct nvme_io_req_handle;
+
 /* Return NULL if a parameter is invalid */
 struct nvme_io_descriptor * nvme_io_init_descriptor (struct nvme_host *host,
 						     u32 nsid,
-						     u16 queue_id,
 			 			     u64 lba_start,
 			 			     u16 n_lbas);
 
-/* Return 0 if a parameter is invalid */
-int nvme_io_set_phys_buffers (struct nvme_host *host,
-			      struct nvme_io_descriptor *io_desc,
-			      phys_t *pagebuf_arr,
-			      phys_t pagebuf_arr_phys,
-			      u64 n_pages_accessed,
-			      u64 first_page_offset);
+nvme_io_error_t nvme_io_set_phys_buffers (struct nvme_host *host,
+					  struct nvme_io_descriptor *io_desc,
+					  phys_t *pagebuf_arr,
+					  phys_t pagebuf_arr_phys,
+					  u64 n_pages_accessed,
+					  u64 first_page_offset);
 
+/* Return NULL if a parameter is invalid */
 struct nvme_io_descriptor * nvme_io_g_buf_io_desc (struct nvme_host *host,
 						   struct nvme_request *g_req,
 		       				   struct nvme_io_g_buf *g_buf,
@@ -285,43 +310,68 @@ struct nvme_io_descriptor * nvme_io_g_buf_io_desc (struct nvme_host *host,
 		       				   u64 lba_start,
 		       				   u16 n_lbas);
 
-/* Return 1 if it succeeds */
-int nvme_io_read_request (struct nvme_host *host,
+nvme_io_error_t
+nvme_io_prepare_requests (struct nvme_host *host, u16 queue_id,
+			  struct nvme_io_req_handle **req_handle);
+
+nvme_io_error_t
+nvme_io_destroy_req_handle (struct nvme_io_req_handle *req_handle);
+
+nvme_io_error_t
+nvme_io_add_read_request (struct nvme_host *host,
+			  struct nvme_io_req_handle *req_handle,
 			  struct nvme_io_descriptor *io_desc,
-			  nvme_io_req_callback_t callback,
-		      	  void *arg);
+			  nvme_io_req_callback_t callback, void *arg);
 
-/* Return 1 if it succeeds */
-int nvme_io_write_request (struct nvme_host *host,
+nvme_io_error_t
+nvme_io_add_write_request (struct nvme_host *host,
+			   struct nvme_io_req_handle *req_handle,
 			   struct nvme_io_descriptor *io_desc,
-			   nvme_io_req_callback_t callback,
-			   void *arg);
+			   nvme_io_req_callback_t callback, void *arg);
 
-/* Return 1 if it succeeds */
-int nvme_io_flush_request (struct nvme_host *host,
-			   u32 nsid,
-			   nvme_io_req_callback_t callback,
-		       	   void *arg);
+nvme_io_error_t
+nvme_io_submit_requests (struct nvme_host *host,
+			 struct nvme_io_req_handle *req_handle);
 
-/* Return 1 if it succeeds */
-int nvme_io_identify (struct nvme_host *host,
-		      u32 nsid,
-		      phys_t pagebuf,
-		      u8 cns, u16 controller_id,
-		      nvme_io_req_callback_t callback,
-		      void *arg);
+nvme_io_error_t
+nvme_io_read_request (struct nvme_host *host,
+		      struct nvme_io_descriptor *io_desc, u16 queue_id,
+		      nvme_io_req_callback_t callback, void *arg,
+		      struct nvme_io_req_handle **req_handle);
 
-/* Return 1 if it succeeds */
-int nvme_io_get_n_queues (struct nvme_host *host,
-			  nvme_io_req_callback_t callback,
-			  void *arg);
+nvme_io_error_t
+nvme_io_write_request (struct nvme_host *host,
+		       struct nvme_io_descriptor *io_desc, u16 queue_id,
+		       nvme_io_req_callback_t callback, void *arg,
+		       struct nvme_io_req_handle **req_handle);
+
+nvme_io_error_t
+nvme_io_flush_request (struct nvme_host *host, u32 nsid, u16 queue_id,
+		       nvme_io_req_callback_t callback, void *arg,
+		       struct nvme_io_req_handle **req_handle);
+
+nvme_io_error_t nvme_io_destroy_handle (struct nvme_io_req_handle *req_handle);
+
+/* If timeout_sec is 0, it means no timeout */
+nvme_io_error_t
+nvme_io_wait_for_completion (struct nvme_io_req_handle *req_handle,
+			     uint timeout_sec);
+
+/* Polling */
+nvme_io_error_t nvme_io_identify (struct nvme_host *host, u32 nsid,
+				  phys_t pagebuf, u8 cns, u16 controller_id);
+
+/* Polling */
+nvme_io_error_t nvme_io_get_n_queues (struct nvme_host *host,
+				      u16 *n_subm_queues,
+				      u16 *n_comp_queues);
 
 /* ----- End I/O related functions ----- */
 
 /* ----- Start extension related functions ----- */
 
 void nvme_io_register_ext (char *name,
-			   int (*init) (struct nvme_host *host));
+			   nvme_io_error_t (*init) (struct nvme_host *host));
 
 /* ----- End extension related functions ----- */
 

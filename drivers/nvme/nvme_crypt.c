@@ -71,14 +71,19 @@ static int
 init (void *interceptor)
 {
 	struct nvme_crypt_meta *crypt_meta = interceptor;
+	nvme_io_error_t error;
 
 	if (crypt_meta->devices) {
 		printf ("NVMe encryption extension is already initialized\n");
 		goto end;
 	}
 
-	uint n_ns = nvme_io_get_n_ns (crypt_meta->host);
-	ASSERT (n_ns > 0);
+	uint n_ns;
+	error = nvme_io_get_n_ns (crypt_meta->host, &n_ns);
+	if (error) {
+		printf ("Cannot get number of namespace, error 0x%X\n", error);
+		goto end;
+	}
 
 	crypt_meta->devices = alloc (sizeof (void *) * n_ns);
 
@@ -118,11 +123,14 @@ buffer_hook (struct nvme_crypt_meta *crypt_meta,
 	     struct req_meta *req_meta,
 	     int write)
 {
+	nvme_io_error_t error;
+
 	u32 nsid = req_meta->nsid;
 	u32 device_id = nsid - 1; /* nsid starts from 1 */
 
-	uint lba_nbytes = nvme_io_get_lba_nbytes (crypt_meta->host,
-						  nsid);
+	u32 lba_nbytes;
+	error = nvme_io_get_lba_nbytes (crypt_meta->host, nsid, &lba_nbytes);
+	ASSERT (!error);
 	uint nbytes = req_meta->n_lbas * lba_nbytes;
 
 	if (write) {
@@ -194,21 +202,29 @@ intercept_rw (struct nvme_crypt_meta *crypt_meta,
 	      u16 n_lbas,
 	      int write)
 {
+	nvme_io_error_t error;
+
 	crypt_meta->n_intercepted_reqs++;
 
-	uint lba_nbytes = nvme_io_get_lba_nbytes (crypt_meta->host, nsid);
+	u32 lba_nbytes;
+	error = nvme_io_get_lba_nbytes (crypt_meta->host, nsid, &lba_nbytes);
+	ASSERT (!error);
 	uint nbytes = n_lbas * lba_nbytes;
 
 	struct nvme_io_dmabuf *dmabuf;
 	dmabuf = nvme_io_alloc_dmabuf (nbytes);
+	ASSERT (dmabuf);
 
-	int success;
-	success = nvme_io_set_shadow_buffer (g_req, dmabuf);
-	ASSERT (success);
+	error = nvme_io_set_shadow_buffer (g_req, dmabuf);
+	ASSERT (!error);
+
+	struct nvme_io_g_buf *g_buf;
+	g_buf = nvme_io_alloc_g_buf (crypt_meta->host, g_req);
+	ASSERT (g_buf);
 
 	struct req_meta *req_meta = alloc (sizeof (*req_meta));
 	req_meta->g_req = g_req;
-	req_meta->g_buf = nvme_io_alloc_g_buf (crypt_meta->host, g_req);
+	req_meta->g_buf = g_buf;
 	req_meta->dmabuf = dmabuf;
 	req_meta->start_lba = start_lba;
 	req_meta->nsid = nsid;
@@ -222,9 +238,8 @@ intercept_rw (struct nvme_crypt_meta *crypt_meta,
 	cb_data->crypt_meta = crypt_meta;
 	cb_data->req_meta = req_meta;
 
-	nvme_io_set_req_callback (g_req,
-				  req_callback,
-				  cb_data);
+	error = nvme_io_set_g_req_callback (g_req, req_callback, cb_data);
+	ASSERT (!error);
 }
 
 static void
@@ -319,7 +334,7 @@ get_fetching_limit (void *interceptor,
 	return FETCHING_THRESHOLD - n_intercepted_reqs;
 }
 
-static int
+static nvme_io_error_t
 install_nvme_crypt (struct nvme_host *host)
 {
 	struct nvme_crypt_meta *crypt_meta = alloc (sizeof (*crypt_meta));

@@ -34,6 +34,7 @@
  */
 
 #include <core.h>
+#include <core/thread.h>
 #include <core/time.h>
 
 #include "nvme.h"
@@ -101,6 +102,10 @@ nvme_update_comp_db (struct nvme_host *host, u16 comp_queue_id)
 #define CNS_NS_DATA	    (0x0)
 #define CNS_CONTROLLER_DATA (0x1)
 
+/* For Identify command with CNS_CONTROLLER_DATA */
+#define IDENTIFY_GET_N_NS(data)	  (*(u32 *)(&(data)[516]))
+
+/* For Identify command with CNS_NS_DATA */
 #define IDENTIFY_GET_N_LBAS(data)	   (*(u64 *)(data))
 #define IDENTIFY_GET_FMT_IDX(data)	   ((data)[26] & 0xF)
 #define IDENTIFY_GET_META_LBA_ENDING(data) (((data)[26] >> 4) && 0x1)
@@ -111,88 +116,33 @@ nvme_update_comp_db (struct nvme_host *host, u16 comp_queue_id)
 #define LBA_FMT_GET_META_NBYTES(fmt) ((fmt) & 0xFFFF)
 #define LBA_FMT_GET_LBA_NBYTES(fmt)  (1 << (((fmt) >> 16) & 0xFF))
 
-struct ns_info_callback_data {
-	struct nvme_ns_meta *ns_meta;
+static void
+do_get_drive_info (void *arg)
+{
+	struct nvme_host *host = arg;
+	phys_t data_phys;
 	u8 *data;
-};
+	u32 nsid;
+	nvme_io_error_t error;
 
-static void
-nvme_get_ns_info (struct nvme_host *host,
-		  u8 status_type,
-		  u8 status,
-		  u32 cmd_specific,
-		  void *arg)
-{
-	ASSERT (status_type == 0 && status == 0);
+	/* Get default number of queues first */
+	error = nvme_io_get_n_queues (host, &host->default_n_subm_queues,
+				      &host->default_n_comp_queues);
+	if (error)
+		panic ("nvme_io_get_n_queues() fails with code 0x%X", error);
+	dprintf (NVME_ETC_DEBUG, "Default number of submission queues: %u\n",
+		 host->default_n_subm_queues);
+	dprintf (NVME_ETC_DEBUG, "Default number of completion queues: %u\n",
+		 host->default_n_comp_queues);
 
-	struct ns_info_callback_data *cb_data = arg;
-
-	struct nvme_ns_meta *ns_meta = cb_data->ns_meta;
-	u8 *data = cb_data->data;
-
-	free (cb_data);
-
-	ns_meta->n_lbas = IDENTIFY_GET_N_LBAS (data);
-
-	u8 lba_fmt_idx = IDENTIFY_GET_FMT_IDX (data);
-
-	u32 lba_format = IDENTIFY_GET_LBA_FMT_BASE (data)[lba_fmt_idx];
-
-	ns_meta->lba_nbytes  = LBA_FMT_GET_LBA_NBYTES (lba_format);
-	ns_meta->meta_nbytes = LBA_FMT_GET_META_NBYTES (lba_format);
-
-	ns_meta->meta_lba_ending = IDENTIFY_GET_META_LBA_ENDING (data);
-
-	free (data);
-
-	dprintf (NVME_ETC_DEBUG, "NSID: %u\n", ns_meta->nsid);
-	dprintf (NVME_ETC_DEBUG, "#LBAs: %llu\n", ns_meta->n_lbas);
-	dprintf (NVME_ETC_DEBUG, "LBA nbytes: %llu\n", ns_meta->lba_nbytes);
-	dprintf (NVME_ETC_DEBUG, "Meta nbytes: %u\n", ns_meta->meta_nbytes);
-	dprintf (NVME_ETC_DEBUG, "Meta LBA ending: %u\n",
-		 ns_meta->meta_lba_ending);
-	dprintf (NVME_ETC_DEBUG, "End-to-end data protection capability: %x\n",
-		 IDENTIFY_GET_DPC (data));
-	dprintf (NVME_ETC_DEBUG, "End-to-end data protection settings: %x\n",
-		 IDENTIFY_GET_DPS (data));
-
-	if (ns_meta->nsid < host->n_ns) {
-		u32 nsid = ns_meta->nsid + 1;
-
-		phys_t data_phys;
-		u8 *ns_data = alloc2 (host->page_nbytes, &data_phys);
-
-		struct ns_info_callback_data *cb_data;
-		cb_data = alloc (sizeof (*cb_data));
-		cb_data->ns_meta = &host->ns_metas[nsid];
-		cb_data->data = ns_data;
-
-		nvme_io_identify (host,
-				  nsid,
-				  data_phys,
-				  CNS_NS_DATA,
-				  host->id,
-				  nvme_get_ns_info,
-				  cb_data);
-
-		return;
-	}
-
-	host->pause_fetching_g_reqs = 0;
-}
-
-#define IDENTIFY_GET_N_NS(data)	  (*(u32 *)(&(data)[516]))
-
-static void
-nvme_get_n_ns (struct nvme_host *host,
-	       u8 status_type,
-	       u8 status,
-	       u32 cmd_specific,
-	       void *arg)
-{
-	ASSERT (status_type == 0 && status == 0);
-
-	u8 *data = arg;
+	/* Get maximum data transfer size and number of namespace next */
+	nsid = 0;
+	data = alloc2 (host->page_nbytes, &data_phys);
+	error = nvme_io_identify (host, nsid, data_phys, CNS_CONTROLLER_DATA,
+				  host->id);
+	if (error)
+		panic ("CNS_CONTROLLER_DATA nvme_io_identify() fails "
+		       "with code 0x%X", error);
 
 	host->max_data_transfer = 1 << (12 + data[77]);
 	if (data[77] == 0 || data[77] > 8)
@@ -209,78 +159,50 @@ nvme_get_n_ns (struct nvme_host *host,
 	/* NSID starts from 1. So allocate n_ns + 1 */
 	host->ns_metas = zalloc (NVME_NS_META_NBYTES * (host->n_ns + 1));
 
-	uint nsid;
-	for (nsid = 1; nsid <= host->n_ns; nsid++)
-		host->ns_metas[nsid].nsid = nsid;
-
-	/*
-	 * Start IDENTIFY commands for namespace info recursively.
-	 * One command at a time.
-	 */
-	nsid = 1;
-
-	phys_t data_phys;
-	u8 *ns_data = alloc2 (host->page_nbytes, &data_phys);
-
-	struct ns_info_callback_data *cb_data;
-	cb_data = alloc (sizeof (*cb_data));
-	cb_data->ns_meta = &host->ns_metas[nsid];
-	cb_data->data = ns_data;
-
-	nvme_io_identify (host,
-			  nsid,
-			  data_phys,
-			  CNS_NS_DATA,
-			  host->id,
-			  nvme_get_ns_info,
-			  cb_data);
+	/* Send Identify commands for namespaces one at a time */
+	for (nsid = 1; nsid <= host->n_ns; nsid++) {
+		struct nvme_ns_meta *ns_meta = &host->ns_metas[nsid];
+		u8 lba_fmt_idx;
+		u32 lba_format;
+		error = nvme_io_identify (host, nsid, data_phys, CNS_NS_DATA,
+					  host->id);
+		if (error)
+			panic ("CNS_NS_DATA nvme_io_identify() fails "
+			       "with code 0x%X", error);
+		lba_fmt_idx = IDENTIFY_GET_FMT_IDX (data);
+		lba_format = IDENTIFY_GET_LBA_FMT_BASE (data)[lba_fmt_idx];
+		ns_meta->nsid = nsid;
+		ns_meta->n_lbas = IDENTIFY_GET_N_LBAS (data);
+		ns_meta->lba_nbytes  = LBA_FMT_GET_LBA_NBYTES (lba_format);
+		ns_meta->meta_nbytes = LBA_FMT_GET_META_NBYTES (lba_format);
+		ns_meta->meta_lba_ending = IDENTIFY_GET_META_LBA_ENDING (data);
+		dprintf (NVME_ETC_DEBUG, "NSID: %u\n", ns_meta->nsid);
+		dprintf (NVME_ETC_DEBUG, "#LBAs: %llu\n", ns_meta->n_lbas);
+		dprintf (NVME_ETC_DEBUG, "LBA nbytes: %u\n",
+			 ns_meta->lba_nbytes);
+		dprintf (NVME_ETC_DEBUG, "Meta nbytes: %u\n",
+			 ns_meta->meta_nbytes);
+		dprintf (NVME_ETC_DEBUG, "Meta LBA ending: %u\n",
+			 ns_meta->meta_lba_ending);
+		dprintf (NVME_ETC_DEBUG,
+			 "End-to-end data protection capability: %x\n",
+			 IDENTIFY_GET_DPC (data));
+		dprintf (NVME_ETC_DEBUG,
+			 "End-to-end data protection settings: %x\n",
+			 IDENTIFY_GET_DPS (data));
+	}
 
 	free (data);
-}
-
-static void
-nvme_get_default_n_queues (struct nvme_host *host,
-			   u8 status_type,
-			   u8 status,
-			   u32 cmd_specific,
-			   void *arg)
-{
-	/* Values are 0 based, need to plus 1 */
-	host->default_n_subm_queues =
-		NVME_SET_FEATURE_N_SUBM_QUEUES (cmd_specific) + 1;
-	host->default_n_comp_queues =
-		NVME_SET_FEATURE_N_COMP_QUEUES (cmd_specific) + 1;
-
-	dprintf (NVME_ETC_DEBUG,
-		 "Default number of submission queues: %u\n",
-		 host->default_n_subm_queues);
-	dprintf (NVME_ETC_DEBUG,
-		 "Default number of completion queues: %u\n",
-		 host->default_n_comp_queues);
-
-	/* Get numbers of namespace next */
-	phys_t data_phys;
-	u8 *ctrl_data = alloc2 (host->page_nbytes, &data_phys);
-
-	u32 nsid = 0;
-
-	nvme_io_identify (host,
-			  nsid,
-			  data_phys,
-			  CNS_CONTROLLER_DATA,
-			  host->id,
-			  nvme_get_n_ns,
-			  ctrl_data);
+	host->pause_fetching_g_reqs = 0;
+	thread_exit ();
 }
 
 void
 nvme_get_drive_info (struct nvme_host *host)
 {
 	ASSERT (host);
-
 	host->pause_fetching_g_reqs = 1;
-
-	nvme_io_get_n_queues (host, nvme_get_default_n_queues, NULL);
+	thread_new (do_get_drive_info, host, VMM_STACKSIZE);
 }
 
 void
@@ -622,11 +544,24 @@ end:
 }
 
 void
-nvme_free_request (struct nvme_request_hub *hub, struct nvme_request *req)
+nvme_free_request (struct nvme_host *host, struct nvme_request_hub *hub,
+		   struct nvme_request *req)
 {
 	ASSERT (req);
 	if (!req->is_h_req && req->pause)
 		panic ("%s: paused request cannot be freed", __func__);
+
+	/*
+	 * If callback still exists, call them for memory management. If this
+	 * case happens it means that the request has not been processed.
+	 */
+	spinlock_lock (&req->callback_lock);
+	if (req->callback) {
+		req->callback (host, NULL, req);
+		req->callback = NULL;
+		req->arg = NULL;
+	}
+	spinlock_unlock (&req->callback_lock);
 
 	spinlock_lock (&hub->lock);
 
@@ -673,7 +608,7 @@ nvme_add_subm_slot (struct nvme_host *host,
 }
 
 static void
-free_subm_slot (struct nvme_request_hub *hub,
+free_subm_slot (struct nvme_host *host, struct nvme_request_hub *hub,
 		struct nvme_subm_slot *subm_slot)
 {
 	struct nvme_request *req, *next_req;
@@ -681,14 +616,14 @@ free_subm_slot (struct nvme_request_hub *hub,
 	req = subm_slot->queuing_h_reqs;
 	while (req) {
 		next_req = req->next;
-		nvme_free_request (hub, req);
+		nvme_free_request (host, hub, req);
 		req = next_req;
 	}
 
 	req = subm_slot->queuing_g_reqs;
 	while (req) {
 		next_req = req->next;
-		nvme_free_request (hub, req);
+		nvme_free_request (host, hub, req);
 		req = next_req;
 	}
 
@@ -699,7 +634,7 @@ free_subm_slot (struct nvme_request_hub *hub,
 		for (i = 0; i < n_slots; i++) {
 			req = subm_slot->req_slot[i];
 			if (req)
-				nvme_free_request (hub, req);
+				nvme_free_request (host, hub, req);
 		}
 
 		free (subm_slot->req_slot);
@@ -737,7 +672,7 @@ free_req_hub (struct nvme_host *host, uint comp_queue_id)
 
 	while (subm_slot) {
 		next_subm_slot = subm_slot->next;
-		free_subm_slot (hub, subm_slot);
+		free_subm_slot (host, hub, subm_slot);
 		subm_slot = next_subm_slot;
 	}
 
@@ -781,7 +716,7 @@ remove_subm_slot (struct nvme_host *host,
 
 	ASSERT (subm_slot);
 
-	free_subm_slot (hub, subm_slot);
+	free_subm_slot (host, hub, subm_slot);
 }
 
 static void

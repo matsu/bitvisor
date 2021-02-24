@@ -348,6 +348,7 @@ struct nvme_request {
 		     struct nvme_comp *comp,
 		     struct nvme_request *req);
 	void *arg;
+	void *h_callback_data;
 
 	u64 lba_start;
 	u64 total_nbytes;
@@ -361,6 +362,7 @@ struct nvme_request {
 
 	u8  is_h_req;
 	u8  pause;
+	spinlock_t callback_lock;
 };
 #define NVME_REQUEST_NBYTES (sizeof (struct nvme_request))
 
@@ -428,7 +430,7 @@ struct nvme_queue {
 
 struct nvme_ns_meta {
 	u64 n_lbas;
-	u64 lba_nbytes;
+	u32 lba_nbytes;
 
 	u32 nsid;
 
@@ -528,8 +530,10 @@ struct nvme_data {
 };
 #define NVME_DATA_NBYTES (sizeof (struct nvme_data))
 
+typedef enum _nvme_io_error_t nvme_io_error_t;
+
 void nvme_register_ext (char *name,
-			int (*init) (struct nvme_host *host));
+			nvme_io_error_t (*init) (struct nvme_host *host));
 
 uint nvme_try_process_requests (struct nvme_host *host, u16 queue_id);
 
@@ -566,7 +570,7 @@ void nvme_register_request (struct nvme_host *host,
 
 void nvme_submit_queuing_requests (struct nvme_host *host, u16 queue_id);
 
-void nvme_free_request (struct nvme_request_hub *hub,
+void nvme_free_request (struct nvme_host *host, struct nvme_request_hub *hub,
 			struct nvme_request *req);
 
 void nvme_add_subm_slot (struct nvme_host *host,

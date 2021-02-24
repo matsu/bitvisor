@@ -206,8 +206,13 @@ process_admin_comp (struct nvme_host *host,
 	struct nvme_cmd *h_admin_cmd = &req->cmd.std;
 
 	if (req->is_h_req) {
-		if (req->callback)
+		spinlock_lock (&req->callback_lock);
+		if (req->callback) {
 			req->callback (host, h_admin_comp, req);
+			req->callback = NULL;
+			req->arg = NULL;
+		}
+		spinlock_unlock (&req->callback_lock);
 		return;
 	}
 
@@ -276,8 +281,13 @@ process_io_comp (struct nvme_host *host,
 			 comp->queue_id, status_type, status, cmd->opcode);
 	}
 
-	if (req->callback)
+	spinlock_lock (&req->callback_lock);
+	if (req->callback) {
 		req->callback (host, comp, req);
+		req->callback = NULL;
+		req->arg = NULL;
+	}
+	spinlock_unlock (&req->callback_lock);
 }
 
 static u16
@@ -394,7 +404,7 @@ process_comp_queue (struct nvme_host *host,
 		h_subm_queue_info->cur_pos.head = h_comp->queue_head;
 		spinlock_unlock (&hub->lock);
 
-		nvme_free_request (hub, req);
+		nvme_free_request (host, hub, req);
 	}
 
 	if (first_g_comp) {

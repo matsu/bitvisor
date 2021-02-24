@@ -34,9 +34,13 @@
  */
 
 #include <core.h>
+#include <core/thread.h>
+#include <core/time.h>
 
 #include "nvme.h"
 #include "nvme_io.h"
+
+#define CMD_TIMEOUT 2 /* seconds */
 
 struct nvme_io_descriptor {
 	phys_t buf_phys1;
@@ -47,34 +51,56 @@ struct nvme_io_descriptor {
 	u32 nsid;
 
 	u16 n_lbas;
-	u16 queue_id;
 };
-#define NVME_IO_DESCRIPTOR_NBYTES (sizeof (struct nvme_io_descriptor))
 
-struct intercept_callback {
+struct req_callback_data {
 	nvme_io_req_callback_t callback;
 	void *arg;
 };
-#define INTERCEPT_CALLBACK_NBYTES (sizeof (struct intercept_callback))
+
+struct nvme_io_req_handle {
+	struct nvme_request *reqs, **next;
+	uint remaining_n_reqs;
+	u16 queue_id;
+	spinlock_t lock;
+	bool submitted;
+	bool io_error;
+	bool done;
+};
 
 static void
-req_callback (struct nvme_host *host,
-	      struct nvme_comp *comp,
-	      struct nvme_request *req)
+do_call_callback (struct nvme_host *host, struct nvme_comp *comp,
+		  struct req_callback_data *cb)
 {
-	struct intercept_callback *cb = req->arg;
+	u32 cmd_specific;
+	u8 status_type, status;
 
-	u8 status_type = NVME_COMP_GET_STATUS_TYPE (comp);
-	u8 status      = NVME_COMP_GET_STATUS (comp);
+	if (!cb)
+		return;
+	/*
+	 * If comp is NULL, it means that the request is not complete. Treat
+	 * this kind of request as if an error happens.
+	 */
+	if (comp) {
+		cmd_specific = comp->cmd_specific;
+		status_type = NVME_COMP_GET_STATUS_TYPE (comp);
+		status = NVME_COMP_GET_STATUS (comp);
+	} else {
+		cmd_specific = 0;
+		status_type = 0xFF;
+		status = 0xFF;
+	}
 
-	if (cb)
-		cb->callback (host,
-			      status_type,
-			      status,
-			      comp->cmd_specific,
-			      cb->arg);
-
+	cb->callback (host, status_type, status, cmd_specific, cb->arg);
 	free (cb);
+}
+
+static void
+guest_req_callback (struct nvme_host *host, struct nvme_comp *comp,
+		    struct nvme_request *req)
+{
+	struct req_callback_data *cb = req->arg;
+	do_call_callback (host, comp, cb);
 }
 
 /* ----- Start buffer related functions ----- */
@@ -82,7 +108,8 @@ req_callback (struct nvme_host *host,
 struct nvme_io_dmabuf *
 nvme_io_alloc_dmabuf (u64 nbytes)
 {
-	ASSERT (nbytes > 0);
+	if (nbytes == 0)
+		return NULL;
 
 	struct nvme_io_dmabuf *new_dmabuf;
 	new_dmabuf = alloc (sizeof (*new_dmabuf));
@@ -130,12 +157,12 @@ struct g_buf_list {
 	u64 nbytes;
 	struct g_buf_list *next;
 };
-#define G_BUF_LIST_NBYTES (sizeof (struct g_buf_list))
 
 static struct g_buf_list *
 alloc_g_buf_list (void)
 {
-	struct g_buf_list *buf_list = alloc (G_BUF_LIST_NBYTES);
+	struct g_buf_list *buf_list;
+	buf_list = alloc (sizeof *buf_list);
 	buf_list->next = NULL;
 	return buf_list;
 }
@@ -144,13 +171,21 @@ struct nvme_io_g_buf {
 	struct g_buf_list *buf_list;
 	u64 total_nbytes;
 };
-#define NVME_IO_G_BUF_NBYTES (sizeof (struct nvme_io_g_buf))
+
+static inline bool
+verify_g_req (struct nvme_request *g_req)
+{
+	return g_req && !g_req->is_h_req;
+}
 
 struct nvme_io_g_buf *
-nvme_io_alloc_g_buf (struct nvme_host *host,
-		     struct nvme_request *g_req)
+nvme_io_alloc_g_buf (struct nvme_host *host, struct nvme_request *g_req)
 {
-	struct nvme_io_g_buf *g_buf = alloc (NVME_IO_G_BUF_NBYTES);
+	if (!host || !verify_g_req (g_req))
+		return NULL;
+
+	struct nvme_io_g_buf *g_buf;
+	g_buf = alloc (sizeof *g_buf);
 	g_buf->total_nbytes = g_req->total_nbytes;
 
 	phys_t g_ptr1_phys = g_req->g_data_ptr.prp_entry.ptr1;
@@ -265,14 +300,16 @@ nvme_io_free_g_buf (struct nvme_io_g_buf *g_buf)
 	free (g_buf);
 }
 
-void
+nvme_io_error_t
 nvme_io_memcpy_g_buf (struct nvme_io_g_buf *g_buf,
 		      u8 *buf,
 		      u64 buf_nbytes,
 		      u64 g_buf_offset,
 		      int g_buf_to_buf)
 {
-	ASSERT (g_buf);
+	if (!g_buf || !buf)
+		return NVME_IO_ERROR_NO_OPERATION;
+
 	struct g_buf_list *cur_buf_list = g_buf->buf_list;
 
 	u64 remaining_nbytes = buf_nbytes;
@@ -299,7 +336,7 @@ nvme_io_memcpy_g_buf (struct nvme_io_g_buf *g_buf,
 	cur_buf_list = cur_buf_list->next;
 
 	if (remaining_nbytes == 0)
-		return;
+		goto end;
 
 	while (cur_buf_list && remaining_nbytes != 0) {
 		nbytes = cur_buf_list->nbytes;
@@ -317,15 +354,19 @@ nvme_io_memcpy_g_buf (struct nvme_io_g_buf *g_buf,
 	}
 
 	ASSERT (remaining_nbytes == 0);
+end:
+	return NVME_IO_ERROR_OK;
 }
 
-void
+nvme_io_error_t
 nvme_io_memset_g_buf (struct nvme_io_g_buf *g_buf,
 		      u8  value,
 		      u64 buf_nbytes,
 		      u64 g_buf_offset)
 {
-	ASSERT (g_buf);
+	if (!g_buf)
+		return NVME_IO_ERROR_NO_OPERATION;
+
 	struct g_buf_list *cur_buf_list = g_buf->buf_list;
 
 	u64 remaining_nbytes = buf_nbytes;
@@ -348,7 +389,7 @@ nvme_io_memset_g_buf (struct nvme_io_g_buf *g_buf,
 	cur_buf_list = cur_buf_list->next;
 
 	if (remaining_nbytes == 0)
-		return;
+		goto end;
 
 	while (cur_buf_list && remaining_nbytes != 0) {
 		nbytes = cur_buf_list->nbytes;
@@ -362,132 +403,204 @@ nvme_io_memset_g_buf (struct nvme_io_g_buf *g_buf,
 	}
 
 	ASSERT (remaining_nbytes == 0);
+end:
+	return NVME_IO_ERROR_OK;
 }
 
 /* ----- End buffer related functions ----- */
 
 /* ----- Start NVMe host controller driver related functions ----- */
 
-int
+nvme_io_error_t
 nvme_io_host_ready (struct nvme_host *host)
 {
-	return host->io_ready && host->enable;
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+	return (host->io_ready && host->enable) ? NVME_IO_ERROR_OK :
+	       NVME_IO_ERROR_NOT_READY;
 }
 
-struct pci_device *
-nvme_io_get_pci_device (struct nvme_host *host)
+nvme_io_error_t
+nvme_io_get_pci_device (struct nvme_host *host, struct pci_device **pci)
 {
-	return host->pci;
+	if (!pci)
+		return NVME_IO_ERROR_NO_OPERATION;
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	*pci = host->pci;
+
+	return NVME_IO_ERROR_OK;
 }
 
-int
+nvme_io_error_t
 nvme_io_install_interceptor (struct nvme_host *host,
 			     struct nvme_io_interceptor *io_interceptor)
 {
 	if (host->io_interceptor) {
 		printf ("An interceptor has already been installed\n");
-		return 0;
+		return NVME_IO_ERROR_INTERNAL_ERROR;
 	}
 
 	if (!io_interceptor) {
 		printf ("io_interceptor not found\n");
-		return 0;
+		return NVME_IO_ERROR_INVALID_PARAM;
 	}
 
 	host->io_interceptor = io_interceptor;
 	host->serialize_queue_fetch = io_interceptor->serialize_queue_fetch;
 
-	return 1;
+	return NVME_IO_ERROR_OK;
 }
 
-void
+nvme_io_error_t
 nvme_io_start_fetching_g_reqs (struct nvme_host *host)
 {
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
 	host->pause_fetching_g_reqs = 0;
+
+	return NVME_IO_ERROR_OK;
 }
 
-u32
-nvme_io_get_n_ns (struct nvme_host *host)
+nvme_io_error_t
+nvme_io_get_n_ns (struct nvme_host *host, u32 *n_ns)
 {
-	return host->n_ns;
+	if (!n_ns)
+		return NVME_IO_ERROR_NO_OPERATION;
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+	if (host->n_ns == 0)
+		return NVME_IO_ERROR_NOT_READY;
+
+	*n_ns = host->n_ns;
+
+	return NVME_IO_ERROR_OK;
 }
 
-u64
-nvme_io_get_total_lbas (struct nvme_host *host, u32 nsid)
+nvme_io_error_t
+nvme_io_get_total_lbas (struct nvme_host *host, u32 nsid, u64 *total_lbas)
 {
+	struct nvme_ns_meta *ns_metas;
+
+	if (!total_lbas)
+		return NVME_IO_ERROR_NO_OPERATION;
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+	if (host->n_ns == 0)
+		return NVME_IO_ERROR_NOT_READY;
 	if (nsid == 0 || nsid > host->n_ns)
-		return 0;
+		return NVME_IO_ERROR_INVALID_PARAM;
 
-	return host->ns_metas[nsid].n_lbas;
-}
-
-u64
-nvme_io_get_lba_nbytes (struct nvme_host *host, u32 nsid)
-{
-	if (nsid == 0 || nsid > host->n_ns)
-		return 0;
-
-	struct nvme_ns_meta *ns_metas = host->ns_metas;
+	ns_metas = host->ns_metas;
 	if (!ns_metas)
-		return 0;
-	return ns_metas[nsid].lba_nbytes;
+		return NVME_IO_ERROR_NOT_READY;
+
+	*total_lbas = ns_metas[nsid].n_lbas;
+
+	return NVME_IO_ERROR_OK;
 }
 
-u16
-nvme_io_get_max_n_lbas (struct nvme_host *host, u32 nsid)
+nvme_io_error_t
+nvme_io_get_lba_nbytes (struct nvme_host *host, u32 nsid, u32 *lba_nbytes)
 {
-	uint lba_nbytes = nvme_io_get_lba_nbytes (host, nsid);
+	struct nvme_ns_meta *ns_metas;
 
-	ASSERT (lba_nbytes != 0);
+	if (!lba_nbytes)
+		return NVME_IO_ERROR_NO_OPERATION;
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+	if (host->n_ns == 0)
+		return NVME_IO_ERROR_NOT_READY;
+	if (nsid == 0 || nsid > host->n_ns)
+		return NVME_IO_ERROR_INVALID_PARAM;
 
-	return (uint)host->max_data_transfer / lba_nbytes;
+	ns_metas = host->ns_metas;
+	if (!ns_metas)
+		return NVME_IO_ERROR_NOT_READY;
+
+	*lba_nbytes = ns_metas[nsid].lba_nbytes;
+
+	return NVME_IO_ERROR_OK;
+}
+
+nvme_io_error_t
+nvme_io_get_max_n_lbas (struct nvme_host *host, u32 nsid, u16 *max_n_lbas)
+{
+	u32 lba_nbytes;
+	nvme_io_error_t error;
+
+	if (!max_n_lbas)
+		return NVME_IO_ERROR_NO_OPERATION;
+
+	error = nvme_io_get_lba_nbytes (host, nsid, &lba_nbytes);
+	if (error)
+		return error;
+
+	*max_n_lbas = (uint)host->max_data_transfer / lba_nbytes;
+
+	return NVME_IO_ERROR_OK;
 }
 
 /* ----- End NVMe host controller driver related functions ----- */
 
 /* ----- Start NVMe guest request related functions ----- */
 
-void
+nvme_io_error_t
 nvme_io_pause_guest_request (struct nvme_request *g_req)
 {
+	if (!verify_g_req (g_req))
+		return NVME_IO_ERROR_INVALID_PARAM;
 	g_req->pause = 1;
+	return NVME_IO_ERROR_OK;
 }
 
-int
+nvme_io_error_t
 nvme_io_patch_start_lba (struct nvme_host *host,
 			 struct nvme_request *g_req,
 			 u64 new_start_lba)
 {
+	if (!host || !verify_g_req (g_req))
+		return NVME_IO_ERROR_INVALID_PARAM;
+
 	struct nvme_cmd *cmd = &g_req->cmd.std;
 
 	u64 total_lbas = host->ns_metas[cmd->nsid].n_lbas;
 
 	/* Sanity check */
 	if (new_start_lba + g_req->n_lbas > total_lbas)
-		return 0;
+		return NVME_IO_ERROR_INVALID_PARAM;
 
 	u64 *start_lba = (u64 *)&cmd->cmd_flags[0];
 	*start_lba = new_start_lba;
 
-	return 1;
+	return NVME_IO_ERROR_OK;
 }
 
-void
+nvme_io_error_t
 nvme_io_resume_guest_request (struct nvme_host *host,
 			      struct nvme_request *g_req,
-			      int trigger_submit)
+			      bool trigger_submit)
 {
+	if (!host || !verify_g_req (g_req))
+		return NVME_IO_ERROR_INVALID_PARAM;
+
 	g_req->pause = 0;
 
 	if (trigger_submit)
 		nvme_submit_queuing_requests (host, g_req->queue_id);
+
+	return NVME_IO_ERROR_OK;
 }
 
-void
+nvme_io_error_t
 nvme_io_change_g_req_to_dummy_read (struct nvme_request *g_req,
 				    phys_t dummy_buf,
 				    u64 dummy_lba)
 {
+	if (!verify_g_req (g_req))
+		return NVME_IO_ERROR_INVALID_PARAM;
 	/*
 	 * XXX: The reason we have to keep allocating an unnecessary
 	 * buffer is Apple NVMe controller. Keep reusing the same buffer
@@ -509,42 +622,51 @@ nvme_io_change_g_req_to_dummy_read (struct nvme_request *g_req,
 	g_cmd->cmd_flags[3] = 0;
 	g_cmd->cmd_flags[4] = 0;
 	g_cmd->cmd_flags[5] = 0;
+
+	return NVME_IO_ERROR_OK;
 }
 
-u16
-nvme_io_req_queue_id (struct nvme_request *g_req)
+nvme_io_error_t
+nvme_io_req_queue_id (struct nvme_request *g_req, u16 *queue_id)
 {
-	ASSERT (g_req);
-	return g_req->queue_id;
+	if (!queue_id)
+		return NVME_IO_ERROR_NO_OPERATION;
+	if (!verify_g_req (g_req))
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	*queue_id = g_req->queue_id;
+
+	return NVME_IO_ERROR_OK;
 }
 
-void
-nvme_io_set_req_callback (struct nvme_request *req,
-			  nvme_io_req_callback_t callback,
-			  void *arg)
+nvme_io_error_t
+nvme_io_set_g_req_callback (struct nvme_request *g_req,
+			    nvme_io_req_callback_t callback, void *arg)
 {
-	if (callback) {
-		struct intercept_callback *cb;
-		cb = zalloc (INTERCEPT_CALLBACK_NBYTES);
+	struct req_callback_data *cb;
 
-		cb->callback = callback;
-		cb->arg	     = arg;
+	if (!callback)
+		return NVME_IO_ERROR_NO_OPERATION;
+	if (!verify_g_req (g_req))
+		return NVME_IO_ERROR_INVALID_PARAM;
 
-		req->callback = req_callback;
-		req->arg      = cb;
-	}
+	cb = alloc (sizeof *cb);
+	cb->callback = callback;
+	cb->arg = arg;
+
+	g_req->callback = guest_req_callback;
+	g_req->arg = cb;
+
+	return NVME_IO_ERROR_OK;
 }
 
-int
+nvme_io_error_t
 nvme_io_set_shadow_buffer (struct nvme_request *g_req,
 			   struct nvme_io_dmabuf *dmabuf)
 {
-	if (!g_req || !dmabuf)
-		return 0;
-	if (g_req->total_nbytes != dmabuf->nbytes) {
-		printf ("Shadow buffer size mismatch\n");
-		return 0;
-	}
+	if (!dmabuf || !verify_g_req (g_req) ||
+	    g_req->total_nbytes != dmabuf->nbytes)
+		return NVME_IO_ERROR_INVALID_PARAM;
 
 	uint nbytes = dmabuf->nbytes;
 	uint n_pages = (nbytes + (PAGE_NBYTES - 1)) >> PAGE_NBYTES_DIV_EXPO;
@@ -567,7 +689,7 @@ nvme_io_set_shadow_buffer (struct nvme_request *g_req,
 					  sizeof (phys_t);
 	}
 end:
-	return 1;
+	return NVME_IO_ERROR_OK;
 }
 
 /* ----- End NVMe guest request related functions ----- */
@@ -577,31 +699,30 @@ end:
 struct nvme_io_descriptor *
 nvme_io_init_descriptor (struct nvme_host *host,
 			 u32 nsid,
-			 u16 queue_id,
 			 u64 lba_start,
 			 u16 n_lbas)
 {
-	if (nsid == 0 ||
-	    nsid > host->n_ns ||
-	    n_lbas == 0 ||
-	    queue_id == 0 ||
-	    queue_id > host->h_queue.max_n_subm_queues)
+	nvme_io_error_t error;
+	u16 max_n_lbas;
+
+	if (!host || nsid == 0 || nsid > host->n_ns || n_lbas == 0)
+		return NULL;
+
+	error = nvme_io_get_max_n_lbas (host, nsid, &max_n_lbas);
+	if (error || n_lbas > max_n_lbas)
 		return NULL;
 
 	struct nvme_io_descriptor *io_desc;
-	io_desc = zalloc (NVME_IO_DESCRIPTOR_NBYTES);
+	io_desc = zalloc (sizeof *io_desc);
 
 	io_desc->nsid	   = nsid;
-	io_desc->queue_id  = queue_id;
 	io_desc->lba_start = lba_start;
 	io_desc->n_lbas	   = n_lbas;
-
-	ASSERT (n_lbas <= nvme_io_get_max_n_lbas (host, nsid));
 
 	return io_desc;
 }
 
-int
+nvme_io_error_t
 nvme_io_set_phys_buffers (struct nvme_host *host,
 			  struct nvme_io_descriptor *io_desc,
 			  phys_t *pagebuf_arr,
@@ -616,14 +737,14 @@ nvme_io_set_phys_buffers (struct nvme_host *host,
 	    n_pages_accessed == 0 ||
 	    n_pages_accessed >= NVME_PRP_MAX_N_PAGES ||
 	    first_page_offset >= host->page_nbytes)
-		return 0;
+		return NVME_IO_ERROR_INVALID_PARAM;
 
 	uint i;
 	for (i = 0; i < n_pages_accessed; i++) {
 		/* Every entry should be page aligned and not empty */
 		if (pagebuf_arr[i] == 0x0 ||
 		    pagebuf_arr[i] & ~host->page_mask)
-			return 0;
+			return NVME_IO_ERROR_INVALID_PARAM;
 	}
 
 	io_desc->buf_phys1 = pagebuf_arr[0] + first_page_offset;
@@ -635,7 +756,7 @@ nvme_io_set_phys_buffers (struct nvme_host *host,
 	else if (n_pages_accessed > 2)
 		io_desc->buf_phys2 = pagebuf_arr_phys + sizeof (phys_t);
 
-	return 1;
+	return NVME_IO_ERROR_OK;
 }
 
 struct nvme_io_descriptor *
@@ -646,22 +767,21 @@ nvme_io_g_buf_io_desc (struct nvme_host *host,
 		       u64 lba_start,
 		       u16 n_lbas)
 {
-	if (g_buf_offset >= g_req->total_nbytes) {
-		printf ("%s: Invalid g_buf_offset\n", __FUNCTION__);
+	if (!host || !g_req || !g_buf || g_buf_offset >= g_req->total_nbytes)
 		return NULL;
-	}
 
 	u32 nsid = g_req->cmd.std.nsid;
 
-	ASSERT (g_buf);
 	struct g_buf_list *cur_buf_list = g_buf->buf_list;
 
 	struct nvme_io_descriptor *io_desc;
 	io_desc = nvme_io_init_descriptor (host,
 					   nsid,
-				 	   g_req->queue_id,
 				 	   lba_start,
 				 	   n_lbas);
+
+	if (!io_desc)
+		return NULL;
 
 	while (g_buf_offset >= cur_buf_list->nbytes) {
 		g_buf_offset -= cur_buf_list->nbytes;
@@ -695,9 +815,45 @@ nvme_io_g_buf_io_desc (struct nvme_host *host,
 	return io_desc;
 }
 
+static void
+req_done (struct nvme_io_req_handle *req_handle)
+{
+	bool can_free;
+	spinlock_lock (&req_handle->lock);
+	can_free = req_handle->done;
+	req_handle->done = true;
+	spinlock_unlock (&req_handle->lock);
+	if (can_free)
+		free (req_handle);
+}
+
+static void
+host_req_callback (struct nvme_host *host, struct nvme_comp *comp,
+		   struct nvme_request *req)
+{
+	struct nvme_io_req_handle *req_handle = req->arg;
+	struct req_callback_data *cb = req->h_callback_data;
+	bool done, io_error = false;
+
+	ASSERT (req_handle && req_handle->remaining_n_reqs > 0);
+
+	spinlock_lock (&req_handle->lock);
+	do_call_callback (host, comp, cb);
+	req->h_callback_data = NULL;
+	if (comp)
+		io_error = NVME_COMP_GET_STATUS_TYPE (comp) != 0 ||
+			   NVME_COMP_GET_STATUS (comp) != 0;
+	req_handle->io_error = req_handle->io_error || io_error;
+	req_handle->remaining_n_reqs--;
+	done = req_handle->remaining_n_reqs == 0;
+	spinlock_unlock (&req_handle->lock);
+
+	if (done)
+		req_done (req_handle);
+}
+
 static struct nvme_request *
-alloc_host_base_request (nvme_io_req_callback_t callback,
-			 void *arg,
+alloc_host_base_request (struct nvme_io_req_handle *req_handle,
 			 uint cmd_nbytes)
 {
 	struct nvme_request *req = zalloc (NVME_REQUEST_NBYTES);
@@ -706,183 +862,461 @@ alloc_host_base_request (nvme_io_req_callback_t callback,
 	/* Important */
 	req->is_h_req = 1;
 
-	nvme_io_set_req_callback (req,
-				  callback,
-				  arg);
+	req->callback = host_req_callback;
+	req->arg      = req_handle;
+	spinlock_init (&req->callback_lock);
 
 	return req;
 }
 
-static int
-nvme_io_rw_request (struct nvme_host *host,
-		    u8 opcode,
-		    struct nvme_io_descriptor *io_desc,
-		    nvme_io_req_callback_t callback,
-		    void *arg)
+static nvme_io_error_t
+do_prepare_requests (struct nvme_host *host, u16 queue_id,
+		     struct nvme_io_req_handle **req_handle)
 {
-	int ret = 0;
+	struct nvme_io_req_handle *rh;
+
+	if (queue_id > host->h_queue.max_n_subm_queues || !req_handle)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	rh = alloc (sizeof *rh);
+	rh->reqs = NULL;
+	rh->next = &rh->reqs;
+	rh->remaining_n_reqs = 0;
+	rh->queue_id = queue_id;
+	spinlock_init (&rh->lock);
+	rh->submitted = false;
+	rh->io_error = false;
+	rh->done = false;
+
+	*req_handle = rh;
+
+	return NVME_IO_ERROR_OK;
+}
+
+nvme_io_error_t
+nvme_io_prepare_requests (struct nvme_host *host, u16 queue_id,
+			  struct nvme_io_req_handle **req_handle)
+{
+	nvme_io_error_t error;
+
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
 	rw_spinlock_lock_sh (&host->enable_lock);
-	if (!nvme_io_host_ready (host) || !io_desc || !io_desc->buf_phys1)
-		goto end;
+	error = do_prepare_requests (host, queue_id, req_handle);
+	rw_spinlock_unlock_sh (&host->enable_lock);
 
+	return error;
+}
+
+nvme_io_error_t
+nvme_io_destroy_req_handle (struct nvme_io_req_handle *req_handle)
+{
+	if (!req_handle || req_handle->submitted)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	struct nvme_request *req = req_handle->reqs, *next;
+	while (req) {
+		next = req->next;
+		if (req->h_callback_data)
+			free (req->h_callback_data);
+		free (req);
+		req = next;
+	}
+
+	free (req_handle);
+
+	return NVME_IO_ERROR_OK;
+}
+
+static void
+do_add_request (struct nvme_io_req_handle *req_handle,
+		struct nvme_request *req, nvme_io_req_callback_t callback,
+		void *arg)
+{
+	struct req_callback_data *cb;
+	spinlock_lock (&req_handle->lock);
+	if (callback) {
+		cb = alloc (sizeof *cb);
+		cb->callback = callback;
+		cb->arg = arg;
+		req->h_callback_data = cb;
+	}
+	*req_handle->next = req;
+	req_handle->next = &req->next;
+	req_handle->remaining_n_reqs++;
+	spinlock_unlock (&req_handle->lock);
+}
+
+static nvme_io_error_t
+do_add_rw_request (struct nvme_host *host,
+		   struct nvme_io_req_handle *req_handle, u8 opcode,
+		   struct nvme_io_descriptor *io_desc,
+		   nvme_io_req_callback_t callback, void *arg)
+{
 	struct nvme_request *req;
-	req = alloc_host_base_request (callback,
-				       arg,
-				       host->h_io_subm_entry_nbytes);
+	struct nvme_cmd *h_cmd;
 
+	if (!req_handle || req_handle->submitted ||
+	    req_handle->queue_id == 0 || !io_desc || !io_desc->buf_phys1)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	req = alloc_host_base_request (req_handle,
+				       host->h_io_subm_entry_nbytes);
 	req->lba_start = io_desc->lba_start;
 	req->n_lbas    = io_desc->n_lbas;
 
-	struct nvme_cmd *h_cmd = &req->cmd.std;
-
+	h_cmd = &req->cmd.std;
 	h_cmd->opcode = opcode;
 	h_cmd->nsid   = io_desc->nsid;
-
 	NVME_CMD_PRP_PTR1 (h_cmd) = io_desc->buf_phys1;
 	NVME_CMD_PRP_PTR2 (h_cmd) = io_desc->buf_phys2;
-
 	*(u64 *)h_cmd->cmd_flags = req->lba_start;
 	h_cmd->cmd_flags[2] = (req->n_lbas - 1) & 0xFFFF;
 
-	ASSERT (req->is_h_req);
-
-	u16 subm_queue_id = io_desc->queue_id;
-
-	nvme_register_request (host, req, subm_queue_id);
-	nvme_submit_queuing_requests (host, subm_queue_id);
-
 	free (io_desc);
-	ret = 1;
-end:
-	rw_spinlock_unlock_sh (&host->enable_lock);
-	return ret;
+
+	do_add_request (req_handle, req, callback, arg);
+
+	return NVME_IO_ERROR_OK;
 }
 
-int
-nvme_io_read_request (struct nvme_host *host,
-		      struct nvme_io_descriptor *io_desc,
-		      nvme_io_req_callback_t callback,
-		      void *arg)
+static nvme_io_error_t
+do_add_flush_request (struct nvme_host *host,
+		      struct nvme_io_req_handle *req_handle, u32 nsid,
+		      nvme_io_req_callback_t callback, void *arg)
 {
-	return nvme_io_rw_request (host,
-				   NVME_IO_OPCODE_READ,
-				   io_desc,
-				   callback,
-				   arg);
-}
-
-int
-nvme_io_write_request (struct nvme_host *host,
-		       struct nvme_io_descriptor *io_desc,
-		       nvme_io_req_callback_t callback,
-		       void *arg)
-{
-	return nvme_io_rw_request (host,
-				   NVME_IO_OPCODE_WRITE,
-				   io_desc,
-				   callback,
-				   arg);
-}
-
-int
-nvme_io_flush_request (struct nvme_host *host,
-		       u32 nsid,
-		       nvme_io_req_callback_t callback,
-		       void *arg)
-{
-	int ret = 0;
-	rw_spinlock_lock_sh (&host->enable_lock);
-	if (!host ||
-	    !nvme_io_host_ready (host) ||
-	    nsid == 0)
-		goto end;
-
 	struct nvme_request *req;
-	req = alloc_host_base_request (callback,
-				       arg,
+	struct nvme_cmd *h_cmd;
+
+	if (nsid == 0 || !req_handle || req_handle->submitted ||
+	    req_handle->queue_id == 0)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	req = alloc_host_base_request (req_handle,
 				       host->h_io_subm_entry_nbytes);
-
-	struct nvme_cmd *h_cmd = &req->cmd.std;
-
+	h_cmd = &req->cmd.std;
 	h_cmd->opcode = NVME_IO_OPCODE_FLUSH;
 	h_cmd->nsid   = nsid;
 
-	nvme_register_request (host, req, 1);
-	nvme_submit_queuing_requests (host, 1);
-	ret = 1;
-end:
-	rw_spinlock_unlock_sh (&host->enable_lock);
-	return ret;
+	do_add_request (req_handle, req, callback, arg);
+
+	return NVME_IO_ERROR_OK;
 }
 
-int
-nvme_io_identify (struct nvme_host *host,
-		  u32 nsid,
-		  phys_t pagebuf,
-		  u8 cns, u16 controller_id,
-		  nvme_io_req_callback_t callback,
-		  void *arg)
+nvme_io_error_t
+nvme_io_add_read_request (struct nvme_host *host,
+			  struct nvme_io_req_handle *req_handle,
+			  struct nvme_io_descriptor *io_desc,
+			  nvme_io_req_callback_t callback, void *arg)
 {
-	int ret = 0;
+	nvme_io_error_t error;
+
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
 	rw_spinlock_lock_sh (&host->enable_lock);
-	if (!host || !host->enable || !pagebuf)
+	error = do_add_rw_request (host, req_handle, NVME_IO_OPCODE_READ,
+				   io_desc, callback, arg);
+	rw_spinlock_unlock_sh (&host->enable_lock);
+
+	return error;
+}
+
+nvme_io_error_t
+nvme_io_add_write_request (struct nvme_host *host,
+			   struct nvme_io_req_handle *req_handle,
+			   struct nvme_io_descriptor *io_desc,
+			   nvme_io_req_callback_t callback, void *arg)
+{
+	nvme_io_error_t error;
+
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	rw_spinlock_lock_sh (&host->enable_lock);
+	error = do_add_rw_request (host, req_handle, NVME_IO_OPCODE_WRITE,
+				   io_desc, callback, arg);
+	rw_spinlock_unlock_sh (&host->enable_lock);
+
+	return error;
+}
+
+static nvme_io_error_t
+do_submit_requests (struct nvme_host *host,
+		    struct nvme_io_req_handle *req_handle)
+{
+	u16 queue_id;
+
+	queue_id = req_handle->queue_id;
+	if (queue_id > host->h_queue.max_n_subm_queues || !req_handle ||
+	    req_handle->submitted)
+		return NVME_IO_ERROR_INVALID_PARAM;
+	if ((queue_id != 0 && !host->io_ready) || !host->enable)
+		return NVME_IO_ERROR_NOT_READY;
+	if (req_handle->reqs) {
+		nvme_register_request (host, req_handle->reqs, queue_id);
+		nvme_submit_queuing_requests (host, queue_id);
+		/* All request are now handled internally */
+		req_handle->reqs = NULL;
+		req_handle->next = &req_handle->reqs;
+		req_handle->submitted = true;
+	} else {
+		/* If no request to submit, treat this handle as done */
+		req_handle->submitted = true;
+		req_done (req_handle);
+	}
+
+	return NVME_IO_ERROR_OK;
+}
+
+nvme_io_error_t
+nvme_io_submit_requests (struct nvme_host *host,
+			 struct nvme_io_req_handle *req_handle)
+{
+	nvme_io_error_t error;
+
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	rw_spinlock_lock_sh (&host->enable_lock);
+	error = do_submit_requests (host, req_handle);
+	rw_spinlock_unlock_sh (&host->enable_lock);
+
+	return error;
+}
+
+static nvme_io_error_t
+do_io_rw_request (struct nvme_host *host, u8 opcode,
+		  struct nvme_io_descriptor *io_desc, u16 queue_id,
+		  nvme_io_req_callback_t callback, void *arg,
+		  struct nvme_io_req_handle **req_handle)
+{
+	struct nvme_io_req_handle *rh;
+	nvme_io_error_t error;
+
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	rw_spinlock_lock_sh (&host->enable_lock);
+
+	error = do_prepare_requests (host, queue_id, &rh);
+	if (error)
 		goto end;
 
+	error = do_add_rw_request (host, rh, opcode, io_desc, callback, arg);
+	if (error) {
+		nvme_io_destroy_req_handle (rh);
+		goto end;
+	}
+
+	error = do_submit_requests (host, rh);
+	if (error)
+		nvme_io_destroy_req_handle (rh);
+end:
+	rw_spinlock_unlock_sh (&host->enable_lock);
+	if (!error)
+		*req_handle = rh;
+	return error;
+}
+
+nvme_io_error_t
+nvme_io_read_request (struct nvme_host *host,
+		      struct nvme_io_descriptor *io_desc, u16 queue_id,
+		      nvme_io_req_callback_t callback, void *arg,
+		      struct nvme_io_req_handle **req_handle)
+{
+	return do_io_rw_request (host, NVME_IO_OPCODE_READ, io_desc, queue_id,
+				 callback, arg, req_handle);
+}
+
+nvme_io_error_t
+nvme_io_write_request (struct nvme_host *host,
+		       struct nvme_io_descriptor *io_desc, u16 queue_id,
+		       nvme_io_req_callback_t callback, void *arg,
+		       struct nvme_io_req_handle **req_handle)
+{
+	return do_io_rw_request (host, NVME_IO_OPCODE_WRITE, io_desc, queue_id,
+				 callback, arg, req_handle);
+}
+
+nvme_io_error_t
+nvme_io_flush_request (struct nvme_host *host, u32 nsid, u16 queue_id,
+		       nvme_io_req_callback_t callback, void *arg,
+		       struct nvme_io_req_handle **req_handle)
+{
+	struct nvme_io_req_handle *rh;
+	nvme_io_error_t error;
+
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	rw_spinlock_lock_sh (&host->enable_lock);
+
+	error = do_prepare_requests (host, queue_id, &rh);
+	if (error)
+		goto end;
+
+	error = do_add_flush_request (host, rh, nsid, callback, arg);
+	if (error) {
+		nvme_io_destroy_req_handle (rh);
+		goto end;
+	}
+
+	error = do_submit_requests (host, rh);
+	if (error)
+		nvme_io_destroy_req_handle (rh);
+end:
+	rw_spinlock_unlock_sh (&host->enable_lock);
+	if (!error)
+		*req_handle = rh;
+	return error;
+}
+
+static nvme_io_error_t
+do_wait_for_completion (struct nvme_io_req_handle *req_handle,
+			uint timeout_sec)
+{
+	u64 start, timeout;
+	nvme_io_error_t error;
+
+	if (!req_handle || !req_handle->submitted) {
+		error = NVME_IO_ERROR_INVALID_PARAM;
+		goto end;
+	}
+
+	error = NVME_IO_ERROR_OK;
+	start = get_time ();
+	timeout = timeout_sec * 1000 * 1000;
+	spinlock_lock (&req_handle->lock);
+	while (!req_handle->done) {
+		if (timeout != 0 && get_time () - start > timeout) {
+			error = NVME_IO_ERROR_TIMEOUT;
+			break;
+		}
+		spinlock_unlock (&req_handle->lock);
+		schedule ();
+		spinlock_lock (&req_handle->lock);
+	}
+	if (req_handle->io_error && error == NVME_IO_ERROR_OK)
+		error = NVME_IO_ERROR_IO_ERROR;
+	spinlock_unlock (&req_handle->lock);
+	req_done (req_handle);
+end:
+	return error;
+}
+
+nvme_io_error_t
+nvme_io_wait_for_completion (struct nvme_io_req_handle *req_handle,
+			     uint timeout_sec)
+{
+	return do_wait_for_completion (req_handle, timeout_sec);
+}
+
+nvme_io_error_t
+nvme_io_identify (struct nvme_host *host, u32 nsid, phys_t pagebuf, u8 cns,
+		  u16 controller_id)
+{
+	struct nvme_io_req_handle *req_handle;
 	struct nvme_request *req;
-	req = alloc_host_base_request (callback,
-				       arg,
-				       NVME_CMD_NBYTES);
+	struct nvme_cmd *h_cmd;
+	nvme_io_error_t error;
 
-	struct nvme_cmd *h_cmd = &req->cmd.std;
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
 
+	rw_spinlock_lock_sh (&host->enable_lock);
+	if (!pagebuf) {
+		rw_spinlock_unlock_sh (&host->enable_lock);
+		return NVME_IO_ERROR_INVALID_PARAM;
+	}
+
+	error = do_prepare_requests (host, 0, &req_handle);
+	if (error) {
+		rw_spinlock_unlock_sh (&host->enable_lock);
+		return error;
+	}
+
+	req = alloc_host_base_request (req_handle, NVME_CMD_NBYTES);
+
+	h_cmd = &req->cmd.std;
 	h_cmd->opcode = NVME_ADMIN_OPCODE_IDENTIFY;
 	h_cmd->nsid   = nsid;
-
 	NVME_CMD_PRP_PTR1 (h_cmd) = pagebuf;
-
 	h_cmd->cmd_flags[0] = (controller_id << 16) | cns;
 
-	nvme_register_request (host, req, 0);
-	nvme_submit_queuing_requests (host, 0);
-	ret = 1;
-end:
+	do_add_request (req_handle, req, NULL, NULL);
+	error = do_submit_requests (host, req_handle);
+	if (error) {
+		nvme_io_destroy_req_handle (req_handle);
+		rw_spinlock_unlock_sh (&host->enable_lock);
+		return error;
+	}
 	rw_spinlock_unlock_sh (&host->enable_lock);
-	return ret;
+
+	return do_wait_for_completion (req_handle, CMD_TIMEOUT);
 }
 
-int
-nvme_io_get_n_queues (struct nvme_host *host,
-		      nvme_io_req_callback_t callback,
-		      void *arg)
+static void
+get_n_queues_callback (struct nvme_host *host, u8 status_type, u8 status,
+		       u32 cmd_specific, void *arg)
 {
-	int ret = 0;
-	rw_spinlock_lock_sh (&host->enable_lock);
-	if (!host || !host->enable)
-		goto end;
+	if (status_type == 0 && status == 0)
+		*(u32 *)arg = cmd_specific;
+}
 
+nvme_io_error_t
+nvme_io_get_n_queues (struct nvme_host *host, u16 *n_subm_queues,
+		      u16 *n_comp_queues)
+{
+	struct nvme_io_req_handle *req_handle;
 	struct nvme_request *req;
-	req = alloc_host_base_request (callback,
-				       arg,
-				       NVME_CMD_NBYTES);
+	struct nvme_cmd *h_cmd;
+	u32 cmd_specific;
+	nvme_io_error_t error;
 
-	struct nvme_cmd *h_cmd = &req->cmd.std;
+	if (!n_subm_queues && !n_comp_queues)
+		return NVME_IO_ERROR_NO_OPERATION;
+	if (!host)
+		return NVME_IO_ERROR_INVALID_PARAM;
 
+	rw_spinlock_lock_sh (&host->enable_lock);
+	error = do_prepare_requests (host, 0, &req_handle);
+	if (error) {
+		rw_spinlock_unlock_sh (&host->enable_lock);
+		return error;
+	}
+
+	req = alloc_host_base_request (req_handle, NVME_CMD_NBYTES);
+
+	h_cmd = &req->cmd.std;
 	h_cmd->opcode = NVME_ADMIN_OPCODE_GET_FEATURE;
-
 	h_cmd->cmd_flags[0] = NVME_SET_FEATURE_N_OF_QUEUES;
-
 	/*
 	 * 0xFFFE is the maximum value according to the specification.
 	 * This value should be safe for querying.
 	 */
 	h_cmd->cmd_flags[1] = 0xFFFEFFFE;
 
-	nvme_register_request (host, req, 0);
-	nvme_submit_queuing_requests (host, 0);
-	ret = 1;
-end:
+	do_add_request (req_handle, req, get_n_queues_callback, &cmd_specific);
+	error = do_submit_requests (host, req_handle);
+	if (error) {
+		nvme_io_destroy_req_handle (req_handle);
+		rw_spinlock_unlock_sh (&host->enable_lock);
+		return error;
+	}
 	rw_spinlock_unlock_sh (&host->enable_lock);
-	return ret;
+
+	error = do_wait_for_completion (req_handle, CMD_TIMEOUT);
+	/* Values are 0 based, need to plus 1 */
+	if (!error && n_subm_queues)
+		*n_subm_queues = NVME_SET_FEATURE_N_SUBM_QUEUES (cmd_specific)
+				 + 1;
+	if (!error && n_comp_queues)
+		*n_comp_queues = NVME_SET_FEATURE_N_COMP_QUEUES (cmd_specific)
+				 + 1;
+
+	return error;
 }
 
 /* ----- End I/O related functions ----- */
@@ -891,7 +1325,7 @@ end:
 
 void
 nvme_io_register_ext (char *name,
-		      int (*init) (struct nvme_host *host))
+		      nvme_io_error_t (*init) (struct nvme_host *host))
 {
 	nvme_register_ext (name, init);
 }

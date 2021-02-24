@@ -54,14 +54,14 @@ static uint nvme_host_id = 0;
 struct nvme_ext_list {
 	struct nvme_ext_list *next;
 	char *name;
-	int (*init) (struct nvme_host *host);
+	nvme_io_error_t (*init) (struct nvme_host *host);
 };
 
 static struct nvme_ext_list *ext_head;
 
 void
 nvme_register_ext (char *name,
-		   int (*init) (struct nvme_host *host))
+		   nvme_io_error_t (*init) (struct nvme_host *host))
 {
 	struct nvme_ext_list *ext = alloc (sizeof (*ext));
 
@@ -76,6 +76,7 @@ static void
 init_ext (struct nvme_host *host, char *name)
 {
 	struct nvme_ext_list *ext;
+	nvme_io_error_t error;
 	for (ext = ext_head; ext; ext = ext->next) {
 		uint i;
 		for (i = 0;; i++) {
@@ -96,8 +97,10 @@ matched:
 		return;
 	}
 
-	if (!ext->init (host))
-		printf ("NVMe %s extension initialization fail\n", name);
+	error = ext->init (host);
+	if (error)
+		printf ("NVMe %s extension initialization fail,  error 0x%X\n",
+			name, error);
 }
 
 

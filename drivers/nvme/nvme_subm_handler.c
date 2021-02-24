@@ -593,6 +593,7 @@ request_from_g_cmd (struct nvme_queue_info *g_subm_queue_info,
 
 	struct nvme_request *req = zalloc (NVME_REQUEST_NBYTES);
 	req->cmd_nbytes = cmd_nbytes;
+	spinlock_init (&req->callback_lock);
 
 	union nvme_cmd_union *g_cmd;
 	g_cmd = nvme_subm_queue_at_idx (g_subm_queue_info, idx);

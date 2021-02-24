@@ -41,6 +41,7 @@
  */
 
 #include <core.h>
+#include <core/thread.h>
 #include <storage_io.h>
 
 #include "pci.h"
@@ -92,12 +93,27 @@ ata_rw_callback (struct nvme_host *host,
 	atacmd->callback (atacmd->data, atacmd);
 }
 
+static void
+cmd_wait (void *arg)
+{
+	struct nvme_io_req_handle *req_handle = arg;
+	nvme_io_error_t error;
+
+	error = nvme_io_wait_for_completion (req_handle, 3);
+	if (error)
+		printf ("cmd error with code 0x%X\n", error);
+
+	thread_exit ();
+}
+
 static int
 nvme_io_ata_rw_request (struct nvme_host *host,
 			u8 opcode,
 			u32 dev_no,
 			struct storage_hc_dev_atacmd *atacmd)
 {
+	nvme_io_error_t error;
+
 	if (opcode != ATA_OPCODE_READ &&
 	    opcode != ATA_OPCODE_WRITE) {
 		printf ("wrong opcode\n");
@@ -105,7 +121,6 @@ nvme_io_ata_rw_request (struct nvme_host *host,
 	}
 
 	u64 lba;
-
 	lba = atacmd->cyl_high_exp;
 	lba = (lba << 8) | atacmd->cyl_low_exp;
 	lba = (lba << 8) | atacmd->sector_number_exp;
@@ -113,7 +128,12 @@ nvme_io_ata_rw_request (struct nvme_host *host,
 	lba = (lba << 8) | atacmd->cyl_low;
 	lba = (lba << 8) | atacmd->sector_number;
 
-	uint lba_nbytes = nvme_io_get_lba_nbytes (host, dev_no);
+	u32 lba_nbytes;
+	error = nvme_io_get_lba_nbytes (host, dev_no, &lba_nbytes);
+	if (error) {
+		printf ("Get lba_nbytes error 0x%X\n", error);
+		return 0;
+	}
 
 	uint remain = atacmd->buf_len % lba_nbytes;
 	uint n_lbas;
@@ -124,8 +144,20 @@ nvme_io_ata_rw_request (struct nvme_host *host,
 	remain  = atacmd->buf_len % PAGE_NBYTES;
 	n_pages += remain ? 1 : 0;
 
-	if (n_lbas > nvme_io_get_max_n_lbas (host, dev_no)) {
+	u16 max_n_lbas;
+	error = nvme_io_get_max_n_lbas (host, dev_no, &max_n_lbas);
+	if (error) {
+		printf ("Get max_n_lbas error 0x%X\n", error);
+		return 0;
+	}
+
+	if (n_lbas > max_n_lbas) {
 		printf ("Request is too large\n");
+		return 0;
+	}
+
+	if (atacmd->buf_len == 0) {
+		printf ("Invalid atacmd buf length\n");
 		return 0;
 	}
 
@@ -139,7 +171,6 @@ nvme_io_ata_rw_request (struct nvme_host *host,
 	struct nvme_io_descriptor *io_desc;
 	io_desc = nvme_io_init_descriptor (host,
 					   dev_no, /* AKA nsid */
-					   1,
 					   lba,
 					   n_lbas);
 	if (!io_desc) {
@@ -147,15 +178,14 @@ nvme_io_ata_rw_request (struct nvme_host *host,
 		return 0;
 	}
 
-	int success;
-	success = nvme_io_set_phys_buffers (host,
-					    io_desc,
-				  	    dmabuf->dma_list,
-				  	    dmabuf->dma_list_phys,
-				  	    n_pages,
-				  	    0);
-	if (!success) {
-		printf ("Not able to setup buffer\n");
+	error = nvme_io_set_phys_buffers (host,
+					  io_desc,
+				  	  dmabuf->dma_list,
+				  	  dmabuf->dma_list_phys,
+				  	  n_pages,
+				  	  0);
+	if (error) {
+		printf ("Not able to setup buffer, error 0x%X\n", error);
 		return 0;
 	}
 
@@ -165,23 +195,24 @@ nvme_io_ata_rw_request (struct nvme_host *host,
 	ata_wrapper->dmabuf = dmabuf;
 	ata_wrapper->opcode = opcode;
 
+	struct nvme_io_req_handle *req_handle;
 	if (opcode == ATA_OPCODE_WRITE) {
 		memcpy (dmabuf->buf, atacmd->buf, atacmd->buf_len);
-		success = nvme_io_write_request (host,
-						 io_desc,
-						 ata_rw_callback,
-						 ata_wrapper);
+		error = nvme_io_write_request (host, io_desc, 1,
+					       ata_rw_callback, ata_wrapper,
+					       &req_handle);
 	} else {
-		success = nvme_io_read_request (host,
-						io_desc,
-						ata_rw_callback,
-						ata_wrapper);
+		error = nvme_io_read_request (host, io_desc, 1,
+					      ata_rw_callback, ata_wrapper,
+					      &req_handle);
 	}
 
-	if (!success) {
-		printf ("Fail to submit the command\n");
+	if (error) {
+		printf ("Fail to submit the command, error 0x%X\n", error);
 		return 0;
 	}
+
+	thread_new (cmd_wait, req_handle, VMM_STACKSIZE);
 
 	return 1;
 }
@@ -190,6 +221,8 @@ static int
 nvme_scandev (void *drvdata, int port_no,
 	      storage_hc_scandev_callback_t *callback, void *data)
 {
+	nvme_io_error_t error;
+
 	if (port_no != 0) {
 		printf ("port is not zero\n");
 		return 0;
@@ -197,12 +230,19 @@ nvme_scandev (void *drvdata, int port_no,
 
 	struct nvme_host *host = drvdata;
 
-	if (!nvme_io_host_ready (host)) {
-		printf ("Cannnot scan, controller is not ready\n");
+	error = nvme_io_host_ready (host);
+	if (error) {
+		printf ("Cannot scan, controller is not ready, error 0x%X\n",
+			error);
 		return 0;
 	}
 
-	uint n_ns = nvme_io_get_n_ns (host);
+	uint n_ns;
+	error = nvme_io_get_n_ns (host, &n_ns);
+	if (error) {
+		printf ("Cannot get number of namespace, error 0x%X\n", error);
+		return 0;
+	}
 
 	uint i;
 	for (i = 1; i <= n_ns; i++)
@@ -215,18 +255,26 @@ static bool
 nvme_openable (void *drvdata, int port_no, int dev_no)
 {
 	struct nvme_host *host = drvdata;
+	nvme_io_error_t error;
 
 	if (port_no != 0) {
 		printf ("Cannot open because port is not zero\n");
 		return false;
 	}
 
-	if (!(dev_no >= 1 && dev_no <= nvme_io_get_n_ns (host))) {
+	uint n_ns;
+	error = nvme_io_get_n_ns (host, &n_ns);
+	if (error) {
+		printf ("Cannot get number of namespace, error 0x%X\n", error);
+		return false;
+	}
+
+	if (!(dev_no >= 1 && dev_no <= n_ns)) {
 		printf ("Cannot open because dev_no is wrong\n");
 		return false;
 	}
 
-	return nvme_io_host_ready (host);
+	return nvme_io_host_ready (host) == NVME_IO_ERROR_OK;
 }
 
 static bool
@@ -264,9 +312,11 @@ ata_to_nvme_command (void *drvdata, int port_no, int dev_no,
 	return false;
 }
 
-static int
+static nvme_io_error_t
 nvme_storage_io_init (struct nvme_host *host)
 {
+	nvme_io_error_t error;
+
 	static struct storage_hc_driver_func hc_driver_func = {
 		.scandev    = nvme_scandev,
 		.openable   = nvme_openable,
@@ -275,10 +325,15 @@ nvme_storage_io_init (struct nvme_host *host)
 
 	if (storage_count > MAX_STORAGE) {
 		printf ("Number of NVMe Storage HC exceeds limit");
-		return 0;
+		return NVME_IO_ERROR_INTERNAL_ERROR;
 	}
 
-	struct pci_device *device = nvme_io_get_pci_device (host);
+	struct pci_device *device;
+	error = nvme_io_get_pci_device (host, &device);
+	if (error) {
+		printf ("Cannot get pci device, error 0x%X\n", error);
+		return NVME_IO_ERROR_INTERNAL_ERROR;
+	}
 
 	struct nvme_storage_meta *storage_meta;
 	storage_meta = &storage_metas[storage_count];
@@ -291,7 +346,7 @@ nvme_storage_io_init (struct nvme_host *host)
 	printf ("NVMe Storage HC %u registered\n", storage_count);
 	storage_count++;
 
-	return 1;
+	return NVME_IO_ERROR_OK;
 }
 
 static void
