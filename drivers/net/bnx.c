@@ -1023,11 +1023,16 @@ static void
 bnx_intr_clear (void *param)
 {
 	struct bnx *bnx = param;
+	u32 data;
 
 	if (bnx_hotplugpass (bnx))
 		return;
 	spinlock_lock (&bnx->reg_lock);
 	bnx_mmiowrite32 (bnx, 0x0204, 0);
+	/* Do a dummy read of a device register to flush the above
+	 * write and device DMA writes for the status block which will
+	 * be read by the following function call. */
+	bnx_mmioread32 (bnx, 0x0204, &data);
 	spinlock_unlock (&bnx->reg_lock);
 	bnx_handle_status (bnx);
 }
