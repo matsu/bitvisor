@@ -458,11 +458,6 @@ static void
 virtio_net_trigger_interrupt (struct virtio_net *vnet, unsigned int queue)
 {
 	if (vnet->msix_enabled) {
-		if (vnet->intr) {
-			/* Clear INTx. */
-			vnet->intr = false;
-			vnet->intr_clear (vnet->intr_param);
-		}
 		spinlock_lock (&vnet->msix_lock);
 		if (!vnet->msix_mask)
 			vnet->msix_generate (vnet->msix_param, queue);
