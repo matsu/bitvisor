@@ -527,6 +527,7 @@ struct nvme_data {
 	struct nvme_host *host;
 
 	u8 enabled;
+	u8 enabled_msix;
 };
 #define NVME_DATA_NBYTES (sizeof (struct nvme_data))
 

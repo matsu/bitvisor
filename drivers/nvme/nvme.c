@@ -1231,9 +1231,12 @@ unreghook (struct nvme_data *nvme_data, uint bar_idx)
 		}
 	} else {
 		ASSERT (bar_idx == host->msix_bar);
-		mmio_unregister (nvme_data->msix_handler);
-		unmapmem (host->msix_regs->reg_map,
-			  host->msix_regs->map_nbytes);
+		if (nvme_data->enabled_msix) {
+			mmio_unregister (nvme_data->msix_handler);
+			unmapmem (host->msix_regs->reg_map,
+				  host->msix_regs->map_nbytes);
+			nvme_data->enabled_msix = 0;
+		}
 	}
 }
 
@@ -1286,12 +1289,14 @@ reghook (struct nvme_data *nvme_data,
 			    nvme_reg_handler);
 		nvme_data->enabled = 1;
 	} else {
+		nvme_data->enabled_msix = 0;
 		ASSERT (bar_idx == nvme_data->host->msix_bar);
 		do_reghook (nvme_data,
 			    bar,
 			    nvme_data->host->msix_regs,
 			    &nvme_data->msix_handler,
 			    nvme_reg_msi_handler);
+		nvme_data->enabled_msix = 1;
 	}
 
 	dprintf (NVME_ETC_DEBUG,
@@ -1393,6 +1398,7 @@ nvme_new (struct pci_device *pci_device)
 
 	struct nvme_data *nvme_data = zalloc (NVME_DATA_NBYTES);
 	nvme_data->enabled = 0;
+	nvme_data->enabled_msix = 0;
 	nvme_data->host = host;
 
 	u8 msix_offset = pci_find_cap_offset (pci_device, PCI_CAP_MSIX);
