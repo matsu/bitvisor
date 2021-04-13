@@ -369,15 +369,18 @@ check_msi_enable (struct nvme_host *host)
 static void
 nvme_set_msi_callback (struct nvme_host *host)
 {
+	struct pci_device *pci = host->pci;
 	u32 msi_cap = host->msi_offset;
 	u32 addr;
 	u32 upper;
 	u16 val;
 
-	pci_config_read (host->pci, &addr, sizeof addr, msi_cap + 0x4);
-	pci_config_read (host->pci, &upper, sizeof upper, msi_cap + 0x8);
-	pci_config_read (host->pci, &val, sizeof val, msi_cap + 0xC);
-	pci_enable_msi_callback (host->msi_callback, addr, upper, val);
+	if (host->filter_msi) {
+		pci_config_read (pci, &addr, sizeof addr, msi_cap + 0x4);
+		pci_config_read (pci, &upper, sizeof upper, msi_cap + 0x8);
+		pci_config_read (pci, &val, sizeof val, msi_cap + 0xC);
+		pci_enable_msi_callback (host->msi_callback, addr, upper, val);
+	}
 }
 
 static void
@@ -1527,6 +1530,10 @@ nvme_new (struct pci_device *pci_device)
 	if (ext_name)
 		init_ext (host, ext_name);
 
+	if (pci_device->driver_options[2] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[2], NULL))
+		host->filter_msi = 1;
+
 	/*
 	 * Some controller does not work properly if we don't
 	 * disable it first after disconnecting from UEFI. For example,
@@ -1558,8 +1565,8 @@ nvme_apple_new (struct pci_device *pci_device)
 	/* Check for Apple ANS2 Controller wrapper option */
 	if (host->vendor_id == NVME_VENDOR_ID_APPLE &&
 	    host->device_id == NVME_DEV_APPLE_2005 &&
-	    pci_device->driver_options[2] &&
-	    pci_driver_option_get_bool (pci_device->driver_options[2], NULL)) {
+	    pci_device->driver_options[3] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[3], NULL)) {
 		printf ("ANS2 Controller wrapper enabled\n");
 		host->ans2_wrapper = 1;
 	}
@@ -1729,11 +1736,18 @@ static const char nvme_driver_longname[] = "NVMe para pass-through driver";
  *
  * Note that currently, only one extension is allowed.
  *
+ * When the guest uses MSI, it is possible that interrupts can occur when
+ * the interrupt mask is set. These interrupts can cause problem to the case
+ * under rare circumstances. If the guest does not boot because it tries to
+ * reset the controller, enabling MSI filtering may solve the problem.
+ *
+ *	filter_msi=1
+ *
  */
 static struct pci_driver nvme_driver = {
 	.name		= nvme_driver_name,
 	.longname	= nvme_driver_longname,
-	.driver_options	= "storage_io,ext",
+	.driver_options	= "storage_io,ext,filter_msi",
 	.device		= "class_code=010802",
 	.new		= nvme_new,
 	.config_read	= nvme_config_read,
@@ -1759,7 +1773,7 @@ static const char nvme_apple_driver_name[] = "nvme_apple";
 static struct pci_driver nvme_apple_driver = {
 	.name		= nvme_apple_driver_name,
 	.longname	= nvme_driver_longname,
-	.driver_options	= "storage_io,ext,ans2_wrapper",
+	.driver_options	= "storage_io,ext,filter_msi,ans2_wrapper",
 	.device		= "class_code=018002",
 	.new		= nvme_apple_new,
 	.config_read	= nvme_config_read,

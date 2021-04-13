@@ -507,6 +507,7 @@ struct nvme_host {
 	u8 serialize_queue_fetch;
 	u8 ans2_wrapper;
 	u8 g_cmd_size_check;
+	u8 filter_msi;
 
 	spinlock_t lock;
 	spinlock_t fetch_req_lock;
