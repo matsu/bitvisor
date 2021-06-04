@@ -358,7 +358,6 @@ struct nvme_request {
 	u16 orig_cmd_id;
 	u16 n_lbas;
 	u16 queue_id;
-	u16 tail;
 
 	u8  is_h_req;
 	u8  pause;

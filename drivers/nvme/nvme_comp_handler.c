@@ -61,22 +61,6 @@ get_request (struct nvme_host *host,
 
 	subm_slot->req_slot[cmd_id] = NULL;
 	subm_slot->n_slots_used--;
-
-	/*
-	 * Prevent the controller from accidentally processing old commands by
-	 * replacing them with commands that do not cause state-change.
-	 * This is for sanity. It is unlikely to happen.
-	 */
-	struct nvme_queue_info *h_subm_queue_info;
-	union nvme_cmd_union *cmd;
-	h_subm_queue_info = host->h_queue.subm_queue_info[subm_queue_id];
-	cmd = nvme_subm_queue_at_idx (h_subm_queue_info, req->tail);
-	if (subm_queue_id == 0) {
-		cmd->std.opcode = NVME_ADMIN_OPCODE_GET_FEATURE;
-		cmd->std.cmd_flags[0] = 0x1; /* Arbitration */
-	} else {
-		cmd->std.opcode = NVME_IO_OPCODE_FLUSH;
-	}
 end:
 	spinlock_unlock (&hub->lock);
 
@@ -300,12 +284,45 @@ g_subm_cur_tail (struct nvme_host *host, u16 subm_queue_id)
 }
 
 static void
+update_h_subm_cur_head (struct nvme_host *host, u16 subm_queue_id, u16 head)
+{
+	/*
+	 * Prevent the controller from accidentally processing old commands by
+	 * replacing them with commands that do not cause state-change.
+	 * This is for sanity. It is unlikely to happen.
+	 */
+	struct nvme_queue_info *h_subm_queue_info;
+	h_subm_queue_info = host->h_queue.subm_queue_info[subm_queue_id];
+	u16 h_cur_head = h_subm_queue_info->cur_pos.head;
+	if (h_cur_head == head)
+		return;
+	uint n_entries = h_subm_queue_info->n_entries;
+	if (head >= n_entries) {
+		printf ("%s: Incorrect head %u >= %u\n", __func__,
+			head, n_entries);
+		return;
+	}
+	while (h_cur_head != head) {
+		union nvme_cmd_union *cmd;
+		cmd = nvme_subm_queue_at_idx (h_subm_queue_info, h_cur_head);
+		if (subm_queue_id == 0) {
+			cmd->std.opcode = NVME_ADMIN_OPCODE_GET_FEATURE;
+			cmd->std.cmd_flags[0] = 0x1; /* Arbitration */
+		} else {
+			cmd->std.opcode = NVME_IO_OPCODE_FLUSH;
+		}
+		h_cur_head++;
+		h_cur_head %= n_entries;
+	}
+	h_subm_queue_info->cur_pos.head = h_cur_head;
+}
+
+static void
 process_comp_queue (struct nvme_host *host,
 		    u16 comp_queue_id,
 		    struct nvme_queue_info *h_comp_queue_info,
 		    struct nvme_queue_info *g_comp_queue_info)
 {
-	struct nvme_queue_info *h_subm_queue_info;
 	struct nvme_request_hub *hub;
 	struct nvme_queue *h_queue;
 
@@ -400,8 +417,8 @@ process_comp_queue (struct nvme_host *host,
 			nvme_update_comp_db (host, comp_queue_id);
 		}
 	update_sq_head:
-		h_subm_queue_info = h_queue->subm_queue_info[subm_queue_id];
-		h_subm_queue_info->cur_pos.head = h_comp->queue_head;
+		update_h_subm_cur_head (host, subm_queue_id,
+					h_comp->queue_head);
 		spinlock_unlock (&hub->lock);
 
 		nvme_free_request (host, hub, req);
