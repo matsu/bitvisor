@@ -32,6 +32,7 @@
 #include EFI_PROTOCOL_DEFINITION (PciIo)
 #include EFI_PROTOCOL_DEFINITION (DevicePath)
 #include EFI_PROTOCOL_DEFINITION (SimpleNetwork)
+#include EFI_PROTOCOL_DEFINITION (GraphicsOutput)
 #undef NULL
 #include "calluefi_asm.h"
 #include "current.h"
@@ -49,6 +50,8 @@ static EFI_GUID pci_io_protocol_guid = EFI_PCI_IO_PROTOCOL_GUID;
 static EFI_GUID device_path_protocol_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
 static EFI_GUID simple_network_protocol_guid =
 	EFI_SIMPLE_NETWORK_PROTOCOL_GUID;
+static EFI_GUID graphics_output_protocol_guid =
+	EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 #pragma GCC diagnostic pop
 
 u8 uefi_memory_map_data[16384];
@@ -397,6 +400,83 @@ fill_pagetable (void *pt, u32 prev_phys, void *fillpage)
 	for (i = 1; i < PAGESIZE / sizeof *p; i++)
 		p[i] = e;
 	pmap_close (&m);
+	return ret;
+}
+
+int
+call_uefi_get_graphics_info (u32 *hres, u32 *vres, u32 *rmask, u32 *gmask,
+			     u32 *bmask, u32 *pxlin, u64 *addr, u64 *size)
+{
+	static u64 nhandles, handles;
+	if (calluefi (uefi_locate_handle_buffer, 5, ByProtocol,
+		      sym_to_phys (&graphics_output_protocol_guid), NULL,
+		      sym_to_phys (&nhandles), sym_to_phys (&handles)))
+		return -1;
+	u64 handle = 0;
+	if (nhandles) {
+		ulong *handles_map;
+		handles_map = mapmem_hphys (handles, sizeof *handles_map *
+					    nhandles, 0);
+		handle = handles_map[0];
+		unmapmem (handles_map, sizeof *handles_map * nhandles);
+	}
+	calluefi (uefi_free_pool, 1, handles);
+	if (!handle)
+		return -1;
+	static u64 graphics_output_interface;
+	if (calluefi (uefi_open_protocol, 6, handle,
+		      sym_to_phys (&graphics_output_protocol_guid),
+		      sym_to_phys (&graphics_output_interface),
+		      uefi_image_handle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL))
+		return -1;
+	int ret = -1;
+	EFI_GRAPHICS_OUTPUT_PROTOCOL *graphics_output;
+	graphics_output = mapmem_hphys (graphics_output_interface,
+					sizeof *graphics_output, 0);
+	if (!graphics_output->Mode)
+		goto unmap1;
+	EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE *mode;
+	mode = mapmem_hphys ((ulong)graphics_output->Mode, sizeof *mode, 0);
+	if (!mode->Info)
+		goto unmap2;
+	EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info;
+	if (mode->SizeOfInfo < sizeof *info)
+		goto unmap2;
+	info = mapmem_hphys ((ulong)mode->Info, sizeof *info, 0);
+	switch (info->PixelFormat) {
+	case PixelRedGreenBlueReserved8BitPerColor:
+		*rmask = 0x000000FF;
+		*gmask = 0x0000FF00;
+		*bmask = 0x00FF0000;
+		break;
+	case PixelBlueGreenRedReserved8BitPerColor:
+		*bmask = 0x000000FF;
+		*gmask = 0x0000FF00;
+		*rmask = 0x00FF0000;
+		break;
+	case PixelBitMask:
+		*rmask = info->PixelInformation.RedMask;
+		*gmask = info->PixelInformation.GreenMask;
+		*bmask = info->PixelInformation.BlueMask;
+		break;
+	default:
+		goto unmap3;
+	}
+	*hres = info->HorizontalResolution;
+	*vres = info->VerticalResolution;
+	*pxlin = info->PixelsPerScanLine;
+	*addr = mode->FrameBufferBase;
+	*size = mode->FrameBufferSize;
+	ret = 0;
+unmap3:
+	unmapmem (info, sizeof *info);
+unmap2:
+	unmapmem (mode, sizeof *mode);
+unmap1:
+	unmapmem (graphics_output, sizeof *graphics_output);
+	calluefi (uefi_close_protocol, 4, handle,
+		  sym_to_phys (&graphics_output_protocol_guid),
+		  uefi_image_handle, NULL);
 	return ret;
 }
 

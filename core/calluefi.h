@@ -48,6 +48,8 @@ void call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
 					 ulong func);
 void call_uefi_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev,
 				    ulong func, void *mac, uint len);
+int call_uefi_get_graphics_info (u32 *hres, u32 *vres, u32 *rmask, u32 *gmask,
+				 u32 *bmask, u32 *pxlin, u64 *addr, u64 *size);
 void copy_uefi_bootcode (void);
 
 #endif

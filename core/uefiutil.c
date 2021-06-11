@@ -61,3 +61,13 @@ uefiutil_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
 		return;
 	call_uefi_netdev_get_mac_addr (seg, bus, dev, func, mac, len);
 }
+
+int
+uefiutil_get_graphics_info (u32 *hres, u32 *vres, u32 *rmask, u32 *gmask,
+			    u32 *bmask, u32 *pxlin, u64 *addr, u64 *size)
+{
+	if (!check_env ())
+		return -1;
+	return call_uefi_get_graphics_info (hres, vres, rmask, gmask, bmask,
+					    pxlin, addr, size);
+}
