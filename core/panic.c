@@ -167,7 +167,7 @@ backtrace (void)
 			break;
 		caller = p[1];
 		printf ("<-0x%lX", caller);
-		if (rbp > newrbp) {
+		if (rbp >= newrbp) {
 			printf ("<-bad");
 			break;
 		}
