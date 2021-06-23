@@ -885,6 +885,7 @@ callmain64:
 	# BSP
 	mov	$entry_ebx,%eax
 	mov	(%rax),%edi
+	xor	%ebp,%ebp
 	call	vmm_main
 	cli
 	hlt
