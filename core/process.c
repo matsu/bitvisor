@@ -33,6 +33,7 @@
 #include "elf.h"
 #include "entry.h"
 #include "initfunc.h"
+#include "list.h"
 #include "mm.h"
 #include "msg.h"
 #include "panic.h"
@@ -75,10 +76,45 @@ struct process_data {
 	int stacksize;
 };
 
+struct ro_segment_vec {
+	phys_t phys;
+	signed char size1;
+} __attribute__ ((packed));
+
+struct ro_segments {
+	struct ro_segments *next;
+	u32 vaddr;
+	u8 veccnt;
+	struct ro_segment_vec vec[];
+} __attribute__ ((packed));
+
+struct rw_segment_vec {
+	void *buf;
+	signed char size1;
+} __attribute__ ((packed));
+
+struct rw_segments {
+	struct rw_segments *next;
+	u32 vaddr;
+	u32 vsize;
+	u8 veccnt;
+	struct rw_segment_vec vec[];
+} __attribute__ ((packed));
+
+struct processbin {
+	LIST1_DEFINE (struct processbin);
+	struct ro_segments *ro;
+	struct rw_segments *rw;
+	ulong entry;
+	int stacksize;
+	char name[];
+} __attribute__ ((packed));
+
 extern ulong volatile syscallstack asm ("%gs:gs_syscallstack");
 static struct process_data process[NUM_OF_PID];
 static spinlock_t process_lock;
 static bool process_initialized = false;
+static LIST1_DEFINE_HEAD (struct processbin, processbin_list);
 
 static bool
 is_range_valid (ulong addr, u32 len)
@@ -180,6 +216,198 @@ setup_syscallentry (void)
 }
 
 static void
+add_segment_ro_copy (virt_t srcstart, virt_t srcend, void *src,
+		     virt_t start, virt_t end, void *dest)
+{
+	if (end <= srcstart || srcend <= start) {
+		memset (dest, 0, end - start);
+		return;
+	}
+	/* end > srcstart && srcend > start */
+	if (srcstart > start) {
+		memset (dest, 0, srcstart - start);
+		dest += srcstart - start;
+		start = srcstart;
+	}
+	/* start >= srcstart */
+	if (end <= srcend) {
+		memcpy (dest, src + (start - srcstart), end - start);
+		return;
+	}
+	/* end > srcend */
+	memcpy (dest, src + (start - srcstart), srcend - start);
+	dest += srcend - start;
+	start = srcend;
+	memset (dest, 0, end - start);
+}
+
+static unsigned int
+get_vec_size (signed char size1)
+{
+	return size1 < 0 ? -size1 : 1 << size1;
+}
+
+static void
+add_segment_ro (virt_t destvirt, uint destlen, void *src, uint srclen,
+		struct ro_segments ***next)
+{
+	if (srclen > destlen)
+		srclen = destlen;
+	virt_t destend = destvirt + destlen;
+	virt_t destsrcstart = destvirt;
+	virt_t destsrcend = destsrcstart + srclen;
+	if (destvirt & PAGESIZE_MASK)
+		destvirt -= destvirt & PAGESIZE_MASK;
+	if (destend & PAGESIZE_MASK)
+		destend += PAGESIZE - (destend & PAGESIZE_MASK);
+	struct ro_segments *p = alloc (sizeof *p);
+	p->vaddr = destvirt;
+	p->next = NULL;
+	int veccnt = 0;
+	while (destvirt < destend) {
+		signed char size1 = PAGESIZE_SHIFT;
+		while (get_vec_size (size1) * 2 <= destend - destvirt)
+			size1++;
+		unsigned int len = get_vec_size (size1);
+		phys_t phys;
+		void *buf;
+		alloc_pages (&buf, &phys, len / PAGESIZE);
+		add_segment_ro_copy (destsrcstart, destsrcend, src, destvirt,
+				     destvirt + len, buf);
+		p = realloc (p, sizeof *p + sizeof (p->vec[0]) * (veccnt + 1));
+		p->vec[veccnt].phys = phys;
+		p->vec[veccnt].size1 = size1;
+		veccnt++;
+		destvirt += len;
+	}
+	p->veccnt = veccnt;
+	**next = p;
+	*next = &p->next;
+}
+
+static void
+add_segment_rw (virt_t destvirt, uint destlen, void *src, uint srclen,
+		struct rw_segments ***next)
+{
+	if (srclen > destlen)
+		srclen = destlen;
+	struct rw_segments *p = alloc (sizeof *p);
+	p->vaddr = destvirt;
+	p->vsize = destlen;
+	p->next = NULL;
+	int veccnt = 0;
+	while (srclen > 0) {
+		signed char size1;
+		if (srclen <= 64) {
+			size1 = -srclen;
+		} else {
+			size1 = 6;
+			while (get_vec_size (size1) * 2 <= srclen)
+				size1++;
+		}
+		unsigned int len = get_vec_size (size1);
+		void *buf = alloc (len);
+		memcpy (buf, src, len);
+		p = realloc (p, sizeof *p + sizeof (p->vec[0]) * (veccnt + 1));
+		p->vec[veccnt].buf = buf;
+		p->vec[veccnt].size1 = size1;
+		veccnt++;
+		src += len;
+		srclen -= len;
+	}
+	p->veccnt = veccnt;
+	**next = p;
+	*next = &p->next;
+}
+
+struct processbin *
+processbin_add (char *name, void *bin, ulong len, int stacksize)
+{
+	u8 *b;
+	u8 *phdrb;
+	ELF_EHDR *ehdr;
+	ELF_PHDR *phdr;
+	unsigned int i;
+	struct processbin *pb;
+	struct ro_segments *ro = NULL;
+	struct ro_segments **ro_next = &ro;
+	struct rw_segments *rw = NULL;
+	struct rw_segments **rw_next = &rw;
+
+	b = bin;
+	if (sizeof *ehdr > len)
+		return NULL;
+	if (b[0] != 0x7F && b[1] != 'E' && b[2] != 'L' && b[3] != 'F')
+		return NULL;
+	ehdr = bin;
+	phdrb = b + ehdr->e_phoff;
+	phdr = (ELF_PHDR *)phdrb;
+	for (i = ehdr->e_phnum; i && phdrb - b + sizeof *phdr <= len;
+	     i--, phdr = (ELF_PHDR *)(phdrb += ehdr->e_phentsize)) {
+		if (phdr->p_type != PT_LOAD)
+			continue;
+		if (phdr->p_vaddr >= VMM_START_VIRT)
+			continue;
+		if (phdr->p_vaddr + phdr->p_memsz > VMM_START_VIRT)
+			continue;
+		if (phdr->p_offset >= len)
+			continue;
+		if (phdr->p_offset + phdr->p_filesz > len)
+			continue;
+		if (phdr->p_flags & PF_W)
+			add_segment_rw (phdr->p_vaddr, phdr->p_memsz,
+					b + phdr->p_offset, phdr->p_filesz,
+					&rw_next);
+		else
+			add_segment_ro (phdr->p_vaddr, phdr->p_memsz,
+					b + phdr->p_offset, phdr->p_filesz,
+					&ro_next);
+	}
+	int namelen = strlen (name) + 1;
+	pb = alloc (sizeof *pb + namelen);
+	memcpy (pb->name, name, namelen);
+	pb->ro = ro;
+	pb->rw = rw;
+	pb->entry = ehdr->e_entry;
+	pb->stacksize = stacksize;
+	LIST1_ADD (processbin_list, pb);
+	return pb;
+}
+
+static void
+builtin_loadall (void)
+{
+	struct process_builtin_data *p;
+
+	for (p = __process_builtin; p != __process_builtin_end; p++)
+		processbin_add (p->name, p->bin, p->len, p->stacksize);
+}
+
+static void
+builtin_free (void)
+{
+	struct process_builtin_data *p;
+	void *start = NULL;
+	void *end = NULL;
+
+	for (p = __process_builtin; p != __process_builtin_end; p++) {
+		if (end != p->name) {
+			if (end)
+				free_pages_range (start, end);
+			start = p->name;
+		}
+		end = p->name + strlen (p->name) + 1;
+		if (end != p->bin) {
+			free_pages_range (start, end);
+			start = p->bin;
+		}
+		end = p->bin + p->len;
+	}
+	if (end)
+		free_pages_range (start, end);
+}
+
+static void
 process_init_global (void)
 {
 	int i;
@@ -192,7 +420,10 @@ process_init_global (void)
 	clearmsgdsc (process[0].msgdsc);
 	setup_syscallentry ();
 	spinlock_init (&process_lock);
+	LIST1_HEAD_INIT (processbin_list);
 	process_initialized = true;
+	builtin_loadall ();
+	builtin_free ();
 }
 
 static void
@@ -207,36 +438,33 @@ process_wakeup (void)
 	setup_syscallentry ();
 }
 
-static void
-load_bin (virt_t destvirt, uint destlen, void *src, uint srclen)
-{
-	mm_process_map_alloc (destvirt, destlen);
-	memcpy ((void *)destvirt, src, srclen);
-}
-
 static ulong
-process_load (void *bin)
+processbin_load (struct processbin *bin)
 {
-	u8 *b;
-	ELF_EHDR *ehdr;
-	ELF_PHDR *phdr;
-	unsigned int i;
-
-	b = bin;
-	if (b[0] != 0x7F && b[1] != 'E' && b[2] != 'L' && b[3] != 'F')
-		return 0;
-	ehdr = bin;
-	phdr = (ELF_PHDR *)((u8 *)bin + ehdr->e_phoff);
-	for (i = ehdr->e_phnum; i;
-	     i--, phdr = (ELF_PHDR *)((u8 *)phdr + ehdr->e_phentsize)) {
-		if (phdr->p_type == PT_LOAD) {
-			load_bin (phdr->p_vaddr,
-				  phdr->p_memsz,
-				  (u8 *)bin + phdr->p_offset,
-				  phdr->p_filesz);
+	for (struct rw_segments *p = bin->rw; p; p = p->next) {
+		ulong vaddr = p->vaddr;
+		mm_process_map_alloc (vaddr, p->vsize);
+		for (u32 i = 0; i < p->veccnt; i++) {
+			unsigned int len = get_vec_size (p->vec[i].size1);
+			memcpy ((void *)vaddr, p->vec[i].buf, len);
+			vaddr += len;
 		}
 	}
-	return ehdr->e_entry;
+	for (struct ro_segments *p = bin->ro; p; p = p->next) {
+		ulong vaddr = p->vaddr;
+		for (int i = 0; i < p->veccnt; i++) {
+			phys_t phys = p->vec[i].phys;
+			unsigned int len = get_vec_size (p->vec[i].size1);
+			u32 size = len / PAGESIZE;
+			for (u32 i = 0; i < size; i++) {
+				mm_process_map_shared_physpage (vaddr, phys,
+								false);
+				vaddr += PAGESIZE;
+				phys += PAGESIZE;
+			}
+		}
+	}
+	return bin->entry;
 }
 
 /* for internal use */
@@ -266,12 +494,13 @@ ret:
 }
 
 static int
-process_new (int frompid, void *bin, int stacksize)
+process_new (int frompid, struct processbin *bin)
 {
 	int pid, gen;
 	u64 phys;
 	ulong rip;
 	phys_t mm_phys;
+	int stacksize = bin->stacksize;
 
 	spinlock_lock (&process_lock);
 	for (pid = 1; pid < NUM_OF_PID; pid++) {
@@ -295,8 +524,8 @@ found:
 	process[pid].valid = true;
 	clearmsgdsc (process[pid].msgdsc);
 	mm_phys = mm_process_switch (phys);
-	if (!(rip = process_load (bin))) { /* load a program */
-		printf ("process_load failed.\n");
+	if (!(rip = processbin_load (bin))) { /* load a program */
+		printf ("processbin_load failed.\n");
 		process[pid].valid = false;
 		pid = 0;
 	}
@@ -809,31 +1038,14 @@ sys_msgsenddesc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 	return _msgsenddesc (currentcpu->pid, si, di);
 }
 
-static void *
-_builtin_find (char *name, int *stacksize)
-{
-	struct process_builtin_data *p;
-
-	for (p = __process_builtin; p != __process_builtin_end; p++) {
-		if (strcmp (name, p->name) == 0) {
-			*stacksize = p->stacksize;
-			return p->bin;
-		}
-	}
-	return NULL;
-}
-
 static int
 _newprocess (int frompid, char *name)
 {
-	void *bin = NULL;
-	int stacksize = 0;
-
-	if (!bin)
-		bin = _builtin_find (name, &stacksize);
-	if (!bin)
-		return -1;
-	return process_new (frompid, bin, stacksize);
+	struct processbin *bin;
+	LIST1_FOREACH (processbin_list, bin)
+		if (!strcmp (bin->name, name))
+			return process_new (frompid, bin);
+	return -1;
 }
 
 int

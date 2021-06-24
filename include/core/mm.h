@@ -53,6 +53,7 @@ int alloc_pages (void **virt, u64 *phys, int n);
 int alloc_page (void **virt, u64 *phys);
 void free_page (void *virt);
 void free_page_phys (phys_t phys);
+void free_pages_range (void *start, void *end);
 void *alloc (uint len);
 void *alloc2 (uint len, u64 *phys);
 u32 alloc_realmodemem (uint len);

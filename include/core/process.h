@@ -42,6 +42,8 @@ struct msgbuf {
 	long premap_handle;
 };
 
+struct processbin;
+
 static inline void
 setmsgbuf_premap (struct msgbuf *mbuf, void *base, unsigned int len, int rw,
 		  long premap_handle)
@@ -58,6 +60,8 @@ setmsgbuf (struct msgbuf *mbuf, void *base, unsigned int len, int rw)
 	setmsgbuf_premap (mbuf, base, len, rw, 0);
 }
 
+struct processbin *processbin_add (char *name, void *bin, ulong len,
+				   int stacksize);
 void *msgsetfunc (int desc, void *func);
 int msgregister (char *name, void *func);
 int msgopen (char *name);

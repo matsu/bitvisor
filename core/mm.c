@@ -1402,6 +1402,25 @@ free_page_phys (phys_t phys)
 	mm_page_free (phys_to_page (phys));
 }
 
+/* Free reserved pages within the specified range */
+void
+free_pages_range (void *start, void *end)
+{
+	virt_t c = (virt_t)start;
+	virt_t e = (virt_t)end;
+	if (c & PAGESIZE_MASK)
+		c += PAGESIZE;
+	c &= ~PAGESIZE_MASK;
+	e &= ~PAGESIZE_MASK;
+	while (c < e) {
+		ASSERT ((virt_t)head <= c && c < (virt_t)end);
+		struct page *p = virt_to_page (c);
+		if (p->type == PAGE_TYPE_RESERVED)
+			mm_page_free (p);
+		c += PAGESIZE;
+	}
+}
+
 /* mempool functions */
 struct mempool *
 mempool_new (int blocksize, int numkeeps, bool clear)

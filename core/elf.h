@@ -98,6 +98,7 @@
 
 #define EI_NIDENT	16	/* Size of e_ident array. */
 #define PT_LOAD		1	/* Loadable segment. */
+#define	PF_W		0x2		/* Writable. */
 
 /* from FreeBSD src/sys/sys/elf32.h: */
 
