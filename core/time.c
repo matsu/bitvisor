@@ -201,6 +201,10 @@ time_wakeup (void)
 	/* Read current TSC again to keep TSC >= currentcpu->tsc */
 	asm_rdtsc (&tsc_l, &tsc_h);
 	conv32to64 (tsc_l, tsc_h, &currentcpu->tsc);
+	/* Update timediff */
+	u64 lasttime = lasttime;
+	asm_lock_cmpxchgq (&lastcputime, &lasttime, lasttime);
+	currentcpu->timediff = lasttime;
 }
 
 static int
