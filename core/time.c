@@ -47,6 +47,7 @@
 
 static u64 lastcputime;
 static u64 lastacpitime;
+static rw_spinlock_t initsync;
 
 static u64
 tsc_to_time (u64 tsc, u64 hz)
@@ -136,9 +137,14 @@ get_time (void)
 static void
 time_init_dbsp (void)
 {
+	rw_spinlock_lock_ex (&initsync);
 	sync_all_processors ();
 	usleep (1000000 >> 4);
 	sync_all_processors ();
+	/* Update lastcputime */
+	u64 time = get_cpu_time ();
+	rw_spinlock_unlock_ex (&initsync);
+	printf ("Time: %llu\n", time);
 }
 
 static void
@@ -170,12 +176,21 @@ time_init_pcpu (void)
 	asm_rdtsc (&tsc2_l, &tsc2_h);
 	conv32to64 (tsc1_l, tsc1_h, &tsc1);
 	conv32to64 (tsc2_l, tsc2_h, &tsc2);
+	/* Set timediff value to:
+	 * - Zero for all processors on BIOS environment
+	 * - Zero for BSP on UEFI environment
+	 * - Current time of BSP for APs on UEFI environment
+	 */
+	u64 lasttime = lasttime;
+	rw_spinlock_lock_sh (&initsync);
+	asm_lock_cmpxchgq (&lastcputime, &lasttime, lasttime);
+	rw_spinlock_unlock_sh (&initsync);
 	count = (tsc2 - tsc1) << 4;
 	printf ("Processor %d %llu Hz%s\n", currentcpu->cpunum, count,
 		currentcpu->use_invariant_tsc ? " (Invariant TSC)" : "");
-	currentcpu->tsc = tsc1;
+	currentcpu->tsc = tsc2;
 	currentcpu->hz = count;
-	currentcpu->timediff = 0;
+	currentcpu->timediff = lasttime;
 }
 
 static void
@@ -234,6 +249,7 @@ time_init_global (void)
 {
 	lastcputime = 0;
 	lastacpitime = 0;
+	rw_spinlock_init (&initsync);
 }
 
 INITFUNC ("global3", time_init_global);
