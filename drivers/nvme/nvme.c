@@ -1550,6 +1550,20 @@ nvme_new (struct pci_device *pci_device)
 	       !waiting_quirk (host))
 		schedule ();
 
+	/* Interrupt mask should be cleared after controller stop
+	 * (reset).  If interrupt mask is still set, clear it here.
+	 * Apparently Apple ANS2 Controller does not clear interrupt
+	 * mask on reset. */
+	volatile u32 *intmc_reg = (u32 *)NVME_INTMC_REG (nvme_regs);
+	u32 intmask = *intmc_reg;
+	if (intmask) {
+		/* Writing the read value clears the mask.  Using a
+		 * volatile pointer prevents compilers from optimizing
+		 * it out. */
+		*intmc_reg = intmask;
+		printf ("NVMe interrupt mask 0x%X is cleared.\n", intmask);
+	}
+
 	printf ("NVMe initialization done\n");
 }
 
