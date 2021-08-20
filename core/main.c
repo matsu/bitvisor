@@ -355,6 +355,8 @@ bsp_init_thread (void *args)
 		call_initfunc ("config1");
 	} else if (!uefi_booted) {
 		load_drivers ();
+	}
+	if (!uefi_booted) {
 		get_tmpbuf (&tmpbufaddr, &tmpbufsize);
 		load_bootsector (bios_boot_drive, tmpbufaddr, tmpbufsize);
 		sync_cursor_pos ();
