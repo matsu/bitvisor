@@ -390,10 +390,10 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 
 	paddr = 0x50000000;
 
-	readsize = 0x10000;
+	readsize = 0x11000;
 
 	status = systab->BootServices->AllocatePages (AllocateMaxAddress,
-						      EfiLoaderData, 0x10,
+						      EfiLoaderData, 0x11,
 						      &paddr);
 	if (EFI_ERROR (status)) {
 		print (systab, L"AllocatePages ", status);
@@ -446,7 +446,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 
 	remove_password_box (systab);
 
-	systab->BootServices->FreePages (paddr, 0x10);
+	systab->BootServices->FreePages (paddr, 0x11);
 
 	close_fhd (&pass_fhd);
 
