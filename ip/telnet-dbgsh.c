@@ -61,6 +61,13 @@ telnet_dbgsh_ttyin_msghandler (int m, int c)
 	return 0;
 }
 
+static void
+telnet_dbgsh_output (int c)
+{
+	while (telnet_server_output (c) < 0)
+		schedule ();
+}
+
 static int
 telnet_dbgsh_ttyout_msghandler (int m, int c)
 {
@@ -68,8 +75,8 @@ telnet_dbgsh_ttyout_msghandler (int m, int c)
 		if (c <= 0 || c > 0x100)
 			c = 0x100;
 		if (c == '\n')
-			telnet_server_output ('\r');
-		telnet_server_output (c);
+			telnet_dbgsh_output ('\r');
+		telnet_dbgsh_output (c);
 	}
 	return 0;
 }
@@ -85,7 +92,7 @@ telnet_dbgsh_thread (void *arg)
 	ttyout = msgopen ("telnet_dbgsh_o");
 	for (;;) {
 		debug_shell (ttyin, ttyout);
-		telnet_server_output (-1);
+		telnet_dbgsh_output (-1);
 		schedule ();
 	}
 }

@@ -2,7 +2,7 @@
 #define TELNET_SERVER_H
 
 int telnet_server_input (void);
-void telnet_server_output (int c);
+int telnet_server_output (int c);
 void telnet_server_init (char *name);
 
 #endif	/* TELNET_SERVER_H */

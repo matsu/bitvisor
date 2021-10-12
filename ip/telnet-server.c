@@ -344,9 +344,11 @@ telnet_poll (void *arg, struct tcp_pcb *tpcb)
 	return ERR_OK;
 }
 
-void
+int
 telnet_server_output (int c)
 {
+	if (telnet_outbuf_out - telnet_outbuf_sent >= TELNET_BUFSIZE)
+		return -1;
 	if (c < 0) {
 		telnet_outbuf_close_tpcb = client_tpcb;
 		telnet_outbuf_close_out = telnet_outbuf_out + 1;
@@ -357,6 +359,7 @@ telnet_server_output (int c)
 		telnet_outbuf[telnet_outbuf_out++ % TELNET_BUFSIZE] = c;
 		tcpip_begin (telnet_send, NULL);
 	}
+	return 0;
 }
 
 static void
