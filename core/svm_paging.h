@@ -34,7 +34,6 @@
 
 struct vcpu;
 
-bool svm_paging_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e);
 void svm_paging_map_1mb (void);
 void svm_paging_flush_guest_tlb (void);
 void svm_paging_init (void);

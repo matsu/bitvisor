@@ -39,7 +39,6 @@ void svm_np_pagefault (bool write, u64 gphys);
 void svm_np_tlbflush (void);
 void svm_np_updatecr3 (void);
 void svm_np_clear_all (void);
-bool svm_np_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end);
 void svm_np_map_1mb (void);
 
 #endif

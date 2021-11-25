@@ -47,7 +47,6 @@
 #include "vt_regs.h"
 
 static void vt_tsc_offset_changed (void);
-static bool vt_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e);
 static void vt_spt_tlbflush (void);
 static void vt_spt_setcr3 (ulong cr3);
 static void vt_invlpg (ulong addr);
@@ -87,7 +86,6 @@ static struct vmctl_func func = {
 	vt_panic_dump,
 	vt_invlpg,
 	vt_reset,
-	vt_extern_flush_tlb_entry,
 	call_xsetbv,
 	vt_enable_resume,
 	vt_resume,
@@ -183,12 +181,6 @@ vt_exint_assert (bool assert)
 {
 	current->u.vt.exint_assert = assert;
 	current->u.vt.exint_update = true;
-}
-
-static bool
-vt_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e)
-{
-	return vt_paging_extern_flush_tlb_entry (p, s, e);
 }
 
 static void

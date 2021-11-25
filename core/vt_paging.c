@@ -37,18 +37,6 @@
 #include "vt_paging.h"
 #include "vt_regs.h"
 
-bool
-vt_paging_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e)
-{
-	if (current->u.vt.ept) {
-		if (vt_ept_extern_mapsearch (p, s, e))
-			return true;
-		if (current->u.vt.unrestricted_guest)
-			return false;
-	}
-	return cpu_mmu_spt_extern_mapsearch (p, s, e);
-}
-
 static bool
 ept_enabled (void)
 {

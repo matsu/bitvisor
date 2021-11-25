@@ -36,18 +36,6 @@
 #include "svm_np.h"
 #include "svm_paging.h"
 
-bool
-svm_paging_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e)
-{
-#ifdef CPU_MMU_SPT_DISABLE
-	return false;
-#endif
-	if (current->u.svm.np)
-		return svm_np_extern_mapsearch (p, s, e);
-	else
-		return cpu_mmu_spt_extern_mapsearch (p, s, e);
-}
-
 void
 svm_paging_map_1mb (void)
 {

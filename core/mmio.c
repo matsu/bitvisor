@@ -36,18 +36,12 @@
 #include "initfunc.h"
 #include "mm.h"
 #include "mmio.h"
+#include "mmioclr.h"
 #include "panic.h"
 #include "printf.h"
 #include "spinlock.h"
 #include "string.h"
 #include "vmmerr.h"
-
-struct call_flush_tlb_data {
-	struct vcpu *vcpu0;
-	phys_t start;
-	phys_t end;
-	bool ret;
-};
 
 static int
 rangecheck (struct mmio_handle *h, phys_t gphys, uint len, phys_t *gphys2,
@@ -285,55 +279,6 @@ scan (phys_t gphys, uint len, void (*func) (int i, void *data), void *data)
 		func (i, data);
 }
 
-static bool
-call_flush_tlb (struct vcpu *p, void *q)
-{
-	struct call_flush_tlb_data *d;
-
-	d = q;
-	if (p->vcpu0 == d->vcpu0)
-		d->ret = p->vmctl.extern_flush_tlb_entry (p, d->start, d->end);
-	if (d->ret)
-		return true;
-	return false;
-}
-
-static bool
-flush_sub (phys_t hpst, phys_t hpend)
-{
-	struct call_flush_tlb_data d;
-
-	d.vcpu0 = current->vcpu0;
-	d.start = hpst;
-	d.end = hpend;
-	d.ret = false;
-	vcpu_list_foreach (call_flush_tlb, &d);
-	return d.ret;
-}
-
-static bool
-flush_tlb_entry (phys_t gpst, phys_t gpend)
-{
-	phys_t hp0, hp1, hp2, gp2;
-
-	hp0 = current->gmm.gp2hp (gpst, NULL);
-	gp2 = (gpst | PAGESIZE_MASK) + 1;
-	hp1 = hp0 | PAGESIZE_MASK;
-	while (gp2 <= gpend) {
-		hp2 = current->gmm.gp2hp (gp2, NULL);
-		if (hp1 + 1 != hp2) {
-			if (flush_sub (hp0, hp1))
-				return true;
-			hp0 = hp2;
-		}
-		hp1 = hp2 | PAGESIZE_MASK;
-		gp2 = (gp2 | PAGESIZE_MASK) + 1;
-	}
-	if (flush_sub (hp0, hp1))
-		return true;
-	return false;
-}
-
 static void *
 mmio_register_internal (phys_t gphys, uint len, mmio_handler_t handler,
 			void *data, bool unlocked_handler)
@@ -345,8 +290,8 @@ mmio_register_internal (phys_t gphys, uint len, mmio_handler_t handler,
 		if (rangecheck (p, gphys, len, NULL, NULL))
 			goto fail;
 	}
-	if (flush_tlb_entry (gphys, gphys + len - 1)) {
-		printf ("%s: flush_tlb_entry(0x%llX, 0x%llX) failed\n"
+	if (mmioclr_clear_gmap (gphys, gphys + len - 1)) {
+		printf ("%s: mmioclr_clear_gmap(0x%llX, 0x%llX) failed\n"
 			, __func__, gphys, gphys + len - 1);
 		goto fail;
 	}

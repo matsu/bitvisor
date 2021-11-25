@@ -31,6 +31,7 @@
 #include "constants.h"
 #include "current.h"
 #include "mm.h"
+#include "mmioclr.h"
 #include "panic.h"
 #include "printf.h"
 #include "string.h"
@@ -54,6 +55,15 @@ struct svm_np {
 	} cur;
 };
 
+static bool svm_np_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end);
+
+static bool
+svm_np_mmioclr_callback (void *data, phys_t start, phys_t end)
+{
+	struct vcpu *p = data;
+	return svm_np_extern_mapsearch (p, start, end);
+}
+
 void
 svm_np_init (void)
 {
@@ -72,6 +82,7 @@ svm_np_init (void)
 	np->cur.level = PMAP_LEVELS;
 	current->u.svm.np = np;
 	current->u.svm.vi.vmcb->n_cr3 = np->ncr3tbl_phys;
+	mmioclr_register (current, svm_np_mmioclr_callback);
 }
 
 static void
@@ -281,7 +292,7 @@ svm_np_clear_all (void)
 	svm_paging_flush_guest_tlb ();
 }
 
-bool
+static bool
 svm_np_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 {
 	u64 *e, tmp1, tmp2, mask = p->pte_addr_mask;

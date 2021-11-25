@@ -27,28 +27,16 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_VT_PAGING_H
-#define _CORE_VT_PAGING_H
+#ifndef _CORE_MMIOCLR_H
+#define _CORE_MMIOCLR_H
 
 #include "types.h"
 
-struct vcpu;
-
-void vt_paging_map_1mb (void);
-void vt_paging_flush_guest_tlb (void);
-void vt_paging_init (void);
-void vt_paging_pagefault (ulong err, ulong cr2);
-void vt_paging_tlbflush (void);
-void vt_paging_invalidate (ulong addr);
-void vt_paging_npf (bool write, u64 gphys);
-void vt_paging_updatecr3 (void);
-void vt_paging_spt_setcr3 (ulong cr3);
-void vt_paging_clear_all (void);
-bool vt_paging_get_gpat (u64 *pat);
-bool vt_paging_set_gpat (u64 pat);
-ulong vt_paging_apply_fixed_cr0 (ulong val);
-ulong vt_paging_apply_fixed_cr4 (ulong val);
-void vt_paging_pg_change (void);
-void vt_paging_start (void);
+struct mmioclr *mmioclr_register (void *data,
+				  bool (*callback) (void *data, phys_t s,
+						    phys_t e));
+void mmioclr_unregister (struct mmioclr *p);
+bool mmioclr_clear_hmap (phys_t hpst, phys_t hpend);
+bool mmioclr_clear_gmap (phys_t gpst, phys_t gpend);
 
 #endif

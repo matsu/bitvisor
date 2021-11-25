@@ -52,7 +52,6 @@
 
 static void svm_generate_pagefault (ulong err, ulong cr2);
 static void svm_tsc_offset_changed (void);
-static bool svm_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e);
 static void svm_spt_tlbflush (void);
 static void svm_spt_setcr3 (ulong cr3);
 static void svm_invlpg (ulong addr);
@@ -92,7 +91,6 @@ static struct vmctl_func func = {
 	svm_panic_dump,
 	svm_invlpg,
 	svm_reset,
-	svm_extern_flush_tlb_entry,
 	call_xsetbv,
 	svm_enable_resume,
 	svm_resume,
@@ -153,12 +151,6 @@ static void
 svm_tsc_offset_changed (void)
 {
 	current->u.svm.vi.vmcb->tsc_offset = current->tsc_offset;
-}
-
-static bool
-svm_extern_flush_tlb_entry (struct vcpu *p, phys_t s, phys_t e)
-{
-	return svm_paging_extern_flush_tlb_entry (p, s, e);
 }
 
 static void

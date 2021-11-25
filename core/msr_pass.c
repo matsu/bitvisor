@@ -38,6 +38,7 @@
 #include "int.h"
 #include "localapic.h"
 #include "mm.h"
+#include "mmioclr.h"
 #include "msr.h"
 #include "msr_pass.h"
 #include "panic.h"
@@ -47,6 +48,15 @@ struct msrarg {
 	u32 msrindex;
 	u64 *msrdata;
 };
+
+struct hw_feedback_data {
+	struct hw_feedback_data *next;
+	struct vcpu *vcpu;
+	phys_t gphys;
+	u32 npages;
+};
+
+static struct hw_feedback_data *hw_feedback_data_head;
 
 static asmlinkage void
 do_read_msr_sub (void *arg)
@@ -80,7 +90,13 @@ msr_pass_read_msr (u32 msrindex, u64 *msrdata)
 		asm_rdmsr64 (MSR_IA32_TIME_STAMP_COUNTER, msrdata);
 		*msrdata += current->tsc_offset;
 		break;
+	case MSR_IA32_HW_FEEDBACK_PTR:
+	case MSR_IA32_HW_FEEDBACK_CONFIG:
+		if (current->cpuid.hw_feedback)
+			goto pass;
+		return true;
 	default:
+	pass:
 		m.msrindex = msrindex;
 		m.msrdata = msrdata;
 		num = callfunc_and_getint (do_read_msr_sub, &m);
@@ -225,6 +241,103 @@ ia32_bios_updt (virt_t addr)
 }
 
 static bool
+msr_pass_write_hw_feedback_ptr (u64 msrdata)
+{
+	/* Read value and see whether it is the same */
+	struct msrarg m;
+	m.msrindex = MSR_IA32_HW_FEEDBACK_PTR;
+	u64 tmp;
+	m.msrdata = &tmp;
+	int num = callfunc_and_getint (do_read_msr_sub, &m);
+	if (num == EXCEPTION_GP)
+		return true;
+	ASSERT (num == -1);
+	if (tmp == msrdata)
+		return false;
+
+	/* Find data */
+	struct hw_feedback_data *p = hw_feedback_data_head;
+	while (p) {
+		if (p->vcpu == current)
+			break;
+		p = p->next;
+	}
+	ASSERT (p);
+
+	/* Write value with valid=0 */
+	tmp = msrdata & ~MSR_IA32_HW_FEEDBACK_PTR_VALID_BIT;
+	m.msrindex = MSR_IA32_HW_FEEDBACK_PTR;
+	m.msrdata = &tmp;
+	num = callfunc_and_getint (do_write_msr_sub, &m);
+	if (num == EXCEPTION_GP)
+		return true;
+	ASSERT (num == -1);
+	p->npages = 0;
+	if (tmp == msrdata)
+		return false;
+	ASSERT (msrdata & MSR_IA32_HW_FEEDBACK_PTR_VALID_BIT);
+
+	/* Get HW Feedback information */
+	u32 a, b, c, d;
+	asm_cpuid (CPUID_6, 0, &a, &b, &c, &d);
+	ASSERT (a & CPUID_6_EAX_HW_FEEDBACK);
+	u32 npages = ((d & CPUID_6_EDX_HW_FEEDBACK_SIZE_MASK) >>
+		      CPUID_6_EDX_HW_FEEDBACK_SIZE_SHIFT) + 1;
+
+	/* Read and check the address */
+	m.msrindex = MSR_IA32_HW_FEEDBACK_PTR;
+	m.msrdata = &tmp;
+	num = callfunc_and_getint (do_read_msr_sub, &m);
+	ASSERT (num == -1);
+	for (u32 i = 0; i < npages; i++) {
+		phys_t gphys = (tmp & ~PAGESIZE_MASK) + i * PAGESIZE;
+		bool fakerom;
+		if (current->gmm.gp2hp (gphys, &fakerom) != gphys)
+			panic ("%s(0x%llX): gphys 0x%llX and hphys are"
+			       " different", __func__, msrdata, gphys);
+		if (fakerom)
+			panic ("%s(0x%llX): gphys 0x%llX is VMM memory",
+			       __func__, msrdata, gphys);
+	}
+	bool mmio_fail = false;
+	mmio_lock ();
+	for (u32 i = 0; i < npages; i++) {
+		phys_t gphys = (tmp & ~PAGESIZE_MASK) + i * PAGESIZE;
+		int in_mmio_range = mmio_access_page (gphys, false);
+		if (in_mmio_range) {
+			mmio_fail = true;
+			break;
+		}
+	}
+	if (!mmio_fail) {
+		p->gphys = tmp & ~PAGESIZE_MASK;
+		p->npages = npages;
+	}
+	mmio_unlock ();
+	if (mmio_fail)
+		panic ("%s(0x%llX): mmio check failed", __func__, msrdata);
+
+	/* Set the valid bit */
+	tmp |= MSR_IA32_HW_FEEDBACK_PTR_VALID_BIT;
+	m.msrindex = MSR_IA32_HW_FEEDBACK_PTR;
+	m.msrdata = &tmp;
+	num = callfunc_and_getint (do_write_msr_sub, &m);
+	ASSERT (num == -1);
+	return false;
+}
+
+static bool
+msr_pass_mmioclr_hw_feedback (void *data, phys_t s, phys_t e)
+{
+	struct hw_feedback_data *p = data;
+	if (!p->npages)
+		return false;
+	phys_t ss = p->gphys;
+	phys_t ee = ss + p->npages * PAGESIZE - 1;
+	return ss <= e && s <= ee;
+}
+
+static bool
 msr_pass_write_msr (u32 msrindex, u64 msrdata)
 {
 	u64 tmp;
@@ -256,6 +369,14 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 	case MSR_IA32_X2APIC_ICR:
 		localapic_x2apic_icr (msrdata);
 		goto pass;
+	case MSR_IA32_HW_FEEDBACK_PTR:
+		if (current->cpuid.hw_feedback)
+			return msr_pass_write_hw_feedback_ptr (msrdata);
+		return true;
+	case MSR_IA32_HW_FEEDBACK_CONFIG:
+		if (current->cpuid.hw_feedback)
+			goto pass;
+		return true;
 	default:
 	pass:
 		m.msrindex = msrindex;
@@ -289,6 +410,26 @@ msr_pass_init (void)
 
 	current->msr.read_msr = msr_pass_read_msr;
 	current->msr.write_msr = msr_pass_write_msr;
+	if (!config.vmm.conceal_hw_feedback) {
+		u32 a, b, c, d;
+		asm_cpuid (CPUID_6, 0, &a, &b, &c, &d);
+		if (a & CPUID_6_EAX_HW_FEEDBACK) {
+			current->cpuid.hw_feedback = true;
+			struct hw_feedback_data *p = alloc (sizeof *p);
+			p->next = NULL;
+			p->vcpu = current;
+			p->gphys = 0;
+			p->npages = 0;
+			mmioclr_register (p, msr_pass_mmioclr_hw_feedback);
+			static spinlock_t lock = SPINLOCK_INITIALIZER;
+			spinlock_lock (&lock);
+			struct hw_feedback_data **q = &hw_feedback_data_head;
+			while (*q)
+				q = &(*q)->next;
+			*q = p;
+			spinlock_unlock (&lock);
+		}
+	}
 	if (current->vcpu0 == current) {
 		for (i = 0x0; i <= 0x1FFF; i++) {
 			current->vmctl.msrpass (i, false, true);
@@ -306,6 +447,14 @@ msr_pass_init (void)
 		current->vmctl.msrpass (MSR_IA32_TSC_ADJUST, false, false);
 		current->vmctl.msrpass (MSR_IA32_TSC_ADJUST, true, false);
 		current->vmctl.msrpass (MSR_IA32_APIC_BASE_MSR, true, false);
+		current->vmctl.msrpass (MSR_IA32_HW_FEEDBACK_PTR, false,
+					false);
+		current->vmctl.msrpass (MSR_IA32_HW_FEEDBACK_PTR, true,
+					false);
+		current->vmctl.msrpass (MSR_IA32_HW_FEEDBACK_CONFIG, false,
+					current->cpuid.hw_feedback);
+		current->vmctl.msrpass (MSR_IA32_HW_FEEDBACK_CONFIG, true,
+					current->cpuid.hw_feedback);
 	}
 }
 

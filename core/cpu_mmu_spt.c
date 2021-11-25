@@ -38,6 +38,7 @@
 #include "initfunc.h"
 #include "mm.h"
 #include "mmio.h"
+#include "mmioclr.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
@@ -2701,9 +2702,10 @@ cpu_mmu_spt_pagefault (ulong err, ulong cr2)
 	}
 }
 
-bool
-cpu_mmu_spt_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
+static bool
+cpu_mmu_spt_mmioclr_callback (void *data, phys_t start, phys_t end)
 {
+	struct vcpu *p = data;
 	return extern_mapsearch (p, start, end);
 }
 
@@ -2769,6 +2771,7 @@ cpu_mmu_spt_init_pcpu (void)
 int
 cpu_mmu_spt_init (void)
 {
+	mmioclr_register (current, cpu_mmu_spt_mmioclr_callback);
 	return init_vcpu ();
 }
 

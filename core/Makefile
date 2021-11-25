@@ -64,3 +64,4 @@ objs-1 += guest_bioshook.o int_handler.o process_sysenter.o string.o
 objs-1 += sx_handler.o thread_switch.o wakeup_entry.o uefiutil.o
 objs-1 += uefi_param_ext.o nmi_handler.o nmi.o initipi.o
 objs-1 += vt_shadow_vt.o
+objs-1 += mmioclr.o

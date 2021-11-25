@@ -429,6 +429,8 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "vmm.ignore_tsc_invariant");
 	ss (uintnum, &name, &src, &len, "vmm.unsafe_nested_virtualization",
 	    "vmm.unsafe_nested_virtualization");
+	ss (uintnum, &name, &src, &len, "vmm.conceal_hw_feedback",
+	    "vmm.conceal_hw_feedback");
 	ss (mac_addr, &name, &src, &len, "vmm.tty_mac_address",
 	    "vmm.tty_mac_address");
 	ss (uintnum, &name, &src, &len, "vmm.tty_syslog.enable",
@@ -597,6 +599,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.no_intr_intercept);
 	CONF (vmm.ignore_tsc_invariant);
 	CONF (vmm.unsafe_nested_virtualization);
+	CONF (vmm.conceal_hw_feedback);
 	CONF (vmm.tty_mac_address);
 	CONF (vmm.tty_syslog.enable);
 	CONF (vmm.tty_syslog.src_ipaddr);

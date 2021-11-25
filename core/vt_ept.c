@@ -33,6 +33,7 @@
 #include "current.h"
 #include "gmm_access.h"
 #include "mm.h"
+#include "mmioclr.h"
 #include "panic.h"
 #include "string.h"
 #include "vt_ept.h"
@@ -64,6 +65,15 @@ struct vt_ept {
 	} cur;
 };
 
+static bool vt_ept_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end);
+
+static bool
+vt_ept_mmioclr_callback (void *data, phys_t start, phys_t end)
+{
+	struct vcpu *p = data;
+	return vt_ept_extern_mapsearch (p, start, end);
+}
+
 void
 vt_ept_init (void)
 {
@@ -83,6 +93,7 @@ vt_ept_init (void)
 	current->u.vt.ept = ept;
 	asm_vmwrite64 (VMCS_EPT_POINTER, ept->ncr3tbl_phys |
 		       VMCS_EPT_POINTER_EPT_WB | VMCS_EPT_PAGEWALK_LENGTH_4);
+	mmioclr_register (current, vt_ept_mmioclr_callback);
 }
 
 static void
@@ -306,7 +317,7 @@ vt_ept_clear_all (void)
 	vt_paging_flush_guest_tlb ();
 }
 
-bool
+static bool
 vt_ept_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 {
 	u64 *e, tmp1, tmp2, mask = p->pte_addr_mask;
