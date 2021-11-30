@@ -345,6 +345,24 @@ vt_read_msr (u32 msrindex, u64 *msrdata)
 			  << 32 |
 			  VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VM_FUNCTIONS_BIT);
 		break;
+	case MSR_IA32_RTIT_OUTPUT_BASE:
+	case MSR_IA32_RTIT_OUTPUT_MASK_PTRS:
+	case MSR_IA32_RTIT_CTL:
+	case MSR_IA32_RTIT_STATUS:
+	case MSR_IA32_RTIT_CR3_MATCH:
+	case MSR_IA32_RTIT_ADDR0_A:
+	case MSR_IA32_RTIT_ADDR0_B:
+	case MSR_IA32_RTIT_ADDR1_A:
+	case MSR_IA32_RTIT_ADDR1_B:
+	case MSR_IA32_RTIT_ADDR2_A:
+	case MSR_IA32_RTIT_ADDR2_B:
+	case MSR_IA32_RTIT_ADDR3_A:
+	case MSR_IA32_RTIT_ADDR3_B:
+		if (!current->cpuid.pt)
+			r = true;
+		else
+			r = current->msr.read_msr (msrindex, msrdata);
+		break;
 	default:
 		r = current->msr.read_msr (msrindex, msrdata);
 	}
@@ -450,6 +468,24 @@ vt_write_msr (u32 msrindex, u64 msrdata)
 		r = vt_paging_set_gpat (msrdata);
 		vt_paging_flush_guest_tlb ();
 		break;
+	case MSR_IA32_RTIT_OUTPUT_BASE:
+	case MSR_IA32_RTIT_OUTPUT_MASK_PTRS:
+	case MSR_IA32_RTIT_CTL:
+	case MSR_IA32_RTIT_STATUS:
+	case MSR_IA32_RTIT_CR3_MATCH:
+	case MSR_IA32_RTIT_ADDR0_A:
+	case MSR_IA32_RTIT_ADDR0_B:
+	case MSR_IA32_RTIT_ADDR1_A:
+	case MSR_IA32_RTIT_ADDR1_B:
+	case MSR_IA32_RTIT_ADDR2_A:
+	case MSR_IA32_RTIT_ADDR2_B:
+	case MSR_IA32_RTIT_ADDR3_A:
+	case MSR_IA32_RTIT_ADDR3_B:
+		if (!current->cpuid.pt)
+			r = true;
+		else
+			r = current->msr.write_msr (msrindex, msrdata);
+		break;
 	default:
 		r = current->msr.write_msr (msrindex, msrdata);
 	}
@@ -524,6 +560,22 @@ vt_msrpass (u32 msrindex, bool wr, bool pass)
 	case MSR_IA32_FEATURE_CONTROL:
 	case MSR_IA32_VMX_PROCBASED_CTLS2:
 		if (!wr)
+			pass = false;
+		break;
+	case MSR_IA32_RTIT_OUTPUT_BASE:
+	case MSR_IA32_RTIT_OUTPUT_MASK_PTRS:
+	case MSR_IA32_RTIT_CTL:
+	case MSR_IA32_RTIT_STATUS:
+	case MSR_IA32_RTIT_CR3_MATCH:
+	case MSR_IA32_RTIT_ADDR0_A:
+	case MSR_IA32_RTIT_ADDR0_B:
+	case MSR_IA32_RTIT_ADDR1_A:
+	case MSR_IA32_RTIT_ADDR1_B:
+	case MSR_IA32_RTIT_ADDR2_A:
+	case MSR_IA32_RTIT_ADDR2_B:
+	case MSR_IA32_RTIT_ADDR3_A:
+	case MSR_IA32_RTIT_ADDR3_B:
+		if (!current->cpuid.pt)
 			pass = false;
 		break;
 	}

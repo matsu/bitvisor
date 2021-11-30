@@ -234,6 +234,7 @@ struct config_data_vmm {
 	int ignore_tsc_invariant;
 	int unsafe_nested_virtualization;
 	int conceal_hw_feedback;
+	int allow_pt;
 	char tty_mac_address[6];
 	int tty_pro1000;
 	int tty_rtl8169;

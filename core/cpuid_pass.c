@@ -66,6 +66,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		*ob &= ~CPUID_7_EBX_INVPCID_BIT;
 		if (current->cpuid.invpcid)
 			*ob |= CPUID_7_EBX_INVPCID_BIT;
+		if (!current->cpuid.pt)
+			*ob &= ~CPUID_7_EBX_PT_BIT;
 		*ob |= CPUID_7_EBX_TSCADJUSTMSR_BIT;
 		current->vmctl.read_control_reg (CONTROL_REG_CR4, &cr4);
 		if (cr4 & CR4_PKE_BIT)

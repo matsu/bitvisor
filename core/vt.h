@@ -98,6 +98,7 @@ struct vt_pcpu_data {
 	u64 vmxon_region_phys;
 	u64 vmcs_region_phys;
 	bool vmcs_writable_readonly;
+	bool vmcs_pt_in_vmx;
 };
 
 void vt_generate_pagefault (ulong err, ulong cr2);

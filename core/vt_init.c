@@ -155,6 +155,8 @@ vt_check_capabilities (void)
 	asm_rdmsr64 (MSR_IA32_VMX_MISC, &vmx_misc);
 	currentcpu->vt.vmcs_writable_readonly =
 		!!(vmx_misc & MSR_IA32_VMX_MISC_VMWRITE_ALL_BIT);
+	currentcpu->vt.vmcs_pt_in_vmx =
+		!!(vmx_misc & MSR_IA32_VMX_MISC_PT_IN_VMX_BIT);
 }
 
 static void
@@ -246,6 +248,7 @@ vt__vmcs_init (void)
 	ulong procbased_ctls2 = 0;
 	struct vt_io_data *io;
 	struct vt_msrbmp *msrbmp;
+	ulong exitctl_rtit = 0, entryctl_rtit = 0;
 
 	current->u.vt.first = true;
 	/* The iobmp initialization must be executed during
@@ -348,7 +351,40 @@ vt__vmcs_init (void)
 		if (procbased_ctls2_and &
 		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VMCS_SHADOWING_BIT)
 			current->u.vt.vmcs_shadowing_available = true;
+		if (current->pass_vm && config.vmm.allow_pt == 1 &&
+		    currentcpu->vt.vmcs_pt_in_vmx &&
+		    (procbased_ctls2_and &
+		     VMCS_PROC_BASED_VMEXEC_CTL2_PT_USES_GPHYS_BIT) &&
+		    (exit_ctls_and &
+		     VMCS_VMEXIT_CTL_CLEAR_IA32_RTIT_CTL_BIT) &&
+		    (entry_ctls_and &
+		     VMCS_VMENTRY_CTL_LOAD_IA32_RTIT_CTL_BIT)) {
+			procbased_ctls2 |=
+				VMCS_PROC_BASED_VMEXEC_CTL2_PT_USES_GPHYS_BIT;
+			exitctl_rtit |=
+				VMCS_VMEXIT_CTL_CLEAR_IA32_RTIT_CTL_BIT;
+			entryctl_rtit |=
+				VMCS_VMENTRY_CTL_LOAD_IA32_RTIT_CTL_BIT;
+			asm_vmwrite64 (VMCS_GUEST_IA32_RTIT_CTL, 0);
+			current->cpuid.pt = true;
+		}
 	}
+	/* Processor Trace (PT):
+	 * [A] PT is supported in VMX operation
+	 * [B] config.vmm.allow_pt (0, 1 or 2)
+	 * [C] "Intel PT uses guest physical addresses" bit in
+	 *     Secondary Processor-Based VM-Execution Controls is
+	 *     supported
+	 *
+	 * [A] [B] [C]  PT in guest
+	 *  N   -   -   concealed
+	 *  -   0   -   concealed
+	 *  Y   1   N   concealed
+	 *  Y   1   Y   available with address translations
+	 *  Y   2   -   UNSAFE mode: available WITHOUT address translations
+	 */
+	if (current->pass_vm && config.vmm.allow_pt == 2)
+		current->cpuid.pt = currentcpu->vt.vmcs_pt_in_vmx;
 	if ((exit_ctls_and & VMCS_VMEXIT_CTL_SAVE_IA32_EFER_BIT) &&
 	    (exit_ctls_and & VMCS_VMEXIT_CTL_LOAD_IA32_EFER_BIT) &&
 	    (entry_ctls_and & VMCS_VMENTRY_CTL_LOAD_IA32_EFER_BIT)) {
@@ -420,11 +456,11 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_PAGEFAULT_ERRCODE_MATCH, 0);
 	asm_vmwrite (VMCS_CR3_TARGET_COUNT, 0);
 	asm_vmwrite (VMCS_VMEXIT_CTL, (exit_ctls_or & exit_ctls_and) |
-		     exitctl64 | exitctl_efer);
+		     exitctl64 | exitctl_efer | exitctl_rtit);
 	asm_vmwrite (VMCS_VMEXIT_MSR_STORE_COUNT, 0);
 	asm_vmwrite (VMCS_VMEXIT_MSR_LOAD_COUNT, 0);
 	asm_vmwrite (VMCS_VMENTRY_CTL, (entry_ctls_or & entry_ctls_and) |
-		     entryctl_efer);
+		     entryctl_efer | entryctl_rtit);
 	asm_vmwrite (VMCS_VMENTRY_MSR_LOAD_COUNT, 0);
 	asm_vmwrite (VMCS_VMENTRY_INTR_INFO_FIELD, 0);
 	asm_vmwrite (VMCS_VMENTRY_EXCEPTION_ERRCODE, 0);
