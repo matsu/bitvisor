@@ -31,7 +31,22 @@
 #include "xsetbv_pass.h"
 #include "current.h"
 #include "initfunc.h"
+#include "int.h"
+#include "panic.h"
 #include "printf.h"
+
+struct xsetbv_arg {
+	u32 ic;
+	u32 ia;
+	u32 id;
+};
+
+static asmlinkage void
+do_xsetbv (void *arg)
+{
+	struct xsetbv_arg *p = arg;
+	asm_xsetbv (p->ic, p->ia, p->id);
+}
 
 static bool
 do_xsetbv_pass (u32 ic, u32 ia, u32 id)
@@ -53,15 +68,29 @@ do_xsetbv_pass (u32 ic, u32 ia, u32 id)
 				ic, ia, id);
 			return true;
 		}
-		asm_rdcr4 (&cr4);
-		if (!(cr4 & CR4_OSXSAVE_BIT)) {
-			cr4 |= CR4_OSXSAVE_BIT;
-			asm_wrcr4 (cr4);
-		}
-		asm_xsetbv (ic, ia, id);
-		return false;
+		break;
 	default:
 		return true;
+	}
+	asm_rdcr4 (&cr4);
+	if (!(cr4 & CR4_OSXSAVE_BIT)) {
+		cr4 |= CR4_OSXSAVE_BIT;
+		asm_wrcr4 (cr4);
+	}
+	/* xsetbv might generate #GP exception in case of invalid
+	 * value. */
+	struct xsetbv_arg a;
+	a.ic = ic;
+	a.ia = ia;
+	a.id = id;
+	int num = callfunc_and_getint (do_xsetbv, &a);
+	switch (num) {
+	case -1:
+		return false;
+	case EXCEPTION_GP:
+		return true;
+	default:
+		panic ("%s: exception %d", __func__, num);
 	}
 }
 
