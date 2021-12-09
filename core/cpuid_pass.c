@@ -75,7 +75,7 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		else
 			*oc &= ~CPUID_7_ECX_OSPKE_BIT;
 	} else if (tmpa >= 0xD && ia == 0xD && ic == 0) {
-		/* Processor Extended State Enumeration Leaf */
+		/* Processor Extended State Enumeration Main Leaf */
 		/* see xsetbv_pass.c */
 		*oa &= XCR0_X87_STATE_BIT |
 			XCR0_SSE_STATE_BIT |
@@ -85,6 +85,15 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 			XCR0_OPMASK_STATE_BIT |
 			XCR0_ZMM_HI256_STATE_BIT |
 			XCR0_HI16_ZMM_STATE_BIT;
+		*od = 0;
+	} else if (tmpa >= 0xD && ia == 0xD && ic == 1) {
+		/* Processor Extended State Enumeration Sub-leaf */
+		/* see msr_pass.c */
+		*oc &= (current->cpuid.pt ? MSR_IA32_XSS_PT_STATE_BIT : 0) |
+			MSR_IA32_XSS_CET_U_STATE_BIT |
+			MSR_IA32_XSS_CET_S_STATE_BIT |
+			MSR_IA32_XSS_HDC_STATE_BIT |
+			MSR_IA32_XSS_HWP_STATE_BIT;
 		*od = 0;
 	} else if (tmpa >= CPUID_EXT_1 && ia == CPUID_EXT_1) {
 #ifndef __x86_64__

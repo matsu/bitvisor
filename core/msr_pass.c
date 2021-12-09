@@ -377,6 +377,19 @@ msr_pass_write_msr (u32 msrindex, u64 msrdata)
 		if (current->cpuid.hw_feedback)
 			goto pass;
 		return true;
+	case MSR_IA32_XSS:
+		if (msrdata &
+		    ~((current->cpuid.pt ? MSR_IA32_XSS_PT_STATE_BIT : 0) |
+		      MSR_IA32_XSS_CET_U_STATE_BIT |
+		      MSR_IA32_XSS_CET_S_STATE_BIT |
+		      MSR_IA32_XSS_HDC_STATE_BIT |
+		      MSR_IA32_XSS_HWP_STATE_BIT)) {
+			printf ("IA32_XSS error! data:0x%llX\n", msrdata);
+			return true;
+		}
+		/* IA32_XSS seems to be accessible even if
+		 * CR4.OSXSAVE=0, unlike xsetbv. */
+		goto pass;
 	default:
 	pass:
 		m.msrindex = msrindex;
@@ -455,6 +468,7 @@ msr_pass_init (void)
 					current->cpuid.hw_feedback);
 		current->vmctl.msrpass (MSR_IA32_HW_FEEDBACK_CONFIG, true,
 					current->cpuid.hw_feedback);
+		current->vmctl.msrpass (MSR_IA32_XSS, true, false);
 	}
 }
 
