@@ -103,6 +103,17 @@ enable_device (struct pci_device *dev)
 }
 
 static void
+enable_device_recursive (struct pci_device *dev)
+{
+	struct pci_device *parent = dev->parent_bridge;
+
+	if (parent)
+		enable_device_recursive (parent);
+
+	enable_device (dev);
+}
+
+static void
 re_new (struct pci_device *dev)
 {
 	struct re_host *host;
@@ -130,7 +141,7 @@ re_new (struct pci_device *dev)
 
 	host->dev = dev;
 
-	enable_device (dev);
+	enable_device_recursive (dev);
 
 	/* Disable IO space */
 	pci_config_read (dev,
@@ -263,17 +274,6 @@ re_suspend (void)
 
 	LIST1_FOREACH (re_host_list, host)
 		re_core_suspend (host);
-}
-
-static void
-enable_device_recursive (struct pci_device *dev)
-{
-	struct pci_device *parent = dev->parent_bridge;
-
-	if (parent)
-		enable_device_recursive (parent);
-
-	enable_device (dev);
 }
 
 static void
