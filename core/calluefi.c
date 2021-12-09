@@ -497,7 +497,8 @@ copy_uefi_bootcode (void)
 	current->vmctl.write_general_reg (GENERAL_REG_RAX, cr0 & ~CR0_TS_BIT);
 	current->vmctl.write_control_reg (CONTROL_REG_CR3, uefi_entry_cr3);
 	asm_rdcr4 (&cr4);
-	current->vmctl.write_control_reg (CONTROL_REG_CR4, cr4 & ~CR4_PGE_BIT);
+	current->vmctl.write_control_reg (CONTROL_REG_CR4, cr4 & ~CR4_PGE_BIT &
+					  ~CR4_VMXE_BIT);
 	asm_rdmsr64 (MSR_IA32_EFER, &efer);
 	current->vmctl.write_msr (MSR_IA32_EFER,
 				  efer & ~MSR_IA32_EFER_SVME_BIT);
