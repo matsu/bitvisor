@@ -69,8 +69,6 @@ static int ttyin, ttyout;
 static spinlock_t putchar_lock;
 static bool logflag;
 static LIST1_DEFINE_HEAD (struct tty_udp_data, tty_udp_list);
-static unsigned char uefi_log[1024];
-static int uefi_logoffset;
 
 static int
 ttyin_msghandler (int m, int c)
@@ -197,8 +195,6 @@ tty_udp_putchar (unsigned char c)
 void
 tty_putchar (unsigned char c)
 {
-	int i;
-
 	if (logflag) {
 		spinlock_lock (&putchar_lock);
 		logbuf.log[(logbuf.logoffset + logbuf.loglen) %
@@ -215,6 +211,10 @@ tty_putchar (unsigned char c)
 	serial_putchar (c);
 #else
 	if (uefi_booted) {
+		static unsigned char uefi_log[1024];
+		static int uefi_logoffset;
+		int i;
+
 		if (currentcpu_available () && currentcpu->pass_vm_created) {
 			spinlock_lock (&putchar_lock);
 			for (i = 0; i < uefi_logoffset; i++)
