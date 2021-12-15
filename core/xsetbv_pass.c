@@ -63,7 +63,8 @@ do_xsetbv_pass (u32 ic, u32 ia, u32 id)
 			    XCR0_BNDCSR_STATE_BIT |
 			    XCR0_OPMASK_STATE_BIT |
 			    XCR0_ZMM_HI256_STATE_BIT |
-			    XCR0_HI16_ZMM_STATE_BIT)) || id) {
+			    XCR0_HI16_ZMM_STATE_BIT |
+			    XCR0_PKRU_STATE_BIT)) || id) {
 			printf ("XSETBV error! ECX:0x%X EAX:0x%X EDX:0x%X\n",
 				ic, ia, id);
 			return true;

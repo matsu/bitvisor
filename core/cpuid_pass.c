@@ -84,7 +84,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 			XCR0_BNDCSR_STATE_BIT |
 			XCR0_OPMASK_STATE_BIT |
 			XCR0_ZMM_HI256_STATE_BIT |
-			XCR0_HI16_ZMM_STATE_BIT;
+			XCR0_HI16_ZMM_STATE_BIT |
+			XCR0_PKRU_STATE_BIT;
 		*od = 0;
 	} else if (tmpa >= 0xD && ia == 0xD && ic == 1) {
 		/* Processor Extended State Enumeration Sub-leaf */
