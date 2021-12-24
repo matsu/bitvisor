@@ -1520,6 +1520,17 @@ dmar_pass_through_prepare (void)
 	memcpy (vp.new_dmar, acpi_mapmem (dmar->table, dmar->length),
 		dmar->length);
 	memcpy (&vp.host_address_width, vp.new_dmar + 36, 1);
+#ifdef DISABLE_VTD
+	/* Clear DMA_CTRL_PLATFORM_OPT_IN_FLAG (offset 37 bit 2) */
+	u8 flags;
+	memcpy (&flags, vp.new_dmar + 37, 1);
+	if (flags & 4) {
+		flags &= ~4;
+		memcpy (vp.new_dmar + 37, &flags, 1);
+		struct description_header *header = vp.new_dmar;
+		header->checksum -= acpi_checksum (header, header->length);
+	}
+#endif
 	return vp.new_dmar_addr;
 #else
 	return 0;
