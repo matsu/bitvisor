@@ -796,6 +796,11 @@ static struct idata grp3[8] = {
 	READ_NEXT_W (op, ((u8 *)(code)) + 2); \
 } while (0)
 
+#define READ_NEXT_Q(op,code) do { \
+	READ_NEXT_L (op, ((u8 *)(code)) + 0); \
+	READ_NEXT_L (op, ((u8 *)(code)) + 4); \
+} while (0)
+
 #define GET_MODRM(op) do { \
 	enum vmmerr err; \
 	err = get_modrm (op); \
@@ -1021,13 +1026,15 @@ get_modrm (struct op *op)
 static enum vmmerr
 read_moffs (struct op *op)
 {
-	u32 moffs = 0;
+	u64 moffs = 0;
 
 	op->modrm_brm = REG_NO;
 	if (op->addrtype == ADDRTYPE_16BIT)
 		READ_NEXT_W (op, &moffs);
-	else
+	else if (op->addrtype == ADDRTYPE_32BIT)
 		READ_NEXT_L (op, &moffs);
+	else
+		READ_NEXT_Q (op, &moffs);
 	op->modrm_addr = moffs;
 	op->modrm_ripflag = false;
 	if (op->prefix.seg != SREG_DEFAULT)
