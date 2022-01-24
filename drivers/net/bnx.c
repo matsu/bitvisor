@@ -343,7 +343,7 @@ bnx_tx_ring_set (struct bnx *bnx)
 {
 	u32 tmp;
 
-	printd (6, "BNX: Setup TX rings. [%llx, %d]\n",
+	printd (6, "BNX: Setup TX rings. [%llx, %u]\n",
 		bnx->tx_ring_phys, bnx->tx_ring_len);
 	bnx_mmioread32 (bnx, BNXPCI_MEMBASE, &tmp);
 	bnx_mmiowrite32 (bnx, BNXMEM_STDBASE + BNXMEM_TXRCB_RINGADDR,
@@ -359,8 +359,10 @@ bnx_tx_ring_set (struct bnx *bnx)
 static void
 bnx_rx_ring_set (struct bnx *bnx)
 {
-	printd (15, "BNX: Setup RX rings. [%llx, %d]\n",
-		bnx->tx_ring_phys, bnx->tx_ring_len);
+	printd (15, "BNX: Setup Producer RX rings. [%llx, %u]\n",
+		bnx->rx_prod_ring_phys, bnx->rx_prod_ring_len);
+	printd (15, "BNX: Setup Return RX rings. [%llx, %u]\n",
+		bnx->rx_retr_ring_phys, bnx->rx_retr_ring_len);
 	/* Set producer ring. */
 	bnx_mmiowrite32 (bnx, BNXREG_RXRCB_PROD_RINGADDR,
 			 bnx->rx_prod_ring_phys >> 32);
