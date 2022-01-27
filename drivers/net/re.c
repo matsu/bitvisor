@@ -88,32 +88,6 @@ static struct nicfunc phys_func = {
 };
 
 static void
-enable_device (struct pci_device *dev)
-{
-	u32 command_orig, command;
-
-	pci_config_read (dev, &command_orig, sizeof (u32), 4);
-
-	command = command_orig |
-		  PCI_CONFIG_COMMAND_BUSMASTER |
-		  PCI_CONFIG_COMMAND_MEMENABLE;
-
-	if (command != command_orig)
-		pci_config_write (dev, &command, sizeof (u32), 4);
-}
-
-static void
-enable_device_recursive (struct pci_device *dev)
-{
-	struct pci_device *parent = dev->parent_bridge;
-
-	if (parent)
-		enable_device_recursive (parent);
-
-	enable_device (dev);
-}
-
-static void
 re_new (struct pci_device *dev)
 {
 	struct re_host *host;
@@ -141,7 +115,8 @@ re_new (struct pci_device *dev)
 
 	host->dev = dev;
 
-	enable_device_recursive (dev);
+	command = PCI_CONFIG_COMMAND_BUSMASTER | PCI_CONFIG_COMMAND_MEMENABLE;
+	pci_enable_device (dev, command);
 
 	/* Disable IO space */
 	pci_config_read (dev,
@@ -280,9 +255,12 @@ static void
 re_resume (void)
 {
 	struct re_host *host;
+	u32 command;
+
+	command = PCI_CONFIG_COMMAND_BUSMASTER | PCI_CONFIG_COMMAND_MEMENABLE;
 
 	LIST1_FOREACH (re_host_list, host) {
-		enable_device_recursive (host->dev);
+		pci_enable_device (host->dev, command);
 
 		/* Restore PCI config space */
 		uint i;

@@ -1237,6 +1237,27 @@ pci_find_cap_offset (struct pci_device *pci_device, u8 cap_id)
 	return cap < 0x40 ? 0 : cap;
 }
 
+void
+pci_enable_device (struct pci_device *pci_device, u32 pci_cmd_en_flags)
+{
+	u32 orig_cmd, cmd, cmd_mask;
+
+	struct pci_device *parent = pci_device->parent_bridge;
+	if (parent)
+		pci_enable_device (parent, pci_cmd_en_flags);
+
+	pci_config_read (pci_device, &orig_cmd, sizeof orig_cmd,
+			 PCI_CONFIG_COMMAND);
+
+	cmd_mask = PCI_CONFIG_COMMAND_IOENABLE | PCI_CONFIG_COMMAND_MEMENABLE |
+		   PCI_CONFIG_COMMAND_BUSMASTER;
+	cmd = orig_cmd | (pci_cmd_en_flags & cmd_mask);
+
+	if (cmd != orig_cmd)
+		pci_config_write (pci_device, &cmd, sizeof cmd,
+				  PCI_CONFIG_COMMAND);
+}
+
 struct pci_msi *
 pci_msi_init (struct pci_device *pci_device)
 {

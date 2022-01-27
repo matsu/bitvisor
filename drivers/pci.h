@@ -282,6 +282,7 @@ void pci_assign_virtual_device (struct pci_virtual_device *device,
 int pci_driver_option_get_int (char *option, char **e, int base);
 bool pci_driver_option_get_bool (char *option, char **e);
 u8 pci_find_cap_offset (struct pci_device *pci_device, u8 cap_id);
+void pci_enable_device (struct pci_device *pci_device, u32 pci_cmd_en_flags);
 void pci_dump_pci_dev_list (void);
 struct pci_device *pci_get_bridge_from_bus_no (u8 bus_no);
 void pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge);
