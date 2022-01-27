@@ -43,6 +43,8 @@
 #define PAGESIZE 4096
 #define PAGESHIFT 12
 
+#define BIT(n) (1ULL << n)
+
 /** I/O handler functions */
 #include <core/io.h>
 #include <io.h>
