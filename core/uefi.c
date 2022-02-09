@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <EfiCommon.h>
-#include <EfiApi.h>
-#include <Protocol/SimpleFileSystem/SimpleFileSystem.h>
+#include <Uefi.h>
+#include <Protocol/SimpleFileSystem.h>
+#include <Guid/Acpi.h>
 #undef NULL
 #include "asm.h"
 #include "entry.h"
@@ -51,15 +51,8 @@ static struct uuid SECTION_ENTRY_DATA disconnect_controller_opt_uuid =
 static struct uuid SECTION_ENTRY_DATA acpi_table_mod_opt_uuid =
 	UEFI_BITVISOR_ACPI_TABLE_MOD_UUID;
 
-static EFI_GUID SECTION_ENTRY_DATA acpi_20_table_guid = {
-	0x8868E871, 0xE4F1, 0x11D3,
-	{ 0xBC, 0x22, 0x0, 0x80, 0xC7, 0x3C, 0x88, 0x81 }
-};
-
-static EFI_GUID SECTION_ENTRY_DATA acpi_table_guid = {
-	0xEB9D2D30, 0x2D88, 0x11D3,
-	{ 0x9A, 0x16, 0x0, 0x90, 0x27, 0x3F, 0xC1, 0x4D }
-};
+static EFI_GUID SECTION_ENTRY_DATA acpi_20_table_guid = EFI_ACPI_20_TABLE_GUID;
+static EFI_GUID SECTION_ENTRY_DATA acpi_table_guid = ACPI_TABLE_GUID;
 
 void SECTION_ENTRY_DATA *uefi_conin;
 void SECTION_ENTRY_DATA *uefi_conout;
@@ -190,8 +183,8 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 	u32 vmmsize, align, ret, loadedsize, blocksize, npages;
 	int freesize;
 	extern u8 dataend[];
-	EFI_SIMPLE_TEXT_IN_PROTOCOL *conin;
-	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout;
+	EFI_SIMPLE_TEXT_INPUT_PROTOCOL *conin;
+	EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *conout;
 	struct bitvisor_boot bitvisor_opt;
 	u64 boot_opt_addr;
 	struct bitvisor_disconnect_controller disconnect_controller_opt;

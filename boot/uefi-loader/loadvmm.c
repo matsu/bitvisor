@@ -27,16 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <EfiCommon.h>
-#include <EfiApi.h>
-#include <Protocol/SimpleFileSystem/SimpleFileSystem.h>
-#include <Protocol/LoadedImage/LoadedImage.h>
+#include <Uefi.h>
+#include <Protocol/BlockIoCrypto.h>
+#include <Protocol/LoadedImage.h>
+#include <Protocol/SimpleFileSystem.h>
 #include <vmm_types.h>
 #include <uefi_boot.h>
-
-#define EFI_BLOCK_IO_CRYPTO_PROTOCOL_GUID \
-	{0xa00490ba,0x3f1a,0x4b4c,\
-	 {0xab,0x90,0x4f,0xa9,0x97,0x26,0xa1,0xe8}}
+#include <efi_extra/device_path_helper.h>
 
 typedef int EFIAPI entry_func_t (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab,
 				 void **boot_exts);
@@ -49,7 +46,7 @@ static EFI_HANDLE saved_image;
 static EFI_SYSTEM_TABLE *saved_systab;
 
 static void
-printhex (EFI_SYSTEM_TABLE *systab, uint64_t val, int width)
+printhex (EFI_SYSTEM_TABLE *systab, UINT64 val, int width)
 {
 	CHAR16 msg[2];
 
@@ -61,7 +58,7 @@ printhex (EFI_SYSTEM_TABLE *systab, uint64_t val, int width)
 }
 
 static void
-print (EFI_SYSTEM_TABLE *systab, CHAR16 *msg, uint64_t val)
+print (EFI_SYSTEM_TABLE *systab, CHAR16 *msg, UINT64 val)
 {
 	systab->ConOut->OutputString (systab->ConOut, msg);
 	printhex (systab, val, 8);
@@ -122,7 +119,7 @@ EFI_STATUS EFIAPI
 efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 {
 	void *tmp;
-	uint32_t entry;
+	UINT32 entry;
 	UINTN readsize;
 	int boot_error;
 	EFI_STATUS status;
@@ -175,7 +172,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 		print (systab, L"Read ", status);
 		return status;
 	}
-	entry = *(uint32_t *)(paddr + 0x18);
+	entry = *(UINT32 *)(paddr + 0x18);
 	entry_func = (entry_func_t *)(paddr + (entry & 0xFFFF));
 
 	struct bitvisor_boot boot_ext = {

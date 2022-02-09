@@ -11,7 +11,7 @@ else ifndef EXE_CC
 $(error MinGW not found)
 endif
 RM			= rm -f
-EDK_DIR			= ../../edk
+EDK2_INC		= ../../edk2/MdePkg/Include
 
 .PHONY : all
 all : loadvmm.efi
@@ -29,10 +29,8 @@ loadvmm.efi : loadvmm.c $(INC) discon.h bsdriver.h bsdriver_load.h \
 		-Wl,--subsystem,10 \
 		-I. \
 		-I$(INC_SHARE_DIR) \
-		-I$(EDK_DIR)/Foundation/Efi/Include/ \
-		-I$(EDK_DIR)/Foundation/Framework/Include/ \
-		-I$(EDK_DIR)/Foundation/Include/ \
-		-I$(EDK_DIR)/Foundation/Efi/ \
+		-I$(EDK2_INC) \
+		-I$(EDK2_INC)/X64 \
 		-o loadvmm.efi loadvmm.c
 
 bsdriver.efi : bsdriver.c bsdriver.h
@@ -43,8 +41,6 @@ bsdriver.efi : bsdriver.c bsdriver.h
 		-Wl,--subsystem,11 \
 		-I. \
 		-I$(INC_SHARE_DIR) \
-		-I$(EDK_DIR)/Foundation/Efi/Include/ \
-		-I$(EDK_DIR)/Foundation/Framework/Include/ \
-		-I$(EDK_DIR)/Foundation/Include/ \
-		-I$(EDK_DIR)/Foundation/Efi/ \
+		-I$(EDK2_INC) \
+		-I$(EDK2_INC)/X64 \
 		-o bsdriver.efi bsdriver.c

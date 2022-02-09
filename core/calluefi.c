@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <EfiCommon.h>
-#include <EfiApi.h>
-#include EFI_PROTOCOL_DEFINITION (PciIo)
-#include EFI_PROTOCOL_DEFINITION (DevicePath)
-#include EFI_PROTOCOL_DEFINITION (SimpleNetwork)
-#include EFI_PROTOCOL_DEFINITION (GraphicsOutput)
+#include <Uefi.h>
+#include <Protocol/PciIo.h>
+#include <Protocol/DevicePath.h>
+#include <Protocol/SimpleNetwork.h>
+#include <Protocol/GraphicsOutput.h>
+#include <share/efi_extra/device_path_helper.h>
 #undef NULL
 #include "calluefi_asm.h"
 #include "current.h"
@@ -119,7 +119,7 @@ call_uefi_create_event_exit_boot_services (u64 phys, u64 context,
 	int ret;
 
 	ret = calluefi (uefi_create_event, 5, EVT_SIGNAL_EXIT_BOOT_SERVICES,
-			EFI_TPL_NOTIFY, phys, context, sym_to_phys (&event));
+			TPL_NOTIFY, phys, context, sym_to_phys (&event));
 	*event_ret = event;
 	return ret;
 }
@@ -146,7 +146,7 @@ call_uefi_getkey (void)
 {
 	static u32 buf;
 	static u64 index;
-	EFI_SIMPLE_TEXT_IN_PROTOCOL *conin = uefi_conin;
+	EFI_SIMPLE_TEXT_INPUT_PROTOCOL *conin = uefi_conin;
 
 	while (calluefi (uefi_conin_read_key_stroke, 2, conin,
 			 sym_to_phys (&buf)))

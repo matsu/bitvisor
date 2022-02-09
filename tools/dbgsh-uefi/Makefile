@@ -1,3 +1,5 @@
+INC_SHARE_DIR = ../../include/share
+
 MINGW1=$(shell which amd64-mingw32msvc-cc 2> /dev/null)
 MINGW2=$(shell which x86_64-w64-mingw32-gcc 2> /dev/null)
 ifneq ("$(MINGW1)","")
@@ -8,7 +10,7 @@ else ifndef EXE_CC
 $(error MinGW not found)
 endif
 RM			= rm -f
-EDK_DIR			= ../../edk
+EDK2_INC		= ../../edk2/MdePkg/Include
 
 .PHONY : all
 all : dbgsh-a.efi dbgsh-i.efi
@@ -24,10 +26,9 @@ dbgsh-a.efi : dbgsh-uefi.c
 		-fno-strict-aliasing \
 		-Wl,--subsystem,10 \
 		-I. \
-		-I$(EDK_DIR)/Foundation/Efi/Include/ \
-		-I$(EDK_DIR)/Foundation/Framework/Include/ \
-		-I$(EDK_DIR)/Foundation/Include/ \
-		-I$(EDK_DIR)/Foundation/Efi/ \
+		-I$(INC_SHARE_DIR) \
+		-I$(EDK2_INC) \
+		-I$(EDK2_INC)/X64 \
 		-DVMMCALL=\"vmmcall\" \
 		-o dbgsh-a.efi dbgsh-uefi.c
 
@@ -38,9 +39,8 @@ dbgsh-i.efi : dbgsh-uefi.c
 		-fno-strict-aliasing \
 		-Wl,--subsystem,10 \
 		-I. \
-		-I$(EDK_DIR)/Foundation/Efi/Include/ \
-		-I$(EDK_DIR)/Foundation/Framework/Include/ \
-		-I$(EDK_DIR)/Foundation/Include/ \
-		-I$(EDK_DIR)/Foundation/Efi/ \
+		-I$(INC_SHARE_DIR) \
+		-I$(EDK2_INC) \
+		-I$(EDK2_INC)/X64 \
 		-DVMMCALL=\"vmcall\" \
 		-o dbgsh-i.efi dbgsh-uefi.c

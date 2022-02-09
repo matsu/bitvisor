@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <EfiCommon.h>
-#include <EfiApi.h>
-#include EFI_PROTOCOL_DEFINITION (LoadedImage)
+#include <Uefi.h>
+#include <Protocol/LoadedImage.h>
+#include <Guid/Acpi.h>
 #include "bsdriver.h"
 
 struct acpi_table_mod_list {
@@ -39,14 +39,8 @@ struct acpi_table_mod_list {
 };
 
 static EFI_GUID LoadedImageProtocol = EFI_LOADED_IMAGE_PROTOCOL_GUID;
-static EFI_GUID acpi_20_table_guid = {
-	0x8868E871, 0xE4F1, 0x11D3,
-	{ 0xBC, 0x22, 0x0, 0x80, 0xC7, 0x3C, 0x88, 0x81 }
-};
-static EFI_GUID acpi_table_guid = {
-	0xEB9D2D30, 0x2D88, 0x11D3,
-	{ 0x9A, 0x16, 0x0, 0x90, 0x27, 0x3F, 0xC1, 0x4D }
-};
+static EFI_GUID acpi_20_table_guid = EFI_ACPI_20_TABLE_GUID;
+static EFI_GUID acpi_table_guid = ACPI_TABLE_GUID;
 static struct acpi_table_mod_list *acpi_table_mod_list_Head;
 static EFI_INSTALL_CONFIGURATION_TABLE OrigInstallConfigurationTable;
 

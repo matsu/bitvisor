@@ -40,9 +40,14 @@ CONSTANTS-$(CONFIG_DEBUG_SERIAL) += -DDEBUG_SERIAL
 
 CONSTANTS-1 += -DUSE_PAE
 
+bits-0 = 32
+bits-1 = 64
+CFLAGS-32 = -Iedk2/MdePkg/Include/Ia32
+CFLAGS-64 = -Iedk2/MdePkg/Include/X64
+
+CFLAGS += -fshort-wchar
 CFLAGS += -Ivpn/lib
-CFLAGS += -Iedk/Foundation/Efi/Include/ -Iedk/Foundation/Framework/Include/
-CFLAGS += -Iedk/Foundation/Include/ -Iedk/Foundation/Efi/
+CFLAGS += -Iedk2/MdePkg/Include/ $(CFLAGS-$(bits-$(CONFIG_64)))
 
 objs-1 += acpi.o acpi_dsdt.o ap.o assert.o beep.o cache.o callrealmode.o
 objs-1 += calluefi.o config.o cpu.o cpu_emul.o cpu_interpreter.o cpu_mmu.o

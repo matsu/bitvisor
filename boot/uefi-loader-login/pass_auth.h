@@ -40,7 +40,7 @@ struct password_box {
 void init_password_box (EFI_SYSTEM_TABLE *systab,
 			struct password_box *pwd_box);
 void get_password (EFI_SYSTEM_TABLE *systab, struct password_box *pwd_box,
-		   uint8_t *pass_buf, UINTN buf_nbytes, UINTN *n_chars);
+		   UINT8 *pass_buf, UINTN buf_nbytes, UINTN *n_chars);
 void draw_password_box_initial (EFI_SYSTEM_TABLE *systab,
 				struct password_box *pwd_box);
 void draw_password_box_invalid (EFI_SYSTEM_TABLE *systab,

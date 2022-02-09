@@ -51,9 +51,9 @@ fix_interface (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, EFI_HANDLE handle,
 		return;
 	if (*interface != correct_interface) {
 		print (systab, L"UninstallMultipleProtocolInterfaces:"
-		       " incorrect interface ", (uint64_t)*interface);
+		       " incorrect interface ", (UINT64)*interface);
 		print (systab, L" is changed to ",
-		       (uint64_t)correct_interface);
+		       (UINT64)correct_interface);
 		*interface = correct_interface;
 	}
 	systab->BootServices->CloseProtocol (handle, protocol, image, NULL);

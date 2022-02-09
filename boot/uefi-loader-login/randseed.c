@@ -27,8 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <EfiCommon.h>
-#include <EfiApi.h>
+#include <Uefi.h>
 #include "randseed.h"
 
 char randseed[4096];
@@ -43,7 +42,7 @@ static VOID EFIAPI
 randseed_timer_callback (EFI_EVENT Event, VOID *Context)
 {
 	static int seedoff;
-	uint32_t a, d;
+	UINT32 a, d;
 	int i;
 
 	asm volatile ("rdtsc" : "=a" (a), "=d" (d));
@@ -61,9 +60,9 @@ randseed_init (EFI_SYSTEM_TABLE *systab)
 
 	if (randseed_initialized)
 		return EFI_SUCCESS;
-	status = systab->BootServices->CreateEvent (EFI_EVENT_TIMER |
-						    EFI_EVENT_NOTIFY_SIGNAL,
-						    EFI_TPL_NOTIFY,
+	status = systab->BootServices->CreateEvent (EVT_TIMER |
+						    EVT_NOTIFY_SIGNAL,
+						    TPL_NOTIFY,
 						    randseed_timer_callback,
 						    NULL,
 						    &randseed_timer_event);

@@ -27,27 +27,21 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <Uefi.h>
+#include <Protocol/BlockIoCrypto.h>
+#include <Protocol/LoadedImage.h>
+#include <Protocol/SimpleFileSystem.h>
 #include <vmm_types.h>
-
 #include <config.h>
 #include <loadcfg.h>
 #include <uefi_boot.h>
-
-#include <EfiCommon.h>
-#include <EfiApi.h>
-#include <Protocol/SimpleFileSystem/SimpleFileSystem.h>
-#include <Protocol/LoadedImage/LoadedImage.h>
-
+#include <efi_extra/device_path_helper.h>
 #include "pass_auth.h"
 #include "randseed.h"
 
 #define N_RETRIES   (3)
 #define PASS_NBYTES (4096)
 #define MODULE2_NPAGES 0x100
-
-#define EFI_BLOCK_IO_CRYPTO_PROTOCOL_GUID \
-	{0xa00490ba,0x3f1a,0x4b4c,\
-	 {0xab,0x90,0x4f,0xa9,0x97,0x26,0xa1,0xe8}}
 
 typedef int EFIAPI entry_func_t (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab,
 				 void **boot_exts);
@@ -60,7 +54,7 @@ static EFI_HANDLE saved_image;
 static EFI_SYSTEM_TABLE *saved_systab;
 
 static int
-vmcall_loadcfg64_intel (uint64_t c)
+vmcall_loadcfg64_intel (UINT64 c)
 {
 	int a = 0;
 	asm volatile ("vmcall" : "+a" (a) : "b" ("loadcfg64"));
@@ -72,7 +66,7 @@ vmcall_loadcfg64_intel (uint64_t c)
 }
 
 static int
-vmcall_boot_intel (uint64_t c)
+vmcall_boot_intel (UINT64 c)
 {
 	int a = 0;
 	asm volatile ("vmcall" : "+a" (a) : "b" ("boot"));
@@ -84,7 +78,7 @@ vmcall_boot_intel (uint64_t c)
 }
 
 static int
-vmcall_loadcfg64_amd (uint64_t c)
+vmcall_loadcfg64_amd (UINT64 c)
 {
 	int a = 0;
 	asm volatile ("vmmcall" : "+a" (a) : "b" ("loadcfg64"));
@@ -96,7 +90,7 @@ vmcall_loadcfg64_amd (uint64_t c)
 }
 
 static int
-vmcall_boot_amd (uint64_t c)
+vmcall_boot_amd (UINT64 c)
 {
 	int a = 0;
 	asm volatile ("vmmcall" : "+a" (a) : "b" ("boot"));
@@ -111,15 +105,15 @@ static int
 decrypt_intel (struct loadcfg64_data *ld)
 {
 	struct config_data *cfg;
-	uint64_t paddr;
+	UINT64 paddr;
 	int j;
 
-	if (vmcall_loadcfg64_intel ((uint64_t)ld)) {
+	if (vmcall_loadcfg64_intel ((UINT64)ld)) {
 		paddr = ld->data;
 		cfg   = (struct config_data *)paddr;
 		for (j = 0; j < sizeof cfg->vmm.randomSeed; j++)
 			cfg->vmm.randomSeed[j] += randseed[j];
-		vmcall_boot_intel ((uint64_t)cfg);
+		vmcall_boot_intel ((UINT64)cfg);
 
 		return 1;
 	}
@@ -131,15 +125,15 @@ static int
 decrypt_amd (struct loadcfg64_data *ld)
 {
 	struct config_data *cfg;
-	uint64_t paddr;
+	UINT64 paddr;
 	int j;
 
-	if (vmcall_loadcfg64_amd ((uint64_t)ld)) {
+	if (vmcall_loadcfg64_amd ((UINT64)ld)) {
 		paddr = ld->data;
 		cfg   = (struct config_data *)paddr;
 		for (j = 0; j < sizeof cfg->vmm.randomSeed; j++)
 			cfg->vmm.randomSeed[j] += randseed[j];
-		vmcall_boot_amd ((uint64_t)cfg);
+		vmcall_boot_amd ((UINT64)cfg);
 
 		return 1;
 	}
@@ -148,7 +142,7 @@ decrypt_amd (struct loadcfg64_data *ld)
 }
 
 static void
-printhex (EFI_SYSTEM_TABLE *systab, uint64_t val, int width)
+printhex (EFI_SYSTEM_TABLE *systab, UINT64 val, int width)
 {
 	CHAR16 msg[2];
 
@@ -160,7 +154,7 @@ printhex (EFI_SYSTEM_TABLE *systab, uint64_t val, int width)
 }
 
 static void
-print (EFI_SYSTEM_TABLE *systab, CHAR16 *msg, uint64_t val)
+print (EFI_SYSTEM_TABLE *systab, CHAR16 *msg, UINT64 val)
 {
 	systab->ConOut->OutputString (systab->ConOut, msg);
 	printhex (systab, val, 8);
@@ -294,12 +288,12 @@ error1:
 EFI_STATUS EFIAPI
 efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 {
-	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout = systab->ConOut;
-	EFI_SIMPLE_TEXT_IN_PROTOCOL  *conin  = systab->ConIn;
+	EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *conout = systab->ConOut;
+	EFI_SIMPLE_TEXT_INPUT_PROTOCOL  *conin  = systab->ConIn;
 
-	static uint8_t pass[PASS_NBYTES];
+	static UINT8 pass[PASS_NBYTES];
 
-	uint32_t entry;
+	UINT32 entry;
 	UINTN readsize;
 	int boot_error;
 	EFI_STATUS status;
@@ -359,7 +353,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 		NULL
 	};
 
-	entry = *(uint32_t *)(paddr + 0x18);
+	entry = *(UINT32 *)(paddr + 0x18);
 	entry_func = (entry_func_t *)(paddr + (entry & 0xFFFF));
 	boot_error = entry_func (image, systab, boot_exts);
 
@@ -379,7 +373,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 
 	/* End bitvisor part */
 
-	uint8_t cpu_type = cpu_ext.type;
+	UINT8 cpu_type = cpu_ext.type;
 
 	if (cpu_type == 0) {
 		conout->OutputString (conout, L"Unknown CPU type\r\n");
@@ -425,15 +419,15 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 
 	struct loadcfg64_data ld;
 
-	uint8_t success = 0;
+	UINT8 success = 0;
 	int count = 0;
 	while (!success && count < N_RETRIES) {
 		get_password (systab, &pwd_box, pass, PASS_NBYTES, &n_chars);
 
 		ld.len	   = sizeof (ld);
-		ld.pass	   = (uint64_t)pass;
+		ld.pass	   = (UINT64)pass;
 		ld.passlen = n_chars;
-		ld.data	   = (uint64_t)paddr;
+		ld.data	   = (UINT64)paddr;
 		ld.datalen = readsize;
 
 		success = (cpu_type == CPU_TYPE_INTEL) ?

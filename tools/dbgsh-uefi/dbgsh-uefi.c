@@ -28,10 +28,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <EfiCommon.h>
-#include <EfiApi.h>
-#include EFI_PROTOCOL_DEFINITION (SimpleFileSystem)
-#include EFI_PROTOCOL_DEFINITION (LoadedImage)
+#include <Uefi.h>
+#include <Protocol/SimpleFileSystem.h>
+#include <Protocol/LoadedImage.h>
+#include <efi_extra/device_path_helper.h>
 
 #define GETCHAR() getchar (systab)
 #define PUTCHAR(c) putchar (systab, c)
@@ -41,7 +41,7 @@ static EFI_GUID FileSystemProtocol = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
 static CHAR16 *error;
 
 static void
-printhex (EFI_SYSTEM_TABLE *systab, uint64_t val, int width)
+printhex (EFI_SYSTEM_TABLE *systab, UINT64 val, int width)
 {
 	CHAR16 msg[2];
 
@@ -53,7 +53,7 @@ printhex (EFI_SYSTEM_TABLE *systab, uint64_t val, int width)
 }
 
 static void
-print (EFI_SYSTEM_TABLE *systab, CHAR16 *msg, uint64_t val)
+print (EFI_SYSTEM_TABLE *systab, CHAR16 *msg, UINT64 val)
 {
 	systab->ConOut->OutputString (systab->ConOut, msg);
 	printhex (systab, val, 8);

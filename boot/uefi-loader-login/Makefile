@@ -12,7 +12,7 @@ else ifndef EXE_CC
 $(error MinGW not found)
 endif
 RM			= rm -f
-EDK_DIR			= ../../edk
+EDK2_INC		= ../../edk2/MdePkg/Include
 
 .PHONY : all
 all : loadvmm.efi
@@ -31,10 +31,8 @@ loadvmm.efi : loadvmm.c pass_auth.c pass_auth.h randseed.c randseed.h \
 		-Wl,--subsystem,10 \
 		-I. \
 		-I$(INC_SHARE_DIR) \
-		-I$(EDK_DIR)/Foundation/Efi/Include/ \
-		-I$(EDK_DIR)/Foundation/Framework/Include/ \
-		-I$(EDK_DIR)/Foundation/Include/ \
-		-I$(EDK_DIR)/Foundation/Efi/ \
+		-I$(EDK2_INC) \
+		-I$(EDK2_INC)/X64 \
 		-o loadvmm.efi loadvmm.c pass_auth.c randseed.c
 
 bsdriver.efi : ../uefi-loader/bsdriver.c ../uefi-loader/bsdriver.h
@@ -45,8 +43,6 @@ bsdriver.efi : ../uefi-loader/bsdriver.c ../uefi-loader/bsdriver.h
 		-Wl,--subsystem,11 \
 		-I. \
 		-I$(INC_SHARE_DIR) \
-		-I$(EDK_DIR)/Foundation/Efi/Include/ \
-		-I$(EDK_DIR)/Foundation/Framework/Include/ \
-		-I$(EDK_DIR)/Foundation/Include/ \
-		-I$(EDK_DIR)/Foundation/Efi/ \
+		-I$(EDK2_INC) \
+		-I$(EDK2_INC)/X64 \
 		-o bsdriver.efi ../uefi-loader/bsdriver.c

@@ -27,9 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <EfiCommon.h>
-#include <EfiApi.h>
-
+#include <Uefi.h>
 #include "pass_auth.h"
 #include "randseed.h"
 
@@ -53,15 +51,15 @@
 #define BOX_INPUT	(EFI_BACKGROUND_BLUE)
 #define BOX_INPUT_TEXT	(EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE)
 
-static uint16_t pass[PASS_N_CHARS] = {0};
-static uint16_t line[PASS_BOX_COLS + 1] = { 0 };
-static uint16_t input_line[PASS_FIELD_COLS + 1] = { 0 };
+static UINT16 pass[PASS_N_CHARS] = {0};
+static UINT16 line[PASS_BOX_COLS + 1] = { 0 };
+static UINT16 input_line[PASS_FIELD_COLS + 1] = { 0 };
 
 static void
 draw_password_box (EFI_SYSTEM_TABLE *systab, struct password_box *pwd_box,
 		   CHAR16 *hint_txt)
 {
-	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout = systab->ConOut;
+	EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *conout = systab->ConOut;
 
 	int i;
 	for (i = 0; i < pwd_box->cols; i++) {
@@ -147,12 +145,12 @@ draw_password_box_error (EFI_SYSTEM_TABLE *systab,
 
 void
 get_password (EFI_SYSTEM_TABLE *systab, struct password_box *pwd_box,
-	      uint8_t *pass_buf, UINTN buf_nbytes, UINTN *n_chars)
+	      UINT8 *pass_buf, UINTN buf_nbytes, UINTN *n_chars)
 {
 	*n_chars = 0;
 
-	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout = systab->ConOut;
-	EFI_SIMPLE_TEXT_IN_PROTOCOL  *conin  = systab->ConIn;
+	EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *conout = systab->ConOut;
+	EFI_SIMPLE_TEXT_INPUT_PROTOCOL  *conin  = systab->ConIn;
 
 	EFI_INPUT_KEY input_key;
 	UINTN event_idx;
@@ -214,8 +212,8 @@ get_input:
 void
 init_password_box (EFI_SYSTEM_TABLE *systab, struct password_box *pwd_box)
 {
-	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout = systab->ConOut;
-	EFI_SIMPLE_TEXT_IN_PROTOCOL  *conin  = systab->ConIn;
+	EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *conout = systab->ConOut;
+	EFI_SIMPLE_TEXT_INPUT_PROTOCOL  *conin  = systab->ConIn;
 
 	UINTN max_mode = systab->ConOut->Mode->MaxMode;
 
@@ -267,7 +265,7 @@ init_password_box (EFI_SYSTEM_TABLE *systab, struct password_box *pwd_box)
 void
 remove_password_box (EFI_SYSTEM_TABLE *systab)
 {
-	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout = systab->ConOut;
+	EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *conout = systab->ConOut;
 
 	conout->SetAttribute (conout, EFI_WHITE | EFI_BACKGROUND_BLACK);
 
