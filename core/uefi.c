@@ -232,7 +232,7 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 			 &uefi_boot_services->FreePool, sizeof uefi_free_pool);
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_locate_device_path),
 			 &uefi_boot_services->LocateDevicePath,
-			 sizeof uefi_open_protocol);
+			 sizeof uefi_locate_device_path);
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_open_protocol),
 			 &uefi_boot_services->OpenProtocol,
 			 sizeof uefi_open_protocol);
