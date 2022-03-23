@@ -36,6 +36,17 @@
 #include "panic.h"
 #include "printf.h"
 
+/* Debug serial port for Linux early console:
+ * "earlyprintk=serial,0x400,keep" */
+#define DEBUG_SERIAL_PORT 0x400
+#define DEBUG_SERIAL_INB_DATA "\x00\xC1\x00\x03\x00\x60\x00\x00"
+#define DEBUG_SERIAL_OUTB_DATA_PORT DEBUG_SERIAL_PORT
+#ifdef DEBUG_SERIAL
+#	define DEBUG_SERIAL_ENABLED 1
+#else
+#	define DEBUG_SERIAL_ENABLED 0
+#endif
+
 #ifdef DEBUG_IO_MONITOR
 static enum ioact
 kbdio_monitor (enum iotype type, u32 port, void *data)
@@ -150,6 +161,30 @@ kbdio_dbg_monitor (enum iotype type, u32 port, void *data)
 }
 #endif
 
+static enum ioact
+debug_serial_monitor (enum iotype type, u32 port, void *data)
+{
+	switch (type) {
+	case IOTYPE_INB:
+		*(u8 *)data = DEBUG_SERIAL_INB_DATA[port & 7];
+		break;
+	case IOTYPE_INW:
+		*(u16 *)data = 0;
+		break;
+	case IOTYPE_INL:
+		*(u32 *)data = 0;
+		break;
+	case IOTYPE_OUTB:
+		if (port == DEBUG_SERIAL_OUTB_DATA_PORT)
+			printf ("%c", *(char *)data);
+		break;
+	case IOTYPE_OUTW:
+	case IOTYPE_OUTL:
+		break;
+	}
+	return IOACT_CONT;
+}
+
 static void
 setiohooks (void)
 {
@@ -165,6 +200,15 @@ setiohooks (void)
 	if (config.vmm.f11panic || config.vmm.f12msg)
 		set_iofunc (0x60, kbdio_dbg_monitor);
 #endif
+	if (DEBUG_SERIAL_ENABLED) {
+		set_iofunc (DEBUG_SERIAL_PORT + 0, debug_serial_monitor);
+		set_iofunc (DEBUG_SERIAL_PORT + 1, debug_serial_monitor);
+		set_iofunc (DEBUG_SERIAL_PORT + 2, debug_serial_monitor);
+		set_iofunc (DEBUG_SERIAL_PORT + 3, debug_serial_monitor);
+		set_iofunc (DEBUG_SERIAL_PORT + 4, debug_serial_monitor);
+		set_iofunc (DEBUG_SERIAL_PORT + 5, debug_serial_monitor);
+		set_iofunc (DEBUG_SERIAL_PORT + 6, debug_serial_monitor);
+	}
 }
 
 INITFUNC ("pass1", setiohooks);
