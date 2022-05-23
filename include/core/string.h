@@ -146,6 +146,14 @@ strcmp_builtin (char *s1, char *s2)
 static inline int
 memcmp_builtin (void *p1, void *p2, int len)
 {
+	if (__builtin_constant_p (len) && len == 2) {
+		u16 *q1 = p1, *q2 = p2;
+		return *q1 == *q2 ? 0 : __builtin_memcmp (p1, p2, len) | 1;
+	}
+	if (__builtin_constant_p (len) && len == 4) {
+		u32 *q1 = p1, *q2 = p2;
+		return *q1 == *q2 ? 0 : __builtin_memcmp (p1, p2, len) | 1;
+	}
 	return __builtin_memcmp (p1, p2, len);
 }
 
