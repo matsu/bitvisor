@@ -52,8 +52,9 @@
 	.set	strncmp, strncmp32
 .endif
 
+.if !longmode
 	.code32
-	.align	64
+	.align	4
 memset32:
 	push	%edi
 	mov	8(%esp),%edi
@@ -85,7 +86,7 @@ memset32:
 	pop	%edi
 	ret
 
-	.align	64
+	.align	4
 memcpy32:
 	push	%esi
 	push	%edi
@@ -115,96 +116,156 @@ memcpy32:
 	pop	%esi
 	ret
 
-	.align	64
+	.align	4
 strcmp32:
-	push	%esi
-	push	%edi
-	mov	12(%esp),%edi
-	mov	16(%esp),%esi
-	xor	%eax,%eax
-	cld
+	mov	4(%esp),%edx
+	mov	8(%esp),%ecx
+	.align	4
 1:
-	lodsb
-	scasb
+	mov	(%ecx),%al
+	cmp	(%edx),%al
 	jne	1f
+	inc	%ecx
+	inc	%edx
 	test	%al,%al
 	jne	1b
-	pop	%edi
-	pop	%esi
+	xor	%eax,%eax
 	ret
 1:
 	sbb	%eax,%eax
 	xor	$-2,%eax
-	pop	%edi
-	pop	%esi
 	ret
 
-	.align	64
+	.align	4
 memcmp32:
-	push	%esi
 	push	%edi
-	mov	12(%esp),%edi
-	mov	16(%esp),%esi
-	mov	20(%esp),%ecx
-	xor	%eax,%eax
-	cld
-	repe	cmpsb
-	je	1f
-	sbb	%eax,%eax
-	xor	$-2,%eax
-1:
-	pop	%edi
-	pop	%esi
-	ret
-
-	.align	64
-strlen32:
-	mov	%edi,%edx
-	mov	4(%esp),%edi
-	cld
-	mov	$-1,%ecx
-	mov	$0,%al
-	repne	scasb
-	lea	1(%ecx),%eax
-	not	%eax
-	mov	%edx,%edi
-	ret
-
-	.align	64
-strncmp32:
-	push	%esi
-	push	%edi
-	mov	12(%esp),%edi
-	mov	16(%esp),%esi
-	mov	20(%esp),%edx
-	xor	%eax,%eax
-	cld
-1:
+	mov	8(%esp),%edi
+	mov	12(%esp),%ecx
+	mov	16(%esp),%edx
 	test	%edx,%edx
-	je	2f
-	dec	%edx
-	lodsb
-	scasb
+	je	3f
+	test	$3,%edx
+	jne	2f
+	.align	4
+1:
+	mov	(%edi),%eax
+	cmp	(%ecx),%eax
+	jne	2f
+	add	$4,%edi
+	add	$4,%ecx
+	sub	$4,%edx
+	jne	1b
+	xor	%eax,%eax
+	pop	%edi
+	ret
+	.align	4
+2:
+	mov	(%edi),%al
+	sub	(%ecx),%al
 	jne	1f
+	inc	%edi
+	inc	%ecx
+	dec	%edx
+	jne	2b
+3:
+	xor	%eax,%eax
+	pop	%edi
+	ret
+1:
+	movsbl	%al,%eax
+	pop	%edi
+	ret
+
+	.align	4
+strlen32:
+	xor	%eax,%eax
+	mov	4(%esp),%edx
+	lea	8(%edx),%ecx
+	cmp	0(%edx),%al
+	je	0f
+	cmp	1(%edx),%al
+	je	1f
+	cmp	2(%edx),%al
+	je	2f
+	cmp	3(%edx),%al
+	je	3f
+	cmp	4(%edx),%al
+	je	4f
+	cmp	5(%edx),%al
+	je	5f
+	cmp	6(%edx),%al
+	je	6f
+	cmp	7(%edx),%al
+	je	7f
+	.align	4
+8:
+	mov	%ecx,%edx
+	lea	8(%ecx),%ecx
+	cmp	0(%edx),%al
+	je	0f
+	cmp	1(%edx),%al
+	je	1f
+	cmp	2(%edx),%al
+	je	2f
+	cmp	3(%edx),%al
+	je	3f
+	cmp	4(%edx),%al
+	je	4f
+	cmp	5(%edx),%al
+	je	5f
+	cmp	6(%edx),%al
+	je	6f
+	cmp	7(%edx),%al
+	jne	8b
+7:
+	inc	%eax
+6:
+	inc	%eax
+5:
+	inc	%eax
+4:
+	inc	%eax
+3:
+	inc	%eax
+2:
+	inc	%eax
+1:
+	inc	%eax
+0:
+	sub	4(%esp),%edx
+	add	%edx,%eax
+	ret
+
+	.align	4
+strncmp32:
+	push	%edi
+	mov	8(%esp),%edi
+	mov	12(%esp),%ecx
+	mov	16(%esp),%edx
+	.align	4
+1:
+	sub	$1,%edx
+	jb	2f
+	mov	(%ecx),%al
+	cmp	(%edi),%al
+	jne	1f
+	inc	%ecx
+	inc	%edi
 	test	%al,%al
 	jne	1b
-	pop	%edi
-	pop	%esi
-	ret
-1:
-	sbb	%eax,%eax
-	xor	$-2,%eax
-	pop	%edi
-	pop	%esi
-	ret
 2:
 	xor	%eax,%eax
 	pop	%edi
-	pop	%esi
+	ret
+1:
+	sbb	%eax,%eax
+	xor	$-2,%eax
+	pop	%edi
 	ret
 
+.else
 	.code64
-	.align	64
+	.align	4
 memset64:
 	mov	%esi,%eax
 	mov	%rdx,%rcx
@@ -245,7 +306,7 @@ memset64:
 	mov	%rdx,%rax
 	ret
 
-	.align	64
+	.align	4
 memcpy64:
 	mov	%rdx,%rcx
 	cld
@@ -271,62 +332,131 @@ memcpy64:
 	movsl
 	ret
 
-	.align	64
+	.align	4
 strcmp64:
-	xor	%eax,%eax
-	cld
-1:
-	lodsb
-	scasb
+	mov	(%rsi),%al
+	cmp	(%rdi),%al
 	jne	1f
+	inc	%rsi
+	inc	%rdi
 	test	%al,%al
-	jne	1b
+	jne	strcmp64
+	xor	%eax,%eax
 	ret
 1:
 	sbb	%eax,%eax
 	xor	$-2,%eax
 	ret
 
-	.align	64
+	.align	4
 memcmp64:
-	mov	%rdx,%rcx
-	xor	%eax,%eax
-	cld
-	repe	cmpsb
-	je	1f
-	sbb	%eax,%eax
-	xor	$-2,%eax
-1:
-	ret
-
-	.align	64
-strlen64:
-	cld
-	mov	$-1,%rcx
-	mov	$0,%al
-	repne	scasb
-	lea	1(%rcx),%rax
-	not	%rax
-	ret
-
-	.align	64
-strncmp64:
-	xor	%eax,%eax
-	cld
-1:
 	test	%edx,%edx
-	je	2f
-	dec	%edx
-	lodsb
-	scasb
-	jne	1f
-	test	%al,%al
+	je	3f
+	test	$3,%edx
+	jne	2f
+	.align	4
+1:
+	mov	(%rdi),%eax
+	cmp	(%rsi),%eax
+	jne	2f
+	add	$4,%rdi
+	add	$4,%rsi
+	sub	$4,%edx
 	jne	1b
+	xor	%eax,%eax
+	ret
+	.align	4
+2:
+	mov	(%rdi),%al
+	sub	(%rsi),%al
+	jne	1f
+	inc	%rdi
+	inc	%rsi
+	dec	%edx
+	jne	2b
+3:
+	xor	%eax,%eax
 	ret
 1:
-	sbb	%eax,%eax
-	xor	$-2,%eax
+	movsbl	%al,%eax
 	ret
+
+	.align	4
+strlen64:
+	xor	%eax,%eax
+	mov	%rdi,%rdx
+	lea	8(%rdi),%rsi
+	cmp	0(%rdi),%al
+	je	0f
+	cmp	1(%rdi),%al
+	je	1f
+	cmp	2(%rdi),%al
+	je	2f
+	cmp	3(%rdi),%al
+	je	3f
+	cmp	4(%rdi),%al
+	je	4f
+	cmp	5(%rdi),%al
+	je	5f
+	cmp	6(%rdi),%al
+	je	6f
+	cmp	7(%rdi),%al
+	je	7f
+	.align	4
+8:
+	mov	%rsi,%rdi
+	lea	8(%rsi),%rsi
+	cmp	0(%rdi),%al
+	je	0f
+	cmp	1(%rdi),%al
+	je	1f
+	cmp	2(%rdi),%al
+	je	2f
+	cmp	3(%rdi),%al
+	je	3f
+	cmp	4(%rdi),%al
+	je	4f
+	cmp	5(%rdi),%al
+	je	5f
+	cmp	6(%rdi),%al
+	je	6f
+	cmp	7(%rdi),%al
+	jne	8b
+7:
+	inc	%eax
+6:
+	inc	%eax
+5:
+	inc	%eax
+4:
+	inc	%eax
+3:
+	inc	%eax
+2:
+	inc	%eax
+1:
+	inc	%eax
+0:
+	sub	%rdx,%rdi
+	add	%rdi,%rax
+	ret
+
+	.align	4
+strncmp64:
+	sub	$1,%edx
+	jb	2f
+	mov	(%rsi),%al
+	cmp	(%rdi),%al
+	jne	1f
+	inc	%rsi
+	inc	%rdi
+	test	%al,%al
+	jne	strncmp64
 2:
 	xor	%eax,%eax
 	ret
+1:
+	sbb	%eax,%eax
+	xor	$-2,%eax
+	ret
+.endif
