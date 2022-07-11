@@ -1249,6 +1249,7 @@ string_instruction (struct op *op, bool rd, bool wr, u32 len, void *execdata,
 	ulong regr, regw, rcx;
 	enum general_reg regrn, regwn;
 	int loopcount = 16;	/* no interrupts are accepted in this loop */
+	bool repeat = op->prefix.repe || op->prefix.repne;
 
 	VAR_IS_INITIALIZED (segr);
 	VAR_IS_INITIALIZED (offr);
@@ -1267,9 +1268,10 @@ string_instruction (struct op *op, bool rd, bool wr, u32 len, void *execdata,
 		regrn = GENERAL_REG_RSI;
 		current->vmctl.read_general_reg (regrn, &regr);
 	}
-reploop:
-	if (op->prefix.repe || op->prefix.repne) {
+	if (repeat)
 		current->vmctl.read_general_reg (GENERAL_REG_RCX, &rcx);
+reploop:
+	if (repeat) {
 		cnt = rcx;
 		if (op->reptype == REPTYPE_16BIT)
 			cnt &= 0xFFFF;
@@ -1284,7 +1286,6 @@ reploop:
 			(*(u32 *)&rcx) = cnt;
 		else
 			rcx = cnt;
-		current->vmctl.write_general_reg (GENERAL_REG_RCX, rcx);
 	} else {
 		cnt = 0;
 	}
@@ -1361,15 +1362,19 @@ reploop:
 		if (wr)
 			regw = offw;
 	}
+	/* Update registers here to properly handle exception or
+	 * IOACT_RERUN case with a repeat prefix. */
+	if (rd)
+		current->vmctl.write_general_reg (regrn, regr);
+	if (wr)
+		current->vmctl.write_general_reg (regwn, regw);
+	if (repeat)
+		current->vmctl.write_general_reg (GENERAL_REG_RCX, rcx);
 	if (cnt && loopcount) {
 		if (rflags & RFLAGS_IF_BIT)
 			loopcount--;
 		goto reploop;
 	}
-	if (rd)
-		current->vmctl.write_general_reg (regrn, regr);
-	if (wr)
-		current->vmctl.write_general_reg (regwn, regw);
 rcxz:
 	if (!cnt)
 		UPDATE_IP (op);
