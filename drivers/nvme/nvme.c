@@ -169,8 +169,15 @@ static void
 check_subm_entry_size (struct nvme_host *host)
 {
 	if (host->g_io_subm_entry_nbytes == NVME_CMD_NBYTES) {
-		if (!host->ans2_wrapper &&
-		    host->quirks & NVME_QUIRK_IO_CMD_128) {
+		/* Linux uses 128-byte I/O command size for ANS2
+		 * controllers while it sets CC_REG to 64-byte I/O
+		 * command size.  Setting g_cmd_size_check enables
+		 * detection of the command size mismatch.  It is
+		 * needed even if ans2_wrapper=1, because Linux
+		 * version >= 5.10 apparently uses 128-byte size for
+		 * ANS2 controllers even though it reads the sub class
+		 * as normal NVMe device. */
+		if (host->quirks & NVME_QUIRK_IO_CMD_128) {
 			dprintf (NVME_ETC_DEBUG,
 				 "Need to check guest command size later\n");
 			host->g_cmd_size_check = 1;
