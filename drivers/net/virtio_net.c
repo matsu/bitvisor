@@ -912,7 +912,7 @@ do_net_ctrl (struct virtio_net *vnet, struct vr_desc *desc,
 					"buffers, skip processing\n");
 			}
 			buf_ring = mapmem_as (vnet->as_dma, desc[d].addr,
-					      desc_len, 0);
+					      desc_len, MAPMEM_WRITE);
 			memcpy (cmd + copied, buf_ring, desc_len);
 			copied += desc_len;
 			/* We reach the last buffer, process and set ack */
