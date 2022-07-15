@@ -87,9 +87,13 @@ u32 vmm_term_inf() ;
 #define PRO1000_STATUS_LU	BIT (1)
 
 #define PRO1000_ICR	0xC0
+#define PRO1000_ITR	0xC4
 #define PRO1000_ICS	0xC8
 #define PRO1000_IMS	0xD0
 #define PRO1000_IMC	0xD8
+
+#define INT_PER_SEC	7813 /* Pick this number from 82574 data sheet */
+#define ITR_DEFAULT	(1000000000 / (INT_PER_SEC * 256))
 
 #define PRO1000_INT_TXDW	BIT (0)
 #define PRO1000_INT_RXDMT0	BIT (4)
@@ -1560,6 +1564,9 @@ seize_pro1000 (struct data2 *d2)
 	pro1000_reg_write32 (base, PRO1000_TCTL, v);
 
 	d2->tdesc[0].initialized = true;
+
+	/* This improve RX performance on some models */
+	pro1000_reg_write32 (base, PRO1000_ITR, ITR_DEFAULT);
 
 	for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
 		pci_config_read (d2->pci_device, &d2->regs_at_init[i],
