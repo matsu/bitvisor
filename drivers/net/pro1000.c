@@ -58,6 +58,26 @@ u32 vmm_term_inf() ;
 #define RBUF_SIZE	PAGESIZE
 #define SENDVIRT_MAXSIZE 1514
 
+#define PRO1000_82571EB_0x105E	0x105E
+#define PRO1000_82571EB_0x105F	0x105F
+#define PRO1000_82571EB_0x1060	0x1060
+#define PRO1000_82571EB_0x10A0	0x10A0
+#define PRO1000_82571EB_0x10A1	0x10A1
+#define PRO1000_82571EB_0x10A4	0x10A4
+#define PRO1000_82571EB_0x10A5	0x10A5
+#define PRO1000_82571EB_0x10BC	0x10BC
+#define PRO1000_82571EB_0x10D9	0x10D9
+#define PRO1000_82571EB_0x10DA	0x10DA
+
+#define PRO1000_82572EI_0x107D	0x107D
+#define PRO1000_82572EI_0x107E	0x107E
+#define PRO1000_82572EI_0x107F	0x107F
+#define PRO1000_82572EI_0x10B9	0x10B9
+
+#define PRO1000_82574_10D3	0x10D3
+#define PRO1000_82574_10D4	0x10D4
+#define PRO1000_82574_10F6	0x10F6
+
 #define PRO1000_CTRL	0x0
 #define PRO1000_CTRL_SLU	BIT (6)
 #define PRO1000_CTRL_RST	BIT (26)
@@ -113,6 +133,8 @@ u32 vmm_term_inf() ;
 #define PRO1000_TXDTCL_WTHRES(v)	(((v) & 0x3F) << 16)
 
 #define PRO1000_TARC(n)	(0x3840 + ((n) * 0x100))
+#define PRO1000_TARC_COUNT_DEFAULT	3
+#define PRO1000_TARC_ENABLE		BIT (10)
 
 #define PRO1000_RFCTL	0x5008
 #define PRO1000_RFCTL_EXSTEN	BIT (15)
@@ -253,6 +275,13 @@ struct desc_shadow {
 	} u;
 };
 
+enum mac_ver {
+	mac_default,
+	mac_82571,
+	mac_82572,
+	mac_82574,
+};
+
 struct data;
 
 struct data2 {
@@ -273,6 +302,7 @@ struct data2 {
 	net_recv_callback_t *recvphys_func, *recvvirt_func;
 	void *recvphys_param, *recvvirt_param;
 	u32 rctl, rfctl, tctl;
+	enum mac_ver mac;
 	u8 macaddr[6];
 	struct pci_device *pci_device;
 	const struct mm_as *as_dma;
@@ -1405,6 +1435,35 @@ seize_pro1000 (struct data2 *d2)
 	void usleep (u32);
 	void *base = d2->d1[0].map;
 	u32 v, n, i;
+	u16 dev_id = d2->pci_device->config_space.device_id;
+
+	switch (dev_id) {
+	case PRO1000_82571EB_0x105E:
+	case PRO1000_82571EB_0x105F:
+	case PRO1000_82571EB_0x1060:
+	case PRO1000_82571EB_0x10A0:
+	case PRO1000_82571EB_0x10A1:
+	case PRO1000_82571EB_0x10A4:
+	case PRO1000_82571EB_0x10A5:
+	case PRO1000_82571EB_0x10BC:
+	case PRO1000_82571EB_0x10D9:
+	case PRO1000_82571EB_0x10DA:
+		d2->mac = mac_82571;
+		break;
+	case PRO1000_82572EI_0x107D:
+	case PRO1000_82572EI_0x107E:
+	case PRO1000_82572EI_0x107F:
+	case PRO1000_82572EI_0x10B9:
+		d2->mac = mac_82572;
+		break;
+	case PRO1000_82574_10D3:
+	case PRO1000_82574_10D4:
+	case PRO1000_82574_10F6:
+		d2->mac = mac_82574;
+		break;
+	default:
+		d2->mac = mac_default;
+	}
 
 	/* Disable interrupts */
 	pro1000_reg_write32 (base, PRO1000_IMC, 0xFFFFFFFF);
@@ -1440,10 +1499,6 @@ seize_pro1000 (struct data2 *d2)
 	/* Disable interrupts */
 	pro1000_reg_write32 (base, PRO1000_IMC, 0xFFFFFFFF);
 
-	/* Initialization for 82571EB/82572EI */
-	pro1000_reg_write32 (base, PRO1000_TARC (0), 0); /* 0x07800000 */
-	pro1000_reg_write32 (base, PRO1000_TARC (1), 0); /* 0x07400000 */
-
 	/* Receive Initialization */
 	init_desc_receive (&d2->rdesc[0], d2, PRO1000_RD_BASE (0));
 	d2->rdesc[0].initialized = true;
@@ -1454,6 +1509,41 @@ seize_pro1000 (struct data2 *d2)
 
 	/* Transmit Initialization */
 	init_desc_transmit (&d2->tdesc[0], d2, PRO1000_TD_BASE (0));
+	switch (d2->mac) {
+	case mac_82571:
+	case mac_82572:
+		/*
+		 * TARC0/1 PRO1000_TARC_ENABLE is always on according to the
+		 * datasheet. In other words, multiple queue is always on
+		 * even though we use only TX0. Note that we should set bit 21
+		 * when running at GbE speed for small packet performance.
+		 * However, we then need to implement link status change
+		 * handling for detecting possible speed change.
+		 */
+		v = PRO1000_TARC_COUNT_DEFAULT | PRO1000_TARC_ENABLE |
+		    BIT (23) | /* Multiple TX queue */
+		    BIT (24) | /* Multiple TX queue */
+		    BIT (25) | /* TCTL.MULR is set  */
+		    BIT (26);  /* Multiple TX queue */
+		pro1000_reg_write32 (base, PRO1000_TARC (0), v);
+		v = PRO1000_TARC_COUNT_DEFAULT | PRO1000_TARC_ENABLE |
+		    BIT (22) | /* TCTL.MULR is set  */
+		    BIT (24) | /* Multiple TX queue */
+		    BIT (25) | /* TCTL.MULR is set  */
+		    BIT (26);  /* Multiple TX queue */
+		pro1000_reg_write32 (base, PRO1000_TARC (1), v);
+		break;
+	case mac_82574:
+		/* PRO1000_TARC_ENABLE needs to be set for QEMU e1000e */
+		v = PRO1000_TARC_COUNT_DEFAULT| PRO1000_TARC_ENABLE |
+		    BIT (26); /* Errata */
+		pro1000_reg_write32 (base, PRO1000_TARC (0), v);
+		/* Use default value for TARC1 */
+		break;
+	default:
+		/* Use default value, some models do not even have TARC */
+		break;
+	}
 	v = PRO1000_TXDTCL_WTHRES (1) |
 	    BIT (22) | /* rsvd but 82754 requires this */
 	    BIT (24) | /* GRAN descriptor unit, rsvd on some model */
