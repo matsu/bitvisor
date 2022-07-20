@@ -544,7 +544,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 			i = 0;
 	}
 	s->head = i;
-	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) |= 0x80; /* interrupt */
+	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) = 0x80; /* interrupt */
 }
 
 static void
@@ -990,7 +990,7 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 			i = 0;
 	}
 	s->head = i;
-	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) |= 0x1; /* interrupt */
+	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) = 0x1; /* interrupt */
 }
 
 static void
