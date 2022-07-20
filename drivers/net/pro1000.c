@@ -58,6 +58,68 @@ u32 vmm_term_inf() ;
 #define RBUF_SIZE	PAGESIZE
 #define SENDVIRT_MAXSIZE 1514
 
+#define PRO1000_CTRL	0x0
+#define PRO1000_CTRL_SLU	BIT (6)
+#define PRO1000_CTRL_RST	BIT (26)
+#define PRO1000_CTRL_PHY_RST	BIT (31)
+
+#define PRO1000_STATUS	0x8
+#define PRO1000_STATUS_LU	BIT (1)
+
+#define PRO1000_ICR	0xC0
+#define PRO1000_ICS	0xC8
+#define PRO1000_IMS	0xD0
+#define PRO1000_IMC	0xD8
+
+#define PRO1000_INT_TXDW	BIT (0)
+#define PRO1000_INT_RXDMT0	BIT (4)
+#define PRO1000_INT_RXT0	BIT (7)
+#define PRO1000_RXINT		(PRO1000_INT_RXDMT0 | PRO1000_INT_RXT0)
+
+#define PRO1000_RCTL	0x100
+#define PRO1000_RCTL_EN		BIT (1)
+#define PRO1000_RCTL_UPE	BIT (3)
+#define PRO1000_RCTL_MPE	BIT (4)
+#define PRO1000_RCTL_BAM	BIT (15)
+#define PRO1000_RCTL_BSIZE_L	BIT (16)
+#define PRO1000_RCTL_BSIZE_H	BIT (17)
+#define PRO1000_RCTL_BSEX	BIT (25)
+#define PRO1000_RCTL_SECRC	BIT (26)
+#define PRO1000_RCTL_BSIZE_MASK \
+	(PRO1000_RCTL_BSIZE_L | PRO1000_RCTL_BSIZE_H | PRO1000_RCTL_BSEX)
+#define PRO1000_RCTL_BSIZE_4K	PRO1000_RCTL_BSIZE_MASK
+
+#define PRO1000_TCTL	0x400
+#define PRO1000_TCTL_EN		BIT (1)
+#define PRO1000_TCTL_PSP	BIT (3)
+#define PRO1000_TCTL_CT(v)	(((v) & 0xFF) << 4)
+#define PRO1000_TCTL_COLD(v)	(((v) & 0x3FF) << 12)
+#define PRO1000_TCTL_MULR	BIT (28)
+
+#define PRO1000_TIPG	0x410
+#define PRO1000_TIPG_IPGT(v)	((v) & 0x3FF)
+#define PRO1000_TIPG_IPGR1(v)	(((v) & 0x3FF) << 10)
+#define PRO1000_TIPG_IPGR(v)	(((v) & 0x3FF) << 20)
+
+#define PRO1000_RD_BASE(n)	(0x2800 + ((n) * 0x100))
+#define PRO1000_TD_BASE(n)	(0x3800 + ((n) * 0x100))
+#define TDRD_BAL_OFFSET	0x0
+#define TDRD_BAH_OFFSET	0x4
+#define TDRD_LEN_OFFSET	0x8
+#define TDRD_H_OFFSET	0x10
+#define TDRD_T_OFFSET	0x18
+
+#define PRO1000_TXDTCL(n)	(0x3828 + ((n) * 0x100))
+#define PRO1000_TXDTCL_WTHRES(v)	(((v) & 0x3F) << 16)
+
+#define PRO1000_TARC(n)	(0x3840 + ((n) * 0x100))
+
+#define PRO1000_RFCTL	0x5008
+#define PRO1000_RFCTL_EXSTEN	BIT (15)
+
+#define PRO1000_RAL	0x5400
+#define PRO1000_RAH	0x5404
+
 struct tdesc {
 	u64 addr;		/* buffer address */
 	uint len : 16;		/* length per segment */
@@ -247,6 +309,18 @@ static LIST1_DEFINE_HEAD (struct data2, d2list);
 static void receive_physnic (struct desc_shadow *s, struct data2 *d2,
 			     uint off2);
 
+static inline u32
+pro1000_reg_read32 (void *base, u32 offset)
+{
+	return *(volatile u32 *)(base + offset);
+}
+
+static inline void
+pro1000_reg_write32 (void *base, u32 offset, u32 val)
+{
+	*(volatile u32 *)(base + offset) = val;
+}
+
 static int
 iohandler (core_io_t io, union mem *data, void *arg)
 {
@@ -258,12 +332,11 @@ iohandler (core_io_t io, union mem *data, void *arg)
 static void
 get_macaddr (struct data2 *d2, void *buf)
 {
-	u32 *ral = (void *)(u8 *)d2->d1[0].map + 0x5400;
-	u32 *rah = (void *)(u8 *)d2->d1[0].map + 0x5404;
+	void *base = d2->d1[0].map;
 	u32 tmp[2];
 
-	tmp[0] = *ral;
-	tmp[1] = *rah;
+	tmp[0] = pro1000_reg_read32 (base, PRO1000_RAL);
+	tmp[1] = pro1000_reg_read32 (base, PRO1000_RAH);
 	memcpy (buf, tmp, 6);
 	printf ("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 		((u8 *)buf)[0], ((u8 *)buf)[1], ((u8 *)buf)[2],
@@ -284,34 +357,29 @@ static void
 write_mydesc (struct desc_shadow *s, struct data2 *d2, uint off2,
 	      bool transmit)
 {
+	void *base = d2->d1[0].map;
+	phys_t addr;
+	u32 desc_size, tail;
+
 	if (transmit) {
-		if (*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) ==
-		    TDESC_SIZE)
-			return;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) = 0;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x00) =
-			s->u.t.td_phys;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x04) =
-			s->u.t.td_phys >> 32;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x10) = 0;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x18) = 0;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) =
-			TDESC_SIZE;
+		addr = s->u.t.td_phys;
+		desc_size = TDESC_SIZE;
+		tail = 0;
 	} else {
-		if (*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) ==
-		    RDESC_SIZE)
-			return;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) = 0;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x00) =
-			s->u.r.rd_phys;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x04) =
-			s->u.r.rd_phys >> 32;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x10) = 0;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x18) =
-			NUM_OF_RDESC - 1;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) =
-			RDESC_SIZE;
+		addr = s->u.r.rd_phys;
+		desc_size = RDESC_SIZE;
+		tail = NUM_OF_RDESC - 1;
 	}
+
+	if (pro1000_reg_read32 (base, off2 + TDRD_LEN_OFFSET) == desc_size)
+		return;
+
+	pro1000_reg_write32 (base, off2 + TDRD_LEN_OFFSET, 0);
+	pro1000_reg_write32 (base, off2 + TDRD_BAL_OFFSET, addr);
+	pro1000_reg_write32 (base, off2 + TDRD_BAH_OFFSET, addr >> 32);
+	pro1000_reg_write32 (base, off2 + TDRD_H_OFFSET, 0);
+	pro1000_reg_write32 (base, off2 + TDRD_T_OFFSET, tail);
+	pro1000_reg_write32 (base, off2 + TDRD_LEN_OFFSET, desc_size);
 }
 
 static void
@@ -320,20 +388,20 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 {
 	struct desc_shadow *s;
 	uint i, off2;
-	u32 *head, *tail, h, t, nt;
+	u32 h, t, nt;
 	struct tdesc *td;
+	void *base;
 
 	if (d2->d1->disable)	/* PCI config reg is disabled */
 		return;
 	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
 		return;
-	s = &d2->tdesc[0];	/* FIXME: 0 only */
-	off2 = 0x3800;		/* FIXME: 0 only */
+	base = d2->d1[0].map;
+	s = &d2->tdesc[0];	    /* FIXME: 0 only */
+	off2 = PRO1000_TD_BASE (0); /* FIXME: 0 only */
 	write_mydesc (s, d2, off2, true);
-	head = (void *)((u8 *)d2->d1[0].map + off2 + 0x10);
-	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
-	h = *head;
-	t = *tail;
+	h = pro1000_reg_read32 (base, off2 + TDRD_H_OFFSET);
+	t = pro1000_reg_read32 (base, off2 + TDRD_T_OFFSET);
 	if (h >= NUM_OF_TDESC || t >= NUM_OF_TDESC)
 		return;
 	for (i = 0; i < num_packets; i++) {
@@ -371,9 +439,9 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 		td->special = 0;
 		t = nt;
 	}
-	volatile u32 *status = (void *)(u8 *)d2->d1[0].map + 0x8;
-	if (*status & 0x2)	/* link up indication */
-		*tail = t;
+	/* Link up indication */
+	if (pro1000_reg_read32 (base, PRO1000_STATUS) & PRO1000_STATUS_LU)
+		pro1000_reg_write32 (base, off2 + TDRD_T_OFFSET, t);
 }
 
 static void
@@ -403,9 +471,9 @@ poll_physnic (void *handle)
 
 	spinlock_lock (&d2->lock);
 	if (d2->rdesc[0].initialized)
-		receive_physnic (&d2->rdesc[0], d2, 0x2800);
+		receive_physnic (&d2->rdesc[0], d2, PRO1000_RD_BASE (0));
 	if (d2->rdesc[1].initialized)
-		receive_physnic (&d2->rdesc[1], d2, 0x2900);
+		receive_physnic (&d2->rdesc[1], d2, PRO1000_RD_BASE (1));
 	spinlock_unlock (&d2->lock);
 }
 
@@ -433,13 +501,13 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 
 	if (pktlen > SENDVIRT_MAXSIZE)
 		return;
-	if (d2->rctl & 0x20000)	/* BSIZE(H) receive buffer size */
+	if (d2->rctl & PRO1000_RCTL_BSIZE_H) /* BSIZE(H) receive buffer size */
 		bufsize = 512;
 	else
 		bufsize = 2048;
-	if (d2->rctl & 0x10000)	/* BSIZE(L) */
+	if (d2->rctl & PRO1000_RCTL_BSIZE_L) /* BSIZE(L) */
 		bufsize >>= 1;
-	if (d2->rctl & 0x2000000) /* BSEX buffer size extension */
+	if (d2->rctl & PRO1000_RCTL_BSEX) /* BSEX buffer size extension */
 		bufsize <<= 4;
 	if (bufsize == 32768)	/* reserved value */
 		return;
@@ -447,7 +515,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 	j = s->tail;
 	k = s->base.ll;
 	l = s->len;
-	if (d2->rctl & 0x4000000) /* SECRC: Strip CRC */
+	if (d2->rctl & PRO1000_RCTL_SECRC) /* SECRC: Strip CRC */
 		asize = 0;
 	pktlen += asize;
 	while (pktlen > 0) {
@@ -457,7 +525,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 		rd = mapmem_as (d2->as_dma, k + i * 16, sizeof *rd,
 				MAPMEM_WRITE);
 		ASSERT (rd);
-		if (d2->rfctl & 0x8000) {
+		if (d2->rfctl & PRO1000_RFCTL_EXSTEN) {
 			rd1 = (void *)rd;
 			if (rd1->ex_sta & 1) { /* DD */
 				printf ("sendvirt: DD=1!\n");
@@ -474,7 +542,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 				/* asize >= pktlen */
 				memcpy (buf, abuf + (asize - pktlen), pktlen);
 			}
-			if (d2->rfctl & 0x8000) {
+			if (d2->rfctl & PRO1000_RFCTL_EXSTEN) {
 				rd1 = (void *)rd;
 				rd1->mrq = 0;
 				rd1->rsshash = 0;
@@ -510,7 +578,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 				memcpy (buf + pktlen - asize, abuf,
 					bufsize - (pktlen - asize));
 			}
-			if (d2->rfctl & 0x8000) {
+			if (d2->rfctl & PRO1000_RFCTL_EXSTEN) {
 				rd1 = (void *)rd;
 				rd1->mrq = 0;
 				rd1->rsshash = 0;
@@ -546,7 +614,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 			i = 0;
 	}
 	s->head = i;
-	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) = 0x80; /* interrupt */
+	pro1000_reg_write32 (d2->d1[0].map, PRO1000_ICS, PRO1000_INT_RXT0);
 }
 
 static void
@@ -974,7 +1042,7 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 
 	if (d2->d1->disable)	/* PCI config reg is disabled */
 		return;
-	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
+	if (!(d2->tctl & PRO1000_TCTL_EN)) /* !EN: Transmit Enable */
 		return;
 	i = s->head;
 	j = s->tail;
@@ -992,24 +1060,24 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 			i = 0;
 	}
 	s->head = i;
-	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) = 0x1; /* interrupt */
+	pro1000_reg_write32 (d2->d1[0].map, PRO1000_ICS, PRO1000_INT_TXDW);
 }
 
 static void
 receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 {
-	u32 *head, *tail, h, t, nt;
+	u32 h, t, nt;
 	void *pkt[16];
 	UINT pktsize[16];
 	long pkt_premap[16];
 	int i = 0, num = 16;
 	struct rdesc *rd;
+	void *base;
 
+	base = d2->d1[0].map;
 	write_mydesc (s, d2, off2, false);
-	head = (void *)((u8 *)d2->d1[0].map + off2 + 0x10);
-	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
-	h = *head;
-	t = *tail;
+	h = pro1000_reg_read32 (base, off2 + TDRD_H_OFFSET);
+	t = pro1000_reg_read32 (base, off2 + TDRD_T_OFFSET);
 	if (h >= NUM_OF_RDESC || t >= NUM_OF_RDESC)
 		return;
 	for (;;) {
@@ -1030,7 +1098,7 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 		pkt[i] = s->u.r.rbuf[t];
 		pktsize[i] = rd->len;
 		pkt_premap[i] = s->u.r.rbuf_premap[t];
-		if (!(d2->rctl & 0x4000000)) /* !SECRC */
+		if (!(d2->rctl & PRO1000_RCTL_SECRC)) /* !SECRC */
 			pktsize[i] -= 4;
 		if (!rd->status_eop) {
 			printf ("status EOP == 0!!\n");
@@ -1050,42 +1118,42 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 		}
 		i++;
 	}
-	*tail = t;
+	pro1000_reg_write32 (base, off2 + TDRD_T_OFFSET, t);
 }
 
 static bool
 handle_desc (uint off1, uint len1, bool wr, union mem *buf, bool recv,
 	     struct data2 *d2, uint off2, struct desc_shadow *s)
 {
-	if (rangecheck (off1, len1, off2 + 0x00, 4)) {
+	if (rangecheck (off1, len1, off2 + TDRD_BAL_OFFSET, 4)) {
 		/* Transmit/Receive Descriptor Base Low */
 		init_desc (s, d2, off2, !recv);
 		if (wr)
 			s->base.l[0] = buf->dword & ~0xF;
 		else
 			buf->dword = s->base.l[0];
-	} else if (rangecheck (off1, len1, off2 + 0x04, 4)) {
+	} else if (rangecheck (off1, len1, off2 + TDRD_BAH_OFFSET, 4)) {
 		/* Transmit/Receive Descriptor Base High */
 		init_desc (s, d2, off2, !recv);
 		if (wr)
 			s->base.l[1] = buf->dword;
 		else
 			buf->dword = s->base.l[1];
-	} else if (rangecheck (off1, len1, off2 + 0x08, 4)) {
+	} else if (rangecheck (off1, len1, off2 + TDRD_LEN_OFFSET, 4)) {
 		/* Transmit/Receive Descriptor Length */
 		init_desc (s, d2, off2, !recv);
 		if (wr)
 			s->len = buf->dword & 0xFFF80;
 		else
 			buf->dword = s->len;
-	} else if (rangecheck (off1, len1, off2 + 0x10, 4)) {
+	} else if (rangecheck (off1, len1, off2 + TDRD_H_OFFSET, 4)) {
 		/* Transmit/Receive Descriptor Head */
 		init_desc (s, d2, off2, !recv);
 		if (wr)
 			s->head = buf->dword & 0xFFFF;
 		else
 			buf->dword = s->head;
-	} else if (rangecheck (off1, len1, off2 + 0x18, 4)) {
+	} else if (rangecheck (off1, len1, off2 + TDRD_T_OFFSET, 4)) {
 		/* Transmit/Receive Descriptor Tail */
 		init_desc (s, d2, off2, !recv);
 		if (wr)
@@ -1105,67 +1173,68 @@ mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
 	    union mem *buf, uint len, u32 flags)
 {
 	union mem *q;
+	u32 v;
 
 	if (d1 != &d2->d1[0])
 		goto skip;
 	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, false, d2,
-			 0x3800, &d2->tdesc[0]))
+			 PRO1000_TD_BASE (0), &d2->tdesc[0]))
 		return;
 	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, false, d2,
-			 0x3900, &d2->tdesc[1]))
+			 PRO1000_TD_BASE (1), &d2->tdesc[1]))
 		return;
 	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, true, d2,
-			 0x2800, &d2->rdesc[0]))
+			 PRO1000_RD_BASE (0), &d2->rdesc[0]))
 		return;
 	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, true, d2,
-			 0x2900, &d2->rdesc[1]))
+			 PRO1000_RD_BASE (1), &d2->rdesc[1]))
 		return;
-	if (rangecheck (gphys - d1->mapaddr, len, 0x5008, 4)) {
+	if (rangecheck (gphys - d1->mapaddr, len, PRO1000_RFCTL, 4)) {
 		/* Receive Filter Control Register */
 		if (wr) {
 			printf ("receive filter 0x%X (EXSTEN=%d)\n",
-				buf->dword, !!(buf->dword & 0x8000));
+				buf->dword,
+				!!(buf->dword & PRO1000_RFCTL_EXSTEN));
 			d2->rfctl = buf->dword;
-			*(u32 *)(void *)((u8 *)d1->map + 0x5008) =
-				d2->rfctl & ~0x8000;
+			v = d2->rfctl & ~PRO1000_RFCTL_EXSTEN;
+			pro1000_reg_write32 (d1->map, PRO1000_RFCTL, v);
 		} else {
 			buf->dword = d2->rfctl;
 		}
 		return;
 	}
-	if (rangecheck (gphys - d1->mapaddr, len, 0x100, 4)) {
+	if (rangecheck (gphys - d1->mapaddr, len, PRO1000_RCTL, 4)) {
 		/* Receive Control Register */
 		if (wr) {
 			printf ("receive control 0x%X (DTYP=%d)\n",
 				buf->dword, (buf->dword & 0x0C00) >> 10);
 			d2->rctl = buf->dword;
-			*(u32 *)(void *)((u8 *)d1->map + 0x100) =
-				(d2->rctl & ~0x2030000) |
-				((RBUF_SIZE & 0x3300) ? 0x20000 : 0) |
-				((RBUF_SIZE & 0x5500) ? 0x10000 : 0) |
-				((RBUF_SIZE & 0x7000) ? 0x2000000 : 0);
+			v = (d2->rctl & ~(PRO1000_RCTL_BSIZE_MASK)) |
+			    PRO1000_RCTL_BSIZE_4K;
+			pro1000_reg_write32 (d1->map, PRO1000_RCTL, v);
 		} else {
 			buf->dword = d2->rctl;
 		}
 		return;
 	}
-	if (rangecheck (gphys - d1->mapaddr, len, 0x400, 4)) {
+	if (rangecheck (gphys - d1->mapaddr, len, PRO1000_TCTL, 4)) {
 		/* Transmit Control Register */
 		if (wr) {
 			d2->tctl = buf->dword;
-			*(u32 *)(void *)((u8 *)d1->map + 0x400) = d2->tctl;
+			pro1000_reg_write32 (d1->map, PRO1000_TCTL, d2->tctl);
 		} else {
-			d2->tctl = *(u32 *)(void *)((u8 *)d1->map + 0x400);
+			d2->tctl = pro1000_reg_read32 (d1->map, PRO1000_TCTL);
 			buf->dword = d2->tctl;
 		}
 		return;
 	}
-	if (rangecheck (gphys - d1->mapaddr, len, 0xC0, 4)) {
+	if (rangecheck (gphys - d1->mapaddr, len, PRO1000_ICR, 4)) {
 		/* Interrupt Cause Read Register */
-		if (d2->rdesc[0].initialized)
-			receive_physnic (&d2->rdesc[0], d2, 0x2800);
-		if (d2->rdesc[1].initialized)
-			receive_physnic (&d2->rdesc[1], d2, 0x2900);
+		struct desc_shadow *rdesc = d2->rdesc;
+		if (rdesc[0].initialized)
+			receive_physnic (&rdesc[0], d2, PRO1000_RD_BASE (0));
+		if (rdesc[1].initialized)
+			receive_physnic (&rdesc[1], d2, PRO1000_RD_BASE (1));
 	}
 skip:
 	q = (union mem *)(void *)((u8 *)d1->map + (gphys - d1->mapaddr));
@@ -1299,11 +1368,12 @@ static bool
 pro1000_msi (struct pci_device *pci_device, void *data)
 {
 	struct data2 *d2 = data;
-	volatile u32 *icr = (void *)(u8 *)d2->d1[0].map + 0xC0;
+	void *base = d2->d1[0].map;
 	bool ret;
 
 	spinlock_lock (&d2->msi_lock);
-	*icr |= 0xFFFFFFFF;
+	pro1000_reg_read32 (base, PRO1000_ICR); /* Dummy read */
+	pro1000_reg_write32 (base, PRO1000_ICR, 0xFFFFFFFF);
 	d2->msi_intr++;
 	spinlock_unlock (&d2->msi_lock);
 	poll_physnic (d2);
@@ -1332,118 +1402,79 @@ pro1000_enable_dma_and_memory (struct pci_device *pci_device)
 static void
 seize_pro1000 (struct data2 *d2)
 {
+	void usleep (u32);
+	void *base = d2->d1[0].map;
+	u32 v, n, i;
+
 	/* Disable interrupts */
-	{
-		/* Interrupt Mask Clear Register */
-		volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
-		*imc = 0xFFFFFFFF;
-	}
+	pro1000_reg_write32 (base, PRO1000_IMC, 0xFFFFFFFF);
+
 	/* Issue a Global Reset */
-	{
-		void usleep (u32);
-		int n = 10;
-
-		/* Device Control Register */
-		volatile u32 *ctrl = (void *)(u8 *)d2->d1[0].map + 0x0;
-		/* Device Status Register */
-		volatile u32 *status = (void *)(u8 *)d2->d1[0].map + 0x8;
-
-		/* Initializing PHY via Device Control Register
-		 * apparently forces the link to 10Mbps full duplex on
-		 * 82579 and later. */
-		/*
-		*ctrl = 0x80000000;
-		usleep (1000000);
-		*/
-		*ctrl = 0x04000000;
-                usleep (1000000);
-		*ctrl = 0x40;
-		printf ("Wait for PHY reset and link setup completion.");
-		for (;;) {
-			usleep (500 * 1000);
-			if (*status & 0x2)
-				break;
-			printf(".");
-			if (!--n) {
-				printf ("Giving up.");
-				break;
-			}
+	n = 10;
+	/*
+	 * Initializing PHY via Device Control Register
+	 * apparently forces the link to 10Mbps full duplex on
+	 * 82579 and later.
+	 *
+	 * pro1000_reg_write32 (base, PRO1000_CTRL, PRO1000_CTRL_PHY_RST);
+	 * usleep (1000000);
+	 */
+	pro1000_reg_write32 (base, PRO1000_CTRL, PRO1000_CTRL_RST);
+	usleep (1000000);
+	pro1000_reg_write32 (base, PRO1000_CTRL, PRO1000_CTRL_SLU);
+	printf ("Wait for PHY reset and link setup completion.");
+	for (;;) {
+		u32 status;
+		usleep (500 * 1000);
+		status = pro1000_reg_read32 (base, PRO1000_STATUS);
+		if (status & PRO1000_STATUS_LU)
+			break;
+		printf(".");
+		if (!--n) {
+			printf ("Giving up.");
+			break;
 		}
-		printf("\n");
 	}
+	printf("\n");
+
 	/* Disable interrupts */
-	{
-		/* Interrupt Mask Clear Register */
-		volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
-		*imc = 0xFFFFFFFF;
-	}
-	/* Initialization for 82571EB/82572EI */
-	{
-		/* Transmit Arbitration Counter Queue 0 */
-		volatile u32 *tarc0 = (void *)(u8 *)d2->d1[0].map + 0x3840;
-		*tarc0 = 0;	/* 0x07800000 */
-	}
-	{
-		/* Transmit Arbitration Counter Queue 1 */
-		volatile u32 *tarc1 = (void *)(u8 *)d2->d1[0].map + 0x3940;
-		*tarc1 = 0;	/* 0x07400000; */
-	}
-	{
-		/* Transmit Descriptor Control */
-		volatile u32 *txdctl = (void *)(u8 *)d2->d1[0].map + 0x3828;
-		volatile u32 *txdctl_new = (void *)(u8 *)d2->d1[0].map +
-			0xE028;
-		*txdctl = (*txdctl & 0x400000) | 0x3010000;
-		*txdctl_new = (*txdctl_new & 0x400000) | 0x3010000;
-	}
-	{
-		/* Transmit Descriptor Control 1 */
-		volatile u32 *txdctl1 = (void *)(u8 *)d2->d1[0].map + 0x3928;
-		volatile u32 *txdctl1_new = (void *)(u8 *)d2->d1[0].map +
-			0xE048;
-		*txdctl1 = (*txdctl1 & 0x400000) | 0x3010000;
-		*txdctl1_new = (*txdctl1_new & 0x400000) | 0x3010000;
-	}
-	/* Receive Initialization */
-	{
-		init_desc_receive (&d2->rdesc[0], d2, 0x2800);
-		d2->rdesc[0].initialized = true;
-	}
-	{
-		/* Receive Control Register */
-		volatile u32 *rctl = (void *)(u8 *)d2->d1[0].map + 0x100;
-		*rctl = 2 |	/* receiver enabled */
-			1 << 15 | /* accept broadcast */
-			(d2->virtio_net ? 1 << 3 : 0) | /* unicast promisc */
-			(d2->virtio_net ? 1 << 4 : 0) | /* multicast promisc */
-			((RBUF_SIZE & 0x3300) ? 0x20000 : 0) |
-			((RBUF_SIZE & 0x5500) ? 0x10000 : 0) |
-			((RBUF_SIZE & 0x7000) ? 0x2000000 : 0);
-	}
-	/* Transmit Initialization */
-	{
-		init_desc_transmit (&d2->tdesc[0], d2, 0x3800);
-	}
-	{
-		/* Transmit Control Register */
-		volatile u32 *tctl = (void *)(u8 *)d2->d1[0].map + 0x400;
-		d2->tctl = 0x1003F0FA; /* Transmit Enable */
-		*tctl = d2->tctl;
-	}
-	{
-		/* Transmit IPG Register */
-		volatile u32 *tipg = (void *)(u8 *)d2->d1[0].map + 0x410;
-		*tipg = 0x00702008;
-	}
-	d2->tdesc[0].initialized = true;
-	{
-		int i;
+	pro1000_reg_write32 (base, PRO1000_IMC, 0xFFFFFFFF);
 
-		for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
-			pci_config_read (d2->pci_device, &d2->regs_at_init[i],
-					 sizeof d2->regs_at_init[i],
-					 sizeof d2->regs_at_init[i] * i);
-		}
+	/* Initialization for 82571EB/82572EI */
+	pro1000_reg_write32 (base, PRO1000_TARC (0), 0); /* 0x07800000 */
+	pro1000_reg_write32 (base, PRO1000_TARC (1), 0); /* 0x07400000 */
+
+	/* Receive Initialization */
+	init_desc_receive (&d2->rdesc[0], d2, PRO1000_RD_BASE (0));
+	d2->rdesc[0].initialized = true;
+	v = PRO1000_RCTL_EN | PRO1000_RCTL_BAM | PRO1000_RCTL_BSIZE_4K |
+	    (d2->virtio_net ? PRO1000_RCTL_UPE : 0) | /* unicast promisc   */
+	    (d2->virtio_net ? PRO1000_RCTL_MPE : 0);  /* multicast promisc */
+	pro1000_reg_write32 (base, PRO1000_RCTL, v);
+
+	/* Transmit Initialization */
+	init_desc_transmit (&d2->tdesc[0], d2, PRO1000_TD_BASE (0));
+	v = PRO1000_TXDTCL_WTHRES (1) |
+	    BIT (22) | /* rsvd but 82754 requires this */
+	    BIT (24) | /* GRAN descriptor unit, rsvd on some model */
+	    BIT (25);  /* EN (I211, 82567) or LWTHRES depending on model */
+	pro1000_reg_write32 (base, PRO1000_TXDTCL (0), v);
+	pro1000_reg_write32 (base, PRO1000_TXDTCL (1), v);
+	v = PRO1000_TIPG_IPGT (0x8) | PRO1000_TIPG_IPGR1 (0x8) |
+	    PRO1000_TIPG_IPGR (0x7);
+	pro1000_reg_write32 (base, PRO1000_TIPG, v);
+	/* COLD and MULR are rsvd on some model */
+	v = PRO1000_TCTL_EN | PRO1000_TCTL_PSP | PRO1000_TCTL_CT (0xF) |
+	    PRO1000_TCTL_COLD (0x3F) | PRO1000_TCTL_MULR;
+	d2->tctl = v;
+	pro1000_reg_write32 (base, PRO1000_TCTL, v);
+
+	d2->tdesc[0].initialized = true;
+
+	for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
+		pci_config_read (d2->pci_device, &d2->regs_at_init[i],
+				 sizeof d2->regs_at_init[i],
+				 sizeof d2->regs_at_init[i] * i);
 	}
 }
 
@@ -1451,9 +1482,10 @@ static void
 pro1000_intr_clear (void *param)
 {
 	struct data2 *d2 = param;
-	volatile u32 *icr = (void *)(u8 *)d2->d1[0].map + 0xC0;
+	void *base = d2->d1[0].map;
 
-	*icr |= 0xFFFFFFFF;
+	pro1000_reg_read32 (base, PRO1000_ICR); /* Dummy read */
+	pro1000_reg_write32 (base, PRO1000_ICR, 0xFFFFFFFF);
 	poll_physnic (d2);
 }
 
@@ -1461,29 +1493,27 @@ static void
 pro1000_intr_set (void *param)
 {
 	struct data2 *d2 = param;
-	volatile u32 *ics = (void *)(u8 *)d2->d1[0].map + 0xC8;
 
-	*ics = 1 << 7 | 1 << 4;	/* interrupt */
+	pro1000_reg_write32 (d2->d1[0].map, PRO1000_ICS, PRO1000_RXINT);
 }
 
 static void
 pro1000_intr_disable (void *param)
 {
 	struct data2 *d2 = param;
-	volatile u32 *imc = (void *)(u8 *)d2->d1[0].map + 0xD8;
 
-	*imc = 0xFFFFFFFF;
+	pro1000_reg_write32 (d2->d1[0].map, PRO1000_IMC, 0xFFFFFFFF);
 }
 
 static void
 pro1000_intr_enable (void *param)
 {
 	struct data2 *d2 = param;
-	volatile u32 *ims = (void *)(u8 *)d2->d1[0].map + 0xD0;
-	volatile u32 *icr = (void *)(u8 *)d2->d1[0].map + 0xC0;
+	void *base = d2->d1[0].map;
 
-	*ims = 1 << 7 | 1 << 4;
-	*icr |= 0xFFFFFFFF;
+	pro1000_reg_write32 (base, PRO1000_IMS, PRO1000_RXINT);
+	pro1000_reg_read32 (base, PRO1000_ICR); /* Dummy read */
+	pro1000_reg_write32 (base, PRO1000_ICR, 0xFFFFFFFF);
 }
 
 static void
@@ -1516,8 +1546,8 @@ static void
 pro1000_msix_generate (void *param, unsigned int queue)
 {
 	struct data2 *d2 = param;
-	volatile u32 *ics = (void *)(u8 *)d2->d1[0].map + 0xC8;
 	struct msix_table m = { 0, 0, 0, 1 };
+	void *base = d2->d1[0].map;
 
 	if (!queue) {
 		/* Using ICS instead of IPI reduces number of
@@ -1525,7 +1555,7 @@ pro1000_msix_generate (void *param, unsigned int queue)
 		spinlock_lock (&d2->msi_lock);
 		d2->msi_intr_pass = true;
 		if (!d2->msi_intr)
-			*ics = 1 << 7 | 1 << 4;	/* interrupt */
+			pro1000_reg_write32 (base, PRO1000_ICS, PRO1000_RXINT);
 		spinlock_unlock (&d2->msi_lock);
 		return;
 	}
