@@ -291,7 +291,8 @@ write_mydesc (struct desc_shadow *s, struct data2 *d2, uint off2,
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) = 0;
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x00) =
 			s->u.t.td_phys;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x04) = 0;
+		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x04) =
+			s->u.t.td_phys >> 32;
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x10) = 0;
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x18) = 0;
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) =
@@ -303,7 +304,8 @@ write_mydesc (struct desc_shadow *s, struct data2 *d2, uint off2,
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x08) = 0;
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x00) =
 			s->u.r.rd_phys;
-		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x04) = 0;
+		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x04) =
+			s->u.r.rd_phys >> 32;
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x10) = 0;
 		*(u32 *)(void *)((u8 *)d2->d1[0].map + off2 + 0x18) =
 			NUM_OF_RDESC - 1;
