@@ -101,6 +101,9 @@ nvme_update_comp_db (struct nvme_host *host, u16 comp_queue_id)
 
 #define CNS_NS_DATA	    (0x0)
 #define CNS_CONTROLLER_DATA (0x1)
+#define CNS_ACTIVE_NS	    (0x2)
+
+#define NS_LIST_ENTRIES 1024
 
 /* For Identify command with CNS_CONTROLLER_DATA */
 #define IDENTIFY_GET_N_NS(data)	  (*(u32 *)(&(data)[516]))
@@ -117,13 +120,50 @@ nvme_update_comp_db (struct nvme_host *host, u16 comp_queue_id)
 #define LBA_FMT_GET_LBA_NBYTES(fmt)  (1 << (((fmt) >> 16) & 0xFF))
 
 static void
+extract_ns_info (struct nvme_host *host, u32 nsid, u8 *data, u64 data_phys)
+{
+	struct nvme_ns_meta *ns_meta = &host->ns_metas[nsid];
+	u8 lba_fmt_idx;
+	u32 lba_format;
+	nvme_io_error_t error;
+
+	error = nvme_io_identify (host, nsid, data_phys, CNS_NS_DATA,
+				  host->id);
+	if (error)
+		panic ("CNS_NS_DATA nvme_io_identify() fails "
+		       "with code 0x%X", error);
+	lba_fmt_idx = IDENTIFY_GET_FMT_IDX (data);
+	lba_format = IDENTIFY_GET_LBA_FMT_BASE (data)[lba_fmt_idx];
+	ns_meta->nsid = nsid;
+	ns_meta->n_lbas = IDENTIFY_GET_N_LBAS (data);
+	ns_meta->lba_nbytes  = LBA_FMT_GET_LBA_NBYTES (lba_format);
+	ns_meta->meta_nbytes = LBA_FMT_GET_META_NBYTES (lba_format);
+	ns_meta->meta_lba_ending = IDENTIFY_GET_META_LBA_ENDING (data);
+	dprintf (NVME_ETC_DEBUG, "NSID: %u\n", ns_meta->nsid);
+	dprintf (NVME_ETC_DEBUG, "#LBAs: %llu\n", ns_meta->n_lbas);
+	dprintf (NVME_ETC_DEBUG, "LBA nbytes: %u\n",
+		 ns_meta->lba_nbytes);
+	dprintf (NVME_ETC_DEBUG, "Meta nbytes: %u\n",
+		 ns_meta->meta_nbytes);
+	dprintf (NVME_ETC_DEBUG, "Meta LBA ending: %u\n",
+		 ns_meta->meta_lba_ending);
+	dprintf (NVME_ETC_DEBUG,
+		 "End-to-end data protection capability: %x\n",
+		 IDENTIFY_GET_DPC (data));
+	dprintf (NVME_ETC_DEBUG,
+		 "End-to-end data protection settings: %x\n",
+		 IDENTIFY_GET_DPS (data));
+}
+
+static void
 do_get_drive_info (void *arg)
 {
 	struct nvme_host *host = arg;
-	phys_t data_phys;
+	phys_t data_phys, ns_list_phys;
 	u8 *data;
-	u32 nsid;
+	u32 *ns_list, nsid, i;
 	nvme_io_error_t error;
+	bool ns_scan_done = false;
 
 	/* Get default number of queues first */
 	error = nvme_io_get_n_queues (host, &host->default_n_subm_queues,
@@ -136,9 +176,8 @@ do_get_drive_info (void *arg)
 		 host->default_n_comp_queues);
 
 	/* Get maximum data transfer size and number of namespace next */
-	nsid = 0;
 	data = alloc2 (host->page_nbytes, &data_phys);
-	error = nvme_io_identify (host, nsid, data_phys, CNS_CONTROLLER_DATA,
+	error = nvme_io_identify (host, 0, data_phys, CNS_CONTROLLER_DATA,
 				  host->id);
 	if (error)
 		panic ("CNS_CONTROLLER_DATA nvme_io_identify() fails "
@@ -159,37 +198,55 @@ do_get_drive_info (void *arg)
 	/* NSID starts from 1. So allocate n_ns + 1 */
 	host->ns_metas = zalloc (NVME_NS_META_NBYTES * (host->n_ns + 1));
 
-	/* Send Identify commands for namespaces one at a time */
-	for (nsid = 1; nsid <= host->n_ns; nsid++) {
-		struct nvme_ns_meta *ns_meta = &host->ns_metas[nsid];
-		u8 lba_fmt_idx;
-		u32 lba_format;
-		error = nvme_io_identify (host, nsid, data_phys, CNS_NS_DATA,
-					  host->id);
-		if (error)
-			panic ("CNS_NS_DATA nvme_io_identify() fails "
-			       "with code 0x%X", error);
-		lba_fmt_idx = IDENTIFY_GET_FMT_IDX (data);
-		lba_format = IDENTIFY_GET_LBA_FMT_BASE (data)[lba_fmt_idx];
-		ns_meta->nsid = nsid;
-		ns_meta->n_lbas = IDENTIFY_GET_N_LBAS (data);
-		ns_meta->lba_nbytes  = LBA_FMT_GET_LBA_NBYTES (lba_format);
-		ns_meta->meta_nbytes = LBA_FMT_GET_META_NBYTES (lba_format);
-		ns_meta->meta_lba_ending = IDENTIFY_GET_META_LBA_ENDING (data);
-		dprintf (NVME_ETC_DEBUG, "NSID: %u\n", ns_meta->nsid);
-		dprintf (NVME_ETC_DEBUG, "#LBAs: %llu\n", ns_meta->n_lbas);
-		dprintf (NVME_ETC_DEBUG, "LBA nbytes: %u\n",
-			 ns_meta->lba_nbytes);
-		dprintf (NVME_ETC_DEBUG, "Meta nbytes: %u\n",
-			 ns_meta->meta_nbytes);
-		dprintf (NVME_ETC_DEBUG, "Meta LBA ending: %u\n",
-			 ns_meta->meta_lba_ending);
-		dprintf (NVME_ETC_DEBUG,
-			 "End-to-end data protection capability: %x\n",
-			 IDENTIFY_GET_DPC (data));
-		dprintf (NVME_ETC_DEBUG,
-			 "End-to-end data protection settings: %x\n",
-			 IDENTIFY_GET_DPS (data));
+	/*
+	 * For checking active namespaces, we have to submit at least 2
+	 * identify commands. If the controller reports number of namespaces
+	 * less than 3, it does not make sense to do this. That is why we also
+	 * check for n_ns.
+	 */
+	if (host->version >= NVME_VERSION (1, 1, 0) && host->n_ns > 2) {
+		ns_list = alloc2 (host->page_nbytes, &ns_list_phys);
+		nsid = 0; /* Get all active namespaces by setting nsid = 0 */
+	repeat:
+		/* Clear existing data first just in case */
+		memset (ns_list, 0, host->page_nbytes);
+		error = nvme_io_identify (host, nsid, ns_list_phys,
+					  CNS_ACTIVE_NS, host->id);
+		if (error) {
+			dprintf (NVME_ETC_DEBUG,
+				 "CNS_ACTIVE_NS nvme_io_identify() fails with "
+				 "code 0x%X nsid 0x%X, scan NS with legacy "
+				 "method\n", error, nsid);
+			goto search_end;
+		}
+
+		for (i = 0; i < NS_LIST_ENTRIES; i++) {
+			nsid = ns_list[i];
+			if (nsid == 0) {
+				/* End of list */
+				ns_scan_done = true;
+				break;
+			}
+			extract_ns_info (host, nsid, data, data_phys);
+		}
+
+		/*
+		 * If we reach the end of the list, search for the next
+		 * possible batch. Use the latest nsid as the starting
+		 * point. Note that nsid >= 0xFFFFFFFE is no valid for
+		 * argument. If this happens, we end the search.
+		 */
+		if (!ns_scan_done && nsid < 0xFFFFFFFE)
+			goto repeat;
+	search_end:
+		free (ns_list);
+	}
+
+	/* Legacy namespace scan fallback */
+	if (!ns_scan_done) {
+		/* Send Identify commands to all possible namespaces */
+		for (nsid = 1; nsid <= host->n_ns; nsid++)
+			extract_ns_info (host, nsid, data, data_phys);
 	}
 
 	free (data);

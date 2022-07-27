@@ -1502,6 +1502,13 @@ nvme_new (struct pci_device *pci_device)
 
 	host->db_stride = NVME_CAP_GET_DSTRD (*cap_reg);
 
+	/* Read version */
+	host->version = *(u32 *)NVME_VS_REG (nvme_regs);
+	dprintf (NVME_ETC_DEBUG, "NVMe Version %u.%u.%u\n",
+		 NVME_VERSION_MJ (host->version),
+		 NVME_VERSION_MN (host->version),
+		 NVME_VERSION_TE (host->version));
+
 	uint page_shift = PAGESHIFT_INIT_POS + NVME_CAP_GET_MPSMIN (*cap_reg);
 	host->page_nbytes = (1 << page_shift); /* Initial size */
 

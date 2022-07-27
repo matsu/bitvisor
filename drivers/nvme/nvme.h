@@ -443,6 +443,13 @@ struct nvme_ns_meta {
 #define NVME_INTR_MSI  1
 #define NVME_INTR_MSIX 2
 
+#define NVME_VERSION(mj, mn, te) ((((mj) & 0xFFFF) << 16) | \
+				  (((mn) & 0xFF) << 8) | \
+				  ((te) & 0xFF))
+#define NVME_VERSION_MJ(v) ((v) >> 16)
+#define NVME_VERSION_MN(v) (((v) >> 8) & 0xFF)
+#define NVME_VERSION_TE(v) ((v) & 0xFF)
+
 struct nvme_io_interceptor;
 
 struct nvme_host {
@@ -485,6 +492,7 @@ struct nvme_host {
 	u32 g_io_subm_entry_nbytes;
 	u32 h_io_comp_entry_nbytes;
 	u32 g_io_comp_entry_nbytes;
+	u32 version;
 
 	u16 default_n_subm_queues;
 	u16 default_n_comp_queues;
