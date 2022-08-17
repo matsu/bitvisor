@@ -635,8 +635,6 @@ re_core_intr_disable (void *param)
 	CSR_WRITE_2 (sc, RE_IMR, 0x0000);
 
 	host->intr_enabled = 0;
-
-	printf ("re: disable interrupt\n");
 }
 
 void
@@ -651,6 +649,4 @@ re_core_intr_enable (void *param)
 	CSR_WRITE_2 (sc, RE_IMR, RE_INTRS);
 
 	host->intr_enabled = 1;
-
-	printf ("re: enable interrupt\n");
 }

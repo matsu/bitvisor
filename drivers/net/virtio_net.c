@@ -200,6 +200,8 @@ struct virtio_net {
 	bool queue_enable[VIRTIO_N_QUEUES];
 	int hd;
 	int multifunction;
+	bool intr_suppress;
+	bool intr_enabled;
 	bool intr;
 	bool msix;
 	u16 msix_cfgvec;
@@ -246,7 +248,7 @@ struct vr_avail {
 };
 
 struct vr_used {
-#define VIRTQ_AVAIL_F_NO_NOTIFY 1
+#define VIRTQ_USED_F_NO_NOTIFY 1
 	u16 flags;
 	u16 idx;
 	struct {
@@ -455,8 +457,45 @@ virtio_net_get_nic_info (void *handle, struct nicinfo *info)
 }
 
 static void
+virtio_net_enable_interrupt (struct virtio_net *vnet)
+{
+	vnet->intr_suppress = false;
+	vnet->intr_enable (vnet->intr_param);
+	vnet->intr_enabled = true;
+	printf ("virtio_net: enable interrupt\n");
+}
+
+static void
+virtio_net_disable_interrupt (struct virtio_net *vnet)
+{
+	vnet->intr_suppress = false;
+	vnet->intr_enabled = false;
+	vnet->intr_disable (vnet->intr_param);
+	printf ("virtio_net: disable interrupt\n");
+}
+
+static void
+virtio_net_suppress_interrupt (struct virtio_net *vnet, bool yes)
+{
+	if (vnet->msix_enabled)
+		return;
+	if (vnet->intr_suppress == yes)
+		return;
+	if (!yes) {
+		vnet->intr_suppress = false;
+		if (vnet->intr_enabled)
+			vnet->intr_enable (vnet->intr_param);
+	}
+	if (yes && vnet->intr_enabled) {
+		vnet->intr_suppress = true;
+		vnet->intr_disable (vnet->intr_param);
+	}
+}
+
+static void
 virtio_net_trigger_interrupt (struct virtio_net *vnet, unsigned int queue)
 {
+	virtio_net_suppress_interrupt (vnet, false);
 	if (vnet->msix_enabled) {
 		spinlock_lock (&vnet->msix_lock);
 		if (!vnet->msix_mask)
@@ -503,11 +542,23 @@ loop:
 	if (idx_a == idx_u) {
 		u64 now = get_time ();
 
-		if (now - vnet->last_time >= 1000000 && print_ok)
+		if (now - vnet->last_time >= 1000000 && print_ok &&
+		    used->flags)
 			printf ("%s: Receive ring buffer full\n", __func__);
+		/* Suppress interrupts.  While the used->flags is
+		 * cleared, the guest sends a notification when
+		 * updating available ring index. */
+		used->flags = 0;
+		virtio_net_suppress_interrupt (vnet, true);
 		vnet->last_time = now;
-		goto ret;
+		/* Check available ring index again to avoid race
+		 * condition. */
+		idx_a = avail->idx;
+		if (idx_a == idx_u)
+			goto ret;
 	}
+	used->flags = VIRTQ_USED_F_NO_NOTIFY;
+	virtio_net_suppress_interrupt (vnet, false);
 	idx_u %= vnet->queue_size[0];
 	ring = avail->ring[idx_u];
 	ring_tmp = ((u32)ring << 16) | 1;
@@ -1059,7 +1110,7 @@ eval_status (struct virtio_net *vnet, bool v1, u8 new_status)
 {
 	if (new_status == 0x0) {
 		printf ("virtio_net: reset\n");
-		vnet->intr_disable (vnet->intr_param);
+		virtio_net_disable_interrupt (vnet);
 		virtio_net_reset_dev (vnet);
 		return;
 	}
@@ -1090,7 +1141,7 @@ eval_status (struct virtio_net *vnet, bool v1, u8 new_status)
 				"VIRTIO_F_ACCESS_PLATFORM\n");
 		vnet->ready = true;
 		if (!(vnet->cmd & 0x400) || vnet->msix_enabled)
-			vnet->intr_enable (vnet->intr_param);
+			virtio_net_enable_interrupt (vnet);
 	}
 	vnet->dev_status |= new_status;
 }
@@ -1247,10 +1298,17 @@ queue_notify (struct virtio_net *vnet, bool wr, union mem *data,
 	      const void *extra_info)
 {
 	if (wr) {
-		if (data->word == 1)
+		switch (data->word) {
+		case 0:
+			virtio_net_suppress_interrupt (vnet, false);
+			break;
+		case 1:
 			virtio_net_recv (vnet);
-		else if (data->word == 2)
+			break;
+		case 2:
 			virtio_net_ctrl (vnet);
+			break;
+		}
 	}
 }
 
@@ -1497,7 +1555,7 @@ pci_handle_cmd (struct virtio_net *vnet, bool wr, union mem *data,
 	if (wr) {
 		vnet->cmd = data->dword;
 		if (!vnet->msix_enabled && (vnet->cmd & 0x400))
-			vnet->intr_disable (vnet->intr_param);
+			virtio_net_disable_interrupt (vnet);
 	} else {
 		pci_handle_default (vnet, wr, data, extra_info);
 		data->dword |= (vnet->cmd & 0x407);
@@ -1608,7 +1666,7 @@ pci_handle_msix (struct virtio_net *vnet, bool wr, union mem *data,
 				VIRTIO_MSIX_CAP_OFFSET + 3, d,
 				vnet->msix_enabled, vnet->msix_mask);
 		if (!vnet->msix_enabled && (vnet->cmd & 0x400))
-			vnet->intr_disable (vnet->intr_param);
+			virtio_net_disable_interrupt (vnet);
 		if (prev_msix_enabled != vnet->msix_enabled) {
 			if (prev_msix_enabled)
 				vnet->msix_disable (vnet->msix_param);
@@ -1863,6 +1921,8 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->intr_param = intr_param;
 	vnet->last_time = 0;
 	vnet->multifunction = 0;
+	vnet->intr_suppress = false;
+	vnet->intr_enabled = false;
 	vnet->intr = false;
 	vnet->msix = false;
 	vnet->msix_cfgvec = 0xFFFF;

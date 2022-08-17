@@ -1407,7 +1407,6 @@ bnx_intr_disable (void *param)
 {
 	struct bnx *bnx = param;
 	u32 set;
-	int wr;
 
 	if (bnx_hotplugpass (bnx))
 		return;
@@ -1416,10 +1415,8 @@ bnx_intr_disable (void *param)
 	bnx_mmioset32 (bnx, BNXREG_MISC_HOST_CTRL, set);
 	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_INTR_CLR, 0);
 	set = PCI_CONFIG_COMMAND_INTR_DISABLE;
-	wr = bnx_mmioset32 (bnx, PCI_CONFIG_COMMAND, set);
+	bnx_mmioset32 (bnx, PCI_CONFIG_COMMAND, set);
 	spinlock_unlock (&bnx->reg_lock);
-	if (wr)
-		printf ("bnx: Disable interrupt\n");
 }
 
 static void
@@ -1427,7 +1424,6 @@ bnx_intr_enable (void *param)
 {
 	struct bnx *bnx = param;
 	u32 clr;
-	int wr;
 
 	if (bnx_hotplugpass (bnx))
 		return;
@@ -1436,10 +1432,8 @@ bnx_intr_enable (void *param)
 	bnx_mmioclr32 (bnx, BNXREG_MISC_HOST_CTRL, clr);
 	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_INTR_CLR, 0);
 	clr = PCI_CONFIG_COMMAND_INTR_DISABLE;
-	wr = bnx_mmioclr32 (bnx, PCI_CONFIG_COMMAND, clr);
+	bnx_mmioclr32 (bnx, PCI_CONFIG_COMMAND, clr);
 	spinlock_unlock (&bnx->reg_lock);
-	if (wr)
-		printf ("bnx: Enable interrupt\n");
 }
 
 static void

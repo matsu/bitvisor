@@ -707,7 +707,6 @@ aq_intr_disable (void *param)
 		aq_mmio_write (aq, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
 	}
 	spinlock_unlock (&aq->intr_lock);
-	printf ("aq: interrupt disable\n");
 	aq->intr_enabled = 0;
 }
 
@@ -726,8 +725,6 @@ aq_intr_enable (void *param)
 	}
 	spinlock_unlock (&aq->intr_lock);
 	aq->intr_enabled = 1;
-
-	printf ("aq: interrupt enable\n");
 }
 
 static void
