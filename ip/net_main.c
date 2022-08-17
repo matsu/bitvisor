@@ -50,6 +50,7 @@ struct net_ip_data {
 	void *phys_handle, *virt_handle;
 	struct nicfunc *phys_func, *virt_func;
 	bool input_ok;
+	u8 filter_count;
 	void *input_arg;
 };
 
@@ -124,8 +125,10 @@ net_ip_new_nic (char *arg, void *param)
 	p = alloc (sizeof *p);
 	p->pass = !!param;
 	p->input_ok = false;
-	if (param && *param_str == 'f')
+	if (param && param_str[0] == 'f') {
 		p->pass = -1;
+		p->filter_count = param_str[1] == 'f' ? 1 : 0;
+	}
 	return p;
 }
 
@@ -205,6 +208,23 @@ net_ip_phys_recv (void *handle, unsigned int num_packets, void **packets,
 	}
 }
 
+/* ippassfilter2: At least 1 of 100 packets is transferred to guest to
+ * prevent Linux from detecting spurious interrupt */
+static void
+apply_filter_rate (struct net_ip_data *p, enum ip_main_destination *dest)
+{
+	if (!p->filter_count)
+		return;
+	if (*dest != IP_MAIN_DESTINATION_ME) {
+		p->filter_count = 1;
+		return;
+	}
+	if (++p->filter_count > 100) {
+		p->filter_count = 1;
+		*dest = IP_MAIN_DESTINATION_ALL;
+	}
+}
+
 static void
 net_ip_phys_recv_passfilter (void *handle, unsigned int num_packets,
 			     void **packets, unsigned int *packet_sizes,
@@ -228,6 +248,7 @@ net_ip_phys_recv_passfilter (void *handle, unsigned int num_packets,
 		packet = packets[i];
 		size = packet_sizes[i];
 		dest = ip_main_input_test_destination (arg, packet, size);
+		apply_filter_rate (p, &dest);
 		if (dest != IP_MAIN_DESTINATION_OTHERS)
 			net_main_input_queue (arg, packet, size);
 		if (dest == IP_MAIN_DESTINATION_ME) {
@@ -314,6 +335,7 @@ net_main_init (void)
 	net_register ("ip", &net_ip_func, NULL);
 	net_register ("ippass", &net_ip_func, "");
 	net_register ("ippassfilter", &net_ip_func, "f");
+	net_register ("ippassfilter2", &net_ip_func, "ff");
 }
 
 INITFUNC ("driver1", net_main_init);
