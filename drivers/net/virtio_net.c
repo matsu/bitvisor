@@ -545,6 +545,10 @@ loop:
 		if (now - vnet->last_time >= 1000000 && print_ok &&
 		    used->flags)
 			printf ("%s: Receive ring buffer full\n", __func__);
+		/* Do not suppress interrupts until the guest reads
+		 * ISR status. */
+		if (intr || vnet->intr)
+			goto ret;
 		/* Suppress interrupts.  While the used->flags is
 		 * cleared, the guest sends a notification when
 		 * updating available ring index. */
