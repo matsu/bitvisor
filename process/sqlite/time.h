@@ -44,32 +44,31 @@ struct tm {
 	int tm_isdst;
 };
 
-static int
-urudoshi (int year)
-{
-	if (!(year % 400))
-		return 1;
-	if (!(year % 100))
-		return 0;
-	if (!(year % 4))
-		return 1;
-	return 0;
-}
-
 static time_t
 tm_to_time (const struct tm *tm)
 {
-	time_t year = 70;
-	time_t days = tm->tm_yday;
-	while (year > tm->tm_year) {
-		year--;
-		days -= 365 + urudoshi (year + 1900);
+	int y = tm->tm_year - 100;
+	int m = tm->tm_mon;
+	if (m >= 2) {
+		m -= 2;
+	} else {
+		m += 10;
+		y--;
 	}
-	while (year < tm->tm_year) {
-		days += 365 + urudoshi (year + 1900);
-		year++;
+	int y400r = y % 400;
+	if (y < 0) {
+		y400r += 400;
+		y -= 400;
 	}
-	return ((days * 24 + tm->tm_hour) * 60 + tm->tm_min) * 60 + tm->tm_sec;
+	time_t y400q = y / 400;
+	int y100r = y400r % 100;
+	int y100q = y400r / 100;
+	int y4r = y100r % 4;
+	int y4q = y100r / 4;
+	time_t d = (y400q * (365 * 400 + 97) + y100q * (365 * 100 + 24) +
+		    y4q * (365 * 4 + 1) + y4r * 365 + (m * 306 + 5) / 10 +
+		    tm->tm_mday - 1 + 60 + 365 * 30 + 7);
+	return d * 86400 + tm->tm_hour * 3600 + tm->tm_min * 60 + tm->tm_sec;
 }
 
 static struct tm *
@@ -77,50 +76,46 @@ real_gmtime (const time_t *timep)
 {
 	static struct tm ret;
 	time_t t = *timep;
-	time_t d = t % 86400;
-	if (d < 0)
-		d += 86400;
-	ret.tm_sec = d % 60;
-	d /= 60;
-	ret.tm_min = d % 60;
-	d /= 60;
-	ret.tm_hour = d % 24;
-	t /= 86400;
+	time_t s = t % 86400;
+	if (s < 0) {
+		s += 86400;
+		t -= 86400;
+	}
+	ret.tm_sec = s % 60;
+	s /= 60;
+	ret.tm_min = s % 60;
+	s /= 60;
+	ret.tm_hour = s % 24;
+
+	time_t d = t / 86400;	/* Number of days since 1970-01-01 */
+	d -= 365 * 30 + 7;	/* Number of days since 2000-01-01 */
+	d -= 60;		/* Number of days since 2000-03-01 */
+	int d400 = d % (365 * 400 + 97);
+	if (d400 < 0) {
+		d400 += 365 * 400 + 97;
+		d -= 365 * 400 + 97;
+	}
+	int y400 = d / (365 * 400 + 97);
+	int y100 = d400 / (365 * 100 + 24); /* 0-4 */
+	if (y100 == 4)
+		y100 = 3;
+	int d100 = d400 - y100 * (365 * 100 + 24);
+	int d4 = d100 % (365 * 4 + 1);
+	int y4 = d100 / (365 * 4 + 1); /* 0-24 */
+	int d1 = d4 % 365;	       /* 0-364 */
+	int y1 = d4 / 365;	       /* 0-4 */
+	if (y1 == 4) {
+		y1 = 3;
+		d1 += 365;
+	}
+	int m = (d1 * 10 + 5) / 306; /* 0-11 (Mar-Feb) */
+	int dm = d1 - (m * 306 + 5) / 10;
+	ret.tm_mday = dm + 1;
+	ret.tm_mon = m > 9 ? m - 10 : m + 2;
+	ret.tm_year = y400 * 400 + y100 * 100 + y4 * 4 + y1 + (m > 9) + 100;
+	ret.tm_wday = (3 + d400) % 7;
+	ret.tm_yday = m > 9 ? d1 - 306 : d1 + 59 + (!y1 && (y4 || !y100));
 	ret.tm_isdst = 0;
-	ret.tm_year = 70;
-	ret.tm_mon = 0;
-	ret.tm_mday = 1;
-	ret.tm_wday = 4;
-	ret.tm_yday = 0;
-	while (t < 0) {
-		ret.tm_year--;
-		ret.tm_wday = (ret.tm_wday + 6) % 7;
-		t += 365;
-		if (urudoshi (ret.tm_year + 1900)) {
-			ret.tm_wday = (ret.tm_wday + 6) % 7;
-			t++;
-		}
-	}
-	int u;
-	for (;;) {
-		u = urudoshi (ret.tm_year + 1900);
-		if (t < 365 + u)
-			break;
-		t -= 365 + u;
-		ret.tm_year++;
-		ret.tm_wday = (ret.tm_wday + 1 + u) % 7;
-	}
-	static const int m0[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30 };
-	static const int m1[] = { 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30 };
-	for (const int *m = u ? m1 : m0; t >= *m; m++) {
-		t -= *m;
-		ret.tm_mon++;
-		ret.tm_yday += *m;
-		ret.tm_wday = (ret.tm_wday + *m) % 7;
-	}
-	ret.tm_mday += t;
-	ret.tm_yday += t;
-	ret.tm_wday = (ret.tm_wday + t) % 7;
 	return &ret;
 }
 
