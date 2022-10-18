@@ -990,6 +990,7 @@ static int
 _msgsenddesc (int frompid, int todesc, int senddesc)
 {
 	int topid, togen, i, r = -1;
+	int todsc;
 
 	if (senddesc < 0 || senddesc >= NUM_OF_MSGDSC)
 		return -1;
@@ -1000,11 +1001,14 @@ _msgsenddesc (int frompid, int todesc, int senddesc)
 	spinlock_lock (&process_lock);
 	topid = process[frompid].msgdsc[todesc].pid;
 	togen = process[frompid].msgdsc[todesc].gen;
+	todsc = process[frompid].msgdsc[todesc].dsc;
 	ASSERT (topid >= 0);
 	ASSERT (topid < NUM_OF_PID);
 	if (!process[topid].valid)
 		goto ret;
 	if (process[topid].gen != togen)
+		goto ret;
+	if (!topid || todsc)
 		goto ret;
 	for (i = 0; i < NUM_OF_MSGDSCRECV; i++) {
 		if (process[topid].msgdsc[i].pid == 0 &&
