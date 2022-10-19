@@ -844,7 +844,7 @@ _msgregister (int pid, char *name, void *func)
 	goto ret;
 found:
 	process[pid].msgdsc[i].func = func;
-	if (msg_register (name, pid, process[pid].gen, i) < 0) {
+	if (name && msg_register (name, pid, process[pid].gen, i) < 0) {
 		process[pid].msgdsc[i].func = NULL;
 		r = -1;
 	} else {
@@ -867,14 +867,18 @@ ulong
 sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	char name[MSG_NAMELEN];
+	char *pname = NULL;
 
-	if (!is_range_valid (si, MSG_NAMELEN))
+	if (si && !is_range_valid (si, MSG_NAMELEN))
 		return (ulong)-1L;
 	if (process[currentcpu->pid].setlimit)
 		return (ulong)-1L;
-	snprintf (name, sizeof name, "%s", (char *)si);
-	name[MSG_NAMELEN - 1] = '\0';
-	return _msgregister (currentcpu->pid, name, (void *)di);
+	if (si) {
+		snprintf (name, sizeof name, "%s", (char *)si);
+		name[MSG_NAMELEN - 1] = '\0';
+		pname = name;
+	}
+	return _msgregister (currentcpu->pid, pname, (void *)di);
 }
 
 /* for internal use */
@@ -990,8 +994,14 @@ static int
 _msgsenddesc (int frompid, int todesc, int senddesc)
 {
 	int topid, togen, i, r = -1;
+	int mpid, mgen, mdesc;
+	int myfunc = 0;
 	int todsc;
 
+	if (senddesc & MSGSENDDESC_MYFUNC) {
+		senddesc -= MSGSENDDESC_MYFUNC;
+		myfunc = 1;
+	}
 	if (senddesc < 0 || senddesc >= NUM_OF_MSGDSC)
 		return -1;
 	if (todesc < 0 || todesc >= NUM_OF_MSGDSC)
@@ -1017,9 +1027,18 @@ _msgsenddesc (int frompid, int todesc, int senddesc)
 	}
 	goto ret;
 found:
-	process[topid].msgdsc[i].pid = process[frompid].msgdsc[senddesc].pid;
-	process[topid].msgdsc[i].gen = process[frompid].msgdsc[senddesc].gen;
-	process[topid].msgdsc[i].dsc = process[frompid].msgdsc[senddesc].dsc;
+	if (myfunc) {
+		mpid = frompid;
+		mgen = process[frompid].gen;
+		mdesc = senddesc;
+	} else {
+		mpid = process[frompid].msgdsc[senddesc].pid;
+		mgen = process[frompid].msgdsc[senddesc].gen;
+		mdesc = process[frompid].msgdsc[senddesc].dsc;
+	}
+	process[topid].msgdsc[i].pid = mpid;
+	process[topid].msgdsc[i].gen = mgen;
+	process[topid].msgdsc[i].dsc = mdesc;
 	r = i;
 ret:
 	spinlock_unlock (&process_lock);

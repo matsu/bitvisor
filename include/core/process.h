@@ -30,6 +30,8 @@
 #ifndef __CORE_PROCESS_H
 #define __CORE_PROCESS_H
 
+#define MSGSENDDESC_MYFUNC 0x10000
+
 enum msgcode {
 	MSG_INT,
 	MSG_BUF,
