@@ -820,6 +820,8 @@ msgsetfunc (int desc, void *func)
 ulong
 sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
+	if (!is_range_valid (di, 1))
+		return (ulong)-1L;
 	if (process[currentcpu->pid].setlimit)
 		return (ulong)-1L;
 	if (si >= 0 && si < NUM_OF_MSGDSC)
@@ -870,6 +872,8 @@ sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 	char *pname = NULL;
 
 	if (si && !is_range_valid (si, MSG_NAMELEN))
+		return (ulong)-1L;
+	if (!is_range_valid (di, 1))
 		return (ulong)-1L;
 	if (process[currentcpu->pid].setlimit)
 		return (ulong)-1L;
@@ -1083,6 +1087,8 @@ sys_newprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	char name[PROCESS_NAMELEN];
 
+	if (!is_range_valid (si, 1))
+		return (ulong)-1L;
 	if (process[currentcpu->pid].setlimit)
 		return (ulong)-1L;
 	snprintf (name, sizeof name, "%s", (char *)si);
