@@ -474,7 +474,7 @@ vt_emul_vmxon (void)
 {
 	ulong guest_rflags;
 	ulong tmp;
-	u64 op1;
+	u64 op1, phys;
 	u32 *p;
 
 	if (!current->u.vt.shadow_vt)
@@ -489,7 +489,8 @@ vt_emul_vmxon (void)
 	read_operand1 (&op1, sizeof op1, false);
 	if (op1 & ~current->pte_addr_mask)
 		goto fail1;
-	p = mapmem_hphys (op1, sizeof *p, MAPMEM_WRITE);
+	phys = current->gmm.gp2hp (op1, NULL);
+	p = mapmem_hphys (phys, sizeof *p, MAPMEM_WRITE);
 	if ((*p & ~(1 << 31)) != currentcpu->vt.vmcs_revision_identifier)
 		goto fail2;
 	if (current->u.vt.vmcs_shadowing_available) {
@@ -499,8 +500,8 @@ vt_emul_vmxon (void)
 		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, tmp);
 		asm_vmwrite64 (VMCS_VMCS_LINK_POINTER, VMCS_POINTER_INVALID);
 	}
-	asm_vmclear (&op1);
-	current->u.vt.shadow_vt->vmxon_region_phys = op1;
+	asm_vmclear (&phys);
+	current->u.vt.shadow_vt->vmxon_region_phys = phys;
 	current->u.vt.vmxon = true;
 	guest_rflags &= ~flag_fail_invalid;
 fail2:
@@ -515,7 +516,7 @@ void
 vt_emul_vmxon_in_vmx_root_mode (void)
 {
 	ulong guest_rflags, host_rflags;
-	u64 op1;
+	u64 op1, phys;
 	u64 orig_vmcs_addr_phys;
 
 	asm_vmread (VMCS_GUEST_RFLAGS, &guest_rflags);
@@ -531,7 +532,8 @@ vt_emul_vmxon_in_vmx_root_mode (void)
 		asm_vmptrst (&orig_vmcs_addr_phys); /* Save original
 						     * VMCS addr */
 		asm_vmptrld (&current->u.vt.shadow_vt->current_vmcs_hphys);
-		asm_vmxon_and_rdrflags (&op1, &host_rflags);
+		phys = current->gmm.gp2hp (op1, NULL);
+		asm_vmxon_and_rdrflags (&phys, &host_rflags);
 		asm_vmptrld (&orig_vmcs_addr_phys);
 		guest_rflags |= (host_rflags & flag_mask);
 	} else {
