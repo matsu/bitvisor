@@ -1562,7 +1562,8 @@ pci_handle_cmd (struct virtio_net *vnet, bool wr, union mem *data,
 			virtio_net_disable_interrupt (vnet);
 	} else {
 		pci_handle_default (vnet, wr, data, extra_info);
-		data->dword |= (vnet->cmd & 0x407);
+		data->dword |= (vnet->cmd & 0x407) |
+			0x100000; /* Capabilities */
 	}
 }
 
