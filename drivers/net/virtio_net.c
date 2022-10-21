@@ -696,6 +696,12 @@ do_net_recv (struct virtio_net *vnet, struct vr_desc *desc,
 			ring_tmp >>= 16;
 			d = ring_tmp % vnet->queue_size[1];
 			desc_len = desc[d].len;
+			/* Detect unsupported MTU setting or corrupted
+			 * case like 0xFFFFFFFF. */
+			if (desc_len > sizeof vnet->buf[count] - len) {
+				len = 0;
+				break;
+			}
 			buf_ring = mapmem_as (vnet->as_dma, desc[d].addr,
 					      desc_len, 0);
 			memcpy (&buf[len], buf_ring, desc_len);
@@ -703,8 +709,6 @@ do_net_recv (struct virtio_net *vnet, struct vr_desc *desc,
 			len += desc_len;
 			ring_tmp = desc[d].flags_next;
 		}
-		pkts[count] = &buf[desc_hdr_len];
-		pkt_sizes[count] = len - desc_hdr_len;
 #if 0
 		printf ("Send %u bytes %02X:%02X:%02X:%02X:%02X:%02X"
 			" <- %02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -720,12 +724,16 @@ do_net_recv (struct virtio_net *vnet, struct vr_desc *desc,
 		used->ring[idx_u].len = len;
 		asm volatile ("" : : : "memory");
 		used->idx++;
-		count++;
 		intr = true;
-		if (count == VIRTIO_NET_PKT_BATCH) {
-			vnet->recv_func (vnet, count, pkts, pkt_sizes,
-					 vnet->recv_param, NULL);
-			count = 0;
+		if (len > desc_hdr_len) {
+			pkts[count] = &buf[desc_hdr_len];
+			pkt_sizes[count] = len - desc_hdr_len;
+			count++;
+			if (count == VIRTIO_NET_PKT_BATCH) {
+				vnet->recv_func (vnet, count, pkts, pkt_sizes,
+						 vnet->recv_param, NULL);
+				count = 0;
+			}
 		}
 	}
 	if (count)
