@@ -64,6 +64,7 @@
 #include "lwip/debug.h"
 #include "lwip/stats.h"
 #include "lwip/tcp.h"
+#include "asm.h"
 #include "tcpip.h"
 #include "telnet-server.h"
 
@@ -98,7 +99,7 @@ set_next_input (struct telnet_input_data *q)
 {
 	telnet_inbuf = q->pp->payload;
 	telnet_inbuf_data = q;
-	asm volatile ("sfence" : : : "memory");
+	asm_store_barrier ();
 	telnet_inbuf_len = q->pp->len;
 }
 

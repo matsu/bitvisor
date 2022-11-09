@@ -592,7 +592,7 @@ nvme_submit_queuing_requests (struct nvme_host *host, u16 subm_queue_id)
 
 	if (count > 0) {
 		/* Make sure that commands are stored in the queue properly */
-		cpu_sfence ();
+		asm_store_barrier ();
 		nvme_write_subm_db (host, subm_queue_id, h_cur_tail);
 	}
 end:

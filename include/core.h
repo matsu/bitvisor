@@ -126,6 +126,12 @@ asm_pause (void)
 	asm volatile ("pause");
 }
 
+static inline void
+asm_store_barrier (void)
+{
+	asm volatile ("sfence" : : : "memory");
+}
+
 #define cpu_relax            asm_pause
 
 #endif

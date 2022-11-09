@@ -435,7 +435,7 @@ process_comp_queue (struct nvme_host *host,
 		 * before we copy the status field. This is to avoid
 		 * data corruption.
 		 */
-		cpu_sfence ();
+		asm_store_barrier ();
 		first_g_comp->status = first_h_comp.status;
 	}
 }

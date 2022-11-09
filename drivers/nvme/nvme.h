@@ -78,12 +78,6 @@ zalloc2_align (uint nbytes, phys_t *phys_addr, uint align)
 #define zalloc2(nbytes, phys_addr) \
 	zalloc2_align ((nbytes), (phys_addr), NVME_ALIGN_NO)
 
-static inline void
-cpu_sfence (void)
-{
-	asm volatile ("sfence" : : : "memory");
-}
-
 /* ---------- Start Register related stuff ---------- */
 
 struct nvme_regs {

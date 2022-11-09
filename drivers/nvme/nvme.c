@@ -904,7 +904,7 @@ intercept_db_write (struct nvme_host *host, uint idx, void *buf, uint len)
 		 * in the memory properly. This is to avoid data
 		 * corruption.
 		 */
-		cpu_sfence ();
+		asm_store_barrier ();
 
 		u16 g_new_tail = write_value & NVME_DB_REG_MASK;
 
