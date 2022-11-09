@@ -24,8 +24,12 @@ boot/login-simple/makedata
 boot/login-simple/module1.bin
 boot/login-simple/module2.bin
 boot/login-simple/readdata
+tools/dbgsh/dbgsh
 *.bin
 *.bin.debug
 *.bin.s
 compile_commands.json
+*.efi
+*.lib
+*.exe
 syntax: regexp
