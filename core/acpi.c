@@ -457,7 +457,8 @@ foreach_entry_in_rsdt_at (void *(*func) (void *data, u64 entry), void *data,
 static void *
 foreach_entry_in_rsdt (void *(*func) (void *data, u64 entry), void *data)
 {
-	if (!rsdp_found)
+	/* rsdp_copy.v1.rsdt_address can be NULL depending on the platform */
+	if (!rsdp_found || !rsdp_copy.v1.rsdt_address)
 		return NULL;
 	return foreach_entry_in_rsdt_at (func, data,
 					 rsdp_copy.v1.rsdt_address);
