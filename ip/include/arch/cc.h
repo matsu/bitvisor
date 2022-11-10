@@ -81,8 +81,7 @@ inline_lwip_htons (u16_t n)
 static inline u32_t
 inline_lwip_htonl (u32_t n)
 {
-	asm ("bswap %0" : "+r" (n));
-	return n;
+	return __builtin_bswap32 (n);
 }
 
 /* Definitions for WireGuard */
