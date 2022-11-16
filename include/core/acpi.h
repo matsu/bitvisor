@@ -51,5 +51,7 @@ struct dmar_drhd_reg_data *acpi_dmar_add_pci_device (u16 segment,
 						     const struct acpi_pci_addr
 						     *addr, bool bridge);
 void acpi_dmar_done_pci_device (void);
+void acpi_dmar_force_map (struct dmar_drhd_reg_data *d, u8 bus, u8 dev,
+			  u8 func);
 
 #endif

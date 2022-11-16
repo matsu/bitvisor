@@ -35,6 +35,7 @@
 
 #include <common.h>
 #include <core.h>
+#include <core/acpi.h>
 #include <core/ap.h>
 #include <core/exint_pass.h>
 #include <core/process.h>
@@ -1409,4 +1410,13 @@ void
 pci_disable_msi_callback (struct pci_msi_callback *p)
 {
 	p->enable = false;
+}
+
+void
+pci_dmar_force_map (struct pci_device *dev)
+{
+	if (dev->as_dma != &dev->as_dma_dmar)
+		return;
+	acpi_dmar_force_map (dev->dmar_info, dev->initial_bus_no,
+			     dev->address.device_no, dev->address.func_no);
 }

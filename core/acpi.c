@@ -75,6 +75,7 @@
 #define NSLPTCACHE		7
 #define DMAR_GLOBAL_STATUS_TES_BIT (1 << 31)
 #define DMAR_GLOBAL_STATUS_IRES_BIT (1 << 25)
+#define CAP_REG_SLLPS_21_BIT	0x400000000ULL
 
 struct rsdp {
 	u8 signature[8];
@@ -284,6 +285,7 @@ struct dmar_drhd_reg_data {
 				u64 high;
 			} entry[65536];
 		} *intr_remap_table;
+		u64 capability;
 		u64 global_status;
 		u64 root_table_addr_reg;
 		u64 intr_remap_table_addr_reg;
@@ -1275,6 +1277,7 @@ static void
 acpi_dmar_cachereg (struct dmar_drhd_reg_data *d)
 {
 	if (!d->cached) {
+		d->cache.capability = d->reg->capability_register;
 		d->cache.global_status = d->reg->global_status_register;
 		if (d->cache.global_status &
 		    DMAR_GLOBAL_STATUS_TES_BIT)
@@ -1289,9 +1292,12 @@ acpi_dmar_cachereg (struct dmar_drhd_reg_data *d)
 	}
 }
 
-u64
-acpi_dmar_translate (struct dmar_drhd_reg_data *d, u8 bus, u8 dev, u8 func,
-		     u64 address)
+static u64
+do_acpi_dmar_translate (struct dmar_drhd_reg_data *d, u8 bus, u8 dev, u8 func,
+			u64 address,
+			u64 (*lookup) (struct dmar_drhd_reg_data *d,
+				       u64 address, u64 ptr, unsigned int bit,
+				       unsigned int cache_index))
 {
 	u64 mask = ~(~0ULL << vp.host_address_width) & ~PAGESIZE_MASK;
 	u64 ret = 0;
@@ -1344,10 +1350,18 @@ acpi_dmar_translate (struct dmar_drhd_reg_data *d, u8 bus, u8 dev, u8 func,
 						 * Translation
 						 * Pointer */
 	unsigned int bits = 30 + 9 * aw;
-	ret = dmar_lookup (d, address, slptptr, bits - 9, 0);
+	ret = lookup (d, address, slptptr, bits - 9, 0);
 end:
 	spinlock_unlock (&d->lock);
 	return ret;
+}
+
+u64
+acpi_dmar_translate (struct dmar_drhd_reg_data *d, u8 bus, u8 dev, u8 func,
+		     u64 address)
+{
+	return do_acpi_dmar_translate (d, bus, dev, func, address,
+				       dmar_lookup);
 }
 
 u64
@@ -1446,6 +1460,93 @@ acpi_dmar_done_pci_device (void)
 	/* Unmap the new_dmar to stop updating the DMAR. */
 	unmapmem (vp.new_dmar, vp.npages * PAGESIZE);
 	vp.new_dmar = NULL;
+}
+
+static u64
+dmar_force_map (struct dmar_drhd_reg_data *d, u64 address, u64 ptr,
+		unsigned int bit, unsigned int cache_index)
+{
+	u64 ret;
+	u64 mask = ~(~0ULL << vp.host_address_width) & ~PAGESIZE_MASK;
+	struct {
+		u64 entry[512];
+	} *slpt = mapmem_hphys (ptr, sizeof *slpt, MAPMEM_WRITE);
+	u64 flush_address = address;
+	u64 end_address = vmm_term_inf ();
+	bool need_flush = false;
+again:;
+	u64 entry = slpt->entry[address >> bit & 0777];
+	if (!(entry & 3)) { /* ReadWrite = 0 */
+		if (!(address & 1))
+			goto done;
+		if (bit <= 12) {
+			entry = (address & ~PAGESIZE_MASK) | 3; /* ReadWrite */
+		} else if (bit == 21 && (d->cache.capability &
+					 CAP_REG_SLLPS_21_BIT)) {
+			entry = (address & ~PAGESIZE2M_MASK) |
+				0x83; /* ReadWrite | Page Size */
+		} else {
+			void *virt;
+			phys_t phys;
+			alloc_page (&virt, &phys);
+			memset (virt, 0, PAGESIZE);
+			dmar_force_map (d, address, phys, bit - 9,
+					cache_index + 1);
+			entry = phys | 3; /* ReadWrite */
+		}
+		slpt->entry[address >> bit & 0777] = entry;
+		need_flush = true;
+	done:
+		ret = PTE_P_BIT;
+		if ((address >> bit & 0777) == 0777)
+			goto end;
+		if (end_address - address <= (1ULL << bit))
+			goto end;
+		address += 1ULL << bit;
+		goto again;
+	}
+	ret = 0;
+	if (bit <= 30 && bit > 12 && (entry & 0x80)) /* Page Size = 1 */
+		goto end;
+	if (bit <= 12)
+		goto end;
+	ret = dmar_force_map (d, address, entry & mask, bit - 9,
+			      cache_index + 1);
+	if (ret)
+		goto done;
+end:
+	if (need_flush) {
+		for (;;) {
+			asm volatile ("clflush %0" : : "m"
+				      (slpt->entry[flush_address >> bit &
+						   0777]));
+			if (flush_address == address)
+				break;
+			flush_address += 1ULL << bit;
+		}
+	}
+	unmapmem (slpt, sizeof *slpt);
+	return ret;
+}
+
+void
+acpi_dmar_force_map (struct dmar_drhd_reg_data *d, u8 bus, u8 dev, u8 func)
+{
+	u64 address = vmm_start_inf ();
+	u64 ret = do_acpi_dmar_translate (d, bus, dev, func, address,
+					  dmar_force_map);
+	/* Check whether pages of VMM address are properly mapped.
+	 * ret=0: at least one page is mapped
+	 * ret=PTE_P_BIT: every page is not mapped (RMRR is ignored)
+	 * otherwise: DMA remapping is not enabled or translation-type
+	 * is pass-through */
+	if (ret != PTE_P_BIT)
+		return;
+	ret = do_acpi_dmar_translate (d, bus, dev, func, address | 1,
+				      dmar_force_map);
+	if (ret != PTE_P_BIT)
+		return;
+	printf ("%s: force map for %02X:%02X.%X\n", __func__, bus, dev, func);
 }
 
 #ifdef DMAR_PASS_THROUGH

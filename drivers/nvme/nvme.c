@@ -490,6 +490,7 @@ end:
 		init_admin_queue (host);
 		host->enable = 1;
 		spinlock_unlock (&host->lock);
+		pci_dmar_force_map (host->pci);
 		dprintf (NVME_ETC_DEBUG, "NVMe has been enabled\n");
 	}
 
