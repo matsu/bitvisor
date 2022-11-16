@@ -660,6 +660,12 @@ void
 panic_test (void)
 {
 	if (panicmsg[0] != '\0') {
+		if (get_panic_state () != 0xFF) {
+			/* For telnet mode */
+			printf ("Stopping main thread\n");
+			for (;;)
+				schedule ();
+		}
 		set_panic_state (0x10);
 		panicdat.cpunum = get_cpu_id ();
 		panicdat.fail = 0xFF;
