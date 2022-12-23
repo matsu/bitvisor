@@ -368,6 +368,10 @@ vt__vmcs_init (void)
 			asm_vmwrite64 (VMCS_GUEST_IA32_RTIT_CTL, 0);
 			current->cpuid.pt = true;
 		}
+		if (procbased_ctls2_and &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_USER_WAITPAUSE_BIT)
+			procbased_ctls2 |=
+			 VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_USER_WAITPAUSE_BIT;
 	}
 	/* Processor Trace (PT):
 	 * [A] PT is supported in VMX operation
