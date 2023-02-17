@@ -533,9 +533,10 @@ filter_unexpected_interrupt (struct nvme_host *host)
 	spinlock_lock (&host->intr_mask_lock);
 	/*
 	 * NVMe driver allows only a single vector MSI, so (mask & 1) is ok.
+	 * We also read INTMS unconditionally to keep ANS2 controller alive.
 	 */
-	if ((*(u32 *)NVME_INTMS_REG (host->regs) & 0x1))
-		filter = true;
+	filter = (*(u32 *)NVME_INTMS_REG (host->regs) & 0x1) &&
+		 host->filter_msi;
 	spinlock_unlock (&host->intr_mask_lock);
 	return filter;
 }

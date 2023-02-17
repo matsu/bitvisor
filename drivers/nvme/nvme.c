@@ -382,7 +382,7 @@ nvme_set_msi_callback (struct nvme_host *host)
 	u32 upper;
 	u16 val;
 
-	if (host->filter_msi) {
+	if (host->filter_msi || (host->quirks & NVME_QUIRK_MSI_READ_INTMS)) {
 		pci_config_read (pci, &addr, sizeof addr, msi_cap + 0x4);
 		pci_config_read (pci, &upper, sizeof upper, msi_cap + 0x8);
 		pci_config_read (pci, &val, sizeof val, msi_cap + 0xC);
@@ -1346,8 +1346,11 @@ set_quirks (struct nvme_host *host)
 			 STR (NVME_QUIRK_CMDID_UNIQUE_254));
 		dprintf (NVME_ETC_DEBUG, "%s found\n",
 			 STR (NVME_QUIRK_IO_CMD_128));
+		dprintf (NVME_ETC_DEBUG, "%s found\n",
+			 STR (NVME_QUIRK_MSI_READ_INTMS));
 		host->quirks |= NVME_QUIRK_CMDID_UNIQUE_254 |
-				NVME_QUIRK_IO_CMD_128;
+				NVME_QUIRK_IO_CMD_128 |
+				NVME_QUIRK_MSI_READ_INTMS;
 	}
 
 	/* Sanity check for Apple ANS2 Controller, unlikely to happen */

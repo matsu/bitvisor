@@ -48,6 +48,7 @@
 #define NVME_QUIRK_CMDID_UNIQUE_254 (1LLU << 1)
 #define NVME_QUIRK_IO_CMD_128	    (1LLU << 2)
 #define NVME_QUIRK_PATCH_MSQE	    (1LLU << 3)
+#define NVME_QUIRK_MSI_READ_INTMS   (1LLU << 4)
 
 #define NVME_ANS2_IO_N_ENTIRES (129)
 
