@@ -562,12 +562,6 @@ vt_init_signal (void)
 }
 
 static void
-do_init_signal (void)
-{
-	initipi_inc_count ();
-}
-
-static void
 do_startup_ipi (void)
 {
 	ulong vector;
@@ -590,6 +584,45 @@ do_startup_ipi (void)
 	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
 		     VMCS_GUEST_ACTIVITY_STATE_ACTIVE);
 	vt_update_exception_bmp ();
+}
+
+static void
+do_init_signal (void)
+{
+	/* On nested virtualization environment, VMX instructions may
+	 * consume longer time than a physical machine.  Change
+	 * activity state to wait-for-SIPI as soon as possible to
+	 * prevent SIPIs from being discarded.  Discard NMIs and
+	 * INITs. */
+	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
+		     VMCS_GUEST_ACTIVITY_STATE_WAIT_FOR_SIPI);
+	if (currentcpu->cpunum == 0)
+		handle_init_to_bsp ();
+	enum vt__status status;
+	do {
+		/* Call vmlaunch/vmresume function directly to avoid
+		 * additional tasks like setting external interrupt
+		 * parameters which is not needed in this case. */
+		panic_test ();
+		if (current->u.vt.first)
+			status = call_vt__vmlaunch ();
+		else
+			status = call_vt__vmresume ();
+	} while (status == VT__NMI);
+	if (status != VT__VMEXIT)
+		panic ("%s: Fatal error: VM Entry failed.", __func__);
+	current->u.vt.first = false;
+	current->nmi.get_nmi_count ();
+	current->initipi.get_init_count ();
+
+	/* Exit reason must be start-up IPI. */
+	ulong exit_reason;
+	asm_vmread (VMCS_EXIT_REASON, &exit_reason);
+	if (exit_reason & EXIT_REASON_VMENTRY_FAILURE_BIT)
+		panic ("%s: Fatal error: VM Entry failure.", __func__);
+	if ((exit_reason & EXIT_REASON_MASK) != EXIT_REASON_STARTUP_IPI)
+		panic ("%s: Fatal error: Unexpected exit reason", __func__);
+	do_startup_ipi ();
 }
 
 static void
