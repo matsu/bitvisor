@@ -201,6 +201,8 @@ struct virtio_net {
 	int hd;
 	int multifunction;
 	bool intr_suppress;
+	i8 intr_suppress_running;
+	spinlock_t intr_suppress_lock;
 	bool intr_enabled;
 	bool intr;
 	bool msix;
@@ -481,28 +483,70 @@ virtio_net_suppress_interrupt (struct virtio_net *vnet, bool yes)
 		return;
 	if (vnet->intr_suppress == yes)
 		return;
+	/* intr_suppress_running:
+	 * == 0: this function is not running in background
+	 * != 0: this function is running in background
+	 * ==-1: intr_enable will be called in background
+	 *
+	 * background   foreground
+	 * running !yes setting !yes: background continues
+	 * running !yes setting  yes: background continues
+	 * running  yes setting !yes: background will call intr_enable
+	 * running  yes setting  yes: background continues
+	 */
 	if (!yes) {
-		vnet->intr_suppress = false;
-		if (vnet->intr_enabled)
-			vnet->intr_enable (vnet->intr_param);
+		int skip;
+		spinlock_lock (&vnet->intr_suppress_lock);
+		if (!vnet->intr_suppress_running) {
+		conflict:
+			skip = 0;
+			vnet->intr_suppress_running = 1;
+			vnet->intr_suppress = false;
+		} else {
+			skip = 1;
+			vnet->intr_suppress_running = -1;
+		}
+		spinlock_unlock (&vnet->intr_suppress_lock);
+		if (!skip) {
+			if (vnet->intr_enabled)
+				vnet->intr_enable (vnet->intr_param);
+			spinlock_lock (&vnet->intr_suppress_lock);
+			vnet->intr_suppress_running = 0;
+			spinlock_unlock (&vnet->intr_suppress_lock);
+		}
 	}
 	if (yes && vnet->intr_enabled) {
-		vnet->intr_suppress = true;
-		vnet->intr_disable (vnet->intr_param);
+		int skip = 1;
+		spinlock_lock (&vnet->intr_suppress_lock);
+		if (!vnet->intr_suppress_running) {
+			skip = 0;
+			vnet->intr_suppress_running = 1;
+			vnet->intr_suppress = true;
+		}
+		spinlock_unlock (&vnet->intr_suppress_lock);
+		if (!skip) {
+			vnet->intr_disable (vnet->intr_param);
+			spinlock_lock (&vnet->intr_suppress_lock);
+			if (vnet->intr_suppress_running < 0)
+				goto conflict;
+			vnet->intr_suppress_running = 0;
+			spinlock_unlock (&vnet->intr_suppress_lock);
+		}
 	}
 }
 
 static void
 virtio_net_trigger_interrupt (struct virtio_net *vnet, unsigned int queue)
 {
-	virtio_net_suppress_interrupt (vnet, false);
 	if (vnet->msix_enabled) {
+		virtio_net_suppress_interrupt (vnet, false);
 		spinlock_lock (&vnet->msix_lock);
 		if (!vnet->msix_mask)
 			vnet->msix_generate (vnet->msix_param, queue);
 		spinlock_unlock (&vnet->msix_lock);
 	} else {
 		vnet->intr = true;
+		virtio_net_suppress_interrupt (vnet, false);
 		vnet->intr_set (vnet->intr_param);
 	}
 }
@@ -554,6 +598,12 @@ loop:
 		 * updating available ring index. */
 		used->flags = 0;
 		virtio_net_suppress_interrupt (vnet, true);
+		if (vnet->intr) {
+			/* In case of conflicting with
+			 * virtio_net_trigger_interrupt(). */
+			virtio_net_suppress_interrupt (vnet, false);
+			goto ret;
+		}
 		vnet->last_time = now;
 		/* Check available ring index again to avoid race
 		 * condition. */
@@ -1935,6 +1985,8 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->last_time = 0;
 	vnet->multifunction = 0;
 	vnet->intr_suppress = false;
+	vnet->intr_suppress_running = 0;
+	spinlock_init (&vnet->intr_suppress_lock);
 	vnet->intr_enabled = false;
 	vnet->intr = false;
 	vnet->msix = false;
