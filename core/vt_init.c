@@ -157,6 +157,9 @@ vt_check_capabilities (void)
 		!!(vmx_misc & MSR_IA32_VMX_MISC_VMWRITE_ALL_BIT);
 	currentcpu->vt.vmcs_pt_in_vmx =
 		!!(vmx_misc & MSR_IA32_VMX_MISC_PT_IN_VMX_BIT);
+	currentcpu->vt.wait_for_sipi_support =
+		!!(vmx_misc &
+		   MSR_IA32_VMX_MISC_ACTIVITY_STATE_WAIT_FOR_SIPI_BIT);
 }
 
 static void

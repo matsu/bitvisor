@@ -554,6 +554,8 @@ vt_init_signal (void)
 	if (currentcpu->cpunum == 0)
 		handle_init_to_bsp ();
 
+	if (!currentcpu->vt.wait_for_sipi_support)
+		panic ("This processor does not support wait-for-SIPI state.");
 	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
 		     VMCS_GUEST_ACTIVITY_STATE_WAIT_FOR_SIPI);
 	current->halt = false;
