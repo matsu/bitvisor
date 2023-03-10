@@ -692,6 +692,19 @@ end:
 	return NVME_IO_ERROR_OK;
 }
 
+nvme_io_error_t
+nvme_io_get_cmd_flags (struct nvme_request *g_req, uint n, u32 **cmd_flags)
+{
+	if (!cmd_flags)
+		return NVME_IO_ERROR_NO_OPERATION;
+	if (n > 5)
+		return NVME_IO_ERROR_INVALID_PARAM;
+
+	*cmd_flags = &g_req->cmd.std.cmd_flags[n];
+
+	return NVME_IO_ERROR_OK;
+}
+
 /* ----- End NVMe guest request related functions ----- */
 
 /* ----- Start I/O related functions ----- */

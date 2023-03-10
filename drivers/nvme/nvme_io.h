@@ -283,6 +283,10 @@ nvme_io_error_t nvme_io_set_g_req_callback (struct nvme_request *g_req,
 nvme_io_error_t nvme_io_set_shadow_buffer (struct nvme_request *g_req,
 					   struct nvme_io_dmabuf *dmabuf);
 
+/* Access cmd_flags of a request */
+nvme_io_error_t nvme_io_get_cmd_flags (struct nvme_request *g_req, uint n,
+				       u32 **cmd_flag);
+
 /* ----- End NVMe guest request related functions ----- */
 
 /* ----- Start I/O related functions ----- */
