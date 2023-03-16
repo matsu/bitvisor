@@ -76,6 +76,7 @@
 #define DMAR_GLOBAL_STATUS_TES_BIT (1 << 31)
 #define DMAR_GLOBAL_STATUS_IRES_BIT (1 << 25)
 #define CAP_REG_SLLPS_21_BIT	0x400000000ULL
+#define FACP_FLAGS_RESET_REG_SUP_BIT 0x400
 
 struct rsdp {
 	u8 signature[8];
@@ -757,7 +758,9 @@ get_facs_addr (u64 facs[2], struct facp *facp)
 static void
 get_reset_info (struct facp *facp)
 {
-	if (IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->reset_reg) &&
+	if (IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->flags) &&
+	    (facp->flags & FACP_FLAGS_RESET_REG_SUP_BIT) &&
+	    IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->reset_reg) &&
 	    IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->reset_value)) {
 		reset_reg = facp->reset_reg;
 		reset_value = facp->reset_value;
