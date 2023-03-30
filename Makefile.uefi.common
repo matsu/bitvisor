@@ -29,5 +29,7 @@ CFLAGS		= -nostdinc -O -ffreestanding -fno-builtin \
 		  -I$(INC_SHARE_DIR) \
 		  -I$(EDK2_INC)
 
-%.o : %.c
+.SUFFIXES :
+.SUFFIXES : .c .o
+.c.o :
 	$(EXE_CC) $(CFLAGS) -c $< -o $@
