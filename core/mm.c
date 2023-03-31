@@ -2299,7 +2299,7 @@ pmap_read (pmap_t *m)
 		}
 	}
 	return m->entry[m->curlevel];
-}	
+}
 
 bool
 pmap_write (pmap_t *m, u64 e, uint attrmask)
@@ -2511,7 +2511,7 @@ cmpxchg_hphys_q (u64 phys, u64 *olddata, u64 data, u32 attr)
 	bool r;
 
 	p = (u64 *)hphys_mapmem (phys, attr, sizeof *p, true);
-        r = asm_lock_cmpxchgq (p, olddata, data);
+	r = asm_lock_cmpxchgq (p, olddata, data);
 	unmapmem (p, sizeof *p);
 	return r;
 }

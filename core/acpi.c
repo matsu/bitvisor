@@ -1948,7 +1948,7 @@ acpi_init_global (void)
 		int i ;
 		printf ("ACPI DMAR found.\n");
 		iommu_detected=1;
-		
+
 		parse_dmar_bios_report(r) ;
 		num_dom=0 ;
 		for (i=0 ; i<MAX_IO_DOM ; i++)

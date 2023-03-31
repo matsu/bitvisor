@@ -195,7 +195,7 @@ install_int0x15_hook (void)
 	guest_int0x15_e820_end = int0x15_data + len2 - int0x15_base;
 
 	/* copy the program code */
-  	p = mapmem_hphys (int0x15_code, len1, MAPMEM_WRITE);
+	p = mapmem_hphys (int0x15_code, len1, MAPMEM_WRITE);
 	memcpy (p, guest_int0x15_hook, len1);
 	unmapmem (p, len1);
 
