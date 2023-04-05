@@ -1589,9 +1589,9 @@ dmar_pass_through_prepare (void)
 	struct dmar_info *dmar;
 
 	vp.npages = 0;
-	foreach_entry_in_rsdt1 (get_dmar_address, &vp.rsdt1_dmar);
-	foreach_entry_in_rsdt (get_dmar_address, &vp.rsdt_dmar);
-	foreach_entry_in_xsdt (get_dmar_address, &vp.xsdt_dmar);
+	acpi_itr_rsdt1_entry (get_dmar_address, &vp.rsdt1_dmar);
+	acpi_itr_rsdt_entry (get_dmar_address, &vp.rsdt_dmar);
+	acpi_itr_xsdt_entry (get_dmar_address, &vp.xsdt_dmar);
 	if (!vp.rsdt1_dmar.valid && !vp.rsdt_dmar.valid && !vp.xsdt_dmar.valid)
 		return 0;
 	if (vp.rsdt1_dmar.valid && vp.rsdt_dmar.valid &&
@@ -1951,7 +1951,7 @@ acpi_init_global (void)
 	copy_rsdp (rsdp, &rsdp_copy);
 	rsdp_found = true;
 
-	r = find_entry (DMAR_SIGNATURE);
+	r = acpi_find_entry (DMAR_SIGNATURE);
 	if (!r) {
 		printf ("ACPI DMAR not found.\n");
 		iommu_detected = 0;
@@ -1966,11 +1966,11 @@ acpi_init_global (void)
 			dom_io[i] = create_dom (i);
 		dmar_address = dmar_pass_through_prepare ();
 		/* dmar_pass_through_prepare() uses acpi_mapmem() so
-		 * find_entry() must be called again.  If
+		 * acpi_find_entry() must be called again.  If
 		 * call_uefi_boot_acpi_table_mod() succeeds, it
-		 * modifies ACPI tables, so find_entry() must be
+		 * modifies ACPI tables, so acpi_find_entry() must be
 		 * called before the modification. */
-		r = find_entry (DMAR_SIGNATURE);
+		r = acpi_find_entry (DMAR_SIGNATURE);
 		ASSERT (r);
 		if (dmar_address)
 			printf ("Installing a modified DMAR table"
