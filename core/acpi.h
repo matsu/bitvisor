@@ -32,6 +32,7 @@
 
 #include <core/acpi.h>
 #include <core/types.h>
+#include <io.h>
 
 #define ACPI_SIGNATURE_LEN	4
 

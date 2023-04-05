@@ -505,7 +505,7 @@ acpi_pm1_sleep (u32 v)
 	   on the other processors, or the processors will lose them
 	   and the VMM will not work correctly. */
 	mm_flush_wb_cache ();
-	asm_outl (pm1a_cnt_ioaddr, v);
+	out32 (pm1a_cnt_ioaddr, v);
 	cancel_sleep ();
 	return true;
 }
@@ -667,13 +667,13 @@ gas_write (struct gas *addr, u64 value)
 		switch (addr->access_size) {
 		case ACCESS_SIZE_UNDEFINED:
 		case ACCESS_SIZE_BYTE:
-			asm_outb (addr->address, value);
+			out8 (addr->address, value);
 			break;
 		case ACCESS_SIZE_WORD:
-			asm_outw (addr->address, value);
+			out16 (addr->address, value);
 			break;
 		case ACCESS_SIZE_DWORD:
-			asm_outl (addr->address, value);
+			out32 (addr->address, value);
 			break;
 		case ACCESS_SIZE_QWORD:
 		default:
@@ -716,11 +716,11 @@ acpi_poweroff (void)
 		return;
 	typx = acpi_dsdt_system_state[5][1] << PM1_CNT_SLP_TYPX_SHIFT;
 	/* FIXME: how to handle pm1b_cnt? */
-	asm_inl (pm1a_cnt_ioaddr, &data);
+	in32 (pm1a_cnt_ioaddr, &data);
 	data &= ~PM1_CNT_SLP_TYPX_MASK;
 	data |= typx & PM1_CNT_SLP_TYPX_MASK;
 	data |= PM1_CNT_SLP_EN_BIT;
-	asm_outl (pm1a_cnt_ioaddr, data);
+	out32 (pm1a_cnt_ioaddr, data);
 }
 
 bool
@@ -729,7 +729,7 @@ get_acpi_time_raw (u32 *r)
 	u32 tmp;
 
 	if (pm_tmr_ioaddr) {
-		asm_inl (pm_tmr_ioaddr, &tmp);
+		in32 (pm_tmr_ioaddr, &tmp);
 		tmp &= 16777215;
 		*r = tmp;
 		return true;
