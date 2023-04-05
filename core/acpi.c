@@ -1920,7 +1920,7 @@ acpi_init_global (void)
 	u64 dmar_address;
 	struct facp *q;
 	struct acpi_ent_dmar *r;
-	struct domain *create_dom() ;
+	struct domain *create_dom ();
 
 	wakeup_init ();
 	rsdp_found = false;
@@ -1940,19 +1940,19 @@ acpi_init_global (void)
 	copy_rsdp (rsdp, &rsdp_copy);
 	rsdp_found = true;
 
-	r=find_entry(DMAR_SIGNATURE);
+	r = find_entry (DMAR_SIGNATURE);
 	if (!r) {
 		printf ("ACPI DMAR not found.\n");
-		iommu_detected=0;
+		iommu_detected = 0;
 	} else {
-		int i ;
+		int i;
 		printf ("ACPI DMAR found.\n");
-		iommu_detected=1;
+		iommu_detected = 1;
 
-		parse_dmar_bios_report(r) ;
-		num_dom=0 ;
-		for (i=0 ; i<MAX_IO_DOM ; i++)
-			dom_io[i]=create_dom(i) ;
+		parse_dmar_bios_report (r);
+		num_dom = 0;
+		for (i = 0; i < MAX_IO_DOM; i++)
+			dom_io[i] = create_dom (i);
 		dmar_address = dmar_pass_through_prepare ();
 		/* dmar_pass_through_prepare() uses acpi_mapmem() so
 		 * find_entry() must be called again.  If
