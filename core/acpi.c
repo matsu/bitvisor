@@ -53,7 +53,6 @@
 #define RSDP_SIGNATURE_LEN	7
 #define ADDRESS_SPACE_ID_MEM	0
 #define ADDRESS_SPACE_ID_IO	1
-#define SIGNATURE_LEN		4
 #define RSDT_SIGNATURE		"RSDT"
 #define XSDT_SIGNATURE		"XSDT"
 #define FACP_SIGNATURE		"FACP"
@@ -94,25 +93,13 @@ struct rsdpv2 {
 	u8 reserved[3];
 } __attribute__ ((packed));
 
-struct description_header {
-	u8 signature[4];
-	u32 length;
-	u8 revision;
-	u8 checksum;
-	u8 oemid[6];
-	u8 oem_table_id[8];
-	u8 oem_revision[4];
-	u8 creator_id[4];
-	u8 creator_revision[4];
-} __attribute__ ((packed));
-
 struct rsdt {
-	struct description_header header;
+	struct acpi_description_header header;
 	u32 entry[];
 } __attribute__ ((packed));
 
 struct xsdt {
-	struct description_header header;
+	struct acpi_description_header header;
 	u64 entry[];
 } __attribute__ ((packed));
 
@@ -125,7 +112,7 @@ struct gas {
 } __attribute__ ((packed));
 
 struct facp {
-	struct description_header header;
+	struct acpi_description_header header;
 	u32 firmware_ctrl;
 	u32 dsdt;
 	u8 reserved1;
@@ -192,7 +179,7 @@ struct facs {
 } __attribute__ ((packed));
 
 struct mcfg {
-	struct description_header header;
+	struct acpi_description_header header;
 	u8 reserved[8];
 	struct {
 		u64 base;	/* 0 */
@@ -334,7 +321,7 @@ static u32 dsdt_addr;
 static struct mcfg *saved_mcfg;
 static struct dmar_pass vp;
 
-static u8
+u8
 acpi_checksum (void *p, int len)
 {
 	u8 *q, s;
@@ -345,7 +332,7 @@ acpi_checksum (void *p, int len)
 	return s;
 }
 
-static void *
+void *
 acpi_mapmem (u64 addr, int len)
 {
 	static void *oldmap;
@@ -436,7 +423,7 @@ foreach_entry_in_rsdt_at (void *(*func) (void *data, u64 entry), void *data,
 	int i, n, len = 0;
 
 	p = mapmem_hphys (rsdt_address, sizeof *p, 0);
-	if (!memcmp (p->header.signature, RSDT_SIGNATURE, SIGNATURE_LEN))
+	if (!memcmp (p->header.signature, RSDT_SIGNATURE, ACPI_SIGNATURE_LEN))
 		len = p->header.length;
 	unmapmem (p, sizeof *p);
 	if (len < sizeof *p)
@@ -485,7 +472,7 @@ foreach_entry_in_xsdt (void *(*func) (void *data, u64 entry), void *data)
 	if (!rsdp_copy.length)
 		return NULL;
 	p = mapmem_hphys (rsdp_copy.xsdt_address, sizeof *p, 0);
-	if (!memcmp (p->header.signature, XSDT_SIGNATURE, SIGNATURE_LEN))
+	if (!memcmp (p->header.signature, XSDT_SIGNATURE, ACPI_SIGNATURE_LEN))
 		len = p->header.length;
 	unmapmem (p, sizeof *p);
 	if (len < sizeof *p)
@@ -506,11 +493,11 @@ foreach_entry_in_xsdt (void *(*func) (void *data, u64 entry), void *data)
 static void *
 find_entry_sub (void *data, u64 entry)
 {
-	struct description_header *q;
+	struct acpi_description_header *q;
 	char *signature = data;
 
 	q = acpi_mapmem (entry, sizeof *q);
-	if (memcmp (q->signature, signature, SIGNATURE_LEN))
+	if (memcmp (q->signature, signature, ACPI_SIGNATURE_LEN))
 		return NULL;
 	q = acpi_mapmem (entry, q->length);
 	if (acpi_checksum (q, q->length))
@@ -892,13 +879,13 @@ acpi_read_mcfg (uint n, u64 *base, u16 *seg_group, u8 *bus_start,
 static void *
 call_ssdt_parse (void *data, u64 entry)
 {
-	struct description_header *p;
+	struct acpi_description_header *p;
 	int *n = data;
 	u32 len = 0;
 	u8 *q;
 
 	p = mapmem_hphys (entry, sizeof *p, 0);
-	if (!memcmp (p->signature, SSDT_SIGNATURE, SIGNATURE_LEN))
+	if (!memcmp (p->signature, SSDT_SIGNATURE, ACPI_SIGNATURE_LEN))
 		len = p->length;
 	unmapmem (p, sizeof *p);
 	if (len > sizeof *p) {
@@ -1078,7 +1065,7 @@ static void *
 foreach_entry_in_dmar (void *dmar, bool (*func) (void *data, void *entry),
 		       void *data)
 {
-	struct description_header *header;
+	struct acpi_description_header *header;
 	struct remapping_structures_header *p;
 	u32 offset;
 
@@ -1120,7 +1107,7 @@ find_end_of_rmrr (void *data, void *entry)
 static void *
 dmar_pass_create_rmrr (u16 segment)
 {
-	struct description_header *header;
+	struct acpi_description_header *header;
 	struct dmar_rmrr *q;
 
 	header = vp.new_dmar;
@@ -1194,7 +1181,7 @@ dmar_pass_find_reg (u16 segment, const struct acpi_pci_addr *addr)
 static void
 dmar_add_pci_device (u16 segment, u8 bus, u8 dev, u8 func, bool bridge)
 {
-	struct description_header *header;
+	struct acpi_description_header *header;
 	struct dmar_rmrr *p;
 	struct dmar_device_scope_pci *q;
 
@@ -1557,11 +1544,11 @@ acpi_dmar_force_map (struct dmar_drhd_reg_data *d, u8 bus, u8 dev, u8 func)
 static void *
 get_dmar_address (void *data, u64 entry)
 {
-	struct description_header *q;
+	struct acpi_description_header *q;
 	struct dmar_info *dmar = data;
 
 	q = acpi_mapmem (entry, sizeof *q);
-	if (memcmp (q->signature, DMAR_SIGNATURE, SIGNATURE_LEN))
+	if (memcmp (q->signature, DMAR_SIGNATURE, ACPI_SIGNATURE_LEN))
 		return NULL;
 	q = acpi_mapmem (entry, q->length);
 	if (acpi_checksum (q, q->length))
@@ -1632,7 +1619,7 @@ dmar_pass_through_prepare (void)
 	if (flags & 4) {
 		flags &= ~4;
 		memcpy (vp.new_dmar + 37, &flags, 1);
-		struct description_header *header = vp.new_dmar;
+		struct acpi_description_header *header = vp.new_dmar;
 		header->checksum -= acpi_checksum (header, header->length);
 	}
 #endif
@@ -1814,7 +1801,7 @@ disable_vtd (void *dmar)
 static u32
 modify_acpi_table_len (u64 address)
 {
-	struct description_header *p;
+	struct acpi_description_header *p;
 	u32 len;
 
 	p = mapmem_hphys (address, sizeof *p, 0);
@@ -1826,14 +1813,14 @@ modify_acpi_table_len (u64 address)
 static u64
 modify_acpi_table_do (u64 entry, char *signature, u64 address)
 {
-	struct description_header *p;
+	struct acpi_description_header *p;
 
 	p = mapmem_hphys (entry, sizeof *p, MAPMEM_WRITE);
-	if (!memcmp (p->signature, signature, SIGNATURE_LEN)) {
+	if (!memcmp (p->signature, signature, ACPI_SIGNATURE_LEN)) {
 		if (address)
 			entry = address;
 		else
-			memset (p->signature, 0, SIGNATURE_LEN);
+			memset (p->signature, 0, ACPI_SIGNATURE_LEN);
 	}
 	unmapmem (p, sizeof *p);
 	return entry;
@@ -1869,8 +1856,32 @@ modify_acpi_table_xsdt (struct xsdt *p, char *signature, u64 address)
 	}
 }
 
+void *
+acpi_find_entry (char *signature)
+{
+	return find_entry (signature);
+}
+
 void
-modify_acpi_table (char *signature, u64 address)
+acpi_itr_rsdt1_entry (void *(*func) (void *data, u64 entry), void *data)
+{
+	foreach_entry_in_rsdt1 (func, data);
+}
+
+void
+acpi_itr_rsdt_entry (void *(*func) (void *data, u64 entry), void *data)
+{
+	foreach_entry_in_rsdt (func, data);
+}
+
+void
+acpi_itr_xsdt_entry (void *(*func) (void *data, u64 entry), void *data)
+{
+	foreach_entry_in_xsdt (func, data);
+}
+
+void
+acpi_modify_table (char *signature, u64 address)
 {
 	void *p;
 	u32 len;
@@ -1964,7 +1975,7 @@ acpi_init_global (void)
 		if (dmar_address)
 			printf ("Installing a modified DMAR table"
 				" at 0x%llx.\n", dmar_address);
-		modify_acpi_table (DMAR_SIGNATURE, dmar_address);
+		acpi_modify_table (DMAR_SIGNATURE, dmar_address);
 		memset (r, 0, 4); /* Clear DMAR to prevent guest OS from
 				     using iommu */
 		disable_vtd (r);
