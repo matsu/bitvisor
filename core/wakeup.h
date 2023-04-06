@@ -34,6 +34,5 @@
 
 u32 prepare_for_sleep (u32 firmware_waking_vector);
 void cancel_sleep (void);
-void wakeup_init (void);
 
 #endif

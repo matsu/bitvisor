@@ -1201,7 +1201,6 @@ acpi_init_global (void)
 	u64 rsdp1;
 	struct facp *q;
 
-	wakeup_init ();
 	rsdp_found = false;
 	rsdp1_found = false;
 

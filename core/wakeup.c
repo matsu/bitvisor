@@ -204,9 +204,11 @@ wakeup_cont (void)
 	panic ("resume_vm failed.");
 }
 
-void
+static void
 wakeup_init (void)
 {
 	wakeup_entry_addr =
 		alloc_realmodemem (wakeup_entry_end - wakeup_entry_start);
 }
+
+INITFUNC ("acpi0", wakeup_init);
