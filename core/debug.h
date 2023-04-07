@@ -41,6 +41,5 @@
 void debug_msgregister (void);
 void debug_msgunregister (void);
 void debug_gdb (void);
-void debug_iohook (void);
 
 #endif

@@ -372,7 +372,7 @@ tty_init_global (void)
 	putchar_set_func (tty_putchar, NULL);
 }
 
-void
+static void
 tty_init_iohook (void)
 {
 #ifdef TTY_SERIAL
@@ -398,3 +398,4 @@ tty_init_msg (void)
 INITFUNC ("global0", tty_init_global);
 INITFUNC ("global3", tty_init_global2);
 INITFUNC ("msg1", tty_init_msg);
+INITFUNC ("iohook0", tty_init_iohook);

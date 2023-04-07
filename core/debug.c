@@ -32,6 +32,7 @@
 #include "debug.h"
 #include "gmm_access.h"
 #include "i386-stub.h"
+#include "initfunc.h"
 #include "int.h"
 #include "mm.h"
 #include "panic.h"
@@ -226,7 +227,7 @@ debug_gdb (void)
 #endif
 }
 
-void
+static void
 debug_iohook (void)
 {
 #ifdef DEBUG_GDB
@@ -280,3 +281,5 @@ debug_shell (int ttyin, int ttyout)
 	msgclose (shell);
 	debug_msgunregister ();
 }
+
+INITFUNC ("iohook1", debug_iohook);

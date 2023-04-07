@@ -76,9 +76,7 @@ io_iopass_init (void)
 		return;
 	for (i = 0; i < NUM_OF_IOPORT; i++)
 		set_iofunc (i, do_iopass_default);
-	tty_init_iohook ();
-	debug_iohook ();
-	acpi_iohook ();
+	call_initfunc ("iohook");
 }
 
 INITFUNC ("pass0", io_iopass_init);

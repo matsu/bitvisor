@@ -61,7 +61,6 @@ void acpi_itr_rsdt_entry (void *(*func) (void *data, u64 entry), void *data);
 void acpi_itr_xsdt_entry (void *(*func) (void *data, u64 entry), void *data);
 void acpi_modify_table (char *signature, u64 address);
 
-void acpi_iohook (void);
 void acpi_poweroff (void);
 bool get_acpi_time_raw (u32 *r);
 void acpi_smi_hook (void);

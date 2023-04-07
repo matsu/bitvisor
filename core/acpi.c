@@ -733,7 +733,7 @@ acpi_smi_hook (void)
 	}
 }
 
-void
+static void
 acpi_iohook (void)
 {
 	u32 pm1a_cnt_ioaddr, smi_cmd;
@@ -1249,3 +1249,4 @@ acpi_init_global (void)
 
 INITFUNC ("global3", acpi_init_global);
 INITFUNC ("paral30", acpi_init_paral);
+INITFUNC ("iohook1", acpi_iohook);
