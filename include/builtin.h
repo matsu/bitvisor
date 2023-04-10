@@ -33,6 +33,24 @@
 #include <common/types.h>
 
 static inline u32
+builtin_bswap32 (u32 val)
+{
+	return __builtin_bswap32 (val);
+}
+
+static inline int
+builtin_ffs (int val)
+{
+	return __builtin_ffs (val);
+}
+
+static inline u32
+atomic_fetch_and32 (u32 *ptr, u32 val)
+{
+	return __atomic_fetch_and (ptr, val, __ATOMIC_ACQ_REL);
+}
+
+static inline u32
 atomic_fetch_add32 (u32 *ptr, u32 val)
 {
 	return __atomic_fetch_add (ptr, val, __ATOMIC_ACQ_REL);

@@ -36,6 +36,7 @@
  ***/
 #define ENABLE_ENC
 
+#include <builtin.h>
 #include <core.h>
 #include <storage.h>
 #include "usb.h"
@@ -65,10 +66,7 @@ DEFINE_ZALLOC_FUNC(usbmsc_unit);
 
 static inline u32 bswap32(u32 x)
 {
-        asm volatile ("bswapl %0"
-		      : "=r" (x)
-		      : "0" (x));
-        return x;
+        return builtin_bswap32 (x);
 }
 
 static inline u16 bswap16(u16 x)

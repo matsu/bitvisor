@@ -32,6 +32,7 @@
  * @brief	urb and queue operations for UHCI
  * @author	K. Matsubara
  */
+#include <builtin.h>
 #include <core.h>
 #include "pci.h"
 #include "usb.h"
@@ -345,10 +346,7 @@ uhci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *urb)
  */
 static inline u32 __ffs(u32 word)
 {
-	__asm__("bsfl %1,%0"
-		:"=r" (word)
-		:"rm" (word));
-	return word;
+	return builtin_ffs (word);
 }
 
 /**
@@ -921,14 +919,8 @@ uhci_check_urb_advance(struct usb_host *usbhc,
 static inline u32
 cmpxchgl(u32 *ptr, u32 old, u32 new)
 {
-	u32 prev;
-
-	asm volatile ("lock; cmpxchgl %2,%1"
-		      : "=&a"(prev), "+m"(*ptr)
-		      : "q"(new), "0"(old)
-		      : "memory");
-
-	return prev;
+	atomic_cmpxchg32 (ptr, &old, new);
+	return old;
 }
 
 /**

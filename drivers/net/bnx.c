@@ -29,6 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <builtin.h>
 #include <core.h>
 #include <core/mmio.h>
 #include <core/uefiutil.h>
@@ -760,10 +761,7 @@ bnx_handle_status (struct bnx *bnx)
 	if (bnx->status_enabled)
 		status = bnx->status->status & 7;
 	if (status) {
-		asm volatile ("lock andl %1,%0"
-			      : "+m" (bnx->status->status)
-			      : "r" (~status)
-			      : "cc");
+		atomic_fetch_and32 (&bnx->status->status, ~status);
 		if (status & 2)
 			bnx_handle_link_state (bnx);
 		if (status & 4)
