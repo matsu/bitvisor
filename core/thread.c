@@ -28,6 +28,7 @@
  */
 
 #include <arch/currentcpu.h>
+#include <builtin.h>
 #include <core/currentcpu.h>
 #include "assert.h"
 #include "initfunc.h"
@@ -35,7 +36,6 @@
 #include "list.h"
 #include "mm.h"
 #include "panic.h"
-#include "pcpu.h"
 #include "printf.h"
 #include "process.h"
 #include "spinlock.h"
@@ -137,10 +137,10 @@ schedule_skip (bool start)
 
 	if (start) {
 		cpu = currentcpu_get_id ();
-		if (asm_lock_cmpxchgl (&thread_cpu, &value, cpu))
+		if (!atomic_cmpxchg32 (&thread_cpu, &value, cpu))
 			return value != cpu;
 	} else {
-		asm_lock_xchgl (&thread_cpu, value);
+		atomic_xchg32 (&thread_cpu, value);
 	}
 #endif
 	return false;

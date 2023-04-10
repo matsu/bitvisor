@@ -28,8 +28,8 @@
  */
 
 #include <arch/currentcpu.h>
+#include <builtin.h>
 #include <core/currentcpu.h>
-#include "asm.h"
 #include "ap.h"
 #include "callrealmode.h"
 #include "config.h"
@@ -515,7 +515,7 @@ set_panic_state (u8 state)
 		idtlimit = 0xFFFF;
 	u8 oldstate = idtlimit & 0xFF;
 	if (oldstate >= 0x80 && state < 0x80) {
-		asm_lock_incl (&panic_lock_count);
+		atomic_fetch_add32 (&panic_lock_count, 1);
 		spinlock_lock (&panic_lock);
 	} else if (oldstate < 0x80 && state >= 0x80) {
 		panic_unlock_count++;
@@ -534,7 +534,7 @@ set_panic_state (u8 state)
 static u8
 panic_main (u8 state, char *msg)
 {
-	static ulong panic_shell = 0;
+	static u32 panic_shell = 0;
 	set_panic_state (state + 1);
 	switch (state) {
 	case 0:
@@ -611,7 +611,7 @@ panic_main (u8 state, char *msg)
 		wait_for_dump_completion (60000000);
 		break;
 	case 0x84:
-		if (asm_lock_ulong_swap (&panic_shell, 1)) {
+		if (atomic_xchg32 (&panic_shell, 1)) {
 			for (;;)
 				reboot_test ();
 			clihlt ();
