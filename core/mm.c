@@ -2579,6 +2579,9 @@ mapped_hphys_addr (u64 hphys, uint len, int flags)
 	u64 hphys_addr = HPHYS_ADDR;
 	u64 hphys_len_copy = hphys_len;
 
+	/* Expand MAPMEM_UC to MAPMEM_PCD | MAPMEM_PWT */
+	if (flags & MAPMEM_UC)
+		flags |= MAPMEM_PCD | MAPMEM_PWT;
 #ifdef __x86_64__
 	if (flags & MAPMEM_PAT)
 		hphys_addr += hphys_len_copy * 4;
@@ -2702,6 +2705,8 @@ mapmem_domap (pmap_t *m, void *virt, const struct mm_as *as, int flags,
 			return true;
 		}
 		pte = (pte & ~PAGESIZE_MASK) | PTE_P_BIT;
+		if (flags & MAPMEM_UC)
+			pte |= PTE_PCD_BIT | PTE_PWT_BIT;
 		if (flags & MAPMEM_WRITE)
 			pte |= PTE_RW_BIT;
 		if (flags & MAPMEM_PWT)

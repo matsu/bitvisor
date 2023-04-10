@@ -510,8 +510,7 @@ pci_read_mcfg (void)
 		d.next = NULL;
 		d.phys = d.base + (d.bus_start << 20);
 		d.len = ((u32)(d.bus_end - d.bus_start) + 1) << 20;
-		d.map = mapmem_hphys (d.phys, d.len, MAPMEM_WRITE |
-				      MAPMEM_PCD | MAPMEM_PWT);
+		d.map = mapmem_hphys (d.phys, d.len, MAPMEM_WRITE | MAPMEM_UC);
 		tmp = alloc (sizeof *tmp);
 		memcpy (tmp, &d, sizeof *tmp);
 		*pnext = tmp;

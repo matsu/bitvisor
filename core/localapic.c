@@ -190,7 +190,7 @@ mmio_apic (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f)
 	case APIC_ICR_LOW_MT_STARTUP:
 		apic_icr_high = mapmem_hphys (APIC_ICR_HIGH,
 					      sizeof *apic_icr_high,
-					      MAPMEM_PCD | MAPMEM_PWT);
+					      MAPMEM_UC);
 		 /* APIC ID 0xFF means a broadcast */
 		apic_startup (*apic_icr_low,
 			      *apic_icr_high >> APIC_ICR_HIGH_DES_SHIFT, 0xFF);
@@ -250,8 +250,7 @@ localapic_wait_for_sipi (void)
 			goto x2apic_enabled;
 		}
 	}
-	apic_id = mapmem_hphys (APIC_ID, sizeof *apic_id,
-				MAPMEM_PCD | MAPMEM_PWT);
+	apic_id = mapmem_hphys (APIC_ID, sizeof *apic_id, MAPMEM_UC);
 	current->localapic.apic_id = *apic_id >> APIC_ID_AID_SHIFT;
 	unmapmem (apic_id, sizeof *apic_id);
 x2apic_enabled:

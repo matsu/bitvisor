@@ -904,7 +904,7 @@ bnx_mapmem (struct bnx *bnx, struct pci_bar_info *bar)
 	bnx->base = bar->base;
 	bnx->len = bar->len;
 	bnx->mmio = mapmem_as (as_passvm, bar->base, bar->len,
-			       MAPMEM_WRITE | MAPMEM_PCD | MAPMEM_PWT);
+			       MAPMEM_WRITE | MAPMEM_UC);
 }
 
 static void

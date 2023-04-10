@@ -3863,8 +3863,7 @@ static void re_init_software_variable(struct re_softc *sc)
                                                            sc->cmac_base,
                                                            RE_REGS_SIZE,
                                                            MAPMEM_WRITE |
-                                                           MAPMEM_PCD |
-                                                           MAPMEM_PWT);
+                                                           MAPMEM_UC);
                         }
                 }
         }

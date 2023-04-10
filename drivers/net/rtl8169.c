@@ -592,8 +592,7 @@ reghook (struct RTL8169_SUB_CTX *sctx, int i, struct pci_bar_info *bar)
 			sctx->mapaddr = bar->base;
 			sctx->maplen = bar->len;
 			sctx->map = mapmem_as (as_passvm, bar->base, bar->len,
-					       MAPMEM_WRITE | MAPMEM_PCD |
-					       MAPMEM_PWT);
+					       MAPMEM_WRITE | MAPMEM_UC);
 			if (!sctx->map)
 				panic ("mapmem failed");
 			sctx->io = 0;

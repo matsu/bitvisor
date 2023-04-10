@@ -528,8 +528,7 @@ sync_all_processors (void)
 void
 start_all_processors (void (*bsp_initproc) (void), void (*ap_initproc) (void))
 {
-	lar = mapmem_hphys (apic_base, sizeof *lar, MAPMEM_WRITE | MAPMEM_PWT |
-			    MAPMEM_PCD);
+	lar = mapmem_hphys (apic_base, sizeof *lar, MAPMEM_WRITE | MAPMEM_UC);
 	initproc_bsp = bsp_initproc;
 	initproc_ap = ap_initproc;
 	bsp_continue (bspinitproc1);

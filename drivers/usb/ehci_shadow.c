@@ -728,7 +728,7 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 
 	reg_usbcmd = mapmem_as (host->usb_host->as_dma, host->iobase + 0x20,
 				sizeof (u32),
-				MAPMEM_WRITE | MAPMEM_PWT | MAPMEM_PCD);
+				MAPMEM_WRITE | MAPMEM_UC);
 				  
 #endif /* defined(ENABLE_DELAYED_START) */
 

@@ -97,8 +97,8 @@ mmio_gphys_access (phys_t gphysaddr, bool wr, void *buf, uint len, u32 flags)
 	unmapmem (p, len);
 }
 
-int
-mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len, u32 f)
+static int
+do_mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len, u32 f)
 {
 	struct mmio_list *p;
 	struct mmio_handle *h;
@@ -192,6 +192,18 @@ out:
 		rw_spinlock_lock_sh (&current->vcpu0->mmio.rwlock);
 	}
 	return r;
+}
+
+int
+mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len, u32 attr)
+{
+	u32 f;
+
+	f = ((attr & PTE_PAT_BIT) ? MAPMEM_PAT : 0) |
+	    ((attr & PTE_PCD_BIT) ? MAPMEM_PCD : 0) |
+	    ((attr & PTE_PWT_BIT) ? MAPMEM_PWT : 0);
+
+	return do_mmio_access_memory (gphysaddr, wr, buf, len, f);
 }
 
 int

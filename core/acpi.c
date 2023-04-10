@@ -707,8 +707,7 @@ get_reg_info_with_gas (struct acpi_reg *r, struct gas *g, u32 default_size)
 	r->addr = g->address;
 	if (res_ok == ACPI_REG_CHECK_OK_MEM)
 		r->mapped_addr = mapmem_hphys (r->addr, reg_size,
-					       MAPMEM_WRITE | MAPMEM_PCD |
-					       MAPMEM_PWT);
+					       MAPMEM_WRITE | MAPMEM_UC);
 end:
 	get_reg_info_with_gas_log (r, g);
 	return r->result == ACPI_REG_CHECK_OK_MEM ||

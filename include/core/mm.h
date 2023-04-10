@@ -32,11 +32,17 @@
 
 #include <core/types.h>
 
+/*
+ * Mapmem flag is 32-bit long. The lower 16 bits are for platform independent,
+ * representing generic memory attributes. The upper 16 bits are for platform
+ * dependent flags, containing platform specific memory attributes.
+ */
+
+#define MAPMEM_UC			0x1 /* Uncachable */
 #define MAPMEM_WRITE			0x4
-#define MAPMEM_PWT			0x8
-#define MAPMEM_PCD			0x10
-#define MAPMEM_PAT			0x80
 #define MAPMEM_CANFAIL			0x100
+
+#define MAPMEM_PLAT(bit)		(((1 << (bit)) & 0xFFFF) << 16)
 
 struct mempool;
 

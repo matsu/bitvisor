@@ -223,7 +223,7 @@ re_core_mapmem (struct re_host *host, struct pci_bar_info *bar_info)
 	sc->mmio_len = bar_info->len;
 	sc->mmio = mapmem_hphys (bar_info->base,
 				 bar_info->len,
-				 MAPMEM_WRITE | MAPMEM_PCD | MAPMEM_PWT);
+				 MAPMEM_WRITE | MAPMEM_UC);
 }
 
 static void

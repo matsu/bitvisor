@@ -34,6 +34,10 @@
 #include "constants.h"
 #include "types.h"
 
+#define MAPMEM_PWT			MAPMEM_PLAT (3)
+#define MAPMEM_PCD			MAPMEM_PLAT (4)
+#define MAPMEM_PAT			MAPMEM_PLAT (7)
+
 #ifdef USE_PAE
 #	define PMAP_LEVELS		(sizeof (ulong) == 4 ? 3 : 4)
 #	define PDE_PS_OFFSET_MASK	PDE_2M_OFFSET_MASK

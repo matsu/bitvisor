@@ -765,9 +765,8 @@ aq_mmio_map (struct aq *aq, struct pci_bar_info *bar0)
 
 	aq->mmio_base = bar0->base;
 	aq->mmio_len = bar0->len;
-	aq->mmio = mapmem_hphys (bar0->base,
-				 bar0->len,
-				 MAPMEM_WRITE | MAPMEM_PCD | MAPMEM_PWT);
+	aq->mmio = mapmem_hphys (bar0->base, bar0->len,
+				 MAPMEM_WRITE | MAPMEM_UC);
 
 	ASSERT (aq->mmio);
 

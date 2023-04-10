@@ -127,7 +127,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 		memcpy (&buf32, buf, len);
 	offset = gphys - host->iobase;
 	reg = (u32 *)mapmem_as (as_passvm, gphys, sizeof (u32),
-				MAPMEM_WRITE | MAPMEM_PCD);
+				MAPMEM_WRITE | MAPMEM_UC);
 
 #define REGPRN(_level, _wr, _regname) {			    \
 		if (_wr)				    \
