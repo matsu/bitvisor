@@ -44,15 +44,12 @@
 
 #define EVT_SIGNAL_EXIT_BOOT_SERVICES 0x00000201
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmissing-braces"
 static EFI_GUID pci_io_protocol_guid = EFI_PCI_IO_PROTOCOL_GUID;
 static EFI_GUID device_path_protocol_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
 static EFI_GUID simple_network_protocol_guid =
 	EFI_SIMPLE_NETWORK_PROTOCOL_GUID;
 static EFI_GUID graphics_output_protocol_guid =
 	EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
-#pragma GCC diagnostic pop
 
 u8 uefi_memory_map_data[16384];
 ulong uefi_memory_map_size = sizeof uefi_memory_map_data;
