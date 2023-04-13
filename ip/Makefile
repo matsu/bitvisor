@@ -1,4 +1,4 @@
-LWIP_VERSION=2.0.3
+LWIP_VERSION=2.1.3
 
 CFLAGS += -I$(DIR)/include -I$(DIR)/include/arch -I$(DIR)/include/lwip \
 	-I$(DIR)/lwip-$(LWIP_VERSION)/src/include \
@@ -43,3 +43,4 @@ objs-1 += ip_sys.o arch/sys_arch.o
 objs-1 += ip_main.o net_main.o
 objs-1 += echo-server.o echo-client.o echoctl.o
 objs-1 += telnet-server.o telnet-dbgsh.o
+objs-1 += string.o

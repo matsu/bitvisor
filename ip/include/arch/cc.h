@@ -35,6 +35,7 @@
 
 #define LWIP_NO_STDINT_H 1
 #define LWIP_NO_INTTYPES_H 1
+#define LWIP_NO_CTYPE_H 1
 
 /* --- Debug --- */
 #define ETHARP_DEBUG LWIP_DBG_ON
@@ -65,6 +66,9 @@ int printf (const char *format, ...)
 	__attribute__ ((format (printf, 1, 2)));
 void panic (char *format, ...)
 	__attribute__ ((format (printf, 1, 2), noreturn));
+
+long int strtol (const char *nptr, char **endptr, int base);
+#define atoi(nptr) strtol(nptr, NULL, 10)
 
 static inline u16_t
 inline_lwip_htons (u16_t n)
