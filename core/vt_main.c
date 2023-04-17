@@ -437,6 +437,7 @@ vt__vm_run_first (void)
 	enum vt__status status;
 	ulong errnum;
 
+	localapic_sipi_ready ();
 	status = call_vt__vmlaunch ();
 	if (status == VT__NMI)
 		return true;

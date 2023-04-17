@@ -35,6 +35,7 @@
 #include "mmio.h"
 #include "msr_pass.h"
 #include "panic.h"
+#include "thread.h"
 
 #define APIC_BASE	0xFEE00000
 #define APIC_LEN	0x1000
@@ -123,6 +124,19 @@ apic_startup (u32 icr_low, u32 apic_id, u32 broadcast_id)
 	vcpu_list_foreach (do_startup, &d);
 }
 
+/* After calling ap_start() function, APs might be doing
+ * initialization or running threads.  Since the guest operating
+ * system might send SIPI soon after the next VM entry, BSP ensures
+ * that all APs are in wait-for-SIPI state here. */
+static bool
+wait_for_ap_sipi_ready (struct vcpu *p, void *q)
+{
+	if (p->vcpu0 == q && p != q)
+		while (!p->localapic.sipi_ready)
+			schedule ();
+	return false;
+}
+
 static int
 handle_ap_start (u32 icr_low)
 {
@@ -132,6 +146,7 @@ handle_ap_start (u32 icr_low)
 		ap_start ();
 		ap_start = NULL;
 		call_initfunc ("dbsp");
+		vcpu_list_foreach (wait_for_ap_sipi_ready, current);
 		if (!current->vcpu0->localapic.registered) {
 			msr_pass_hook_x2apic_icr (0);
 			mmio_unregister (mmio_handle);
@@ -242,6 +257,7 @@ localapic_wait_for_sipi (void)
 x2apic_enabled:
 	sipi_vector = current->localapic.sipi_vector;
 	asm_lock_cmpxchgl (&current->localapic.sipi_vector, &sipi_vector, ~0U);
+	localapic_sipi_ready ();
 	do {
 		asm_pause ();
 		asm_lock_cmpxchgl (&current->localapic.sipi_vector,
@@ -310,11 +326,18 @@ localapic_x2apic_icr (u64 msrdata)
 	}
 }
 
+void
+localapic_sipi_ready (void)
+{
+	current->localapic.sipi_ready = true;
+}
+
 static void
 localapic_init (void)
 {
 	if (current == current->vcpu0)
 		current->localapic.registered = false;
+	current->localapic.sipi_ready = false;
 }
 
 static void
