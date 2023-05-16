@@ -204,13 +204,13 @@ struct acpi_reg {
 };
 
 static struct acpi_reg acpi_reg_pm1a_cnt = { "ACPI_REG_PM1A_CNT" };
+static struct acpi_reg acpi_reg_pm_tmr = { "ACPI_REG_PM_TMR" };
 static struct acpi_reg acpi_reg_reset = { "ACPI_REG_RESET" };
 
 static bool rsdp_found;
 static struct rsdpv2 rsdp_copy;
 static bool rsdp1_found;
 static struct rsdp rsdp1_copy;
-static u32 pm_tmr_ioaddr;
 static u64 facs_addr[NFACS_ADDR];
 static u32 smi_cmd;
 static u8 reset_value;
@@ -866,19 +866,23 @@ get_pm1a_cnt_info (struct facp *q)
 }
 
 static void
-get_pm_tmr_ioaddr (struct facp *q)
+get_pm_tmr_info (struct facp *q)
 {
-	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->x_pm_tmr_blk) &&
-	    q->x_pm_tmr_blk.address_space_id == ADDRESS_SPACE_ID_IO &&
-	    q->x_pm_tmr_blk.address <= 0xFFFF) {
-		pm_tmr_ioaddr = q->x_pm_tmr_blk.address;
-	} else if (IS_STRUCT_SIZE_OK (q->header.length, q, q->pm_tmr_blk)) {
-		pm_tmr_ioaddr = q->pm_tmr_blk;
-	} else {
-		pm_tmr_ioaddr = 0;
+	bool pm_tmr_gas_ok = false;
+	bool pm_tmr_old_ok = false;
+
+	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->x_pm_tmr_blk))
+		pm_tmr_gas_ok = get_reg_info_with_gas (&acpi_reg_pm_tmr,
+						       &q->x_pm_tmr_blk, 4);
+	if (!pm_tmr_gas_ok) {
+		if (IS_STRUCT_SIZE_OK (q->header.length, q, q->pm_tmr_blk))
+			pm_tmr_old_ok = get_reg_info_with_io (&acpi_reg_pm_tmr,
+							      q->pm_tmr_blk,
+							      4);
 	}
-	if (pm_tmr_ioaddr > 0xFFFF)
-		pm_tmr_ioaddr = 0;
+
+	if (!pm_tmr_gas_ok && !pm_tmr_old_ok)
+		acpi_reg_skip_init_log (&acpi_reg_pm_tmr);
 }
 
 static void
@@ -942,10 +946,9 @@ acpi_poweroff (void)
 bool
 get_acpi_time_raw (u32 *r)
 {
-	u32 tmp;
+	u64 tmp;
 
-	if (pm_tmr_ioaddr) {
-		in32 (pm_tmr_ioaddr, &tmp);
+	if (acpi_reg_read (&acpi_reg_pm_tmr, &tmp)) {
 		tmp &= 16777215;
 		*r = tmp;
 		return true;
@@ -1213,7 +1216,7 @@ acpi_init_global (void)
 	dsdt_addr = q->dsdt;
 #endif
 	get_pm1a_cnt_info (q);
-	get_pm_tmr_ioaddr (q);
+	get_pm_tmr_info (q);
 	ASSERT (NFACS_ADDR >= 0 + 2);
 	get_facs_addr (&facs_addr[0], q);
 	get_reset_info (q);
