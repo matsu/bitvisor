@@ -203,14 +203,13 @@ struct acpi_reg {
 	void *mapped_addr;
 };
 
+static struct acpi_reg acpi_reg_pm1a_cnt = { "ACPI_REG_PM1A_CNT" };
 static struct acpi_reg acpi_reg_reset = { "ACPI_REG_RESET" };
 
 static bool rsdp_found;
 static struct rsdpv2 rsdp_copy;
 static bool rsdp1_found;
 static struct rsdp rsdp1_copy;
-static bool pm1a_cnt_found;
-static u32 pm1a_cnt_ioaddr;
 static u32 pm_tmr_ioaddr;
 static u64 facs_addr[NFACS_ADDR];
 static u32 smi_cmd;
@@ -246,6 +245,41 @@ acpi_mapmem (u64 addr, int len)
 }
 
 static bool
+acpi_reg_read (struct acpi_reg *r, u64 *value)
+{
+	union mem tmp;
+
+	tmp.qword = 0;
+
+	switch (r->result) {
+	case ACPI_REG_CHECK_OK_MEM:
+		memcpy (&tmp, r->mapped_addr, r->size);
+		*value = tmp.qword;
+		break;
+	case ACPI_REG_CHECK_OK_IO:
+		switch (r->size) {
+		case 1:
+			in8 (r->addr, &tmp.byte);
+			break;
+		case 2:
+			in16 (r->addr, &tmp.word);
+			break;
+		case 4:
+			in32 (r->addr, &tmp.dword);
+			break;
+		default:
+			return false;
+		}
+		*value = tmp.qword;
+		break;
+	default:
+		return false;
+	}
+
+	return true;
+}
+
+static bool
 acpi_reg_write (struct acpi_reg *r, u64 value)
 {
 	switch (r->result) {
@@ -272,6 +306,21 @@ acpi_reg_write (struct acpi_reg *r, u64 value)
 	}
 
 	return true;
+}
+
+static bool
+acpi_reg_get_ioaddr (struct acpi_reg *r, u32 *ioaddr)
+{
+	bool ret = false;
+
+	if (ioaddr) {
+		if (r->result == ACPI_REG_CHECK_OK_IO) {
+			*ioaddr = r->addr;
+			ret = true;
+		}
+	}
+
+	return ret;
 }
 
 static void
@@ -545,6 +594,23 @@ debug_dump (void *p, int len)
 	}
 }
 
+static void
+debug_dump_reg (struct acpi_reg *r)
+{
+	switch (r->result) {
+	case ACPI_REG_CHECK_OK_MEM:
+		printf ("acpi: %s at 0x%llX (MEM space)\n", r->name, r->addr);
+		break;
+	case ACPI_REG_CHECK_OK_IO:
+		printf ("acpi: %s at 0x%llX (IO space)\n", r->name, r->addr);
+		break;
+	default:
+		printf ("acpi: %s not found, check result %u\n",
+			r->name, r->result);
+		break;
+	}
+}
+
 static bool
 acpi_pm1_sleep (u32 v)
 {
@@ -602,7 +668,7 @@ acpi_pm1_sleep (u32 v)
 	   on the other processors, or the processors will lose them
 	   and the VMM will not work correctly. */
 	mm_flush_wb_cache ();
-	out32 (pm1a_cnt_ioaddr, v);
+	acpi_reg_write (&acpi_reg_pm1a_cnt, v);
 	cancel_sleep ();
 	return true;
 }
@@ -611,8 +677,10 @@ static enum ioact
 acpi_io_monitor (enum iotype type, u32 port, void *data)
 {
 	u32 v;
+	u32 pm1a_cnt_ioaddr;
 
-	if (pm1a_cnt_found && port == pm1a_cnt_ioaddr) {
+	if (acpi_reg_get_ioaddr (&acpi_reg_pm1a_cnt, &pm1a_cnt_ioaddr) &&
+	    port == pm1a_cnt_ioaddr) {
 		switch (type) {
 		case IOTYPE_OUTB:
 			v = *(u8 *)data;
@@ -660,7 +728,9 @@ acpi_smi_hook (void)
 void
 acpi_iohook (void)
 {
-	if (pm1a_cnt_found)
+	u32 pm1a_cnt_ioaddr;
+
+	if (acpi_reg_get_ioaddr (&acpi_reg_pm1a_cnt, &pm1a_cnt_ioaddr))
 		set_iofunc (pm1a_cnt_ioaddr, acpi_io_monitor);
 	if (smi_cmd > 0 && smi_cmd <= 0xFFFF) {
 		current->vcpu0->acpi.iopass = true;
@@ -756,21 +826,43 @@ end:
 	       r->result == ACPI_REG_CHECK_OK_IO;
 }
 
-static void
-get_pm1a_cnt_ioaddr (struct facp *q)
+static bool
+get_reg_info_with_io (struct acpi_reg *r, u32 ioaddr, u32 default_size)
 {
-	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->x_pm1a_cnt_blk)) {
-		if (q->x_pm1a_cnt_blk.address_space_id !=
-		    ADDRESS_SPACE_ID_IO)
-			panic ("X_PM1a_CNT_BLK is not I/O address");
-		pm1a_cnt_ioaddr = q->x_pm1a_cnt_blk.address;
-	} else if (IS_STRUCT_SIZE_OK (q->header.length, q, q->pm1a_cnt_blk)) {
-		pm1a_cnt_ioaddr = q->pm1a_cnt_blk;
-	} else {
-		panic ("ACPI FACP is too short");
+	if (!ioaddr_is_valid (ioaddr)) {
+		printf ("acpi: %s IO invalid address 0x%X\n", r->name,
+			ioaddr);
+		r->result = ACPI_REG_CHECK_IO_INVALID_ADDR;
+		goto end;
 	}
-	if (pm1a_cnt_ioaddr > 0xFFFF)
-		panic ("PM1a control port > 0xFFFF");
+
+	r->result = ACPI_REG_CHECK_OK_IO;
+	r->size	= default_size;
+	r->addr = ioaddr;
+end:
+	return r->result == ACPI_REG_CHECK_OK_IO;
+}
+
+static void
+get_pm1a_cnt_info (struct facp *q)
+{
+	bool pm1a_gas_ok = false;
+	bool pm1a_old_ok = false;
+
+	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->x_pm1a_cnt_blk))
+		pm1a_gas_ok = get_reg_info_with_gas (&acpi_reg_pm1a_cnt,
+						     &q->x_pm1a_cnt_blk, 4);
+	if (!pm1a_gas_ok) {
+		if (IS_STRUCT_SIZE_OK (q->header.length, q, q->pm1a_cnt_blk))
+			pm1a_old_ok = get_reg_info_with_io (&acpi_reg_pm1a_cnt,
+							    q->pm1a_cnt_blk,
+							    4);
+		else
+			panic ("acpi: FACP is too short");
+	}
+
+	if (!pm1a_gas_ok && !pm1a_old_ok)
+		panic ("acpi: PM1a control not found");
 }
 
 static void
@@ -833,19 +925,18 @@ acpi_reset (void)
 void
 acpi_poweroff (void)
 {
-	u32 data, typx;
+	u64 data, typx;
 
-	if (!pm1a_cnt_found)
-		return;
 	if (!acpi_dsdt_system_state[5][0])
 		return;
-	typx = acpi_dsdt_system_state[5][1] << PM1_CNT_SLP_TYPX_SHIFT;
 	/* FIXME: how to handle pm1b_cnt? */
-	in32 (pm1a_cnt_ioaddr, &data);
-	data &= ~PM1_CNT_SLP_TYPX_MASK;
-	data |= typx & PM1_CNT_SLP_TYPX_MASK;
-	data |= PM1_CNT_SLP_EN_BIT;
-	out32 (pm1a_cnt_ioaddr, data);
+	if (acpi_reg_read (&acpi_reg_pm1a_cnt, &data)) {
+		typx = acpi_dsdt_system_state[5][1] << PM1_CNT_SLP_TYPX_SHIFT;
+		data &= ~PM1_CNT_SLP_TYPX_MASK;
+		data |= typx & PM1_CNT_SLP_TYPX_MASK;
+		data |= PM1_CNT_SLP_EN_BIT;
+		acpi_reg_write (&acpi_reg_pm1a_cnt, data);
+	}
 }
 
 bool
@@ -1097,7 +1188,6 @@ acpi_init_global (void)
 	wakeup_init ();
 	rsdp_found = false;
 	rsdp1_found = false;
-	pm1a_cnt_found = false;
 
 	rsdp1 = find_rsdp1 ();
 	if (rsdp1 != FIND_RSDP_NOT_FOUND) {
@@ -1122,7 +1212,7 @@ acpi_init_global (void)
 #ifdef ACPI_DSDT
 	dsdt_addr = q->dsdt;
 #endif
-	get_pm1a_cnt_ioaddr (q);
+	get_pm1a_cnt_info (q);
 	get_pm_tmr_ioaddr (q);
 	ASSERT (NFACS_ADDR >= 0 + 2);
 	get_facs_addr (&facs_addr[0], q);
@@ -1131,7 +1221,7 @@ acpi_init_global (void)
 	if (0)
 		debug_dump (q, q->header.length);
 	if (0)
-		printf ("PM1a control port is 0x%X\n", pm1a_cnt_ioaddr);
+		debug_dump_reg (&acpi_reg_pm1a_cnt);
 	q = find_entry_in_rsdt (FACP_SIGNATURE);
 	ASSERT (NFACS_ADDR >= 2 + 2);
 	get_facs_addr (&facs_addr[2], q);
@@ -1139,7 +1229,6 @@ acpi_init_global (void)
 	ASSERT (NFACS_ADDR >= 4 + 2);
 	get_facs_addr (&facs_addr[4], q);
 	remove_dup_facs_addr (facs_addr, NFACS_ADDR);
-	pm1a_cnt_found = true;
 	save_mcfg ();
 }
 
