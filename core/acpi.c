@@ -206,13 +206,13 @@ struct acpi_reg {
 static struct acpi_reg acpi_reg_pm1a_cnt = { "ACPI_REG_PM1A_CNT" };
 static struct acpi_reg acpi_reg_pm_tmr = { "ACPI_REG_PM_TMR" };
 static struct acpi_reg acpi_reg_reset = { "ACPI_REG_RESET" };
+static struct acpi_reg acpi_reg_smi_cmd = { "ACPI_REG_SMI_CMD" };
 
 static bool rsdp_found;
 static struct rsdpv2 rsdp_copy;
 static bool rsdp1_found;
 static struct rsdp rsdp1_copy;
 static u64 facs_addr[NFACS_ADDR];
-static u32 smi_cmd;
 static u8 reset_value;
 #ifdef ACPI_DSDT
 static u32 dsdt_addr;
@@ -706,9 +706,13 @@ def:
 static enum ioact
 acpi_smi_monitor (enum iotype type, u32 port, void *data)
 {
+	u32 smi_cmd;
+
 	if (current->acpi.smi_hook_disabled)
 		panic ("SMI monitor called while SMI hook is disabled");
 	current->vmctl.paging_map_1mb ();
+	if (!acpi_reg_get_ioaddr (&acpi_reg_smi_cmd, &smi_cmd))
+		panic ("%s(): SMI_CMD not found", __func__);
 	current->vmctl.iopass (smi_cmd, true);
 	current->acpi.smi_hook_disabled = true;
 	return IOACT_RERUN;
@@ -717,9 +721,13 @@ acpi_smi_monitor (enum iotype type, u32 port, void *data)
 void
 acpi_smi_hook (void)
 {
+	u32 smi_cmd;
+
 	if (!current->vcpu0->acpi.iopass)
 		return;
 	if (current->acpi.smi_hook_disabled) {
+		if (!acpi_reg_get_ioaddr (&acpi_reg_smi_cmd, &smi_cmd))
+			panic ("%s(): SMI_CMD not found", __func__);
 		current->vmctl.iopass (smi_cmd, false);
 		current->acpi.smi_hook_disabled = false;
 	}
@@ -728,11 +736,11 @@ acpi_smi_hook (void)
 void
 acpi_iohook (void)
 {
-	u32 pm1a_cnt_ioaddr;
+	u32 pm1a_cnt_ioaddr, smi_cmd;
 
 	if (acpi_reg_get_ioaddr (&acpi_reg_pm1a_cnt, &pm1a_cnt_ioaddr))
 		set_iofunc (pm1a_cnt_ioaddr, acpi_io_monitor);
-	if (smi_cmd > 0 && smi_cmd <= 0xFFFF) {
+	if (acpi_reg_get_ioaddr (&acpi_reg_smi_cmd, &smi_cmd)) {
 		current->vcpu0->acpi.iopass = true;
 		set_iofunc (smi_cmd, acpi_smi_monitor);
 	}
@@ -918,6 +926,13 @@ get_reset_info (struct facp *q)
 
 	if (!reset_info_ok)
 		acpi_reg_skip_init_log (&acpi_reg_reset);
+}
+
+static void
+get_smi_cmd_info (struct facp *q)
+{
+	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->smi_cmd))
+		get_reg_info_with_io (&acpi_reg_smi_cmd, q->smi_cmd, 4);
 }
 
 void
@@ -1220,7 +1235,7 @@ acpi_init_global (void)
 	ASSERT (NFACS_ADDR >= 0 + 2);
 	get_facs_addr (&facs_addr[0], q);
 	get_reset_info (q);
-	smi_cmd = q->smi_cmd;
+	get_smi_cmd_info (q);
 	if (0)
 		debug_dump (q, q->header.length);
 	if (0)
