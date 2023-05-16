@@ -100,7 +100,7 @@ struct gas {
 	u8 address_space_id;
 	u8 register_bit_width;
 	u8 register_bit_offset;
-	u8 access_size;
+	u8 access_size; /* ACPI 3.0+, undefined(0) otherwise */
 	u64 address;
 } __attribute__ ((packed));
 
@@ -183,6 +183,28 @@ struct mcfg {
 	} __attribute__ ((packed)) configs[1];
 } __attribute__ ((packed));
 
+enum acpi_reg_check {
+	ACPI_REG_CHECK_NULL, /* Do not change ACPI_REG_CHECK_NULL position */
+	ACPI_REG_CHECK_SPACE_ID_UNSUPPORTED,
+	ACPI_REG_CHECK_BIT_WIDTH_ZERO,
+	ACPI_REG_CHECK_BIT_OFFSET,
+	ACPI_REG_CHECK_UNKNOWN_ACCESS_SIZE,
+	ACPI_REG_CHECK_MEM_INVALID_ADDR,
+	ACPI_REG_CHECK_IO_INVALID_ADDR,
+	ACPI_REG_CHECK_OK_MEM,
+	ACPI_REG_CHECK_OK_IO,
+};
+
+struct acpi_reg {
+	char *name;
+	enum acpi_reg_check result;
+	u8 size;
+	u64 addr;
+	void *mapped_addr;
+};
+
+static struct acpi_reg acpi_reg_reset = { "ACPI_REG_RESET" };
+
 static bool rsdp_found;
 static struct rsdpv2 rsdp_copy;
 static bool rsdp1_found;
@@ -192,7 +214,6 @@ static u32 pm1a_cnt_ioaddr;
 static u32 pm_tmr_ioaddr;
 static u64 facs_addr[NFACS_ADDR];
 static u32 smi_cmd;
-static struct gas reset_reg;
 static u8 reset_value;
 #ifdef ACPI_DSDT
 static u32 dsdt_addr;
@@ -222,6 +243,82 @@ acpi_mapmem (u64 addr, int len)
 	oldmap = mapmem_hphys (addr, len, MAPMEM_WRITE);
 	ASSERT (oldmap);
 	return oldmap;
+}
+
+static bool
+acpi_reg_write (struct acpi_reg *r, u64 value)
+{
+	switch (r->result) {
+	case ACPI_REG_CHECK_OK_MEM:
+		memcpy (r->mapped_addr, &value, r->size);
+		break;
+	case ACPI_REG_CHECK_OK_IO:
+		switch (r->size) {
+		case 1:
+			out8 (r->addr, value);
+			break;
+		case 2:
+			out16 (r->addr, value);
+			break;
+		case 4:
+			out32 (r->addr, value);
+			break;
+		default:
+			return false;
+		}
+		break;
+	default:
+		return false;
+	}
+
+	return true;
+}
+
+static void
+acpi_reg_skip_init_log (struct acpi_reg *r)
+{
+	printf ("acpi: skip %s initialization\n", r->name);
+}
+
+static void
+get_reg_info_with_gas_log (struct acpi_reg *r, struct gas *g)
+{
+	switch (r->result) {
+	case ACPI_REG_CHECK_NULL:
+		printf ("acpi: %s gas structure is NULL\n", r->name);
+		break;
+	case ACPI_REG_CHECK_SPACE_ID_UNSUPPORTED:
+		printf ("acpi: %s gas unsupported address space id %u\n",
+			r->name, g->address_space_id);
+		break;
+	case ACPI_REG_CHECK_BIT_WIDTH_ZERO:
+		printf ("acpi: %s gas unexpected bit width zero\n", r->name);
+		break;
+	case ACPI_REG_CHECK_BIT_OFFSET:
+		printf ("acpi: %s gas unexpected bit offset %u\n", r->name,
+			g->register_bit_offset);
+		break;
+	case ACPI_REG_CHECK_UNKNOWN_ACCESS_SIZE:
+		printf ("acpi: %s gas structure unknown access size %u\n",
+			r->name, g->access_size);
+		break;
+	case ACPI_REG_CHECK_MEM_INVALID_ADDR:
+		printf ("acpi: %s gas MEM invalid address 0x%llX\n", r->name,
+			g->address);
+		break;
+	case ACPI_REG_CHECK_IO_INVALID_ADDR:
+		printf ("acpi: %s gas IO invalid address 0x%llX\n", r->name,
+			g->address);
+		break;
+	case ACPI_REG_CHECK_OK_MEM:
+	case ACPI_REG_CHECK_OK_IO:
+		/* Do nothing */
+		break;
+	default:
+		printf ("acpi: %s gas unknown result %u\n", r->name,
+			r->result);
+		break;
+	}
 }
 
 static u64
@@ -571,6 +668,94 @@ acpi_iohook (void)
 	}
 }
 
+static bool
+ioaddr_is_valid (u32 ioaddr)
+{
+	return ioaddr <= 0xFFFF;
+}
+
+static bool
+get_reg_info_with_gas (struct acpi_reg *r, struct gas *g, u32 default_size)
+{
+	u32 reg_size, res_ok;
+
+	/* We validate GAS structure first */
+	if (g->address_space_id == 0 && g->register_bit_width == 0 &&
+	    g->register_bit_offset == 0 && g->access_size == 0 &&
+	    g->address == 0) {
+		r->result = ACPI_REG_CHECK_NULL;
+		goto end;
+	}
+	switch (g->address_space_id) {
+	case ADDRESS_SPACE_ID_MEM:
+		if (g->address == 0) {
+			r->result = ACPI_REG_CHECK_MEM_INVALID_ADDR;
+			goto end;
+		}
+		res_ok = ACPI_REG_CHECK_OK_MEM;
+		break;
+	case ADDRESS_SPACE_ID_IO:
+		if (!ioaddr_is_valid (g->address)) {
+			r->result = ACPI_REG_CHECK_IO_INVALID_ADDR;
+			goto end;
+		}
+		res_ok = ACPI_REG_CHECK_OK_IO;
+		break;
+	default:
+		/* We currently support only MMIO and IO */
+		r->result = ACPI_REG_CHECK_SPACE_ID_UNSUPPORTED;
+		goto end;
+	}
+	if (g->address_space_id != ADDRESS_SPACE_ID_MEM &&
+	    g->address_space_id != ADDRESS_SPACE_ID_IO) {
+		/* We currently support only MMIO and IO */
+		r->result = ACPI_REG_CHECK_SPACE_ID_UNSUPPORTED;
+		goto end;
+	}
+	if (g->register_bit_width == 0) {
+		r->result = ACPI_REG_CHECK_BIT_WIDTH_ZERO;
+		goto end;
+	}
+	if (g->register_bit_offset != 0) {
+		r->result = ACPI_REG_CHECK_BIT_OFFSET;
+		goto end;
+	}
+
+	/* We validate GAS access_size info next */
+	switch (g->access_size) {
+	case ACCESS_SIZE_UNDEFINED: /* For old ACPI 2.0 or earlier */
+		reg_size = default_size;
+		break;
+	case ACCESS_SIZE_BYTE:
+		reg_size = 1;
+		break;
+	case ACCESS_SIZE_WORD:
+		reg_size = 2;
+		break;
+	case ACCESS_SIZE_DWORD:
+		reg_size = 4;
+		break;
+	case ACCESS_SIZE_QWORD:
+		reg_size = 8;
+		break;
+	default:
+		r->result = ACPI_REG_CHECK_UNKNOWN_ACCESS_SIZE;
+		goto end;
+	}
+
+	r->result = res_ok;
+	r->size	= reg_size;
+	r->addr = g->address;
+	if (res_ok == ACPI_REG_CHECK_OK_MEM)
+		r->mapped_addr = mapmem_hphys (r->addr, reg_size,
+					       MAPMEM_WRITE | MAPMEM_PCD |
+					       MAPMEM_PWT);
+end:
+	get_reg_info_with_gas_log (r, g);
+	return r->result == ACPI_REG_CHECK_OK_MEM ||
+	       r->result == ACPI_REG_CHECK_OK_IO;
+}
+
 static void
 get_pm1a_cnt_ioaddr (struct facp *q)
 {
@@ -622,87 +807,27 @@ get_facs_addr (u64 facs[2], struct facp *facp)
 }
 
 static void
-get_reset_info (struct facp *facp)
+get_reset_info (struct facp *q)
 {
-	if (IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->flags) &&
-	    (facp->flags & FACP_FLAGS_RESET_REG_SUP_BIT) &&
-	    IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->reset_reg) &&
-	    IS_STRUCT_SIZE_OK (facp->header.length, facp, facp->reset_value)) {
-		reset_reg = facp->reset_reg;
-		reset_value = facp->reset_value;
-	}
-}
+	bool reset_info_ok = false;
 
-static bool
-gas_write (struct gas *addr, u64 value)
-{
-	void *p;
-	int len;
-
-	switch (addr->address_space_id) {
-	case ADDRESS_SPACE_ID_MEM:
-		switch (addr->access_size) {
-		case ACCESS_SIZE_UNDEFINED:
-		case ACCESS_SIZE_BYTE:
-			len = 1;
-			break;
-		case ACCESS_SIZE_WORD:
-			len = 2;
-			break;
-		case ACCESS_SIZE_DWORD:
-			len = 4;
-			break;
-		case ACCESS_SIZE_QWORD:
-			len = 8;
-			break;
-		default:
-			return false;
-		}
-		p = mapmem_hphys (addr->address, len, MAPMEM_WRITE |
-				  MAPMEM_PCD | MAPMEM_PWT);
-		memcpy (p, &value, len);
-		unmapmem (p, len);
-		return true;
-	case ADDRESS_SPACE_ID_IO:
-		switch (addr->access_size) {
-		case ACCESS_SIZE_UNDEFINED:
-		case ACCESS_SIZE_BYTE:
-			out8 (addr->address, value);
-			break;
-		case ACCESS_SIZE_WORD:
-			out16 (addr->address, value);
-			break;
-		case ACCESS_SIZE_DWORD:
-			out32 (addr->address, value);
-			break;
-		case ACCESS_SIZE_QWORD:
-		default:
-			return false;
-		}
-		return true;
-	default:
-		return false;
+	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->flags) &&
+	    (q->flags & FACP_FLAGS_RESET_REG_SUP_BIT) &&
+	    IS_STRUCT_SIZE_OK (q->header.length, q, q->reset_reg) &&
+	    IS_STRUCT_SIZE_OK (q->header.length, q, q->reset_value)) {
+		reset_info_ok = get_reg_info_with_gas (&acpi_reg_reset,
+						       &q->reset_reg, 1);
+		reset_value = q->reset_value;
 	}
+
+	if (!reset_info_ok)
+		acpi_reg_skip_init_log (&acpi_reg_reset);
 }
 
 void
 acpi_reset (void)
 {
-	if (reset_reg.register_bit_width != 8) /* width must be 8 */
-		return;
-	if (reset_reg.register_bit_offset != 0) /* offset must be 0 */
-		return;
-	/* The address space ID must be system memory, system I/O or
-	 * PCI configuration space. PCI configuration space support is
-	 * not yet implemented. */
-	switch (reset_reg.address_space_id) {
-	case ADDRESS_SPACE_ID_MEM:
-	case ADDRESS_SPACE_ID_IO:
-		gas_write (&reset_reg, reset_value);
-		break;
-	default:
-		break;
-	}
+	acpi_reg_write (&acpi_reg_reset, reset_value);
 }
 
 void
