@@ -894,18 +894,16 @@ get_pm_tmr_info (struct facp *q)
 }
 
 static void
-get_facs_addr (u64 facs[2], struct facp *facp)
+get_facs_addr (u64 facs[2], struct facp *q)
 {
 	facs[0] = 0;
 	facs[1] = 0;
-	if (!facp)
+	if (!q)
 		return;
-	if (IS_STRUCT_SIZE_OK (facp->header.length, facp,
-			       facp->x_firmware_ctrl))
-		facs[0] = facp->x_firmware_ctrl;
-	if (IS_STRUCT_SIZE_OK (facp->header.length, facp,
-			       facp->firmware_ctrl))
-		facs[1] = facp->firmware_ctrl;
+	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->x_firmware_ctrl))
+		facs[0] = q->x_firmware_ctrl;
+	if (IS_STRUCT_SIZE_OK (q->header.length, q, q->firmware_ctrl))
+		facs[1] = q->firmware_ctrl;
 	else
 		panic ("ACPI FACP is too short");
 }
