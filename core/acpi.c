@@ -28,6 +28,7 @@
  */
 
 #include "acpi.h"
+#include "acpi_constants.h"
 #include "acpi_dsdt.h"
 #include "ap.h"
 #include "assert.h"
@@ -59,7 +60,7 @@
 #define SSDT_SIGNATURE		"SSDT"
 #define PM1_CNT_SLP_TYPX_MASK	0x1C00
 #define PM1_CNT_SLP_TYPX_SHIFT	10
-#define PM1_CNT_SLP_EN_BIT	0x2000
+#define PM1_CNT_SLP_EN_BIT	ACPI_PM1_CNT_SLP_EN_BIT
 #define IS_STRUCT_SIZE_OK(l, h, m) \
 	((l) >= ((u8 *)&(m) - (u8 *)(h)) + sizeof (m))
 #define ACCESS_SIZE_UNDEFINED	0
@@ -321,6 +322,24 @@ acpi_reg_get_ioaddr (struct acpi_reg *r, u32 *ioaddr)
 	}
 
 	return ret;
+}
+
+bool
+acpi_reg_pm1a_cnt_write (u64 val)
+{
+	return acpi_reg_write (&acpi_reg_pm1a_cnt, val);
+}
+
+bool
+acpi_reg_get_pm1a_cnt_ioaddr (u32 *ioaddr)
+{
+	return acpi_reg_get_ioaddr (&acpi_reg_pm1a_cnt, ioaddr);
+}
+
+bool
+acpi_reg_get_smi_cmd_ioaddr (u32 *ioaddr)
+{
+	return acpi_reg_get_ioaddr (&acpi_reg_smi_cmd, ioaddr);
 }
 
 static void
@@ -614,61 +633,23 @@ debug_dump_reg (struct acpi_reg *r)
 static bool
 acpi_pm1_sleep (u32 v)
 {
-	struct facs *facs;
 	u32 new_waking_vector;
 	u32 old_waking_vector;
-	int i;
-#ifdef ACPI_DSDT
-	bool m[6];
-	u8 n;
-#endif
+	bool error;
 
-#ifdef ACPI_DSDT
-	n = (v & PM1_CNT_SLP_TYPX_MASK) >> PM1_CNT_SLP_TYPX_SHIFT;
-	for (i = 0; i <= 5; i++) {
-		if (acpi_dsdt_system_state[i][0] &&
-		    acpi_dsdt_system_state[i][1] == n)
-			m[i] = true;
-		else
-			m[i] = false;
-	}
-	if (!m[2] && !m[3])
+	if (!acpi_dsdt_pm1_cnt_slp_typx_check (v))
 		return false;
-#endif
-	old_waking_vector = 0;
-	for (i = 0; i < NFACS_ADDR; i++) {
-		if (!facs_addr[i])
-			continue;
-		facs = acpi_mapmem (facs_addr[i], sizeof *facs);
-		if (IS_STRUCT_SIZE_OK (facs->length, facs,
-				       facs->x_firmware_waking_vector))
-			facs->x_firmware_waking_vector = 0;
-		if (!IS_STRUCT_SIZE_OK (facs->length, facs,
-					facs->firmware_waking_vector)) {
-			printf ("FACS ERROR\n");
-			return true;
-		}
-		if (!facs->firmware_waking_vector)
-			continue;
-		if (!old_waking_vector)
-			old_waking_vector = facs->firmware_waking_vector;
-		else if (old_waking_vector != facs->firmware_waking_vector)
-			printf ("Multiple waking vector found\n");
-	}
+	ASSERT (acpi_get_waking_vector (&old_waking_vector, &error));
+	if (error) /* In case of FACS error */
+		return true;
 	new_waking_vector = prepare_for_sleep (old_waking_vector);
-	for (i = 0; i < NFACS_ADDR; i++) {
-		if (!facs_addr[i])
-			continue;
-		facs = acpi_mapmem (facs_addr[i], sizeof *facs);
-		if (!old_waking_vector || facs->firmware_waking_vector)
-			facs->firmware_waking_vector = new_waking_vector;
-	}
+	acpi_set_waking_vector (new_waking_vector, old_waking_vector);
 	get_cpu_time ();	/* update lastcputime */
 	/* Flush all write back caches including the internal caches
 	   on the other processors, or the processors will lose them
 	   and the VMM will not work correctly. */
 	mm_flush_wb_cache ();
-	acpi_reg_write (&acpi_reg_pm1a_cnt, v);
+	acpi_reg_pm1a_cnt_write (v);
 	cancel_sleep ();
 	return true;
 }
@@ -679,7 +660,7 @@ acpi_io_monitor (enum iotype type, u32 port, void *data)
 	u32 v;
 	u32 pm1a_cnt_ioaddr;
 
-	if (acpi_reg_get_ioaddr (&acpi_reg_pm1a_cnt, &pm1a_cnt_ioaddr) &&
+	if (acpi_reg_get_pm1a_cnt_ioaddr (&pm1a_cnt_ioaddr) &&
 	    port == pm1a_cnt_ioaddr) {
 		switch (type) {
 		case IOTYPE_OUTB:
@@ -694,7 +675,7 @@ acpi_io_monitor (enum iotype type, u32 port, void *data)
 		default:
 			goto def;
 		}
-		if (v & PM1_CNT_SLP_EN_BIT)
+		if (v & ACPI_PM1_CNT_SLP_EN_BIT)
 			if (acpi_pm1_sleep (v))
 				return IOACT_CONT;
 		goto def;
@@ -711,8 +692,7 @@ acpi_smi_monitor (enum iotype type, u32 port, void *data)
 	if (current->acpi.smi_hook_disabled)
 		panic ("SMI monitor called while SMI hook is disabled");
 	current->vmctl.paging_map_1mb ();
-	if (!acpi_reg_get_ioaddr (&acpi_reg_smi_cmd, &smi_cmd))
-		panic ("%s(): SMI_CMD not found", __func__);
+	ASSERT (acpi_reg_get_smi_cmd_ioaddr (&smi_cmd));
 	current->vmctl.iopass (smi_cmd, true);
 	current->acpi.smi_hook_disabled = true;
 	return IOACT_RERUN;
@@ -726,8 +706,7 @@ acpi_smi_hook (void)
 	if (!current->vcpu0->acpi.iopass)
 		return;
 	if (current->acpi.smi_hook_disabled) {
-		if (!acpi_reg_get_ioaddr (&acpi_reg_smi_cmd, &smi_cmd))
-			panic ("%s(): SMI_CMD not found", __func__);
+		ASSERT (acpi_reg_get_smi_cmd_ioaddr (&smi_cmd));
 		current->vmctl.iopass (smi_cmd, false);
 		current->acpi.smi_hook_disabled = false;
 	}
@@ -738,9 +717,9 @@ acpi_iohook (void)
 {
 	u32 pm1a_cnt_ioaddr, smi_cmd;
 
-	if (acpi_reg_get_ioaddr (&acpi_reg_pm1a_cnt, &pm1a_cnt_ioaddr))
+	if (acpi_reg_get_pm1a_cnt_ioaddr (&pm1a_cnt_ioaddr))
 		set_iofunc (pm1a_cnt_ioaddr, acpi_io_monitor);
-	if (acpi_reg_get_ioaddr (&acpi_reg_smi_cmd, &smi_cmd)) {
+	if (acpi_reg_get_smi_cmd_ioaddr (&smi_cmd)) {
 		current->vcpu0->acpi.iopass = true;
 		set_iofunc (smi_cmd, acpi_smi_monitor);
 	}
@@ -1191,6 +1170,84 @@ acpi_modify_table (char *signature, u64 address)
 			modify_acpi_table_xsdt (p, signature, address);
 			unmapmem (p, len);
 		}
+	}
+}
+
+bool
+acpi_dsdt_pm1_cnt_slp_typx_check (u32 v)
+{
+#ifdef ACPI_DSDT
+	int i;
+	bool m[6];
+	u8 n;
+
+	n = (v & PM1_CNT_SLP_TYPX_MASK) >> PM1_CNT_SLP_TYPX_SHIFT;
+	for (i = 0; i <= 5; i++) {
+	if (acpi_dsdt_system_state[i][0] &&
+	    acpi_dsdt_system_state[i][1] == n)
+		m[i] = true;
+	else
+		m[i] = false;
+	}
+	if (!m[2] && !m[3])
+		return false;
+#endif
+	return true;
+}
+
+bool
+acpi_get_waking_vector (u32 *old_waking_vector, bool *error)
+{
+	struct facs *facs;
+	int i;
+	u32 owv;
+	bool err;
+
+	if (!old_waking_vector || !error)
+		return false;
+
+	owv = 0;
+	err = false;
+	for (i = 0; i < NFACS_ADDR; i++) {
+		if (!facs_addr[i])
+			continue;
+		facs = acpi_mapmem (facs_addr[i], sizeof *facs);
+		if (IS_STRUCT_SIZE_OK (facs->length, facs,
+				       facs->x_firmware_waking_vector))
+		facs->x_firmware_waking_vector = 0;
+		if (!IS_STRUCT_SIZE_OK (facs->length, facs,
+					facs->firmware_waking_vector)) {
+			printf ("FACS ERROR\n");
+			err = true;
+			break;
+		}
+		if (!facs->firmware_waking_vector)
+			continue;
+		if (!owv)
+			owv = facs->firmware_waking_vector;
+		else if (owv != facs->firmware_waking_vector)
+			printf ("Multiple waking vector found\n");
+	}
+
+	if (!err)
+		*old_waking_vector = owv;
+	*error = err;
+
+	return true;
+}
+
+void
+acpi_set_waking_vector (u32 new_waking_vector, u32 old_waking_vector_ref)
+{
+	struct facs *facs;
+	int i;
+
+	for (i = 0; i < NFACS_ADDR; i++) {
+		if (!facs_addr[i])
+			continue;
+		facs = acpi_mapmem (facs_addr[i], sizeof *facs);
+		if (!old_waking_vector_ref || facs->firmware_waking_vector)
+			facs->firmware_waking_vector = new_waking_vector;
 	}
 }
 
