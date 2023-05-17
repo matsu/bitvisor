@@ -72,3 +72,4 @@ objs-1 += vt_shadow_vt.o
 objs-1 += mmioclr.o
 objs-1 += qsort.o
 objs-1 += acpi_dmar.o
+objs-1 += acpi_iohook.o
