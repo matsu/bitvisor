@@ -340,8 +340,6 @@ struct aq {
 	struct aq_tx_desc_reg *tx_desc_regs;
 	struct aq_rx_desc_reg *rx_desc_regs;
 
-	u32 tx_free_descs;
-
 	u32 tx_sw_tail;
 	u32 tx_sw_head;
 	u32 rx_sw_tail;
@@ -477,19 +475,26 @@ aq_pause_clear (struct aq *aq)
 	spinlock_unlock (&aq->intr_lock);
 }
 
+static u32
+calculate_tx_usable_descs (struct aq *aq)
+{
+	/*
+	 * According to the spec, software controls tail to (head - 1) index
+	 * positions only. While we have AQ_DESC_NUM to use, we can fill upto
+	 * AQ_DESC_NUM - 1 only. Otherwise, it causes wrapping when updating
+	 * the tail register.
+	 */
+	u32 used = ((aq->tx_sw_tail + AQ_DESC_NUM) - aq->tx_sw_head) %
+		   AQ_DESC_NUM;
+	return AQ_DESC_NUM - used - 1;
+}
+
 static void
 do_xmit_reclaim (struct aq *aq)
 {
-	u32 hw_head, free_descs;
-
-	if (aq->tx_free_descs >= AQ_XMIT_WATERMARK)
-		return;
-
-	hw_head = aq->tx_desc_regs->hdr_ptr & AQ_TX_DMA_DESC_HDR_MASK;
-	free_descs = ((hw_head + AQ_DESC_NUM) - aq->tx_sw_head) % AQ_DESC_NUM;
-	aq->tx_sw_head = hw_head;
-	aq->tx_free_descs += free_descs;
-	ASSERT (aq->tx_free_descs <= AQ_DESC_NUM);
+	if (calculate_tx_usable_descs (aq) < AQ_XMIT_WATERMARK)
+		aq->tx_sw_head = aq->tx_desc_regs->hdr_ptr &
+				 AQ_TX_DMA_DESC_HDR_MASK;
 }
 
 /* Get called during polling/interrupt clear */
@@ -504,18 +509,19 @@ end:
 	spinlock_unlock (&aq->tx_lock);
 }
 
-static int
-aq_xmit_ok (struct aq *aq, uint min_n_descs)
+static void
+aq_xmit_limit_packets (struct aq *aq, uint *n_packets)
 {
-	int ok = 1;
+	uint final_tx_usable_descs;
+	uint expected_n_packets = *n_packets;
+	uint cur_tx_usable_descs = calculate_tx_usable_descs (aq);
 
-	if (aq->tx_free_descs < min_n_descs) {
+	if (cur_tx_usable_descs < expected_n_packets) {
 		do_xmit_reclaim (aq);
-		if (aq->tx_free_descs < min_n_descs)
-			ok = 0;
+		final_tx_usable_descs = calculate_tx_usable_descs (aq);
+		if (final_tx_usable_descs < expected_n_packets)
+			*n_packets = final_tx_usable_descs;
 	}
-
-	return ok;
 }
 
 static void
@@ -535,8 +541,6 @@ aq_xmit_fill (struct aq *aq, void *packet, u64 packet_size)
 					     AQ_TX_DESC_LAST (1) |
 					     AQ_TX_DESC_PAY_LEN (packet_size);
 	aq->tx_sw_tail = (sw_tail + 1) % AQ_DESC_NUM;
-	ASSERT (aq->tx_free_descs > 0);
-	aq->tx_free_descs--;
 }
 
 static void
@@ -638,8 +642,7 @@ send_physnic (void *handle,
 	if (!aq->tx_ready || aq->pause)
 		goto end;
 
-	if (!aq_xmit_ok (aq, n_packets))
-		n_packets = aq->tx_free_descs;
+	aq_xmit_limit_packets (aq, &n_packets);
 
 	for (i = 0; i < n_packets; i++)
 		aq_xmit_fill (aq, packets[i], packet_sizes[i]);
@@ -1152,7 +1155,6 @@ aq_start_tx (struct aq *aq)
 		aq->tx_ring[i].fmt.buf.flags = 0x0;
 	}
 
-	aq->tx_free_descs = AQ_DESC_NUM;
 	tx_desc_reg = &aq->tx_desc_regs[0];
 	tx_desc_reg->ring_base_lo = aq->tx_ring_phys & 0xFFFFFFFF;
 	tx_desc_reg->ring_base_hi = (aq->tx_ring_phys >> 32) & 0xFFFFFFFF;
