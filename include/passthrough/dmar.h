@@ -47,6 +47,7 @@ struct pci_dev {
 
 struct iommu {
         u64 reg;              /* register base address of the unit = drhd->address */
+	void *regmap;
         u32 gcmd;             /* maintaining TE field */
         u64 cap;              /* capability register */
         u64 ecap;             /* extended capability register */

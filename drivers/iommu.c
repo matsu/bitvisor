@@ -30,10 +30,6 @@
 #include <common.h>
 #include <core.h>
 #include "passthrough/vtd.h"
-#if defined(PAGESIZE)
-#undef PAGESIZE
-#endif
-#include "../core/mm.h"
 #include "../core/include/arch/vmm_mem.h"
 #include "passthrough/iodom.h"
 #include "passthrough/intel-iommu.h"
@@ -97,6 +93,18 @@ static void clflush_seq(struct iommu *iommu, void *addr, int size)
 
 #define inval_cache_dw(iommu, addr) clflush_seq(iommu, addr, 8)
 #define inval_cache_pg(iommu, addr) clflush_seq(iommu, addr, PAGESIZE)
+
+static void
+read_iommu_reg (struct iommu *iommu, u32 offset, void *buf, int len)
+{
+	memcpy (buf, iommu->regmap + offset, len);
+}
+
+static void
+write_iommu_reg (struct iommu *iommu, u32 offset, u64 val, int len)
+{
+	memcpy (iommu->regmap + offset, &val, len);
+}
 
 /* Setup device context information */
 static struct context_entry *devid_to_context(struct iommu *iommu, u8 bus, u8 devfn)
@@ -226,11 +234,11 @@ static void gcmd_wbf(struct iommu *iommu)
 	val = iommu->gcmd | GCMD_WBF;
 	
 	spinlock_lock(&iommu->reg_lock);
-	write_hphys_l(iommu->reg+ GCMD_REG, val, MAPMEM_UC);
+	write_iommu_reg (iommu, GCMD_REG, val, 4);
 	
 	// wait until completion
 	for (;;) {
-		read_hphys_l(iommu->reg+ GSTS_REG, &val, MAPMEM_UC);
+		read_iommu_reg (iommu, GSTS_REG, &val, 4);
 		if (!(val & GSTS_WBFS))
 			break;
 		asm_rep_and_nop();
@@ -244,11 +252,11 @@ static int invalidate_context_cache(struct iommu *iommu)
 	u64 val = CCMD_GLOBAL_INVL | CCMD_ICC;
 	
 	spinlock_lock(&iommu->reg_lock);
-	write_hphys_q(iommu->reg+ CCMD_REG, val, MAPMEM_UC);
+	write_iommu_reg (iommu, CCMD_REG, val, 8);
 	
 	// wait until complettion
 	for (;;) {
-		read_hphys_q(iommu->reg+ CCMD_REG, &val, MAPMEM_UC);
+		read_iommu_reg (iommu, CCMD_REG, &val, 8);
 		if (!(val & CCMD_ICC))
 			break;
 		asm_rep_and_nop();
@@ -269,11 +277,11 @@ static int flush_iotlb_global(struct iommu *iommu)
 	val = IOTLB_FLUSH_GLOBAL|IOTLB_IVT|IOTLB_DRAIN_READ|IOTLB_DRAIN_WRITE;
 	
 	spinlock_lock(&iommu->reg_lock);
-	write_hphys_q(iommu->reg+ iotlb_reg_offset + 8, val, MAPMEM_UC);
+	write_iommu_reg (iommu, iotlb_reg_offset + 8, val, 8);
 	
 	// wait until completion
 	for (;;) {
-		read_hphys_q(iommu->reg+ iotlb_reg_offset + 8, &val, MAPMEM_UC);
+		read_iommu_reg (iommu, iotlb_reg_offset + 8, &val, 8);
 		if (!(val & IOTLB_IVT))
 			break;
 		asm_rep_and_nop();
@@ -318,14 +326,14 @@ static int gcmd_srtp(struct iommu *iommu)
 	}
 	
 	spinlock_lock(&iommu->reg_lock);
-	write_hphys_q(iommu->reg+ RTADDR_REG, iommu->root_entry_phys, MAPMEM_UC);
+	write_iommu_reg (iommu, RTADDR_REG, iommu->root_entry_phys, 8);
 	
 	cmd = iommu->gcmd | GCMD_SRTP;
-	write_hphys_l(iommu->reg+ GCMD_REG, cmd, MAPMEM_UC);
+	write_iommu_reg (iommu, GCMD_REG, cmd, 4);
 	
 	// wait until completion
 	for (;;) {
-		read_hphys_l(iommu->reg+ GSTS_REG, &stat, MAPMEM_UC);
+		read_iommu_reg (iommu, GSTS_REG, &stat, 4);
 		if (stat & GSTS_RTPS)
 			break;
 		asm_rep_and_nop();
@@ -343,10 +351,10 @@ static int gcmd_te(struct iommu *iommu)
 	spinlock_lock(&iommu->reg_lock);
 	// Enable translation
 	iommu->gcmd |= GCMD_TE;
-	write_hphys_l(iommu->reg+ GCMD_REG, iommu->gcmd, MAPMEM_UC);
+	write_iommu_reg (iommu, GCMD_REG, iommu->gcmd, 4);
 	// Wait until completion
 	for (;;) {
-		read_hphys_l(iommu->reg+ GSTS_REG, &stat, MAPMEM_UC);
+		read_iommu_reg (iommu, GSTS_REG, &stat, 4);
 		if (stat & GSTS_TES)
 			break;
 		asm_rep_and_nop();
@@ -365,10 +373,10 @@ static struct iommu *alloc_iommu(struct acpi_drhd_u *drhd)
 		return NULL;
 	memset(iommu, 0, sizeof(struct iommu));
 	
-	iommu->reg = drhd->address;
-	
-	read_hphys_q(iommu->reg+ CAP_REG, &iommu->cap, MAPMEM_UC);
-	read_hphys_q(iommu->reg+ ECAP_REG, &iommu->ecap, MAPMEM_UC);
+	iommu->regmap = mapmem_hphys (drhd->address, REG_SIZE,
+				      MAPMEM_WRITE | MAPMEM_UC);
+	read_iommu_reg (iommu, CAP_REG, &iommu->cap, 8);
+	read_iommu_reg (iommu, ECAP_REG, &iommu->ecap, 8);
 	
 	spinlock_init(&iommu->unit_lock);
 	spinlock_init(&iommu->reg_lock);
@@ -559,12 +567,12 @@ static void clear_fault_bits(struct iommu *iommu)
 	u64 val;
 	u64 fro; // Fault Register Offset
 	
-	read_hphys_q(iommu->reg+CAP_REG, &val, MAPMEM_UC);
+	read_iommu_reg (iommu, CAP_REG, &val, 8);
 	fro = cap_fro(val);
-	read_hphys_q(iommu->reg+fro+0x8, &val, MAPMEM_UC); // reading upper 64bits of 1st fault recording register
-	write_hphys_q(iommu->reg+fro+0x8, val, MAPMEM_UC);  // writing back to clear fault status
+	read_iommu_reg (iommu, fro + 0x8, &val, 8); // reading upper 64bits of 1st fault recording register
+	write_iommu_reg (iommu, fro + 0x8, val, 8);  // writing back to clear fault status
 	
-	write_hphys_l(iommu->reg+ FSTS_REG, FSTS_MASK, MAPMEM_UC); // Clearing lower 7bits of Fault Status Register
+	write_iommu_reg (iommu, FSTS_REG, FSTS_MASK, 4); // Clearing lower 7bits of Fault Status Register
 }
 
 static int init_iommu(void)
@@ -583,7 +591,7 @@ static int init_iommu(void)
 			return -EIO;
 		}
 		clear_fault_bits(iommu);
-		write_hphys_l(iommu->reg+ FECTL_REG, 0, MAPMEM_UC);  /* clearing IM field */
+		write_iommu_reg (iommu, FECTL_REG, 0, 4);  /* clearing IM field */
 	}
 	return 0;
 }

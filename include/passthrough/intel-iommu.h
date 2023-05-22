@@ -38,6 +38,7 @@
 #define  CCMD_REG   0x28    /* Context command register, 64 bit*/
 #define  FSTS_REG   0x34    /* Fault status register, 32 bit */
 #define  FECTL_REG  0x38    /* Fault event control register, 32 bit */
+#define REG_SIZE 0x1000
 
 /*
  * Decoding Capability Register

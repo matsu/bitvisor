@@ -154,17 +154,17 @@ get_map1g_regions (void)
 static void
 install_int0x15_hook (void)
 {
+	u32 vec, *p;
 	u64 int0x15_vector_phys = 0x15 * 4;
 
 	if (uefi_booted)
 		return;
 
-	/* save old interrupt vector */
-	read_hphys_l (int0x15_vector_phys, &guest_int0x15_orig, 0);
-
-	/* set interrupt vector with the vmm one */
-	write_hphys_l (int0x15_vector_phys, vmm_mem_bios_prepare_e820_mem (),
-		       0);
+	p = mapmem_hphys (int0x15_vector_phys, sizeof *p, MAPMEM_WRITE);
+	guest_int0x15_orig = *p; /* save old interrupt vector */
+	vec = vmm_mem_bios_prepare_e820_mem ();
+	*p = vec; /* set interrupt vector with the vmm one */
+	unmapmem (p, sizeof *p);
 }
 
 static u64

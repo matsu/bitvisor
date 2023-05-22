@@ -60,16 +60,4 @@ void *mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw,
 void mm_process_unmapall (void);
 phys_t mm_process_switch (phys_t switchto);
 
-/* accessing physical memory */
-void read_hphys_b (u64 phys, void *data, u32 attr);
-void write_hphys_b (u64 phys, u32 data, u32 attr);
-void read_hphys_w (u64 phys, void *data, u32 attr);
-void write_hphys_w (u64 phys, u32 data, u32 attr);
-void read_hphys_l (u64 phys, void *data, u32 attr);
-void write_hphys_l (u64 phys, u32 data, u32 attr);
-void read_hphys_q (u64 phys, void *data, u32 attr);
-void write_hphys_q (u64 phys, u64 data, u32 attr);
-bool cmpxchg_hphys_l (u64 phys, u32 *olddata, u32 data, u32 attr);
-bool cmpxchg_hphys_q (u64 phys, u64 *olddata, u64 data, u32 attr);
-
 #endif

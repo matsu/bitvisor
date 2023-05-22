@@ -29,6 +29,7 @@
 
 /* accessing memory by guest-physical address */
 
+#include "assert.h"
 #include "cache.h"
 #include "constants.h"
 #include "current.h"
@@ -38,6 +39,123 @@
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
+
+static void *
+hphys_mapmem (u64 phys, u32 attr, uint len, bool wr)
+{
+	void *p;
+
+	p = mapmem_hphys (phys, len,
+			  (wr ? MAPMEM_WRITE : 0) |
+			  ((attr & PTE_PWT_BIT) ? MAPMEM_PWT : 0) |
+			  ((attr & PTE_PCD_BIT) ? MAPMEM_PCD : 0) |
+			  ((attr & PTE_PAT_BIT) ? MAPMEM_PAT : 0));
+	return p;
+}
+
+static void
+read_hphys_b (u64 phys, void *data, u32 attr)
+{
+	u8 *p;
+
+	p = (u8 *)hphys_mapmem (phys, attr, sizeof *p, false);
+	*(u8 *)data = *p;
+	unmapmem (p, sizeof *p);
+}
+
+static void
+write_hphys_b (u64 phys, u32 data, u32 attr)
+{
+	u8 *p;
+
+	p = (u8 *)hphys_mapmem (phys, attr, sizeof *p, true);
+	*p = data;
+	unmapmem (p, sizeof *p);
+}
+
+static void
+read_hphys_w (u64 phys, void *data, u32 attr)
+{
+	u16 *p;
+
+	p = (u16 *)hphys_mapmem (phys, attr, sizeof *p, false);
+	*(u16 *)data = *p;
+	unmapmem (p, sizeof *p);
+}
+
+static void
+write_hphys_w (u64 phys, u32 data, u32 attr)
+{
+	u16 *p;
+
+	p = (u16 *)hphys_mapmem (phys, attr, sizeof *p, true);
+	*p = data;
+	unmapmem (p, sizeof *p);
+}
+
+static void
+read_hphys_l (u64 phys, void *data, u32 attr)
+{
+	u32 *p;
+
+	p = (u32 *)hphys_mapmem (phys, attr, sizeof *p, false);
+	*(u32 *)data = *p;
+	unmapmem (p, sizeof *p);
+}
+
+static void
+write_hphys_l (u64 phys, u32 data, u32 attr)
+{
+	u32 *p;
+
+	p = (u32 *)hphys_mapmem (phys, attr, sizeof *p, true);
+	*p = data;
+	unmapmem (p, sizeof *p);
+}
+
+static void
+read_hphys_q (u64 phys, void *data, u32 attr)
+{
+	u64 *p;
+
+	p = (u64 *)hphys_mapmem (phys, attr, sizeof *p, false);
+	*(u64 *)data = *p;
+	unmapmem (p, sizeof *p);
+}
+
+static void
+write_hphys_q (u64 phys, u64 data, u32 attr)
+{
+	u64 *p;
+
+	p = (u64 *)hphys_mapmem (phys, attr, sizeof *p, true);
+	*p = data;
+	unmapmem (p, sizeof *p);
+}
+
+static bool
+cmpxchg_hphys_l (u64 phys, u32 *olddata, u32 data, u32 attr)
+{
+	u32 *p;
+	bool r;
+
+	p = (u32 *)hphys_mapmem (phys, attr, sizeof *p, true);
+	r = asm_lock_cmpxchgl (p, olddata, data);
+	unmapmem (p, sizeof *p);
+	return r;
+}
+
+static bool
+cmpxchg_hphys_q (u64 phys, u64 *olddata, u64 data, u32 attr)
+{
+	u64 *p;
+	bool r;
+
+	p = (u64 *)hphys_mapmem (phys, attr, sizeof *p, true);
+	r = asm_lock_cmpxchgq (p, olddata, data);
+	unmapmem (p, sizeof *p);
+	return r;
+}
 
 void
 read_gphys_b (u64 phys, void *data, u32 attr)
