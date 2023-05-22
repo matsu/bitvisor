@@ -40,6 +40,7 @@
 #include "mm.h"
 #include "printf.h"
 #include "string.h"
+#include "sym.h"
 #include "uefi.h"
 
 #define EVT_SIGNAL_EXIT_BOOT_SERVICES 0x00000201

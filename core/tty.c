@@ -41,6 +41,7 @@
 #include "serial.h"
 #include "spinlock.h"
 #include "string.h"
+#include "sym.h"
 #include "tty.h"
 #include "uefi.h"
 #include "vramwrite.h"

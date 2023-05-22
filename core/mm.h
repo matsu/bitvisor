@@ -61,7 +61,6 @@ typedef struct {
 extern u16 e801_fake_ax, e801_fake_bx;
 extern u64 memorysize, vmmsize;
 
-phys_t sym_to_phys (void *sym);
 bool phys_in_vmm (u64 phys);
 bool continuous_sysmem_type_region (phys_t phys, phys_t *start, u64 *len,
 				    u32 *sysmem_type);

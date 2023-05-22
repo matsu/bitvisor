@@ -49,6 +49,7 @@
 #include "printf.h"
 #include "spinlock.h"
 #include "string.h"
+#include "sym.h"
 #include "uefi.h"
 
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
@@ -1561,13 +1562,6 @@ found:
 		break;
 	}
 	spinlock_unlock (&mp->lock);
-}
-
-/* get a physical address of a symbol sym */
-phys_t
-sym_to_phys (void *sym)
-{
-	return ((virt_t)sym) - vmm_mem_start_virt () + vmm_mem_start_phys ();
 }
 
 bool

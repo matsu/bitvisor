@@ -44,6 +44,7 @@
 #include "process_builtin.h"
 #include "process_sysenter.h"
 #include "seg.h"
+#include "sym.h"
 #include "spinlock.h"
 #include "string.h"
 #include "types.h"
