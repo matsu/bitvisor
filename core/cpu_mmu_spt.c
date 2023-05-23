@@ -29,6 +29,7 @@
 
 /* MMU emulation, Shadow Page Tables (SPT) */
 
+#include <core/mm.h>
 #include "acpi.h"
 #include "asm.h"
 #include "constants.h"
@@ -36,12 +37,12 @@
 #include "cpu_mmu_spt.h"
 #include "current.h"
 #include "initfunc.h"
-#include "mm.h"
 #include "mmio.h"
 #include "mmioclr.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "phys.h"
+#include "pmap.h"
 #include "printf.h"
 #include "spinlock.h"
 #include "string.h"

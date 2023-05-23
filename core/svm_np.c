@@ -27,13 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include "cache.h"
 #include "constants.h"
 #include "current.h"
-#include "mm.h"
 #include "mmioclr.h"
 #include "panic.h"
 #include "phys.h"
+#include "pmap.h"
 #include "printf.h"
 #include "string.h"
 #include "svm_np.h"

@@ -38,26 +38,6 @@
 #define MAPMEM_PCD			MAPMEM_PLAT (4)
 #define MAPMEM_PAT			MAPMEM_PLAT (7)
 
-#define PMAP_LEVELS			(sizeof (ulong) == 4 ? 3 : 4)
-#define PDE_PS_OFFSET_MASK		PDE_2M_OFFSET_MASK
-#define PDE_PS_ADDR_MASK		PDE_2M_ADDR_MASK
-
-enum pmap_type {
-	PMAP_TYPE_VMM,
-	PMAP_TYPE_GUEST,
-	PMAP_TYPE_GUEST_ATOMIC,
-};
-
-typedef struct {
-	u64 entry[5];
-	phys_t entryaddr[4];
-	virt_t curaddr;
-	int curlevel;
-	int readlevel;
-	int levels;
-	enum pmap_type type;
-} pmap_t;
-
 int num_of_available_pages (void);
 void mm_flush_wb_cache (void);
 void mm_force_unlock (void);
@@ -79,21 +59,6 @@ void *mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw,
 			     bool pre);
 void mm_process_unmapall (void);
 phys_t mm_process_switch (phys_t switchto);
-
-/* accessing page tables */
-void pmap_open_vmm (pmap_t *m, ulong cr3, int levels);
-void pmap_open_guest (pmap_t *m, ulong cr3, int levels, bool atomic);
-void pmap_close (pmap_t *m);
-
-int pmap_getreadlevel (pmap_t *m);
-void pmap_setlevel (pmap_t *m, int level);
-void pmap_seek (pmap_t *m, virt_t virtaddr, int level);
-u64 pmap_read (pmap_t *m);
-bool pmap_write (pmap_t *m, u64 e, uint attrmask);
-void pmap_clear (pmap_t *m);
-void pmap_autoalloc (pmap_t *m);
-void *pmap_pointer (pmap_t *m);
-void pmap_dump (pmap_t *m);
 
 /* accessing physical memory */
 void read_hphys_b (u64 phys, void *data, u32 attr);

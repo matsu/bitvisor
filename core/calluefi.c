@@ -38,6 +38,7 @@
 #include "current.h"
 #include "entry.h"
 #include "mm.h"
+#include "pmap.h"
 #include "printf.h"
 #include "string.h"
 #include "sym.h"
