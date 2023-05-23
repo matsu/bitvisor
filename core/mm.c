@@ -1499,7 +1499,6 @@ hphys_mapmem (u64 phys, u32 attr, uint len, bool wr)
 			  ((attr & PTE_PWT_BIT) ? MAPMEM_PWT : 0) |
 			  ((attr & PTE_PCD_BIT) ? MAPMEM_PCD : 0) |
 			  ((attr & PTE_PAT_BIT) ? MAPMEM_PAT : 0));
-	ASSERT (p);
 	return p;
 }
 
@@ -1509,7 +1508,6 @@ read_hphys_b (u64 phys, void *data, u32 attr)
 	u8 *p;
 
 	p = (u8 *)hphys_mapmem (phys, attr, sizeof *p, false);
-	ASSERT (p);
 	*(u8 *)data = *p;
 	unmapmem (p, sizeof *p);
 }
