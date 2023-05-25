@@ -30,6 +30,7 @@
  */
 
 #include "pci.h"
+#include "pci_vtd_trans.h"
 #include <core.h>
 #include <core/mmio.h>
 #include <core/time.h>
@@ -43,13 +44,6 @@
 #define SeZeroMalloc(len)	memset (alloc (len), 0, len)
 #define SeMalloc		alloc
 #define SeFree			free
-
-#ifdef VTD_TRANS
-#include "passthrough/vtd.h"
-int add_remap() ;
-u32 vmm_start_inf() ;
-u32 vmm_term_inf() ;
-#endif // of VTD_TRANS
 
 //#define	PRO100_PASS_MODE
 
@@ -1794,12 +1788,7 @@ void pro100_new(struct pci_device *dev)
 		panic ("%s: IOMMU pass-through is not supported", __func__);
 	debugprint ("pro100_new\n");
 
-#ifdef VTD_TRANS
-        if (iommu_detected) {
-                add_remap(dev->address.bus_no ,dev->address.device_no ,dev->address.func_no,
-                          vmm_start_inf() >> 12, (vmm_term_inf()-vmm_start_inf()) >> 12, PERM_DMA_RW) ;
-        }
-#endif // of VTD_TRANS
+	pci_vtd_trans_add_remap_with_vmm_mem (dev);
 
 	ctx->dev = dev;
 	ctx->net_handle = net_new_nic (dev->driver_options[0], false);

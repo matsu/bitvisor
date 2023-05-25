@@ -35,17 +35,11 @@
 #include <core.h>
 #include <core/thread.h>
 #include "pci.h"
+#include "pci_vtd_trans.h"
 #include "uhci.h"
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_log.h"
-
-#ifdef VTD_TRANS
-#include "passthrough/vtd.h"
-int add_remap() ;
-u32 vmm_start_inf() ;
-u32 vmm_term_inf() ;
-#endif // of VTD_TRANS
 
 static const char driver_name[] = "uhci";
 static const char driver_longname[] = 
@@ -102,12 +96,7 @@ uhci_new(struct pci_device *pci_device)
 #endif
 
 	pci_system_disconnect (pci_device);
-#ifdef VTD_TRANS
-	if (iommu_detected) {
-		add_remap(pci_device->address.bus_no ,pci_device->address.device_no ,pci_device->address.func_no,
-			  vmm_start_inf() >> 12, (vmm_term_inf()-vmm_start_inf()) >> 12, PERM_DMA_RW) ;
-	}
-#endif // of VTD_TRANS
+	pci_vtd_trans_add_remap_with_vmm_mem (pci_device);
 
 	dprintft(5, "%s invoked.\n", __FUNCTION__);
 

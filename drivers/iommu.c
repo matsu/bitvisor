@@ -730,6 +730,22 @@ int add_remap(int bus, int dev, int func, int phys, int num_pages, int perm)
 	return 1;
 }
 
+int
+pci_vtd_trans_add_remap_with_vmm_mem (struct pci_device *pci_device)
+{
+#ifdef VTD_TRANS
+	if (iommu_detected) {
+		return add_remap (pci_device->address.bus_no,
+				  pci_device->address.device_no,
+				  pci_device->address.func_no,
+				  vmm_start_inf () >> 12,
+				  (vmm_term_inf () - vmm_start_inf ()) >> 12,
+				  PERM_DMA_RW) ;
+	}
+#endif // of VTD_TRANS
+	return 0;
+}
+
 struct domain *dom_io[MAX_IO_DOM];
 int num_dom;
 
