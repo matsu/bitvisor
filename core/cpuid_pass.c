@@ -113,10 +113,9 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		 * can cause unexpected errors to the guest running under
 		 * BitVisor as BitVisor does not handle them.
 		 */
-		*oa = 0;
-		*ob = 0;
-		*oc = 0;
-		*od = 0;
+		/* Processor returns the data for the highest basic
+		 * information leaf. */
+		asm_cpuid (tmpa, ic, oa, ob, oc, od);
 	}
 }
 
