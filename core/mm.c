@@ -913,10 +913,8 @@ unmap_user_area (void)
 	phys_t phys;
 	phys_t phys2;
 
-	alloc_page (&virt, &phys);
-	process_create_initial_map (virt, phys);
 	alloc_page (&virt, &phys2);
-	((u64 *)virt)[0] = phys | PDPE_ATTR;
+	((u64 *)virt)[0] = 0;
 	((u64 *)virt)[1] = vmm_pdp[1];
 	((u64 *)virt)[2] = vmm_pdp[2];
 	((u64 *)virt)[3] = vmm_pdp[3];
@@ -935,8 +933,6 @@ unmap_user_area (void)
 	asm_wrcr3 (phys);
 	asm_wrcr4 (cr4);
 	currentcpu->cr3 = phys;
-	/* Free the dummy page */
-	mm_process_free (mm_process_switch (1));
 }
 
 static void
