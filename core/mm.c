@@ -126,14 +126,8 @@ struct mempool {
 	spinlock_t lock;
 };
 
-#ifdef USE_PAE
-#	define USE_PAE_BOOL true
-#else
-#	define USE_PAE_BOOL false
-#endif
 extern u8 end[];
 
-bool use_pae = USE_PAE_BOOL;
 u16 e801_fake_ax, e801_fake_bx;
 u64 memorysize = 0, vmmsize = 0;
 static u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
@@ -799,25 +793,16 @@ create_vmm_pd (void)
 	ulong cr3;
 
 	/* map memory areas copied to at 0xC0000000 */
-#ifdef USE_PAE
 	for (i = 0; i < VMMSIZE_ALL >> PAGESIZE2M_SHIFT; i++)
 		vmm_pd[i] =
 			(vmm_start_phys + (i << PAGESIZE2M_SHIFT)) |
 			PDE_P_BIT | PDE_RW_BIT | PDE_PS_BIT | PDE_A_BIT |
 			PDE_D_BIT | PDE_G_BIT;
 	entry_pdp[3] = (((u64)(virt_t)vmm_pd) - 0x40000000) | PDPE_ATTR;
-#else
-	for (i = 0; i < VMMSIZE_ALL >> PAGESIZE4M_SHIFT; i++)
-		entry_pd[0x300 + i] =
-			(vmm_start_phys + (i << PAGESIZE4M_SHIFT)) |
-			PDE_P_BIT | PDE_RW_BIT | PDE_PS_BIT | PDE_A_BIT |
-			PDE_D_BIT | PDE_G_BIT;
-#endif
 	asm_rdcr3 (&cr3);
 	asm_wrcr3 (cr3);
 
 	/* make a new page directory */
-#ifdef USE_PAE
 	vmm_base_cr3 = sym_to_phys (vmm_pdp);
 	memcpy (vmm_pd1, entry_pd0, PAGESIZE);
 	memset (vmm_pd2, 0, PAGESIZE);
@@ -829,13 +814,6 @@ create_vmm_pd (void)
 	vmm_base_cr3 = sym_to_phys (vmm_pml4);
 	vmm_pml4[0] = sym_to_phys (vmm_pdp) | PDE_P_BIT | PDE_RW_BIT |
 		PDE_US_BIT;
-#endif
-#else
-	vmm_base_cr3 = sym_to_phys (vmm_pd);
-	memcpy (&vmm_pd_32[0x000], &entry_pd[0x000], 0x400);
-	memcpy (&vmm_pd_32[0x100], &entry_pd[0x300], 0x400);
-	memcpy (&vmm_pd_32[0x200], &entry_pd[0x200], 0x400);
-	memset (&vmm_pd_32[0x300],                0, 0x400);
 #endif
 }
 
@@ -907,11 +885,7 @@ map_hphys (void)
 	attr = PDE_P_BIT | PDE_RW_BIT | PDE_PS_BIT | PDE_G_BIT;
 	attrmask = attr | PDE_US_BIT | PDE_PWT_BIT | PDE_PCD_BIT |
 		PDE_PS_PAT_BIT;
-#ifdef USE_PAE
 	size = PAGESIZE2M;
-#else
-	size = PAGESIZE4M;
-#endif
 	level = 2;
 	if (page1gb_available ()) {
 #ifdef __x86_64__
@@ -941,13 +915,10 @@ unmap_user_area (void)
 	ulong cr4;
 	void *virt;
 	phys_t phys;
-#ifdef USE_PAE
 	phys_t phys2;
-#endif
 
 	alloc_page (&virt, &phys);
 	process_create_initial_map (virt, phys);
-#ifdef USE_PAE
 	alloc_page (&virt, &phys2);
 	((u64 *)virt)[0] = phys | PDPE_ATTR;
 	((u64 *)virt)[1] = vmm_pdp[1];
@@ -960,7 +931,6 @@ unmap_user_area (void)
 	memcpy (virt, vmm_pml4, PAGESIZE);
 	((u64 *)virt)[0] = phys | PDE_P_BIT | PDE_RW_BIT | PDE_US_BIT;
 	phys = phys2;
-#endif
 #endif
 	/* Disable Page Global temporarily to flush TLBs for process
 	 * space */
@@ -1637,18 +1607,9 @@ process_create_initial_map (void *virt, phys_t phys)
 	int i;
 
 	pde = virt;
-#ifdef USE_PAE
 	/* clear PDEs for user area */
 	for (i = 0; i < 0x400; i++)
 		pde[i] = 0;
-#else
-	/* copy PDEs for kernel area */
-	for (i = 0x100; i < 0x400; i++)
-		pde[i] = vmm_pd_32[i];
-	/* clear PDEs for user area */
-	for (i = 0; i < 0x100; i++)
-		pde[i] = 0;
-#endif
 }
 
 int
@@ -1798,7 +1759,6 @@ process_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
 	pmap_t m;
 
 	spinlock_lock (&mm_lock_process_virt_to_phys);
-#ifdef USE_PAE
 	if (virt < 0x40000000) {
 		*process_virt_to_phys_pdp = procphys | PDE_P_BIT;
 		pmap_open_vmm (&m, process_virt_to_phys_pdp_phys, 3);
@@ -1808,9 +1768,6 @@ process_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
 		asm_rdcr3 (&cr3);
 		pmap_open_vmm (&m, cr3, PMAP_LEVELS);
 	}
-#else
-	pmap_open_vmm (&m, procphys, PMAP_LEVELS);
-#endif
 	pmap_seek (&m, virt, 1);
 	pte = pmap_read (&m);
 	if (pte & PTE_P_BIT) {
@@ -2049,7 +2006,6 @@ mm_process_unmapall (void)
 phys_t
 mm_process_switch (phys_t switchto)
 {
-#ifdef USE_PAE
 	u64 old, new;
 	phys_t ret;
 	ulong cr3;
@@ -2074,16 +2030,6 @@ mm_process_switch (phys_t switchto)
 	}
 	pmap_close (&m);
 	return ret;
-#else
-	ulong oldcr3;
-
-	/* 1 is a special value for new threads */
-	if (switchto == 1)
-		switchto = currentcpu->cr3;
-	asm_rdcr3 (&oldcr3);
-	asm_wrcr3 ((ulong)switchto);
-	return oldcr3;
-#endif
 }
 
 /**********************************************************************/

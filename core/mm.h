@@ -38,15 +38,9 @@
 #define MAPMEM_PCD			MAPMEM_PLAT (4)
 #define MAPMEM_PAT			MAPMEM_PLAT (7)
 
-#ifdef USE_PAE
-#	define PMAP_LEVELS		(sizeof (ulong) == 4 ? 3 : 4)
-#	define PDE_PS_OFFSET_MASK	PDE_2M_OFFSET_MASK
-#	define PDE_PS_ADDR_MASK		PDE_2M_ADDR_MASK
-#else
-#	define PMAP_LEVELS		2
-#	define PDE_PS_OFFSET_MASK	PDE_4M_OFFSET_MASK
-#	define PDE_PS_ADDR_MASK		PDE_4M_ADDR_MASK
-#endif
+#define PMAP_LEVELS			(sizeof (ulong) == 4 ? 3 : 4)
+#define PDE_PS_OFFSET_MASK		PDE_2M_OFFSET_MASK
+#define PDE_PS_ADDR_MASK		PDE_2M_ADDR_MASK
 
 #define VMM_START_VIRT			0x40000000
 
@@ -67,7 +61,6 @@ typedef struct {
 } pmap_t;
 
 extern u16 e801_fake_ax, e801_fake_bx;
-extern bool use_pae;
 extern u64 memorysize, vmmsize;
 
 phys_t sym_to_phys (void *sym);

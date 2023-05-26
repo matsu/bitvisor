@@ -33,7 +33,6 @@
 #include "linkage.h"
 #include "types.h"
 
-#define vmm_pd_32 ((u32 *)vmm_pd)
 #define APINIT_OFFSET 0x0000
 
 extern u8 head[];

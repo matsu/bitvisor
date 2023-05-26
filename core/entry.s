@@ -602,17 +602,11 @@ multiboot_entry:
 .if longmode
 	lea	entry_pml4(%ebp),%eax	# CR3 for long mode
 .else
-	lea	entry_pdp(%ebp),%eax	# CR3 for PAE ON
+	lea	entry_pdp(%ebp),%eax	# For CR3
 	andw	$0xFE19,8*0(%eax)	# Clear reserved bits
 	andw	$0xFE19,8*1(%eax)	#
 	andw	$0xFE19,8*2(%eax)	#
 	andw	$0xFE19,8*3(%eax)	#
-	cmpl	$0,use_pae(%ebp)	# Do we use PAE?
-	jne	1f			# Yes-
-	lea	entry_pd(%ebp),%eax	# CR3 for PAE OFF
-	and	$~CR4_PAE_BIT,%ecx
-	or	$CR4_PSE_BIT,%ecx
-1:
 .endif
 	mov	%ecx,entry_cr4(%ebp)	# Save CR4
 	mov	%eax,vmm_base_cr3(%ebp)	# Save CR3
