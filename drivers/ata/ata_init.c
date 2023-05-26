@@ -41,8 +41,6 @@
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
 int add_remap() ;
-u32 vmm_start_inf() ; // test
-u32 vmm_term_inf() ;  // test
 #endif // of VTD_TRANS
 
 static const char ata_driver_name[] = "ata";

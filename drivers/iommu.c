@@ -34,6 +34,7 @@
 #undef PAGESIZE
 #endif
 #include "../core/mm.h"
+#include "../core/include/arch/vmm_mem.h"
 #include "passthrough/iodom.h"
 #include "passthrough/intel-iommu.h"
 #include "passthrough/dmar.h"
@@ -46,8 +47,6 @@ static inline void asm_wbinvd (void)
 	asm volatile ("wbinvd");
 }
 
-u32 vmm_start_inf();
-u32 vmm_term_inf();
 struct acpi_drhd_u * matched_drhd_u();
 
 extern struct list drhd_list_head;
@@ -651,23 +650,26 @@ void iommu_setup(void) __initcode__
 	struct acpi_drhd_u *drhd;
 	unsigned long i;
 	int remap, dom, ndom, f;
+	phys_t vmm_phys_start, vmm_phys_end;
 	
 	if (!iommu_detected)
 		return;
 	
+	vmm_phys_start = vmm_mem_start_phys ();
+	vmm_phys_end = vmm_phys_start + VMMSIZE_ALL;
 	clflush_size = ((cpuid_ebx(1) >> 8) & 0xff) * 8;
 	drhd = drhd_list_head.next;
 	
 #ifdef VTD_DEBUG
 	printf ("(IOMMU) VMM region(0x%08X-0x%08X) will be hidden for all pass-through devices\n"
-		, vmm_start_inf(), vmm_term_inf());
+		, vmm_phys_start, vmm_phys_end());
 #endif // of VTD_DEBUG
 	
 	ndom=remap_preconf();
 	
 	printf("(IOMMU) dom 0(PT Devs.) ");
 	for (i = 0; i <= 0xfffff; i++) 
-		dmar_map_page(dom_io[0], i, ((i>=vmm_start_inf() >> 12 && i<vmm_term_inf() >> 12) ? PERM_DMA_NO : PERM_DMA_RW));
+		dmar_map_page(dom_io[0], i, ((i >= vmm_phys_start >> 12 && i < vmm_phys_end >> 12) ? PERM_DMA_NO : PERM_DMA_RW));
 	for (dom=1; dom<ndom ; dom++) {
 		printf("%x",dom);
 		for (i=0; i<num_remap ; i++) {
@@ -738,8 +740,8 @@ pci_vtd_trans_add_remap_with_vmm_mem (struct pci_device *pci_device)
 		return add_remap (pci_device->address.bus_no,
 				  pci_device->address.device_no,
 				  pci_device->address.func_no,
-				  vmm_start_inf () >> 12,
-				  (vmm_term_inf () - vmm_start_inf ()) >> 12,
+				  vmm_mem_start_phys () >> 12,
+				  VMMSIZE_ALL >> 12,
 				  PERM_DMA_RW) ;
 	}
 #endif // of VTD_TRANS

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/vmm_mem.h>
 #include <core/qsort.h>
 #include "ap.h"
 #include "asm.h"
@@ -50,7 +51,6 @@
 #include "string.h"
 #include "uefi.h"
 
-#define VMMSIZE_ALL		(128 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
 #define MAPMEM_ADDR_START	0xD0000000
@@ -128,10 +128,14 @@ struct mempool {
 
 extern u8 end[];
 
+/*
+ * NOTE vmm_start_phys is initialized here in BIOS mode. It will be removed
+ * later once we move the initialization elsewhere.
+ */
+extern u32 vmm_start_phys;
 u16 e801_fake_ax, e801_fake_bx;
 u64 memorysize = 0, vmmsize = 0;
 static u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
-u32 __attribute__ ((section (".data"))) vmm_start_phys;
 static spinlock_t mm_lock;
 static spinlock_t mm_small_lock;
 static spinlock_t mm_tiny_lock;
@@ -557,7 +561,7 @@ virt_to_page (virt_t virt)
 {
 	unsigned int i;
 
-	i = (virt - VMM_START_VIRT) >> PAGESIZE_SHIFT;
+	i = (virt - vmm_mem_start_virt ()) >> PAGESIZE_SHIFT;
 	ASSERT (i < NUM_OF_PAGES);
 	return &pagestruct[i];
 }
@@ -565,7 +569,7 @@ virt_to_page (virt_t virt)
 virt_t
 phys_to_virt (phys_t phys)
 {
-	return (virt_t)(phys - vmm_start_phys + VMM_START_VIRT);
+	return (virt_t)(phys - vmm_mem_start_phys () + vmm_mem_start_virt ());
 }
 
 static struct page *
@@ -584,16 +588,6 @@ static virt_t
 page_to_virt (struct page *p)
 {
 	return phys_to_virt (page_to_phys (p));
-}
-
-u32 vmm_start_inf()
-{
-        return vmm_start_phys ;
-}
-
-u32 vmm_term_inf()
-{
-        return vmm_start_phys+VMMSIZE_ALL ;
 }
 
 static int
@@ -791,6 +785,7 @@ create_vmm_pd (void)
 {
 	int i;
 	ulong cr3;
+	phys_t vmm_start_phys = vmm_mem_start_phys ();
 
 	/* map memory areas copied to at 0xC0000000 */
 	for (i = 0; i < VMMSIZE_ALL >> PAGESIZE2M_SHIFT; i++)
@@ -985,7 +980,7 @@ mm_init_global (void)
 		pagestruct[i].phys = vmm_start_phys + PAGESIZE * i;
 	}
 	panicmem_start_page = ((u64)(virt_t)end + PAGESIZE - 1 -
-			       VMM_START_VIRT) >> PAGESIZE_SHIFT;
+			       vmm_mem_start_virt ()) >> PAGESIZE_SHIFT;
 	for (i = 0; i < NUM_OF_PAGES; i++) {
 		if ((u64)(virt_t)head <= page_to_virt (&pagestruct[i]) &&
 		    page_to_virt (&pagestruct[i]) < (u64)(virt_t)end)
@@ -1572,18 +1567,20 @@ found:
 phys_t
 sym_to_phys (void *sym)
 {
-	return ((virt_t)sym) - 0x40000000 + vmm_start_phys;
+	return ((virt_t)sym) - vmm_mem_start_virt () + vmm_mem_start_phys ();
 }
 
 bool
 phys_in_vmm (u64 phys)
 {
+	phys_t vmm_start_phys = vmm_mem_start_phys ();
 	return phys >= vmm_start_phys && phys < vmm_start_phys + VMMSIZE_ALL;
 }
 
 static bool
 is_overlapped_with_vmm (phys_t phys, size_t len)
 {
+	phys_t vmm_start_phys = vmm_mem_start_phys ();
 	return phys < vmm_start_phys + VMMSIZE_ALL &&
 		phys + len > vmm_start_phys;
 }
@@ -1692,9 +1689,9 @@ mm_process_map_alloc (virt_t virt, uint len)
 	uint npages;
 	virt_t v;
 
-	if (virt >= VMM_START_VIRT)
+	if (virt >= vmm_mem_proc_end_virt ())
 		return -1;
-	if (virt + len >= VMM_START_VIRT)
+	if (virt + len >= vmm_mem_proc_end_virt ())
 		return -1;
 	if (virt > virt + len)
 		return -1;
@@ -1732,7 +1729,7 @@ int
 mm_process_map_shared_physpage (virt_t virt, phys_t phys, bool rw)
 {
 	virt &= ~PAGESIZE_MASK;
-	if (virt >= VMM_START_VIRT)
+	if (virt >= vmm_mem_proc_end_virt ())
 		return -1;
 	mm_process_unmap (virt, PAGESIZE);
 	mm_process_mappage (virt, phys | PTE_P_BIT |
@@ -1887,9 +1884,9 @@ mm_process_unmap (virt_t virt, uint len)
 	ulong cr3;
 	pmap_t m;
 
-	if (virt >= VMM_START_VIRT)
+	if (virt >= vmm_mem_proc_end_virt ())
 		return -1;
-	if (virt + len >= VMM_START_VIRT)
+	if (virt + len >= vmm_mem_proc_end_virt ())
 		return -1;
 	if (virt > virt + len)
 		return -1;
@@ -1922,9 +1919,9 @@ mm_process_unmap_stack (virt_t virt, uint len)
 	pmap_t m;
 
 	virt -= len;
-	if (virt >= VMM_START_VIRT)
+	if (virt >= vmm_mem_proc_end_virt ())
 		return -1;
-	if (virt + len >= VMM_START_VIRT)
+	if (virt + len >= vmm_mem_proc_end_virt ())
 		return -1;
 	if (virt >= virt + len)
 		return -1;
@@ -1988,10 +1985,10 @@ mm_process_unmapall (void)
 	pmap_t m;
 	ulong cr3;
 
-	ASSERT (!mm_process_unmap (0, VMM_START_VIRT - 1));
+	ASSERT (!mm_process_unmap (0, vmm_mem_proc_end_virt () - 1));
 	asm_rdcr3 (&cr3);
 	pmap_open_vmm (&m, cr3, PMAP_LEVELS);
-	for (v = 0; v < VMM_START_VIRT; v += PAGESIZE2M) {
+	for (v = 0; v < vmm_mem_proc_end_virt (); v += PAGESIZE2M) {
 		pmap_seek (&m, v, 2);
 		pde = pmap_read (&m);
 		if (!(pde & PDE_P_BIT))
@@ -2483,7 +2480,7 @@ as_translate_passvm (void *data, unsigned int *npages, u64 address)
 	/* (address, *npages * PAGESIZE) region may be overlapped
 	 * when 1GiB mapping. */
 	if (is_overlapped_with_vmm (address, *npages * PAGESIZE))
-		*npages = (vmm_start_phys - address) / PAGESIZE;
+		*npages = (vmm_mem_start_phys () - address) / PAGESIZE;
 
 	ret = mm_as_translate (as_hphys, npages, address);
 	max_npages = (PAGESIZE1G - (address & PAGESIZE1G_MASK)) / PAGESIZE;
@@ -2744,7 +2741,7 @@ mm_flush_wb_cache (void)
 	/* Read all VMM memory to let other processors write back */
 	asm volatile ("cld ; rep lodsl"
 		      : "=a" (tmp), "=c" (tmp), "=S" (tmp)
-		      : "S" (VMM_START_VIRT), "c" (VMMSIZE_ALL / 4));
+		      : "S" (vmm_mem_start_virt ()), "c" (VMMSIZE_ALL / 4));
 	asm_wbinvd ();		/* write back all caches */
 }
 

@@ -42,8 +42,6 @@
 #define PDE_PS_OFFSET_MASK		PDE_2M_OFFSET_MASK
 #define PDE_PS_ADDR_MASK		PDE_2M_ADDR_MASK
 
-#define VMM_START_VIRT			0x40000000
-
 enum pmap_type {
 	PMAP_TYPE_VMM,
 	PMAP_TYPE_GUEST,
@@ -70,8 +68,6 @@ bool continuous_sysmem_type_region (phys_t phys, phys_t *start, u64 *len,
 u32 alloc_uppermem (uint len);
 u32 alloc_realmodemem (uint len);
 virt_t phys_to_virt (phys_t phys);
-u32 vmm_start_inf (void);
-u32 vmm_term_inf (void);
 int num_of_available_pages (void);
 bool page1gb_available (void);
 u32 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type);

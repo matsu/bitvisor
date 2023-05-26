@@ -44,6 +44,7 @@ CFLAGS-32 = -Iedk2/MdePkg/Include/Ia32
 CFLAGS-64 = -Iedk2/MdePkg/Include/X64
 
 CFLAGS += -fshort-wchar
+CFLAGS += -I$(DIR)/include
 CFLAGS += -Ivpn/lib
 CFLAGS += -Iedk2/MdePkg/Include/ $(CFLAGS-$(bits-$(CONFIG_64)))
 
@@ -71,3 +72,4 @@ objs-1 += mmioclr.o
 objs-1 += qsort.o
 objs-1 += acpi_dmar.o
 objs-1 += acpi_iohook.o
+objs-1 += vmm_mem.o

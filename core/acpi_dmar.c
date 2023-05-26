@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/vmm_mem.h>
 #include "acpi.h"
 #include "acpi_dsdt.h"
 #include "ap.h"
@@ -314,7 +315,10 @@ dmar_pass_create_rmrr (u16 segment)
 {
 	struct acpi_description_header *header;
 	struct dmar_rmrr *q;
+	phys_t start, limit;
 
+	start = vmm_mem_start_phys ();
+	limit = start + VMMSIZE_ALL - 1;
 	header = vp.new_dmar;
 	/* The remapping structures must be in numerical order.  So
 	 * skip the DRHD and RMRR part. */
@@ -328,8 +332,8 @@ dmar_pass_create_rmrr (u16 segment)
 	q->header.length = sizeof *q;
 	q->reserved = 0;
 	q->segment_number = segment;
-	q->region_base_address = vmm_start_inf ();
-	q->region_limit_address = vmm_term_inf () - 1;
+	q->region_base_address = start;
+	q->region_limit_address = limit;
 	return q;
 }
 
@@ -668,7 +672,7 @@ dmar_force_map (struct dmar_drhd_reg_data *d, u64 address, u64 ptr,
 		u64 entry[512];
 	} *slpt = mapmem_hphys (ptr, sizeof *slpt, MAPMEM_WRITE);
 	u64 flush_address = address;
-	u64 end_address = vmm_term_inf ();
+	phys_t end_address = vmm_mem_start_phys () + VMMSIZE_ALL - 1;
 	bool need_flush = false;
 again:;
 	u64 entry = slpt->entry[address >> bit & 0777];
@@ -728,7 +732,7 @@ end:
 void
 acpi_dmar_force_map (struct dmar_drhd_reg_data *d, u8 bus, u8 dev, u8 func)
 {
-	u64 address = vmm_start_inf ();
+	phys_t address = vmm_mem_start_phys ();
 	u64 ret = do_acpi_dmar_translate (d, bus, dev, func, address,
 					  dmar_force_map);
 	/* Check whether pages of VMM address are properly mapped.

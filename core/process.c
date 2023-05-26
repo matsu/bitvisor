@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/vmm_mem.h>
 #include "asm.h"
 #include "assert.h"
 #include "constants.h"
@@ -333,6 +334,7 @@ processbin_add (char *name, void *bin, ulong len, int stacksize)
 	struct ro_segments **ro_next = &ro;
 	struct rw_segments *rw = NULL;
 	struct rw_segments **rw_next = &rw;
+	virt_t proc_end_virt;
 
 	b = bin;
 	if (sizeof *ehdr > len)
@@ -342,13 +344,14 @@ processbin_add (char *name, void *bin, ulong len, int stacksize)
 	ehdr = bin;
 	phdrb = b + ehdr->e_phoff;
 	phdr = (ELF_PHDR *)phdrb;
+	proc_end_virt = vmm_mem_proc_end_virt ();
 	for (i = ehdr->e_phnum; i && phdrb - b + sizeof *phdr <= len;
 	     i--, phdr = (ELF_PHDR *)(phdrb += ehdr->e_phentsize)) {
 		if (phdr->p_type != PT_LOAD)
 			continue;
-		if (phdr->p_vaddr >= VMM_START_VIRT)
+		if (phdr->p_vaddr >= proc_end_virt)
 			continue;
-		if (phdr->p_vaddr + phdr->p_memsz > VMM_START_VIRT)
+		if (phdr->p_vaddr + phdr->p_memsz > proc_end_virt)
 			continue;
 		if (phdr->p_offset >= len)
 			continue;
