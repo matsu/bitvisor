@@ -156,9 +156,9 @@ struct tm
 #define INT_MIN			(-2147483647 - 1)
 #define INT_MAX			2147483647
 /*#define UINT_MAX		0xffffffff*/
-#define LONG_MIN		(-2147483647L - 1)
-#define LONG_MAX		2147483647L
-#define ULONG_MAX		0xffffffffUL
+#define LONG_MIN		(-__LONG_MAX__ - 1)
+#define LONG_MAX		__LONG_MAX__
+#define ULONG_MAX		(__LONG_MAX__ + 1UL + __LONG_MAX__)
 #define offsetof(s,m)	(size_t)&(((s *)0)->m)
 
 #define	assert(a)
