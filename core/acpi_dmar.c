@@ -783,7 +783,7 @@ alloc_acpi_pages (unsigned int npages)
 					      npages, &addr))
 			panic ("%s: AllocatePages failed", __func__);
 	} else {
-		addr = alloc_uppermem (npages * PAGESIZE);
+		addr = vmm_mem_alloc_uppermem (npages * PAGESIZE);
 		if (!addr)
 			panic ("%s: alloc_uppermem failed", __func__);
 	}
