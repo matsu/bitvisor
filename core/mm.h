@@ -75,6 +75,7 @@ bool phys_in_vmm (u64 phys);
 bool continuous_sysmem_type_region (phys_t phys, phys_t *start, u64 *len,
 				    u32 *sysmem_type);
 u32 alloc_uppermem (uint len);
+u32 alloc_realmodemem (uint len);
 virt_t phys_to_virt (phys_t phys);
 u32 vmm_start_inf (void);
 u32 vmm_term_inf (void);
