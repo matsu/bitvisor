@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include "ap.h"
 #include "assert.h"
 #include "callrealmode.h"
@@ -40,7 +41,6 @@
 #include "linkage.h"
 #include "loadbootsector.h"
 #include "main.h"
-#include "mm.h"
 #include "multiboot.h"
 #include "osloader.h"
 #include "panic.h"
@@ -58,6 +58,7 @@
 #include "vcpu.h"
 #include "vmmcall.h"
 #include "vmmcall_boot.h"
+#include "vmm_mem.h"
 #include "vramwrite.h"
 #include "vt.h"
 #include "vt_init.h"

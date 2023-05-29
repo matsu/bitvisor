@@ -45,6 +45,7 @@
 #include "string.h"
 #include "thread.h"
 #include "uefi.h"
+#include "vmm_mem.h"
 
 #define APINIT_SIZE		(cpuinit_end - cpuinit_start)
 #define APINIT_POINTER(n)	((void *)(apinit + ((u8 *)&n - cpuinit_start)))

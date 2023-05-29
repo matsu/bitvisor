@@ -42,6 +42,7 @@
 #include "string.h"
 #include "sym.h"
 #include "uefi.h"
+#include "vmm_mem.h"
 
 #define EVT_SIGNAL_EXIT_BOOT_SERVICES 0x00000201
 

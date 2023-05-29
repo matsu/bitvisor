@@ -40,6 +40,7 @@
 #include "sleep.h"
 #include "spinlock.h"
 #include "string.h"
+#include "vmm_mem.h"
 #include "wakeup_entry.h"
 
 static unsigned int wakeup_cpucount;

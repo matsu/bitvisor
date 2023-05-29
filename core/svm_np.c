@@ -37,6 +37,7 @@
 #include "string.h"
 #include "svm_np.h"
 #include "svm_paging.h"
+#include "vmm_mem.h"
 #include "vmmerr.h"
 
 #define MAXNUM_OF_NPTBL 256

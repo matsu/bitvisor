@@ -59,17 +59,8 @@ typedef struct {
 } pmap_t;
 
 bool phys_in_vmm (u64 phys);
-bool vmm_mem_continuous_sysmem_type_region (phys_t phys, phys_t *start,
-					    u64 *len, u32 *sysmem_type);
 virt_t phys_to_virt (phys_t phys);
 int num_of_available_pages (void);
-bool vmm_mem_page1gb_available (void);
-u32 vmm_mem_bios_prepare_e820_mem (void);
-void vmm_mem_bios_clear_guest_pages (void);
-void vmm_mem_bios_get_tmp_bootsector_mem (u32 *bufaddr, u32 *bufsize);
-u64 vmm_mem_bios_get_usable_mem (void);
-u32 vmm_mem_alloc_realmodemem (uint len);
-u32 vmm_mem_alloc_uppermem (uint len);
 void mm_flush_wb_cache (void);
 void mm_force_unlock (void);
 void __attribute__ ((section (".entry.text")))

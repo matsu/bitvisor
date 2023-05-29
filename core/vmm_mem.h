@@ -27,16 +27,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_INCLUDE_ARCH_VMM_MEM_H
-#define _CORE_INCLUDE_ARCH_VMM_MEM_H
+#ifndef _CORE_VMM_MEM_H
+#define _CORE_VMM_MEM_H
 
 #include <core/types.h>
 
-#define VMMSIZE_ALL		(128 * 1024 * 1024)
-
-void vmm_mem_init (void);
-phys_t vmm_mem_start_phys (void);
-virt_t vmm_mem_start_virt (void);
-virt_t vmm_mem_proc_end_virt (void);
+bool vmm_mem_continuous_sysmem_type_region (phys_t phys, phys_t *start,
+					    u64 *len, u32 *sysmem_type);
+bool vmm_mem_page1gb_available (void);
+u32 vmm_mem_bios_prepare_e820_mem (void);
+void vmm_mem_bios_clear_guest_pages (void);
+void vmm_mem_bios_get_tmp_bootsector_mem (u32 *bufaddr, u32 *bufsize);
+u64 vmm_mem_bios_get_usable_mem (void);
+u32 vmm_mem_alloc_realmodemem (uint len);
+u32 vmm_mem_alloc_uppermem (uint len);
+void vmm_mem_unmap_user_area (void);
 
 #endif

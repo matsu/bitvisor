@@ -43,6 +43,7 @@
 #include "printf.h"
 #include "string.h"
 #include "uefi.h"
+#include "vmm_mem.h"
 
 static phys_t map1g_region_base, map1g_region_end;
 static phys_t map1g_region_base_over4g, map1g_region_end_over4g;

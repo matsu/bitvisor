@@ -45,6 +45,7 @@
 #include "string.h"
 #include "time.h"
 #include "uefi.h"
+#include "vmm_mem.h"
 #include "wakeup.h"
 #include "passthrough/vtd.h"
 #include "passthrough/iodom.h"

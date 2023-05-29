@@ -27,14 +27,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include "assert.h"
 #include "elf.h"
-#include "mm.h"
 #include "osloader.h"
 #include "panic.h"
 #include "printf.h"
 #include "string.h"
 #include "types.h"
+#include "vmm_mem.h"
 
 #define MINMEM (128 * 1024 * 1024)
 
