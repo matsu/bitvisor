@@ -170,11 +170,6 @@ static u64 phys_blank;
 #define E801_AX_SHIFT 10
 #define E801_BX_SHIFT 16
 
-struct memsizetmp {
-	void *addr;
-	int ok;
-};
-
 static void process_create_initial_map (void *virt, phys_t phys);
 static void process_virt_to_phys_prepare (void);
 
