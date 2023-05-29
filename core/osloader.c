@@ -155,7 +155,7 @@ load_minios (u32 kernelstart, u32 kernelsize, u32 ramdiskstart,
 	if (!kernel)
 		return 0;
 	ramdisk = osmap (ramdiskstart, ramdisksize);
-	if (memorysize - vmmsize <= MINMEM)
+	if (vmm_mem_bios_get_usable_mem () <= MINMEM)
 		panic ("loading minios: out of memory");
 	ramdisk_startaddr = ramdisk_load (ramdisk, ramdisksize);
 	minios_startaddr = os_load (kernel, kernelsize);

@@ -58,8 +58,6 @@ typedef struct {
 	enum pmap_type type;
 } pmap_t;
 
-extern u64 memorysize, vmmsize;
-
 bool phys_in_vmm (u64 phys);
 bool continuous_sysmem_type_region (phys_t phys, phys_t *start, u64 *len,
 				    u32 *sysmem_type);
@@ -70,6 +68,7 @@ bool page1gb_available (void);
 u32 vmm_mem_bios_prepare_e820_mem (void);
 void vmm_mem_bios_clear_guest_pages (void);
 void vmm_mem_bios_get_tmp_bootsector_mem (u32 *bufaddr, u32 *bufsize);
+u64 vmm_mem_bios_get_usable_mem (void);
 u32 vmm_mem_alloc_realmodemem (uint len);
 void mm_flush_wb_cache (void);
 void mm_force_unlock (void);

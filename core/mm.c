@@ -137,7 +137,7 @@ extern u8 end[];
 extern u32 vmm_start_phys;
 
 static u16 e801_fake_ax, e801_fake_bx;
-u64 memorysize = 0, vmmsize = 0;
+static u64 memorysize = 0, vmmsize = 0;
 static u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
 static spinlock_t mm_lock;
 static spinlock_t mm_small_lock;
@@ -2851,6 +2851,12 @@ vmm_mem_bios_get_tmp_bootsector_mem (u32 *bufaddr, u32 *bufsize)
 		return;
 	} while (n);
 	panic ("tmpbuf not found");
+}
+
+u64
+vmm_mem_bios_get_usable_mem (void)
+{
+	return !uefi_booted && memorysize > vmmsize ? memorysize - vmmsize : 0;
 }
 
 u32
