@@ -153,73 +153,17 @@ get_map1g_regions (void)
 static void
 install_int0x15_hook (void)
 {
-	u64 int0x15_code, int0x15_data, int0x15_base;
 	u64 int0x15_vector_phys = 0x15 * 4;
-	int count, len1, len2, i;
-	struct e820_data *q;
-	u64 b1, l1, b2, l2;
-	u32 n, nn1, nn2;
-	u32 t1, t2;
-	void *p;
 
 	if (uefi_booted)
 		return;
 
-	len1 = guest_int0x15_hook_end - guest_int0x15_hook;
-	int0x15_code = alloc_realmodemem (len1);
-
-	count = 0;
-	for (n = 0, nn1 = 1; nn1; n = nn1) {
-		nn1 = getfakesysmemmap (n, &b1, &l1, &t1);
-		nn2 = getsysmemmap (n, &b2, &l2, &t2);
-		if (nn1 == nn2 && b1 == b2 && l1 == l2 && t1 == t2)
-			continue;
-		count++;
-	}
-	len2 = count * sizeof (struct e820_data);
-	int0x15_data = alloc_realmodemem (len2);
-
-	if (int0x15_data > int0x15_code)
-		int0x15_base = int0x15_code;
-	else
-		int0x15_base = int0x15_data;
-	int0x15_base &= 0xFFFF0;
-
 	/* save old interrupt vector */
 	read_hphys_l (int0x15_vector_phys, &guest_int0x15_orig, 0);
 
-	/* write parameters properly */
-	guest_int0x15_e801_fake_ax = e801_fake_ax;
-	guest_int0x15_e801_fake_bx = e801_fake_bx;
-	guest_int0x15_e820_data_minus0x18 = int0x15_data - int0x15_base - 0x18;
-	guest_int0x15_e820_end = int0x15_data + len2 - int0x15_base;
-
-	/* copy the program code */
-	p = mapmem_hphys (int0x15_code, len1, MAPMEM_WRITE);
-	memcpy (p, guest_int0x15_hook, len1);
-	unmapmem (p, len1);
-
-	/* create e820_data */
-	q = mapmem_hphys (int0x15_data, len2, MAPMEM_WRITE);
-	i = 0;
-	for (n = 0, nn1 = 1; nn1; n = nn1) {
-		nn1 = getfakesysmemmap (n, &b1, &l1, &t1);
-		nn2 = getsysmemmap (n, &b2, &l2, &t2);
-		if (nn1 == nn2 && b1 == b2 && l1 == l2 && t1 == t2)
-			continue;
-		ASSERT (i < count);
-		q[i].n = n;
-		q[i].nn = nn1;
-		q[i].base = b1;
-		q[i].len = l1;
-		q[i].type = t1;
-		i++;
-	}
-	unmapmem (q, len2);
-
-	/* set interrupt vector */
-	write_hphys_l (int0x15_vector_phys, (int0x15_code - int0x15_base) |
-		       (int0x15_base << 12), 0);
+	/* set interrupt vector with the vmm one */
+	write_hphys_l (int0x15_vector_phys, vmm_mem_bios_prepare_e820_mem (),
+		       0);
 }
 
 static u64

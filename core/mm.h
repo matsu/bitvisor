@@ -58,7 +58,6 @@ typedef struct {
 	enum pmap_type type;
 } pmap_t;
 
-extern u16 e801_fake_ax, e801_fake_bx;
 extern u64 memorysize, vmmsize;
 
 bool phys_in_vmm (u64 phys);
@@ -69,8 +68,9 @@ u32 alloc_realmodemem (uint len);
 virt_t phys_to_virt (phys_t phys);
 int num_of_available_pages (void);
 bool page1gb_available (void);
-u32 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type);
-u32 getfakesysmemmap (u32 n, u64 *base, u64 *len, u32 *type);
+u32 vmm_mem_bios_prepare_e820_mem (void);
+void vmm_mem_bios_clear_guest_pages (void);
+void vmm_mem_bios_get_tmp_bootsector_mem (u32 *bufaddr, u32 *bufsize);
 void mm_flush_wb_cache (void);
 void mm_force_unlock (void);
 void __attribute__ ((section (".entry.text")))

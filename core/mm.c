@@ -39,6 +39,7 @@
 #include "current.h"
 #include "entry.h"
 #include "gmm_access.h"
+#include "guest_bioshook.h"
 #include "initfunc.h"
 #include "int.h"
 #include "linkage.h"
@@ -134,7 +135,8 @@ extern u8 end[];
  * later once we move the initialization elsewhere.
  */
 extern u32 vmm_start_phys;
-u16 e801_fake_ax, e801_fake_bx;
+
+static u16 e801_fake_ax, e801_fake_bx;
 u64 memorysize = 0, vmmsize = 0;
 static u64 e820_vmm_base, e820_vmm_fake_len, e820_vmm_end;
 static spinlock_t mm_lock;
@@ -184,7 +186,7 @@ static struct mm_as _as_passvm = {
 };
 const struct mm_as *const as_passvm = &_as_passvm;
 
-u32
+static u32
 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
 {
 	int i;
@@ -203,7 +205,7 @@ getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
 	return 0;
 }
 
-u32
+static u32
 getfakesysmemmap (u32 n, u64 *base, u64 *len, u32 *type)
 {
 	u32 r;
@@ -2733,6 +2735,131 @@ mm_flush_wb_cache (void)
 		      : "=a" (tmp), "=c" (tmp), "=S" (tmp)
 		      : "S" (vmm_mem_start_virt ()), "c" (VMMSIZE_ALL / 4));
 	asm_wbinvd ();		/* write back all caches */
+}
+
+u32
+vmm_mem_bios_prepare_e820_mem (void)
+{
+	u64 int0x15_code, int0x15_data, int0x15_base;
+	int count, len1, len2, i;
+	struct e820_data *q;
+	u64 b1, l1, b2, l2;
+	u32 n, nn1, nn2;
+	u32 t1, t2;
+	void *p;
+
+	len1 = guest_int0x15_hook_end - guest_int0x15_hook;
+	int0x15_code = alloc_realmodemem (len1);
+
+	count = 0;
+	for (n = 0, nn1 = 1; nn1; n = nn1) {
+		nn1 = getfakesysmemmap (n, &b1, &l1, &t1);
+		nn2 = getsysmemmap (n, &b2, &l2, &t2);
+		if (nn1 == nn2 && b1 == b2 && l1 == l2 && t1 == t2)
+			continue;
+		count++;
+	}
+	len2 = count * sizeof (struct e820_data);
+	int0x15_data = alloc_realmodemem (len2);
+
+	if (int0x15_data > int0x15_code)
+		int0x15_base = int0x15_code;
+	else
+		int0x15_base = int0x15_data;
+	int0x15_base &= 0xFFFF0;
+
+	/* write parameters properly */
+	guest_int0x15_e801_fake_ax = e801_fake_ax;
+	guest_int0x15_e801_fake_bx = e801_fake_bx;
+	guest_int0x15_e820_data_minus0x18 = int0x15_data - int0x15_base - 0x18;
+	guest_int0x15_e820_end = int0x15_data + len2 - int0x15_base;
+
+	/* copy the program code */
+	p = mapmem_hphys (int0x15_code, len1, MAPMEM_WRITE);
+	memcpy (p, guest_int0x15_hook, len1);
+	unmapmem (p, len1);
+
+	/* create e820_data */
+	q = mapmem_hphys (int0x15_data, len2, MAPMEM_WRITE);
+	i = 0;
+	for (n = 0, nn1 = 1; nn1; n = nn1) {
+		nn1 = getfakesysmemmap (n, &b1, &l1, &t1);
+		nn2 = getsysmemmap (n, &b2, &l2, &t2);
+		if (nn1 == nn2 && b1 == b2 && l1 == l2 && t1 == t2)
+			continue;
+		ASSERT (i < count);
+		q[i].n = n;
+		q[i].nn = nn1;
+		q[i].base = b1;
+		q[i].len = l1;
+		q[i].type = t1;
+		i++;
+	}
+	unmapmem (q, len2);
+
+	return (int0x15_code - int0x15_base) | (int0x15_base << 12);
+}
+
+/* the head 640KiB area is saved by save_bios_data_area and */
+/* restored by reinitialize_vm. */
+/* this function clears other RAM space that may contain sensitive data. */
+void
+vmm_mem_bios_clear_guest_pages (void)
+{
+	u64 base, len;
+	u32 type;
+	u32 n, nn;
+	static const u32 maxlen = 0x100000;
+	void *p;
+
+	n = 0;
+	for (nn = 1; nn; n = nn) {
+		nn = getfakesysmemmap (n, &base, &len, &type);
+		if (type != SYSMEMMAP_TYPE_AVAILABLE)
+			continue;
+		if (base < 0x100000) /* < 1MiB */
+			continue;
+		if (base + len <= 0x100000) /* < 1MiB */
+			continue;
+		while (len >= maxlen) {
+			p = mapmem_hphys (base, maxlen, MAPMEM_WRITE);
+			ASSERT (p);
+			memset (p, 0, maxlen);
+			unmapmem (p, maxlen);
+			base += maxlen;
+			len -= maxlen;
+		}
+		if (len > 0) {
+			p = mapmem_hphys (base, len, MAPMEM_WRITE);
+			ASSERT (p);
+			memset (p, 0, len);
+			unmapmem (p, len);
+		}
+	}
+}
+
+void
+vmm_mem_bios_get_tmp_bootsector_mem (u32 *bufaddr, u32 *bufsize)
+{
+	u32 n, type;
+	u64 base, len;
+
+	*bufaddr = callrealmode_endofcodeaddr ();
+	n = 0;
+	do {
+		n = getfakesysmemmap (n, &base, &len, &type);
+		if (type != SYSMEMMAP_TYPE_AVAILABLE)
+			continue;
+		if (base > *bufaddr)
+			continue;
+		if (base + len <= *bufaddr)
+			continue;
+		if (base + len > 0xA0000)
+			len = 0xA0000 - base;
+		*bufsize = base + len - *bufaddr;
+		return;
+	} while (n);
+	panic ("tmpbuf not found");
 }
 
 INITFUNC ("global2", mm_init_global);

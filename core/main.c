@@ -137,44 +137,6 @@ copy_minios (void)
 	}
 }
 
-/* the head 640KiB area is saved by save_bios_data_area and */
-/* restored by reinitialize_vm. */
-/* this function clears other RAM space that may contain sensitive data. */
-static void
-clear_guest_pages (void)
-{
-	u64 base, len;
-	u32 type;
-	u32 n, nn;
-	static const u32 maxlen = 0x100000;
-	void *p;
-
-	n = 0;
-	for (nn = 1; nn; n = nn) {
-		nn = getfakesysmemmap (n, &base, &len, &type);
-		if (type != SYSMEMMAP_TYPE_AVAILABLE)
-			continue;
-		if (base < 0x100000) /* < 1MiB */
-			continue;
-		if (base + len <= 0x100000) /* < 1MiB */
-			continue;
-		while (len >= maxlen) {
-			p = mapmem_hphys (base, maxlen, MAPMEM_WRITE);
-			ASSERT (p);
-			memset (p, 0, maxlen);
-			unmapmem (p, maxlen);
-			base += maxlen;
-			len -= maxlen;
-		}
-		if (len > 0) {
-			p = mapmem_hphys (base, len, MAPMEM_WRITE);
-			ASSERT (p);
-			memset (p, 0, len);
-			unmapmem (p, len);
-		}
-	}
-}
-
 /* make CPU's virtualization extension usable */
 static void
 virtualization_init_pcpu (void)
@@ -275,30 +237,6 @@ bsp_reinitialize_devices (void)
 }
 
 static void
-get_tmpbuf (u32 *tmpbufaddr, u32 *tmpbufsize)
-{
-	u32 n, type;
-	u64 base, len;
-
-	*tmpbufaddr = callrealmode_endofcodeaddr ();
-	n = 0;
-	do {
-		n = getfakesysmemmap (n, &base, &len, &type);
-		if (type != SYSMEMMAP_TYPE_AVAILABLE)
-			continue;
-		if (base > *tmpbufaddr)
-			continue;
-		if (base + len <= *tmpbufaddr)
-			continue;
-		if (base + len > 0xA0000)
-			len = 0xA0000 - base;
-		*tmpbufsize = base + len - *tmpbufaddr;
-		return;
-	} while (n);
-	panic ("tmpbuf not found");
-}
-
-static void
 process_cpu_type_ext (void)
 {
 	phys_t cpu_type_ext_addr = uefi_param_ext_get_phys (&cpu_type_uuid);
@@ -349,7 +287,7 @@ bsp_init_thread (void *args)
 		ASSERT (p);
 		memcpy (p, bios_data_area, 0xA0000);
 		unmapmem (p, 0xA0000);
-		clear_guest_pages ();
+		vmm_mem_bios_clear_guest_pages ();
 		call_initfunc ("config0");
 		load_drivers ();
 		call_initfunc ("config1");
@@ -357,7 +295,7 @@ bsp_init_thread (void *args)
 		load_drivers ();
 	}
 	if (!uefi_booted) {
-		get_tmpbuf (&tmpbufaddr, &tmpbufsize);
+		vmm_mem_bios_get_tmp_bootsector_mem (&tmpbufaddr, &tmpbufsize);
 		load_bootsector (bios_boot_drive, tmpbufaddr, tmpbufsize);
 		sync_cursor_pos ();
 	}
