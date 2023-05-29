@@ -33,6 +33,7 @@
 #include "mm.h"
 #include "mmioclr.h"
 #include "panic.h"
+#include "phys.h"
 #include "printf.h"
 #include "string.h"
 #include "svm_np.h"

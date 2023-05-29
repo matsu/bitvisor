@@ -42,6 +42,7 @@
 #include "msr.h"
 #include "msr_pass.h"
 #include "panic.h"
+#include "phys.h"
 #include "printf.h"
 
 struct msrarg {

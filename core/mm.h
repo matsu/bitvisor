@@ -58,9 +58,6 @@ typedef struct {
 	enum pmap_type type;
 } pmap_t;
 
-bool phys_in_vmm (u64 phys);
-bool phys_overlapping_with_vmm (phys_t phys, size_t len);
-virt_t phys_to_virt (phys_t phys);
 int num_of_available_pages (void);
 void mm_flush_wb_cache (void);
 void mm_force_unlock (void);

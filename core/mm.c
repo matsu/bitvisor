@@ -42,6 +42,7 @@
 #include "list.h"
 #include "mm.h"
 #include "panic.h"
+#include "phys.h"
 #include "printf.h"
 #include "spinlock.h"
 #include "string.h"
@@ -164,12 +165,6 @@ virt_to_page (virt_t virt)
 	i = (virt - vmm_mem_start_virt ()) >> PAGESIZE_SHIFT;
 	ASSERT (i < NUM_OF_PAGES);
 	return &pagestruct[i];
-}
-
-virt_t
-phys_to_virt (phys_t phys)
-{
-	return (virt_t)(phys - vmm_mem_start_phys () + vmm_mem_start_virt ());
 }
 
 static struct page *
@@ -1045,21 +1040,6 @@ found:
 		break;
 	}
 	spinlock_unlock (&mp->lock);
-}
-
-bool
-phys_in_vmm (u64 phys)
-{
-	phys_t vmm_start_phys = vmm_mem_start_phys ();
-	return phys >= vmm_start_phys && phys < vmm_start_phys + VMMSIZE_ALL;
-}
-
-bool
-phys_overlapping_with_vmm (phys_t phys, size_t len)
-{
-	phys_t vmm_start_phys = vmm_mem_start_phys ();
-	return phys < vmm_start_phys + VMMSIZE_ALL &&
-		phys + len > vmm_start_phys;
 }
 
 void

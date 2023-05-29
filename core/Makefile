@@ -72,5 +72,6 @@ objs-1 += mmioclr.o
 objs-1 += qsort.o
 objs-1 += acpi_dmar.o
 objs-1 += acpi_iohook.o
+objs-1 += phys.o
 objs-1 += sym.o
 objs-1 += vmm_mem.o

@@ -41,6 +41,7 @@
 #include "mmioclr.h"
 #include "panic.h"
 #include "pcpu.h"
+#include "phys.h"
 #include "printf.h"
 #include "spinlock.h"
 #include "string.h"

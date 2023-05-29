@@ -27,14 +27,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include "asm.h"
 #include "constants.h"
 #include "convert.h"
 #include "current.h"
 #include "gmm_access.h"
-#include "mm.h"
 #include "mmioclr.h"
 #include "panic.h"
+#include "phys.h"
 #include "string.h"
 #include "vt_ept.h"
 #include "vt_main.h"
