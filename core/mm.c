@@ -501,15 +501,6 @@ alloc_realmodemem_uefi (uint len)
 	return realmodemem_limit;
 }
 
-u32
-alloc_realmodemem (uint len)
-{
-	if (uefi_booted)
-		return alloc_realmodemem_uefi (len);
-	else
-		return alloc_realmodemem_bios (len);
-}
-
 /* alloc_uppermem() is available after "global2" (mm_init_global)
  * completion and before "bsp0" (install_int0x15_hook) start. */
 u32
@@ -2749,7 +2740,7 @@ vmm_mem_bios_prepare_e820_mem (void)
 	void *p;
 
 	len1 = guest_int0x15_hook_end - guest_int0x15_hook;
-	int0x15_code = alloc_realmodemem (len1);
+	int0x15_code = vmm_mem_alloc_realmodemem (len1);
 
 	count = 0;
 	for (n = 0, nn1 = 1; nn1; n = nn1) {
@@ -2760,7 +2751,7 @@ vmm_mem_bios_prepare_e820_mem (void)
 		count++;
 	}
 	len2 = count * sizeof (struct e820_data);
-	int0x15_data = alloc_realmodemem (len2);
+	int0x15_data = vmm_mem_alloc_realmodemem (len2);
 
 	if (int0x15_data > int0x15_code)
 		int0x15_base = int0x15_code;
@@ -2860,6 +2851,15 @@ vmm_mem_bios_get_tmp_bootsector_mem (u32 *bufaddr, u32 *bufsize)
 		return;
 	} while (n);
 	panic ("tmpbuf not found");
+}
+
+u32
+vmm_mem_alloc_realmodemem (uint len)
+{
+	if (uefi_booted)
+		return alloc_realmodemem_uefi (len);
+	else
+		return alloc_realmodemem_bios (len);
 }
 
 INITFUNC ("global2", mm_init_global);

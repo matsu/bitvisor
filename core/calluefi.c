@@ -508,7 +508,7 @@ copy_uefi_bootcode (void)
 	u64 bootcode;
 	u8 *p;
 
-	bootcode = alloc_realmodemem (11);
+	bootcode = vmm_mem_alloc_realmodemem (11);
 	current->vmctl.write_realmode_seg (SREG_SS, 0);
 	current->vmctl.write_general_reg (GENERAL_REG_RSP, uefi_entry_rsp);
 	current->vmctl.write_realmode_seg (SREG_CS, bootcode >> 4);

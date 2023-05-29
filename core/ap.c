@@ -250,7 +250,7 @@ bspinitproc1 (void)
 		apinit_addr = 0xF000;
 		ap_start ();
 	} else {
-		apinit_addr = alloc_realmodemem (APINIT_SIZE + 15);
+		apinit_addr = vmm_mem_alloc_realmodemem (APINIT_SIZE + 15);
 		ASSERT (apinit_addr >= 0x1000);
 		while ((apinit_addr & 0xF) != (APINIT_OFFSET & 0xF))
 			apinit_addr++;

@@ -207,8 +207,8 @@ wakeup_cont (void)
 static void
 wakeup_init (void)
 {
-	wakeup_entry_addr =
-		alloc_realmodemem (wakeup_entry_end - wakeup_entry_start);
+	uint len = wakeup_entry_end - wakeup_entry_start;
+	wakeup_entry_addr = vmm_mem_alloc_realmodemem (len);
 }
 
 INITFUNC ("acpi0", wakeup_init);
