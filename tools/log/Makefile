@@ -1,11 +1,11 @@
 obj-m := logget-linux.o
 
 CurrentKernel :
-	make -C /lib/modules/`uname -r`/build SUBDIRS=`pwd` modules
+	make -C /lib/modules/`uname -r`/build M=`pwd` modules
 
 clean :
 	-rm -f Module.symvers *.o *.ko *.mod.c .*.cmd *~ .tmp_versions/''* \
-		modules.order
+		modules.order *.mod
 	-rmdir .tmp_versions
 
 # GNU Make understands "load :" as a load directive.  Do not put

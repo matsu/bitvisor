@@ -175,3 +175,4 @@ logget_linux_exit (void)
 
 module_init (logget_linux_init);
 module_exit (logget_linux_exit);
+MODULE_LICENSE ("BSD");
