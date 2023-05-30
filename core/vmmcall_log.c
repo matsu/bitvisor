@@ -68,7 +68,7 @@ log_set_buf (void)
 	if (physaddr == 0 || bufsize == 0)
 		return;
 	offset = 4;
-	buf = mapmem_gphys (physaddr, bufsize, MAPMEM_WRITE);
+	buf = mapmem_as (current->as, physaddr, bufsize, MAPMEM_WRITE);
 	if (old == NULL)
 		putchar_set_func (log_putchar, &old);
 }
