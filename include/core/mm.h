@@ -70,8 +70,6 @@ void *mempool_allocmem (struct mempool *mp, uint len);
 void mempool_freemem (struct mempool *mp, void *virt);
 
 /* Address space */
-u64 mm_as_translate (const struct mm_as *handle, unsigned int *npages,
-		     u64 address);
 u64 mm_as_msi_to_icr (const struct mm_as *as, u32 maddr, u32 mupper,
 		      u16 mdata);
 

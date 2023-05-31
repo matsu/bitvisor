@@ -51,6 +51,8 @@ void __attribute__ ((section (".entry.text")))
 uefi_init_get_vmmsize (u32 *vmmsize, u32 *align);
 void *mm_get_panicmem (int *len);
 void mm_free_panicmem (void);
+u64 mm_as_translate (const struct mm_as *handle, unsigned int *npages,
+		     u64 address);
 
 /* process */
 int mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,
