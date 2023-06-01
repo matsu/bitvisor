@@ -1781,7 +1781,7 @@ mapmem_domap (pmap_t *m, void *virt, const struct mm_as *as, int flags,
 }
 
 void
-unmapmem (void *virt, uint len)
+mm_arch_unmapmem (void *virt, uint len)
 {
 	pmap_t m;
 	virt_t v;
@@ -1805,6 +1805,12 @@ unmapmem (void *virt, uint len)
 	}
 	pmap_close (&m);
 	spinlock_unlock (&mapmem_lock);
+}
+
+void
+unmapmem (void *virt, uint len)
+{
+	mm_arch_unmapmem (virt, len);
 }
 
 static void *
@@ -1840,15 +1846,27 @@ ret:
 }
 
 void *
-mapmem_hphys (u64 physaddr, uint len, int flags)
+mm_arch_mapmem_hphys (u64 physaddr, uint len, int flags)
 {
 	return mapmem_internal (as_hphys, flags, physaddr, len);
 }
 
 void *
-mapmem_as (const struct mm_as *as, u64 physaddr, uint len, int flags)
+mapmem_hphys (u64 physaddr, uint len, int flags)
+{
+	return mm_arch_mapmem_hphys (physaddr, len, flags);
+}
+
+void *
+mm_arch_mapmem_as (const struct mm_as *as, u64 physaddr, uint len, int flags)
 {
 	return mapmem_internal (as, flags, physaddr, len);
+}
+
+void *
+mapmem_as (const struct mm_as *as, u64 physaddr, uint len, int flags)
+{
+	return mm_arch_mapmem_as (as, physaddr, len, flags);
 }
 
 /* Flush all write back caches including other processors */

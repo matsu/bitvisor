@@ -33,6 +33,7 @@
 #include <core/types.h>
 
 struct mm_arch_proc_desc;
+struct mm_as;
 
 int mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,
 			   int space_id);
@@ -54,5 +55,10 @@ int mm_process_arch_unmap_stack (struct mm_arch_proc_desc *mm_proc_desc,
 void mm_process_arch_unmapall (struct mm_arch_proc_desc *mm_proc_desc);
 struct mm_arch_proc_desc *mm_process_arch_switch
 			  (struct mm_arch_proc_desc *switchto);
+
+void *mm_arch_mapmem_hphys (u64 physaddr, uint len, int flags);
+void *mm_arch_mapmem_as (const struct mm_as *as, u64 physaddr, uint len,
+			 int flags);
+void mm_arch_unmapmem (void *virt, uint len);
 
 #endif
