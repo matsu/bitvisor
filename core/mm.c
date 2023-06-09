@@ -34,10 +34,10 @@
 #include "assert.h"
 #include "calluefi.h"
 #include "constants.h"
-#include "entry.h"
 #include "initfunc.h"
 #include "int.h"
 #include "linkage.h"
+#include "linker.h"
 #include "list.h"
 #include "mm.h"
 #include "panic.h"
@@ -120,8 +120,6 @@ struct mempool {
 struct mm_arch_proc_desc {
 	phys_t pd_addr;
 };
-
-extern u8 end[];
 
 static spinlock_t mm_lock;
 static spinlock_t mm_small_lock;

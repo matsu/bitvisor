@@ -27,30 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_ENTRY_H
-#define _CORE_ENTRY_H
+#ifndef _CORE_LINKER_H
+#define _CORE_LINKER_H
 
-#include "linkage.h"
-#include "types.h"
+#include <core/types.h>
 
-#define APINIT_OFFSET 0x0000
-
-extern u32 entry_pd[1024];
-extern u64 entry_pdp[512], entry_pd0[512];
-extern ulong vmm_base_cr3;
-extern u8 cpuinit_start[], cpuinit_end[];
-extern u32 apinit_procs;
-extern u8 apinit_lock;
-extern u64 uefi_entry_rsp, uefi_entry_ret_addr;
-extern u64 uefi_entry_cr3;
-extern struct descreg uefi_entry_gdtr;
-
-asmlinkage ulong uefi_entry_call (ulong procaddr, int dummy, ...);
-asmlinkage void *uefi_entry_virttophys (void *virt);
-asmlinkage void uefi_entry_pcpy (void *phys_to, void *phys_from, ulong len);
-asmlinkage void uefi_entry_start (ulong phys_start) __attribute__ ((noreturn));
-
-asmlinkage void move_vmm_area32 (void);
-asmlinkage void move_vmm_area64 (void);
+extern u8 head[];
+extern u8 dataend[];
+extern u8 end[];
 
 #endif

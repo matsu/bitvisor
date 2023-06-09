@@ -31,7 +31,7 @@
 #include "config.h"
 #include "constants.h"
 #include "current.h"
-#include "entry.h"
+#include "linker.h"
 #include "panic.h"
 #include "printf.h"
 #include "seg.h"

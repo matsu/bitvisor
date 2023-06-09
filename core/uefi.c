@@ -33,6 +33,7 @@
 #undef NULL
 #include "asm.h"
 #include "entry.h"
+#include "linker.h"
 #include "mm.h"
 #include "uefi.h"
 #include <share/uefi_boot.h>
@@ -182,7 +183,6 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 	ulong alloc_addr;
 	u32 vmmsize, align, ret, loadedsize, blocksize, npages;
 	int freesize;
-	extern u8 dataend[];
 	EFI_SIMPLE_TEXT_INPUT_PROTOCOL *conin;
 	EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *conout;
 	struct bitvisor_boot bitvisor_opt;
