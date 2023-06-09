@@ -60,5 +60,7 @@ void *mm_arch_mapmem_hphys (u64 physaddr, uint len, int flags);
 void *mm_arch_mapmem_as (const struct mm_as *as, u64 physaddr, uint len,
 			 int flags);
 void mm_arch_unmapmem (void *virt, uint len);
+void mm_arch_init (void);
+void mm_arch_force_unlock (void);
 
 #endif
