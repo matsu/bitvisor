@@ -33,7 +33,6 @@
 #include "asm.h"
 #include "assert.h"
 #include "calluefi.h"
-#include "comphappy.h"
 #include "constants.h"
 #include "entry.h"
 #include "initfunc.h"
@@ -1281,7 +1280,6 @@ mm_process_map_shared (struct mm_arch_proc_desc *mm_proc_desc_callee,
 	virt_t virt, virt_s, virt_e, off;
 	phys_t phys;
 
-	VAR_IS_INITIALIZED (phys);
 	if (len == 0)
 		return NULL;
 	virt_s = (virt_t)buf;
