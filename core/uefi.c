@@ -33,7 +33,6 @@
 #undef NULL
 #include <arch/entry.h>
 #include <section.h>
-#include "asm.h"
 #include "entry.h"
 #include "linker.h"
 #include "mm.h"

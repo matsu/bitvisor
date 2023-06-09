@@ -34,8 +34,6 @@
 #include "calluefi.h"
 #include "constants.h"
 #include "initfunc.h"
-#include "int.h"
-#include "linkage.h"
 #include "linker.h"
 #include "list.h"
 #include "mm.h"

@@ -27,7 +27,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "asm.h"
 #include "assert.h"
 #include "constants.h"
 #include "cpu_interpreter.h"

@@ -29,11 +29,9 @@
 
 #include <arch/vmmcall.h>
 #include <core/currentcpu.h>
-#include "asm.h"
 #include "assert.h"
 #include "config.h"
 #include "initfunc.h"
-#include "main.h"
 #include "mm.h"
 #include "panic.h"
 #include "pcpu.h"
