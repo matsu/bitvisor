@@ -84,6 +84,28 @@ call_uefi_allocate_pages (int type, int memtype, u64 npages, u64 *phys)
 }
 
 int
+call_uefi_get_time (u16 *year, u8 *month, u8 *day, u8 *hour, u8 *minute,
+		    u8 *second)
+{
+	static EFI_TIME efi_time;
+	int ret;
+
+	ret = calluefi (uefi_get_time, 2, sym_to_phys (&efi_time), NULL);
+	if (ret) {
+		printf ("Cannot get uefi time with %d\n", ret);
+		return ret;
+	}
+	*year = efi_time.Year;
+	*month = efi_time.Month;
+	*day = efi_time.Day;
+	*hour = efi_time.Hour;
+	*minute = efi_time.Minute;
+	*second = efi_time.Second;
+
+	return ret;
+}
+
+int
 call_uefi_free_pages (u64 phys, u64 npages)
 {
 	return calluefi (uefi_free_pages, 2, phys, npages);

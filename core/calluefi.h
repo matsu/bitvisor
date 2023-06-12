@@ -51,5 +51,7 @@ void call_uefi_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev,
 int call_uefi_get_graphics_info (u32 *hres, u32 *vres, u32 *rmask, u32 *gmask,
 				 u32 *bmask, u32 *pxlin, u64 *addr, u64 *size);
 void copy_uefi_bootcode (void);
+int call_uefi_get_time (u16 *year, u8 *month, u8 *day, u8 *hour, u8 *minute,
+			u8 *second);
 
 #endif

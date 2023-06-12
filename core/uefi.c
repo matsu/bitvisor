@@ -83,6 +83,7 @@ ulong SECTION_ENTRY_DATA uefi_protocols_per_handle;
 ulong SECTION_ENTRY_DATA uefi_uninstall_protocol_interface;
 ulong SECTION_ENTRY_DATA uefi_create_event;
 ulong SECTION_ENTRY_DATA uefi_boot_acpi_table_mod;
+ulong SECTION_ENTRY_DATA uefi_get_time;
 bool uefi_booted;
 
 static void SECTION_ENTRY_TEXT
@@ -180,6 +181,7 @@ int SECTION_ENTRY_TEXT
 uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 {
 	EFI_BOOT_SERVICES *uefi_boot_services;
+	EFI_RUNTIME_SERVICES *uefi_runtime_services;
 	EFI_FILE_HANDLE file;
 	u64 loadaddr, loadsize;
 	u64 uefi_read;
@@ -199,6 +201,12 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 
 	uefi_boot_param_ext_addr = (ulong)boot_options;
 	uefi_image_handle = (ulong)image;
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_runtime_services),
+			 &systab->RuntimeServices,
+			 sizeof uefi_runtime_services);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_get_time),
+			 &uefi_runtime_services->GetTime,
+			 sizeof uefi_get_time);
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_conin),
 			 &systab->ConIn, sizeof uefi_conin);
 	conin = uefi_conin;

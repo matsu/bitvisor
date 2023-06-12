@@ -12,3 +12,9 @@ ip_sys_now (void)
 	mpudiv_128_32 (tmp, 1000, tmp);
 	return tmp[0];
 }
+
+void
+epoch_now (long long *second, int *microsecond)
+{
+	return get_epoch_time (second, microsecond);
+}

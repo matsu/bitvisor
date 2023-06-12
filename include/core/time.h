@@ -34,5 +34,6 @@
 
 u64 get_cpu_time (void);
 u64 get_time (void);
+void get_epoch_time (long long *second, int *microsecond);
 
 #endif
