@@ -28,6 +28,7 @@
  */
 
 #include <arch/currentcpu.h>
+#include <arch/thread.h>
 #include <builtin.h>
 #include <core/currentcpu.h>
 #include "assert.h"
@@ -41,7 +42,6 @@
 #include "spinlock.h"
 #include "string.h"
 #include "thread.h"
-#include "thread_switch.h"
 
 #define MAXNUM_OF_THREADS	256
 #define CPUNUM_ANY		-1
@@ -57,17 +57,11 @@
 #define LOCK_UNLOCK(l) ticketlock_unlock (l)
 #endif
 
-extern ulong volatile syscallstack asm ("%gs:gs_syscallstack");
-
 enum thread_state {
 	THREAD_EXIT,
 	THREAD_RUN,
 	THREAD_WILL_STOP,
 	THREAD_STOP,
-};
-
-struct thread_context {
-	ulong r12, r13, r14_edi, r15_esi, rbx, rbp, rip;
 };
 
 struct thread_data {
@@ -109,10 +103,10 @@ thread_data_save_and_load (struct thread_data *old, struct thread_data *new)
 {
 	old->stack = currentcpu_get_stackaddr ();
 	old->pid = currentcpu_get_pid ();
-	old->syscallstack = syscallstack;
+	old->syscallstack = thread_arch_get_syscallstack ();
 	currentcpu_set_stackaddr (new->stack);
 	currentcpu_set_pid (new->pid);
-	syscallstack = new->syscallstack;
+	thread_arch_set_syscallstack (new->syscallstack);
 	old->process_switch = mm_process_switch (new->process_switch);
 }
 
@@ -195,7 +189,7 @@ found:
 	}
 	if (d->cpunum != CPUNUM_ANY)
 		schedule_skip (false);
-	thread_switch (&td[oldtid].context, d->context, 0);
+	thread_arch_switch (&td[oldtid].context, d->context, 0);
 	switched ();
 }
 
@@ -226,19 +220,13 @@ thread_new0 (struct thread_context *c, void *stack)
 tid_t
 thread_new (void (*func) (void *), void *arg, int stacksize)
 {
-	u8 *stack, *q;
-	struct thread_context c;
+	u8 *stack;
+	struct thread_context *ctx;
 
 	stack = alloc (stacksize);
-	q = stack + stacksize;
-	c.rbp = 0;
-	c.rip = (ulong)thread_start0;
-#define PUSH(n) memcpy (q -= sizeof (n), &(n), sizeof (n))
-	PUSH (arg);
-	PUSH (func);
-	PUSH (c);
-#undef PUSH
-	return thread_new0 ((struct thread_context *)q, stack);
+	ctx = thread_arch_context_init (func, arg, stack, stacksize);
+
+	return thread_new0 ((struct thread_context *)ctx, stack);
 }
 
 static enum thread_state
