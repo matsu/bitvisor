@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_EXINT_PASS_H
-#define _CORE_EXINT_PASS_H
+#ifndef __CORE_INCLUDE_ARCH_EXINT_PASS_H
+#define __CORE_INCLUDE_ARCH_EXINT_PASS_H
 
-#include <core/exint_pass.h>
-
-int exint_pass_intr_call (int num);
-int exint_pass_intr_run_callback_list (int num);
+int exint_pass_arch_intr_alloc (int (*callback) (void *data, int num),
+				void *data);
+void exint_pass_arch_intr_free (int num);
+int exint_pass_arch_intr_call (int num);
 
 #endif

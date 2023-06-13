@@ -28,61 +28,82 @@
  */
 
 #include <arch/exint_pass.h>
+#include "current.h"
 #include "exint_pass.h"
-#include "list.h"
-#include "mm.h"
-#include "panic.h"
+#include "initfunc.h"
+#include "int.h"
+#include "string.h"
+
+/* Interrupts 0x10-0x1F are reserved by CPU for exceptions but can be
+ * delivered by APIC.  Operating systems do not use them for external
+ * interrupts because they are same number as CPU exceptions and BIOS
+ * calls. */
+#define EXINT_ALLOC_START 0x10
+#define EXINT_ALLOC_NUM 0x10
 
 struct exint_pass_intr {
 	int (*callback) (void *data, int num);
 	void *data;
 };
 
-struct exint_pass_intr_list {
-	LIST1_DEFINE (struct exint_pass_intr_list);
-	struct exint_pass_intr intr;
+static struct exint_pass_intr intr[EXINT_ALLOC_NUM];
+static int exint_pass_ack (void);
+
+static struct exint_func func = {
+	exint_pass_ack,
 };
 
-static LIST1_DEFINE_HEAD_INIT (struct exint_pass_intr_list, intr_list);
-
-int
-exint_pass_intr_run_callback_list (int num)
+static int
+exint_pass_intr_set (int (*callback) (void *data, int num), void *data, int i)
 {
-	struct exint_pass_intr_list *intr;
-
-	LIST1_FOREACH (intr_list, intr)
-		num = intr->intr.callback (intr->intr.data, num);
-	return num;
+	if (callback && intr[i].callback)
+		return 0;
+	intr[i].callback = callback;
+	intr[i].data = data;
+	return 1;
 }
 
 int
-exint_pass_intr_call (int num)
+exint_pass_arch_intr_call (int num)
 {
-	return exint_pass_arch_intr_call (num);
+	if (num < EXINT_ALLOC_START)
+		return num;
+	int i = num - EXINT_ALLOC_START;
+	if (i >= EXINT_ALLOC_NUM || !intr[i].callback)
+		return exint_pass_intr_run_callback_list (num);
+	return intr[i].callback (intr[i].data, num);
 }
 
 int
-exint_pass_intr_alloc (int (*callback) (void *data, int num), void *data)
+exint_pass_arch_intr_alloc (int (*callback) (void *data, int num), void *data)
 {
-	return exint_pass_arch_intr_alloc (callback, data);
+	int i;
+	for (i = 0; i < EXINT_ALLOC_NUM; i++)
+		if (exint_pass_intr_set (callback, data, i))
+			return EXINT_ALLOC_START + i;
+	return -1;
 }
 
 void
-exint_pass_intr_free (int num)
+exint_pass_arch_intr_free (int num)
 {
-	exint_pass_arch_intr_free (num);
+	exint_pass_intr_set (NULL, NULL, num);
 }
 
-int
-exint_pass_intr_register_callback (int (*callback) (void *data, int num),
-				   void *data)
+static int
+exint_pass_ack (void)
 {
-	struct exint_pass_intr_list *intr = alloc (sizeof *intr);
+	int num;
 
-	if (!intr)
-		return 0;
-	intr->intr.callback = callback;
-	intr->intr.data     = data;
-	LIST1_ADD (intr_list, intr);
-	return 1;
+	num = do_externalint_enable ();
+	num = exint_pass_intr_call (num);
+	return num;
 }
+
+static void
+exint_pass_init (void)
+{
+	memcpy ((void *)&current->exint, (void *)&func, sizeof func);
+}
+
+INITFUNC ("pass0", exint_pass_init);
