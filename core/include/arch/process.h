@@ -27,35 +27,16 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_PROCESS_H
-#define _CORE_PROCESS_H
+#ifndef _CORE_INCLUDE_ARCH_PROCESS_H
+#define _CORE_INCLUDE_ARCH_PROCESS_H
 
-#include <core/process.h>
-#include "types.h"
+#include <core/types.h>
 
-#define NUM_OF_PID		32
-#define NUM_OF_MSGDSC		32
-#define NUM_OF_MSGDSCRECV	8
-#define PROCESS_NAMELEN		32
-#define MAXNUM_OF_MSGBUF	32
-
-typedef ulong (*syscall_func_t) (ulong ip, ulong sp, ulong num, ulong arg0,
-				 ulong arg1);
-
-bool own_process64_msrs (void (*func) (void *data), void *data);
-
-void process_kill (bool (*func) (void *data), void *data);
-syscall_func_t process_get_syscall_func (uint num);
-ulong sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_msgopen (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_msgclose (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_msgsendint (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_msgret (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_msgsenddesc (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_newprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_msgsendbuf (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_msgunregister (ulong ip, ulong sp, ulong num, ulong si, ulong di);
-ulong sys_exitprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di);
+void process_arch_setup (void);
+void process_arch_callret (int retval);
+bool process_arch_syscallstack_ok (void);
+int process_arch_exec (void *func, ulong sp, void *arg, int len, ulong buf,
+		       int bufcnt);
+phys_t processuser_arch_syscall_phys (void);
 
 #endif

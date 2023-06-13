@@ -28,8 +28,8 @@
  */
 
 #include <arch/currentcpu.h>
+#include <arch/process.h>
 #include <arch/vmm_mem.h>
-#include "asm.h"
 #include "assert.h"
 #include "constants.h"
 #include "elf.h"
@@ -43,9 +43,6 @@
 #include "printf.h"
 #include "process.h"
 #include "process_builtin.h"
-#include "process_sysenter.h"
-#include "seg.h"
-#include "sym.h"
 #include "spinlock.h"
 #include "string.h"
 #include "types.h"
@@ -53,13 +50,6 @@
 #define NUM_OF_SYSCALLS 32
 #define NAMELEN 16
 #define MAX_MSGLEN 16384
-
-typedef ulong (*syscall_func_t) (ulong ip, ulong sp, ulong num, ulong si,
-				 ulong di);
-
-struct syscall_regs {
-	ulong rdi, rsi, rbp, rsp, rbx, rdx, rcx, rax;
-};
 
 struct msgdsc_data {
 	int pid;
@@ -114,7 +104,6 @@ struct processbin {
 	char name[];
 } __attribute__ ((packed));
 
-extern ulong volatile syscallstack asm ("%gs:gs_syscallstack");
 static struct process_data process[NUM_OF_PID];
 static spinlock_t process_lock;
 static bool process_initialized = false;
@@ -135,7 +124,7 @@ is_range_valid (ulong addr, u32 len)
 }
 
 static ulong
-sys_nop (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_nop (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
 	return 0;
 }
@@ -151,72 +140,6 @@ clearmsgdsc (struct msgdsc_data msgdsc[NUM_OF_MSGDSC])
 		msgdsc[i].dsc = 0;
 		msgdsc[i].func = NULL;
 	}
-}
-
-#ifndef __x86_64__
-static bool
-sysenter_available (void)
-{
-	u32 a, b, c, d;
-	unsigned int family, model, stepping;
-
-	asm_cpuid (1, 0, &a, &b, &c, &d);
-	if (d & CPUID_1_EDX_SEP_BIT) {
-		family = (a & 0xF00) >> 8;
-		model = (a & 0xF0) >> 4;
-		stepping = (a & 0xF);
-		if (family == 6 && model < 3 && stepping < 3)
-			return false;
-		return true;
-	}
-	return false;
-}
-#endif
-
-static void
-set_process64_msrs (void)
-{
-#ifdef __x86_64__
-	asm_wrmsr32 (MSR_IA32_STAR, (u32) (ulong)syscall_entry_sysret64,
-		     (SEG_SEL_CODE32U << 16) | SEG_SEL_CODE64);
-	asm_wrmsr (MSR_IA32_LSTAR, (ulong)syscall_entry_sysret64);
-	asm_wrmsr (MSR_AMD_CSTAR, (ulong)syscall_entry_sysret64);
-	asm_wrmsr (MSR_IA32_FMASK, RFLAGS_TF_BIT |
-		   RFLAGS_VM_BIT | RFLAGS_IF_BIT | RFLAGS_RF_BIT);
-#endif
-}
-
-/* Note: SYSCALL/SYSRET is supported on all 64bit processors.  It can
- * be enabled by the USE_SYSCALL64 but it is disabled by default
- * because of security reasons.  Since the SYSCALL/SYSRET does not
- * switch %rsp and an interrupt stack table mechanism is currently not
- * used, #NMI between the SYSCALL and switching %rsp or between
- * switching %rsp and SYSRET uses the user stack in ring 0. */
-static void
-setup_syscallentry (void)
-{
-#ifdef __x86_64__
-	u64 efer;
-
-	asm_wrmsr (MSR_IA32_SYSENTER_CS, 0);	/* Disable SYSENTER/SYSEXIT */
-#ifdef USE_SYSCALL64
-	set_process64_msrs ();
-	asm_rdmsr64 (MSR_IA32_EFER, &efer);
-	efer |= MSR_IA32_EFER_SCE_BIT;
-	asm_wrmsr64 (MSR_IA32_EFER, efer);
-#else
-	asm_rdmsr64 (MSR_IA32_EFER, &efer);
-	efer &= ~MSR_IA32_EFER_SCE_BIT;
-	asm_wrmsr64 (MSR_IA32_EFER, efer);
-#endif
-#else
-	if (sysenter_available ()) {
-		asm_wrmsr (MSR_IA32_SYSENTER_CS, SEG_SEL_CODE32);
-		asm_wrmsr (MSR_IA32_SYSENTER_EIP,
-			   (ulong)syscall_entry_sysexit);
-		asm_wrmsr (MSR_IA32_SYSENTER_ESP, currentcpu->tss32.esp0);
-	}
-#endif
 }
 
 static void
@@ -425,24 +348,12 @@ process_init_global (void)
 	}
 	process[0].valid = true;
 	clearmsgdsc (process[0].msgdsc);
-	setup_syscallentry ();
+	process_arch_setup ();
 	spinlock_init (&process_lock);
 	LIST1_HEAD_INIT (processbin_list);
 	process_initialized = true;
 	builtin_loadall ();
 	builtin_free ();
-}
-
-static void
-process_init_ap (void)
-{
-	setup_syscallentry ();
-}
-
-static void
-process_wakeup (void)
-{
-	setup_syscallentry ();
 }
 
 static ulong
@@ -541,38 +452,13 @@ found:
 		pid = 0;
 	}
 	/* for system calls */
-#ifdef __x86_64__
-#ifdef USE_SYSCALL64
 	mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
-					sym_to_phys (processuser_syscall),
+					processuser_arch_syscall_phys (),
 					false, true);
-#else
-	mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
-					sym_to_phys (processuser_callgate64),
-					false, true);
-#endif
-#else
-	if (sysenter_available ())
-		mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
-						sym_to_phys
-						(processuser_sysenter),
-						false, true);
-	else
-		mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
-						sym_to_phys
-						(processuser_no_sysenter),
-						false, true);
-#endif
 	process[pid].msgdsc[0].func = (void *)rip;
 	mm_process_switch (old_mm_proc_desc);
 	spinlock_unlock (&process_lock);
 	return _msgopen_2 (frompid, pid, gen, 0);
-}
-
-static void
-callret (int retval)
-{
-	asm_wrrsp_and_ret (syscallstack, retval);
 }
 
 void
@@ -580,12 +466,12 @@ process_kill (bool (*func) (void *data), void *data)
 {
 	if (!process_initialized) /* process not ready. */
 		return;
-	if (!syscallstack)	/* can't kill */
+	if (!process_arch_syscallstack_ok ())	/* can't kill */
 		return;
 	if (func && !func (data))
 		return;
 	process[currentcpu_get_pid ()].exitflag = true;
-	callret (-1);
+	process_arch_callret (-1);
 }
 
 /* free any resources of a process */
@@ -606,44 +492,14 @@ cleanup (int pid, struct mm_arch_proc_desc *mm_proc_desc_callee,
 	process[pid].mm_proc_desc = NULL;
 }
 
-static void
-release_process64_msrs (void *data)
-{
-}
-
-bool
-own_process64_msrs (void (*func) (void *data), void *data)
-{
-	struct pcpu *cpu = currentcpu;
-
-	if (cpu->release_process64_msrs == func &&
-	    cpu->release_process64_msrs_data == data)
-		return false;
-	if (cpu->release_process64_msrs)
-		cpu->release_process64_msrs (cpu->release_process64_msrs_data);
-	cpu->release_process64_msrs = func;
-	cpu->release_process64_msrs_data = data;
-	return true;
-}
-
-static void
-set_process64_msrs_if_necessary (void)
-{
-#ifndef USE_SYSCALL64
-	return;
-#endif
-	if (own_process64_msrs (release_process64_msrs, NULL))
-		set_process64_msrs ();
-}
-
 /* pid, func=pointer to the function of the process,
    sp=stack pointer of the process */
 /* process_lock must be locked */
 static int
-call_msgfunc0 (int pid, void *func, ulong sp)
+call_msgfunc0 (int pid, void *func, ulong sp, void *arg, int len,
+	       ulong buf, int bufcnt)
 {
-	ulong ax, bx, cx, dx, si, di;
-	int oldpid;
+	int oldpid, ret;
 
 	ASSERT (pid >= 0);
 	ASSERT (pid < NUM_OF_PID);
@@ -655,50 +511,11 @@ call_msgfunc0 (int pid, void *func, ulong sp)
 	currentcpu_set_pid (pid);
 	process[pid].running++;
 	spinlock_unlock (&process_lock);
-	set_process64_msrs_if_necessary ();
-	asm volatile (
-#ifdef __x86_64__
-		" pushq %%rbp \n"
-		" pushq %8 \n"
-		" pushq $1f \n"
-		" movq %%rsp,%8 \n"
-#ifdef USE_SYSCALL64
-		" jmp ret_to_user64_sysret \n"
-#else
-		" jmp ret_to_user64 \n"
-#endif
-		"1: \n"
-		" popq %8 \n"
-		" popq %%rbp \n"
-#else
-		" push %%ebp \n"
-		" pushl %8 \n"
-
-		" push $1f \n"
-		" mov %%esp,%8 \n"
-		" jmp ret_to_user32 \n"
-		"1: \n"
-		" popl %8 \n"
-		" pop %%ebp \n"
-#endif
-		: "=a" (ax)
-		, "=b" (bx)
-		, "=c" (cx)
-		, "=d" (dx)
-		, "=S" (si)
-		, "=D" (di)
-		: "c" (sp)
-		, "d" ((ulong)func)
-		, "m" (syscallstack)
-		: "memory", "cc"
-#ifdef __x86_64__
-		, "%r8", "%r9", "%r10", "%r11", "%r12", "%r13", "%r14", "%r15"
-#endif
-		);
+	ret = process_arch_exec (func, sp, arg, len, buf, bufcnt);
 	spinlock_lock (&process_lock);
 	process[pid].running--;
 	currentcpu_set_pid (oldpid);
-	return (int)ax;
+	return ret;
 }
 
 /* pid, gen, desc, arg=arguments, len=length of the arguments (bytes) */
@@ -707,7 +524,7 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 	       struct msgbuf *buf, int bufcnt)
 {
 	struct mm_arch_proc_desc *mm_proc_desc_callee, *mm_proc_desc_caller;
-	ulong sp, sp2, buf_sp;
+	ulong sp, sp2;
 	int r = -1;
 	struct msgbuf buf_user[MAXNUM_OF_MSGBUF];
 	int (*func) (int, int, struct msgbuf *, int);
@@ -772,23 +589,8 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 		sp -= sizeof buf_user[i];
 		memcpy ((void *)sp, &buf_user[i], sizeof buf_user[i]);
 	}
-	buf_sp = sp;
-#ifdef __x86_64__
-	/* for %r8 and %r9 */
-	sp -= sizeof (ulong);
-	*(ulong *)sp = 0;
-	sp -= sizeof (ulong);
-	*(ulong *)sp = 0;
-#endif
-	sp -= sizeof (ulong);
-	*(ulong *)sp = bufcnt;
-	sp -= sizeof (ulong);
-	*(ulong *)sp = buf_sp;
-	sp -= len;
-	memcpy ((void *)sp, arg, len);
-	sp -= sizeof (ulong);
-	*(ulong *)sp = 0x3FFFF100;
-	r = call_msgfunc0 (pid, process[pid].msgdsc[desc].func, sp);
+	r = call_msgfunc0 (pid, process[pid].msgdsc[desc].func, sp, arg, len,
+			   sp /* sp is currently pointing buf */, bufcnt);
 	mm_process_unmap_stack (mm_proc_desc_callee, sp2, stacksize);
 mapfail:
 	for (i = 0; i < bufcnt; i++) {
@@ -829,19 +631,19 @@ msgsetfunc (int desc, void *func)
 	return _msgsetfunc (0, desc, func);
 }
 
-/* si=desc di=func */
+/* arg0=desc arg1=func */
 ulong
-sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
 	int pid;
 
-	if (!is_range_valid (di, 1))
+	if (!is_range_valid (arg1, 1))
 		return (ulong)-1L;
 	pid = currentcpu_get_pid ();
 	if (process[pid].setlimit)
 		return (ulong)-1L;
-	if (si >= 0 && si < NUM_OF_MSGDSC)
-		return (ulong)_msgsetfunc (pid, si, (void *)di);
+	if (arg0 >= 0 && arg0 < NUM_OF_MSGDSC)
+		return (ulong)_msgsetfunc (pid, arg0, (void *)arg1);
 	return 0;
 }
 
@@ -880,27 +682,27 @@ msgregister (char *name, void *func)
 	return _msgregister (0, name, func);
 }
 
-/* si=name di=func */
+/* arg0=name arg1=func */
 ulong
-sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgregister (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
 	char name[MSG_NAMELEN];
 	char *pname = NULL;
 	int pid;
 
-	if (si && !is_range_valid (si, MSG_NAMELEN))
+	if (arg0 && !is_range_valid (arg0, MSG_NAMELEN))
 		return (ulong)-1L;
-	if (!is_range_valid (di, 1))
+	if (!is_range_valid (arg1, 1))
 		return (ulong)-1L;
 	pid = currentcpu_get_pid ();
 	if (process[pid].setlimit)
 		return (ulong)-1L;
-	if (si) {
-		snprintf (name, sizeof name, "%s", (char *)si);
+	if (arg0) {
+		snprintf (name, sizeof name, "%s", (char *)arg0);
 		name[MSG_NAMELEN - 1] = '\0';
 		pname = name;
 	}
-	return _msgregister (pid, pname, (void *)di);
+	return _msgregister (pid, pname, (void *)arg1);
 }
 
 /* for internal use */
@@ -921,19 +723,19 @@ msgopen (char *name)
 	return _msgopen (0, name);
 }
 
-/* si=name */
+/* arg0=name */
 ulong
-sys_msgopen (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgopen (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
 	char name[MSG_NAMELEN];
 	int pid;
 
-	if (!is_range_valid (si, MSG_NAMELEN))
+	if (!is_range_valid (arg0, MSG_NAMELEN))
 		return (ulong)-1L;
 	pid = currentcpu_get_pid ();
 	if (process[pid].setlimit)
 		return (ulong)-1L;
-	snprintf (name, sizeof name, "%s", (char *)si);
+	snprintf (name, sizeof name, "%s", (char *)arg0);
 	name[MSG_NAMELEN - 1] = '\0';
 	return _msgopen (pid, name);
 }
@@ -961,11 +763,11 @@ msgclose (int desc)
 	return _msgclose (0, desc);
 }
 
-/* si=desc */
+/* arg0=desc */
 ulong
-sys_msgclose (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgclose (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
-	return _msgclose (currentcpu_get_pid (), si);
+	return _msgclose (currentcpu_get_pid (), arg0);
 }
 
 /* for internal use */
@@ -996,20 +798,20 @@ msgsendint (int desc, int data)
 	return _msgsendint (0, desc, data);
 }
 
-/* si=desc di=data */
+/* arg0=desc arg1=data */
 ulong
-sys_msgsendint (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgsendint (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
-	if (si >= NUM_OF_MSGDSC)
+	if (arg0 >= NUM_OF_MSGDSC)
 		return (ulong)-1L;
-	return _msgsendint (currentcpu_get_pid (), si, di);
+	return _msgsendint (currentcpu_get_pid (), arg0, arg1);
 }
 
-/* si=retval */
+/* arg0=retval */
 ulong
-sys_msgret (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgret (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
-	callret ((int)si);
+	process_arch_callret ((int)arg0);
 	return 0;		/* Not reached. */
 }
 
@@ -1076,14 +878,14 @@ msgsenddesc (int desc, int data)
 	return _msgsenddesc (0, desc, data);
 }
 
-/* si=desc di=data */
+/* arg0=desc arg1=data */
 ulong
-sys_msgsenddesc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgsenddesc (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
 	int pid = currentcpu_get_pid ();
 	if (process[pid].setlimit)
 		return (ulong)-1L;
-	return _msgsenddesc (pid, si, di);
+	return _msgsenddesc (pid, arg0, arg1);
 }
 
 static int
@@ -1102,19 +904,19 @@ newprocess (char *name)
 	return _newprocess (0, name);
 }
 
-/* si=name */
+/* arg0=name */
 ulong
-sys_newprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_newprocess (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
 	char name[PROCESS_NAMELEN];
 	int pid;
 
-	if (!is_range_valid (si, 1))
+	if (!is_range_valid (arg0, 1))
 		return (ulong)-1L;
 	pid = currentcpu_get_pid ();
 	if (process[pid].setlimit)
 		return (ulong)-1L;
-	snprintf (name, sizeof name, "%s", (char *)si);
+	snprintf (name, sizeof name, "%s", (char *)arg0);
 	name[PROCESS_NAMELEN - 1] = '\0';
 	return (ulong)_newprocess (pid, name);
 }
@@ -1147,19 +949,19 @@ msgsendbuf (int desc, int data, struct msgbuf *buf, int bufcnt)
 	return _msgsendbuf (0, desc, data, buf, bufcnt);
 }
 
-/* si=desc di=data sp=others */
+/* arg0=desc arg1=data sp=others */
 ulong
-sys_msgsendbuf (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgsendbuf (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
 	struct msgsendbuf_args {
 		int data;
 		int bufcnt;
 		struct msgbuf *buf;
-	} *q = (struct msgsendbuf_args *)di, arg;
+	} *q = (struct msgsendbuf_args *)arg1, arg;
 	struct msgbuf buf[MAXNUM_OF_MSGBUF];
 	int i;
 
-	if (!is_range_valid (di, sizeof *q))
+	if (!is_range_valid (arg1, sizeof *q))
 		return (ulong)-1L;
 	/* we need to copy the structure to kernel memory before
 	   checking it is valid because a process may modify it at the
@@ -1171,7 +973,7 @@ sys_msgsendbuf (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 		return (ulong)-1L;
 	if (arg.bufcnt > MAXNUM_OF_MSGBUF)
 		return (ulong)-1L;
-	if (si >= NUM_OF_MSGDSC)
+	if (arg0 >= NUM_OF_MSGDSC)
 		return (ulong)-1L;
 	memcpy (buf, arg.buf, sizeof *arg.buf * arg.bufcnt);
 	for (i = 0; i < arg.bufcnt; i++) {
@@ -1181,7 +983,7 @@ sys_msgsendbuf (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 			return (ulong)-1L;
 		buf[i].premap_handle = 0;
 	}
-	return _msgsendbuf (currentcpu_get_pid (), si, arg.data, buf,
+	return _msgsendbuf (currentcpu_get_pid (), arg0, arg.data, buf,
 			    arg.bufcnt);
 }
 
@@ -1203,11 +1005,11 @@ msgunregister (int desc)
 	return _msgunregister (0, desc);
 }
 
-/* si=desc */
+/* arg0=desc */
 ulong
-sys_msgunregister (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_msgunregister (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
-	return _msgunregister (currentcpu_get_pid (), (int)si);
+	return _msgunregister (currentcpu_get_pid (), (int)arg0);
 }
 
 void
@@ -1216,20 +1018,20 @@ exitprocess (int retval)
 	panic ("exitprocess inside VMM.");
 }
 
-/* si=retval */
+/* arg0=retval */
 ulong
-sys_exitprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_exitprocess (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
-	if (!syscallstack)
+	if (!process_arch_syscallstack_ok ())
 		panic ("sys_exitprocess failed.");
 	process[currentcpu_get_pid ()].exitflag = true;
-	callret ((int)si);
+	process_arch_callret ((int)arg0);
 	return 0;		/* Not reached. */
 }
 
-/* si=stack size di=maximum stack size */
+/* arg0=stack size arg1=maximum stack size */
 static ulong
-sys_setlimit (ulong ip, ulong sp, ulong num, ulong si, ulong di)
+sys_setlimit (ulong ip, ulong sp, ulong num, ulong arg0, ulong arg1)
 {
 	int r = -1;
 	int pid;
@@ -1240,21 +1042,21 @@ sys_setlimit (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 	pid = currentcpu_get_pid ();
 	if (process[pid].setlimit)
 		goto ret;
-	if (si < PAGESIZE)
-		si = PAGESIZE;
-	if (di < PAGESIZE)
-		di = PAGESIZE;
+	if (arg0 < PAGESIZE)
+		arg0 = PAGESIZE;
+	if (arg1 < PAGESIZE)
+		arg1 = PAGESIZE;
 	mm_proc_desc = process[pid].mm_proc_desc;
-	tmp = mm_process_map_stack (mm_proc_desc, di, false, false);
+	tmp = mm_process_map_stack (mm_proc_desc, arg1, false, false);
 	if (!tmp)
 		goto ret;
-	r = mm_process_unmap_stack (mm_proc_desc, tmp, di);
+	r = mm_process_unmap_stack (mm_proc_desc, tmp, arg1);
 	if (r) {
 		spinlock_unlock (&process_lock);
 		panic ("unmap stack failed");
 	}
 	process[pid].setlimit = true;
-	process[pid].stacksize = si;
+	process[pid].stacksize = arg0;
 ret:
 	spinlock_unlock (&process_lock);
 	return (ulong)r;
@@ -1312,25 +1114,12 @@ static syscall_func_t syscall_table[NUM_OF_SYSCALLS] = {
 	sys_setlimit,
 };
 
-__attribute__ ((regparm (1))) void
-process_syscall (struct syscall_regs *regs)
+syscall_func_t
+process_get_syscall_func (uint num)
 {
-	if (regs->rbx < NUM_OF_SYSCALLS && syscall_table[regs->rbx]) {
-		regs->rax = syscall_table[regs->rbx] (regs->rdx, regs->rcx,
-						      regs->rbx, regs->rsi,
-						      regs->rdi);
-		set_process64_msrs_if_necessary ();
-		return;
-	}
-	printf ("Bad system call.\n");
-	printf ("rax:0x%lX rbx(num):0x%lX rcx(rsp):0x%lX rdx(eip):0x%lX\n",
-		regs->rax, regs->rbx, regs->rcx, regs->rdx);
-	printf ("rsp:0x%lX rbp:0x%lX rsi:0x%lX rdi:0x%lX\n",
-		regs->rsp, regs->rbp, regs->rsi, regs->rdi);
-	process_kill (NULL, NULL);
-	panic ("process_kill failed.");
+	if (num < NUM_OF_SYSCALLS && syscall_table[num])
+		return syscall_table[num];
+	return NULL;
 }
 
 INITFUNC ("global3", process_init_global);
-INITFUNC ("ap0", process_init_ap);
-INITFUNC ("wakeup0", process_wakeup);
