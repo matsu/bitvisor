@@ -27,31 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <arch/reboot.h>
-#include "initfunc.h"
-#include "panic.h"
-#include "process.h"
-#include "reboot.h"
+#ifndef __CORE_INCLUDE_ARCH_REBOOT_H
+#define __CORE_INCLUDE_ARCH_REBOOT_H
 
-void
-reboot_test (void)
-{
-	if (reboot_arch_rebooting ())
-		reboot_arch_reboot ();
-}
+#include <core/types.h>
 
-static int
-reboot_msghandler (int m, int c)
-{
-	if (m == 0)
-		reboot_arch_reboot ();
-	return 0;
-}
+void reboot_arch_reboot (void);
+bool reboot_arch_rebooting (void);
 
-static void
-reboot_init_msg (void)
-{
-	msgregister ("reboot", reboot_msghandler);
-}
-
-INITFUNC ("msg0", reboot_init_msg);
+#endif
