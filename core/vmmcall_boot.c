@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/vmmcall.h>
 #include <core/currentcpu.h>
 #include "asm.h"
 #include "assert.h"
 #include "config.h"
-#include "current.h"
 #include "initfunc.h"
 #include "main.h"
 #include "mm.h"
@@ -86,17 +86,17 @@ static void
 boot_guest (void)
 {
 	struct config_data *d;
-	ulong rbx;
+	ulong arg1;
 
 	if (!enable)
 		return;
 
 	if (currentcpu_get_id () != 0)
 		panic ("boot from AP");
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	rbx &= 0xFFFFFFFF;
-	if (rbx) {
-		d = mapmem_hphys (rbx, sizeof *d, 0);
+	vmmcall_arch_read_arg (1, &arg1);
+	arg1 &= 0xFFFFFFFF;
+	if (arg1) {
+		d = mapmem_hphys (arg1, sizeof *d, 0);
 		ASSERT (d);
 		if (d->len != sizeof *d)
 			panic ("config size mismatch: %d, %d\n", d->len,
@@ -135,9 +135,9 @@ do_loadcfg (u64 pass_addr, u64 passlen, u64 data_addr, u64 datalen)
 		ASSERT (data);
 		memcpy (data, tmpbuf, sizeof config);
 		unmapmem (data, datalen);
-		current->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
+		vmmcall_arch_write_ret (1);
 	} else {
-		current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
+		vmmcall_arch_write_ret (0);
 	}
 	free (tmpbuf);
 }
@@ -146,14 +146,14 @@ static void
 loadcfg (void)
 {
 	struct loadcfg_data *d;
-	ulong rbx;
+	ulong arg1;
 
 	if (!enable)
 		return;
 
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	rbx &= 0xFFFFFFFF;
-	d = mapmem_hphys (rbx, sizeof *d, 0);
+	vmmcall_arch_read_arg (1, &arg1);
+	arg1 &= 0xFFFFFFFF;
+	d = mapmem_hphys (arg1, sizeof *d, 0);
 	ASSERT (d);
 	if (d->len != sizeof *d)
 		panic ("size mismatch: %d, %d\n", d->len,
@@ -168,13 +168,13 @@ static void
 loadcfg64 (void)
 {
 	struct loadcfg64_data *d;
-	ulong rbx;
+	ulong arg1;
 
 	if (!enable)
 		return;
 
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	d = mapmem_hphys (rbx, sizeof *d, 0);
+	vmmcall_arch_read_arg (1, &arg1);
+	d = mapmem_hphys (arg1, sizeof *d, 0);
 	ASSERT (d);
 	if (d->len != sizeof *d)
 		panic ("size mismatch: %lld, %d\n", d->len,

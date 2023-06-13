@@ -31,6 +31,7 @@
 
 #ifdef VPN
 #ifdef VPN_VE
+#include <arch/vmmcall.h>
 #include "config.h"
 #include "cpu_mmu.h"
 #include "crypt.h"
@@ -346,7 +347,7 @@ void crypt_ve_handler()
 		return;
 	spinlock_lock(&ve_lock);
 
-	current->vmctl.read_general_reg(GENERAL_REG_RBX, &addr);
+	vmmcall_arch_read_arg (1, &addr);
 
 	for (i = 0;i < (VE_BUFSIZE / 4);i++)
 	{
@@ -359,7 +360,7 @@ void crypt_ve_handler()
 	
 	if (ok == false)
 	{
-		current->vmctl.write_general_reg(GENERAL_REG_RAX, 0);
+		vmmcall_arch_write_ret (0);
 
 		spinlock_unlock(&ve_lock);
 		return;
@@ -378,13 +379,13 @@ void crypt_ve_handler()
 
 	if (ok == false)
 	{
-		current->vmctl.write_general_reg(GENERAL_REG_RAX, 0);
+		vmmcall_arch_write_ret (0);
 
 		spinlock_unlock(&ve_lock);
 		return;
 	}
 
-	current->vmctl.write_general_reg(GENERAL_REG_RAX, 1);
+	vmmcall_arch_write_ret (1);
 
 	spinlock_unlock(&ve_lock);
 }

@@ -27,60 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef LOG_TO_GUEST
-#include <builtin.h>
-#include <arch/gmm.h>
-#include <arch/vmmcall.h>
-#include <core/mm.h>
-#include "initfunc.h"
-#include "putchar.h"
-#include "vmmcall.h"
+#ifndef _CORE_INCLUDE_ARCH_VMMCALL_H
+#define _CORE_INCLUDE_ARCH_VMMCALL_H
 
-static putchar_func_t old;
-static u8 *buf;
-static ulong bufsize, offset;
+#include <core/types.h>
 
-static void
-log_putchar (unsigned char c)
-{
-	if (buf) {
-		buf[offset++] = c;
-		if (offset >= bufsize)
-			offset = 4;
-		atomic_fetch_and32 ((u32 *)(void *)buf, 1);
-	}
-	old (c);
-}
+void vmmcall_arch_read_arg (uint order, ulong *arg);
+void vmmcall_arch_write_arg (uint order, ulong val);
+void vmmcall_arch_write_ret (ulong ret);
+bool vmmcall_arch_caller_user (void);
 
-static void
-log_set_buf (void)
-{
-	ulong physaddr;
-
-	if (vmmcall_arch_caller_user ())
-		return;
-	if (buf != NULL) {
-		unmapmem (buf, bufsize);
-		buf = NULL;
-	}
-	vmmcall_arch_read_arg (1, &physaddr);
-	vmmcall_arch_read_arg (2, &bufsize);
-	if (physaddr == 0 || bufsize == 0)
-		return;
-	offset = 4;
-	buf = mapmem_as (gmm_arch_current_as (), physaddr, bufsize,
-			 MAPMEM_WRITE);
-	if (old == NULL)
-		putchar_set_func (log_putchar, &old);
-}
-
-static void
-vmmcall_log_init (void)
-{
-	old = NULL;
-	buf = NULL;
-	vmmcall_register ("log_set_buf", log_set_buf);
-}
-
-INITFUNC ("vmmcal0", vmmcall_log_init);
 #endif

@@ -27,60 +27,35 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef LOG_TO_GUEST
-#include <builtin.h>
-#include <arch/gmm.h>
-#include <arch/vmmcall.h>
-#include <core/mm.h>
-#include "initfunc.h"
-#include "putchar.h"
-#include "vmmcall.h"
+#ifndef _CORE_INCLUDE_ARCH_GMM_H
+#define _CORE_INCLUDE_ARCH_GMM_H
 
-static putchar_func_t old;
-static u8 *buf;
-static ulong bufsize, offset;
+#include <core/types.h>
 
-static void
-log_putchar (unsigned char c)
-{
-	if (buf) {
-		buf[offset++] = c;
-		if (offset >= bufsize)
-			offset = 4;
-		atomic_fetch_and32 ((u32 *)(void *)buf, 1);
-	}
-	old (c);
-}
+/*
+ * For guest memory access actual error code, see the actual implementation of
+ * access functions. The actual implementation conventionally returns 0 when an
+ * access is successful.
+ */
+#define GMM_ACCESS_OK 0
 
-static void
-log_set_buf (void)
-{
-	ulong physaddr;
+struct mm_as;
 
-	if (vmmcall_arch_caller_user ())
-		return;
-	if (buf != NULL) {
-		unmapmem (buf, bufsize);
-		buf = NULL;
-	}
-	vmmcall_arch_read_arg (1, &physaddr);
-	vmmcall_arch_read_arg (2, &bufsize);
-	if (physaddr == 0 || bufsize == 0)
-		return;
-	offset = 4;
-	buf = mapmem_as (gmm_arch_current_as (), physaddr, bufsize,
-			 MAPMEM_WRITE);
-	if (old == NULL)
-		putchar_set_func (log_putchar, &old);
-}
+/*
+ * NOTE gmm_arch_current_as() needs to be used carefully. This function returns
+ * a pointer stored in 'current'. BitVisor currently runs only one virtual
+ * machine so this always returns the same pointer (as_passvm). However, if we
+ * are to add support for multiple virtual machines, it can return a different
+ * pointer depending on the 'current'. It is ok to use in vmmcall callback like
+ * core/vmmcall_log.c because vmmcall callback is synchronous. However, for
+ * example, the function should not be used in timer callbacks because the
+ * 'current' might be different.
+ *
+ * This function is likely to be removed once we have a better solution for
+ * obtaining address speace information.
+ */
+const struct mm_as *gmm_arch_current_as (void);
+int gmm_arch_readlinear_b (ulong linear, void *data);
+int gmm_arch_writelinear_b (ulong linear, u8 data);
 
-static void
-vmmcall_log_init (void)
-{
-	old = NULL;
-	buf = NULL;
-	vmmcall_register ("log_set_buf", log_set_buf);
-}
-
-INITFUNC ("vmmcal0", vmmcall_log_init);
 #endif

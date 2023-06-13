@@ -27,60 +27,24 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef LOG_TO_GUEST
-#include <builtin.h>
 #include <arch/gmm.h>
-#include <arch/vmmcall.h>
-#include <core/mm.h>
-#include "initfunc.h"
-#include "putchar.h"
-#include "vmmcall.h"
+#include "cpu_mmu.h"
+#include "current.h"
 
-static putchar_func_t old;
-static u8 *buf;
-static ulong bufsize, offset;
-
-static void
-log_putchar (unsigned char c)
+const struct mm_as *
+gmm_arch_current_as (void)
 {
-	if (buf) {
-		buf[offset++] = c;
-		if (offset >= bufsize)
-			offset = 4;
-		atomic_fetch_and32 ((u32 *)(void *)buf, 1);
-	}
-	old (c);
+	return current->as;
 }
 
-static void
-log_set_buf (void)
+int
+gmm_arch_readlinear_b (ulong linear, void *data)
 {
-	ulong physaddr;
-
-	if (vmmcall_arch_caller_user ())
-		return;
-	if (buf != NULL) {
-		unmapmem (buf, bufsize);
-		buf = NULL;
-	}
-	vmmcall_arch_read_arg (1, &physaddr);
-	vmmcall_arch_read_arg (2, &bufsize);
-	if (physaddr == 0 || bufsize == 0)
-		return;
-	offset = 4;
-	buf = mapmem_as (gmm_arch_current_as (), physaddr, bufsize,
-			 MAPMEM_WRITE);
-	if (old == NULL)
-		putchar_set_func (log_putchar, &old);
+	return read_linearaddr_b (linear, data);
 }
 
-static void
-vmmcall_log_init (void)
+int
+gmm_arch_writelinear_b (ulong linear, u8 data)
 {
-	old = NULL;
-	buf = NULL;
-	vmmcall_register ("log_set_buf", log_set_buf);
+	return write_linearaddr_b (linear, data);
 }
-
-INITFUNC ("vmmcal0", vmmcall_log_init);
-#endif

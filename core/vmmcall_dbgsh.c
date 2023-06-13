@@ -27,9 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/vmmcall.h>
 #include "config.h"
-#include "constants.h"
-#include "current.h"
 #include "debug.h"
 #include "initfunc.h"
 #include "panic.h"
@@ -148,16 +147,16 @@ dbgsh_enabled (int b)
 static void
 dbgsh (void)
 {
-	ulong rbx;
+	ulong arg1;
 	int a, b;
 
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	b = (int)rbx;
+	vmmcall_arch_read_arg (1, &arg1);
+	b = (int)arg1;
 	if (!config.vmm.dbgsh)
 		a = dbgsh_disabled (b);
 	else
 		a = dbgsh_enabled (b);
-	current->vmctl.write_general_reg (GENERAL_REG_RAX, (ulong)a);
+	vmmcall_arch_write_ret (a);
 }
 
 static void

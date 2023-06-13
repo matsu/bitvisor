@@ -27,87 +27,66 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* process VMM calls (hypervisor calls) */
-
-#include <arch/gmm.h>
 #include <arch/vmmcall.h>
-#include "initfunc.h"
+#include "current.h"
 #include "panic.h"
 #include "printf.h"
 #include "string.h"
-#include "vmmcall.h"
 
-#define VMMCALL_MAX 128
-#define VMMCALL_NAME_MAXLEN 256
-
-static int n_vmmcall;
-static struct {
-	char *name;
-	vmmcall_func_t func;
-} vmmcall_data[VMMCALL_MAX];
-
-/* get a number for VMM call */
-/* INPUT: arg1=virtual address of a name of a VMM call (in 256 bytes) */
-/* OUTPUT: ret=a number for the VMM call (0 on error) */
-static void
-get_vmmcall_number (void)
+void
+vmmcall_arch_read_arg (uint order, ulong *arg)
 {
-	u32 i;
-	char buf[VMMCALL_NAME_MAXLEN];
-	ulong nameaddr;
+	enum general_reg reg;
 
-	vmmcall_arch_read_arg (1, &nameaddr);
-	for (i = 0; i < VMMCALL_NAME_MAXLEN; i++) {
-		if (gmm_arch_readlinear_b (nameaddr + i, &buf[i])
-		    != GMM_ACCESS_OK)
-			break;
-		if (buf[i] == '\0')
-			goto copy_ok;
+	switch (order) {
+	case 0:
+		reg = GENERAL_REG_RAX;
+		break;
+	case 1:
+		reg = GENERAL_REG_RBX;
+		break;
+	case 2:
+		reg = GENERAL_REG_RCX;
+		break;
+	default:
+		panic ("%s(): unsupported order %u", __func__, order);
 	}
-	vmmcall_arch_write_ret (0);
-	return;
-copy_ok:
-	for (i = 0; i < n_vmmcall; i++) {
-		if (strcmp (vmmcall_data[i].name, buf) == 0)
-			goto found;
+
+	current->vmctl.read_general_reg (reg, arg);
+}
+
+void
+vmmcall_arch_write_arg (uint order, ulong val)
+{
+	enum general_reg reg;
+
+	switch (order) {
+	case 0:
+		reg = GENERAL_REG_RAX;
+		break;
+	case 1:
+		reg = GENERAL_REG_RBX;
+		break;
+	case 2:
+		reg = GENERAL_REG_RCX;
+		break;
+	default:
+		panic ("%s(): unsupported order %u", __func__, order);
 	}
-	vmmcall_arch_write_ret (0);
-	return;
-found:
-	vmmcall_arch_write_ret (i);
-	return;
-}
 
-/* handling a VMM call instruction */
-void
-vmmcall (void)
-{
-	ulong cmd;
-
-	vmmcall_arch_read_arg (0, &cmd);
-	if (cmd < VMMCALL_MAX && vmmcall_data[cmd].func)
-		vmmcall_data[cmd].func ();
-	else
-		vmmcall_arch_write_ret (0);
-}
-
-/* register a VMM call */
-void
-vmmcall_register (char *name, vmmcall_func_t func)
-{
-	if (n_vmmcall >= VMMCALL_MAX)
-		panic ("Too many vmmcall_register.");
-	vmmcall_data[n_vmmcall].name = name;
-	vmmcall_data[n_vmmcall].func = func;
-	n_vmmcall++;
+	current->vmctl.write_general_reg (reg, val);
 }
 
 void
-vmmcall_init (void)
+vmmcall_arch_write_ret (ulong ret)
 {
-	n_vmmcall = 0;
-	vmmcall_register ("get_vmmcall_number", get_vmmcall_number);
-	call_initfunc ("vmmcal");
+	current->vmctl.write_general_reg (GENERAL_REG_RAX, ret);
 }
 
-INITFUNC ("paral10", vmmcall_init);
+bool
+vmmcall_arch_caller_user (void)
+{
+	u16 cs;
+	current->vmctl.read_sreg_sel (SREG_CS, &cs);
+	return !!(cs & 3);
+}

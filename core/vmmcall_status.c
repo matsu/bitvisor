@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/gmm.h>
+#include <arch/vmmcall.h>
 #include "config.h"
-#include "cpu_mmu.h"
-#include "current.h"
 #include "initfunc.h"
 #include "list.h"
 #include "mm.h"
@@ -60,38 +60,38 @@ register_status_callback (char *(*func) (void))
 }
 
 /*
-  ebx=linear address of a buffer
-  ecx=size of the buffer
+  arg1=linear address of a buffer
+  arg2=size of the buffer
  */
 static void
 get_status (void)
 {
 	struct status *s;
 	uint len = 0;
-	ulong rbx, rcx;
+	ulong arg1, arg2;
 	char c;
 
 	if (!config.vmm.status)
 		return;
 	spinlock_lock (&status_lock);
-	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
-	current->vmctl.read_general_reg (GENERAL_REG_RCX, &rcx);
+	vmmcall_arch_read_arg (1, &arg1);
+	vmmcall_arch_read_arg (2, &arg2);
 	LIST1_FOREACH (list1_status, s) {
 		s->ret = s->func ();
 		len += strlen (s->ret);
 	}
-	current->vmctl.write_general_reg (GENERAL_REG_RCX, len);
-	if (len <= rcx) {
+	vmmcall_arch_write_arg (2, len);
+	if (len <= arg2) {
 		LIST1_FOREACH (list1_status, s) {
 			while ((c = *s->ret++) != '\0')
-				if (write_linearaddr_b (rbx++, c)
-				    != VMMERR_SUCCESS)
+				if (gmm_arch_writelinear_b (arg1++, c)
+				    != GMM_ACCESS_OK)
 					goto err;
 		}
-		current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
+		vmmcall_arch_write_ret (0);
 	} else {
 	err:
-		current->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
+		vmmcall_arch_write_ret (1);
 	}
 	spinlock_unlock (&status_lock);
 }

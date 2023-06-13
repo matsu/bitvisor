@@ -29,9 +29,9 @@
 
 #ifdef CARDSTATUS
 #include <IDMan.h>
+#include <arch/vmmcall.h>
 #include "assert.h"
 #include "config.h"
-#include "current.h"
 #include "iccard.h"
 #include "initfunc.h"
 #include "panic.h"
@@ -54,10 +54,10 @@ iccard (void)
 {
 	if (iccard_status == IS_NOCARD && shutdowntime >= 3) {
 		guest_status = IS_NOCARD;
-		current->vmctl.write_general_reg (GENERAL_REG_RAX, 1);
+		vmmcall_arch_write_ret (1);
 	} else {
 		guest_status = IS_OK;
-		current->vmctl.write_general_reg (GENERAL_REG_RAX, 0);
+		vmmcall_arch_write_ret (0);
 	}
 }
 
