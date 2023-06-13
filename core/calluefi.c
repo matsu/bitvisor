@@ -35,15 +35,11 @@
 #include <share/efi_extra/device_path_helper.h>
 #undef NULL
 #include "calluefi_asm.h"
-#include "current.h"
-#include "entry.h"
 #include "mm.h"
-#include "pmap.h"
 #include "printf.h"
 #include "string.h"
 #include "sym.h"
 #include "uefi.h"
-#include "vmm_mem.h"
 
 #define EVT_SIGNAL_EXIT_BOOT_SERVICES 0x00000201
 
@@ -391,40 +387,6 @@ call_uefi_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
 	calluefi (uefi_free_pool, 1, handles);
 }
 
-asmlinkage u32
-fill_pagetable (void *pt, u32 prev_phys, void *fillpage)
-{
-	phys_t phys, ret;
-	u64 *p, e;
-	int lv, i;
-	pmap_t m;
-
-	ret = phys = sym_to_phys (pt);
-	if (phys == prev_phys)
-		return ret;
-	pmap_open_vmm (&m, phys, PMAP_LEVELS);
-	for (lv = PMAP_LEVELS; lv > 1; lv--) {
-		phys += PAGESIZE;
-		pmap_seek (&m, 0, lv);
-		pmap_read (&m);
-		pmap_write (&m, phys | PTE_P_BIT, PTE_P_BIT);
-		p = pmap_pointer (&m);
-		e = *p;
-		for (i = 1; i < PAGESIZE / sizeof *p; i++)
-			p[i] = e;
-	}
-	pmap_seek (&m, 0, 1);
-	pmap_read (&m);
-	pmap_write (&m, sym_to_phys (fillpage) | PTE_P_BIT,
-		    PTE_P_BIT | PTE_US_BIT);
-	p = pmap_pointer (&m);
-	e = *p;
-	for (i = 1; i < PAGESIZE / sizeof *p; i++)
-		p[i] = e;
-	pmap_close (&m);
-	return ret;
-}
-
 int
 call_uefi_get_graphics_info (u32 *hres, u32 *vres, u32 *rmask, u32 *gmask,
 			     u32 *bmask, u32 *pxlin, u64 *addr, u64 *size)
@@ -500,37 +462,4 @@ unmap1:
 		  sym_to_phys (&graphics_output_protocol_guid),
 		  uefi_image_handle, NULL);
 	return ret;
-}
-
-void
-copy_uefi_bootcode (void)
-{
-	u64 efer;
-	ulong cr0, cr4;
-	u64 bootcode;
-	u8 *p;
-
-	bootcode = vmm_mem_alloc_realmodemem (11);
-	current->vmctl.write_realmode_seg (SREG_SS, 0);
-	current->vmctl.write_general_reg (GENERAL_REG_RSP, uefi_entry_rsp);
-	current->vmctl.write_realmode_seg (SREG_CS, bootcode >> 4);
-	current->vmctl.write_ip (bootcode & 0xF);
-	asm_rdcr0 (&cr0);
-	current->vmctl.write_general_reg (GENERAL_REG_RAX, cr0 & ~CR0_TS_BIT);
-	current->vmctl.write_control_reg (CONTROL_REG_CR3, uefi_entry_cr3);
-	asm_rdcr4 (&cr4);
-	current->vmctl.write_control_reg (CONTROL_REG_CR4, cr4 & ~CR4_PGE_BIT &
-					  ~CR4_VMXE_BIT);
-	asm_rdmsr64 (MSR_IA32_EFER, &efer);
-	current->vmctl.write_msr (MSR_IA32_EFER,
-				  efer & ~MSR_IA32_EFER_SVME_BIT);
-	current->vmctl.write_gdtr (uefi_entry_gdtr.base,
-				   uefi_entry_gdtr.limit);
-	/* bootcode:
-	   0f 22 c0                mov    %eax,%cr0
-	   66 ea 00 00 00 00 00 00 ljmpl  $0x0,$0x0 */
-	p = mapmem_hphys (bootcode, 11, MAPMEM_WRITE);
-	memcpy (&p[0], "\x0F\x22\xC0\x66\xEA", 5);
-	memcpy (&p[5], &uefi_entry_ret_addr, 6);
-	unmapmem (p, 11);
 }
