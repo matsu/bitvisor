@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/currentcpu.h>
 #include <arch/vmm_mem.h>
 #include "asm.h"
 #include "assert.h"
@@ -583,7 +584,7 @@ process_kill (bool (*func) (void *data), void *data)
 		return;
 	if (func && !func (data))
 		return;
-	process[currentcpu->pid].exitflag = true;
+	process[currentcpu_get_pid ()].exitflag = true;
 	callret (-1);
 }
 
@@ -650,8 +651,8 @@ call_msgfunc0 (int pid, void *func, ulong sp)
 	if (pid == 0) {
 		panic ("call_msgfunc0 can't call kernel");
 	}
-	oldpid = currentcpu->pid;
-	currentcpu->pid = pid;
+	oldpid = currentcpu_get_pid ();
+	currentcpu_set_pid (pid);
 	process[pid].running++;
 	spinlock_unlock (&process_lock);
 	set_process64_msrs_if_necessary ();
@@ -696,7 +697,7 @@ call_msgfunc0 (int pid, void *func, ulong sp)
 		);
 	spinlock_lock (&process_lock);
 	process[pid].running--;
-	currentcpu->pid = oldpid;
+	currentcpu_set_pid (oldpid);
 	return (int)ax;
 }
 
@@ -709,14 +710,12 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 	ulong sp, sp2, buf_sp;
 	int r = -1;
 	struct msgbuf buf_user[MAXNUM_OF_MSGBUF];
-	void *curstk;
 	int (*func) (int, int, struct msgbuf *, int);
 	int i;
 	long tmp;
 	int stacksize;
 
-	asm_rdrsp ((ulong *)&curstk);
-	if ((u8 *)curstk - (u8 *)currentcpu->stackaddr < VMM_MINSTACKSIZE) {
+	if (currentcpu_vmm_stack_full ()) {
 		printf ("msg: not enough stack space available for VMM\n");
 		return r;
 	}
@@ -834,12 +833,15 @@ msgsetfunc (int desc, void *func)
 ulong
 sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
+	int pid;
+
 	if (!is_range_valid (di, 1))
 		return (ulong)-1L;
-	if (process[currentcpu->pid].setlimit)
+	pid = currentcpu_get_pid ();
+	if (process[pid].setlimit)
 		return (ulong)-1L;
 	if (si >= 0 && si < NUM_OF_MSGDSC)
-		return (ulong)_msgsetfunc (currentcpu->pid, si, (void *)di);
+		return (ulong)_msgsetfunc (pid, si, (void *)di);
 	return 0;
 }
 
@@ -884,19 +886,21 @@ sys_msgregister (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	char name[MSG_NAMELEN];
 	char *pname = NULL;
+	int pid;
 
 	if (si && !is_range_valid (si, MSG_NAMELEN))
 		return (ulong)-1L;
 	if (!is_range_valid (di, 1))
 		return (ulong)-1L;
-	if (process[currentcpu->pid].setlimit)
+	pid = currentcpu_get_pid ();
+	if (process[pid].setlimit)
 		return (ulong)-1L;
 	if (si) {
 		snprintf (name, sizeof name, "%s", (char *)si);
 		name[MSG_NAMELEN - 1] = '\0';
 		pname = name;
 	}
-	return _msgregister (currentcpu->pid, pname, (void *)di);
+	return _msgregister (pid, pname, (void *)di);
 }
 
 /* for internal use */
@@ -922,14 +926,16 @@ ulong
 sys_msgopen (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	char name[MSG_NAMELEN];
+	int pid;
 
 	if (!is_range_valid (si, MSG_NAMELEN))
 		return (ulong)-1L;
-	if (process[currentcpu->pid].setlimit)
+	pid = currentcpu_get_pid ();
+	if (process[pid].setlimit)
 		return (ulong)-1L;
 	snprintf (name, sizeof name, "%s", (char *)si);
 	name[MSG_NAMELEN - 1] = '\0';
-	return _msgopen (currentcpu->pid, name);
+	return _msgopen (pid, name);
 }
 
 /* for internal use */
@@ -959,7 +965,7 @@ msgclose (int desc)
 ulong
 sys_msgclose (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
-	return _msgclose (currentcpu->pid, si);
+	return _msgclose (currentcpu_get_pid (), si);
 }
 
 /* for internal use */
@@ -996,7 +1002,7 @@ sys_msgsendint (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	if (si >= NUM_OF_MSGDSC)
 		return (ulong)-1L;
-	return _msgsendint (currentcpu->pid, si, di);
+	return _msgsendint (currentcpu_get_pid (), si, di);
 }
 
 /* si=retval */
@@ -1074,9 +1080,10 @@ msgsenddesc (int desc, int data)
 ulong
 sys_msgsenddesc (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
-	if (process[currentcpu->pid].setlimit)
+	int pid = currentcpu_get_pid ();
+	if (process[pid].setlimit)
 		return (ulong)-1L;
-	return _msgsenddesc (currentcpu->pid, si, di);
+	return _msgsenddesc (pid, si, di);
 }
 
 static int
@@ -1100,14 +1107,16 @@ ulong
 sys_newprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	char name[PROCESS_NAMELEN];
+	int pid;
 
 	if (!is_range_valid (si, 1))
 		return (ulong)-1L;
-	if (process[currentcpu->pid].setlimit)
+	pid = currentcpu_get_pid ();
+	if (process[pid].setlimit)
 		return (ulong)-1L;
 	snprintf (name, sizeof name, "%s", (char *)si);
 	name[PROCESS_NAMELEN - 1] = '\0';
-	return (ulong)_newprocess (currentcpu->pid, name);
+	return (ulong)_newprocess (pid, name);
 }
 
 /* for internal use */
@@ -1172,7 +1181,8 @@ sys_msgsendbuf (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 			return (ulong)-1L;
 		buf[i].premap_handle = 0;
 	}
-	return _msgsendbuf (currentcpu->pid, si, arg.data, buf, arg.bufcnt);
+	return _msgsendbuf (currentcpu_get_pid (), si, arg.data, buf,
+			    arg.bufcnt);
 }
 
 static int
@@ -1197,7 +1207,7 @@ msgunregister (int desc)
 ulong
 sys_msgunregister (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
-	return _msgunregister (currentcpu->pid, (int)si);
+	return _msgunregister (currentcpu_get_pid (), (int)si);
 }
 
 void
@@ -1212,7 +1222,7 @@ sys_exitprocess (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	if (!syscallstack)
 		panic ("sys_exitprocess failed.");
-	process[currentcpu->pid].exitflag = true;
+	process[currentcpu_get_pid ()].exitflag = true;
 	callret ((int)si);
 	return 0;		/* Not reached. */
 }
@@ -1222,17 +1232,19 @@ static ulong
 sys_setlimit (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	int r = -1;
+	int pid;
 	virt_t tmp;
 	struct mm_arch_proc_desc *mm_proc_desc;
 
 	spinlock_lock (&process_lock);
-	if (process[currentcpu->pid].setlimit)
+	pid = currentcpu_get_pid ();
+	if (process[pid].setlimit)
 		goto ret;
 	if (si < PAGESIZE)
 		si = PAGESIZE;
 	if (di < PAGESIZE)
 		di = PAGESIZE;
-	mm_proc_desc = process[currentcpu->pid].mm_proc_desc;
+	mm_proc_desc = process[pid].mm_proc_desc;
 	tmp = mm_process_map_stack (mm_proc_desc, di, false, false);
 	if (!tmp)
 		goto ret;
@@ -1241,8 +1253,8 @@ sys_setlimit (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 		spinlock_unlock (&process_lock);
 		panic ("unmap stack failed");
 	}
-	process[currentcpu->pid].setlimit = true;
-	process[currentcpu->pid].stacksize = si;
+	process[pid].setlimit = true;
+	process[pid].stacksize = si;
 ret:
 	spinlock_unlock (&process_lock);
 	return (ulong)r;

@@ -32,8 +32,6 @@
 
 #include <core/types.h>
 
-typedef u8 tid_t;
-
 tid_t thread_gettid (void);
 void schedule (void);
 tid_t thread_new (void (*func) (void *), void *arg, int stacksize);

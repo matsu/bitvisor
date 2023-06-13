@@ -33,5 +33,14 @@
 #include <core/types.h>
 
 bool currentcpu_available (void);
+bool currentcpu_get_panic_shell_ready (void);
+void currentcpu_set_panic_shell_ready (void);
+int currentcpu_get_pid (void);
+void currentcpu_set_pid (int pid);
+void *currentcpu_get_stackaddr (void);
+void currentcpu_set_stackaddr (void *stackaddr);
+tid_t currentcpu_get_tid (void);
+void currentcpu_set_tid (tid_t tid);
+bool currentcpu_vmm_stack_full (void);
 
 #endif

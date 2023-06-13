@@ -35,7 +35,6 @@
 #include "initfunc.h"
 #include "list.h"
 #include "mm.h"
-#include "pcpu.h"
 #include "printf.h"
 #include "process.h"
 #include "putchar.h"

@@ -30,7 +30,6 @@
 #include <arch/currentcpu.h>
 #include <core/currentcpu.h>
 #include "calluefi.h"
-#include "pcpu.h"
 #include "uefi.h"
 #include "uefiutil.h"
 

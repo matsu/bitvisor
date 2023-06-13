@@ -56,4 +56,6 @@ typedef union {
 	u32 dwords[2];
 } core_mem_t;
 
+typedef u8 tid_t;
+
 #endif

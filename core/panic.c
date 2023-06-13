@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/currentcpu.h>
 #include <core/currentcpu.h>
 #include "asm.h"
 #include "ap.h"
@@ -414,7 +415,7 @@ call_panic_shell (void)
 	}
 	d = panic_process;
 	if (d >= 0 && config.vmm.shell && !flag_shell &&
-	    currentcpu->panic.shell_ready) {
+	    currentcpu_get_panic_shell_ready ()) {
 		if (config.vmm.telnet_dbgsh && !flag_telnet) {
 			flag_telnet = true;
 			printf ("telnet mode\n");
@@ -569,10 +570,7 @@ panic_main (u8 state, char *msg)
 		break;
 	case 4:
 		if (panicdat.cpunum >= 0 && panicdat.fail == 0xFF) {
-			ulong curstk;
-			asm_rdrsp (&curstk);
-			if (curstk - (ulong)currentcpu->stackaddr >=
-			    VMM_MINSTACKSIZE)
+			if (!currentcpu_vmm_stack_full ())
 				return 0x10;
 		}
 		return 0xF0;
@@ -697,14 +695,14 @@ static void
 panic_init_msg (void)
 {
 	panic_process = newprocess ("panic");
-	currentcpu->panic.shell_ready = true;
+	currentcpu_set_panic_shell_ready ();
 }
 
 static void
 panic_init_pcpu (void)
 {
 	do_wakeup = true;
-	currentcpu->panic.shell_ready = true;
+	currentcpu_set_panic_shell_ready ();
 }
 
 INITFUNC ("global0", panic_init_global);

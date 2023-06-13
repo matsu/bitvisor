@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/currentcpu.h>
 #include <core/currentcpu.h>
 #include "assert.h"
 #include "initfunc.h"
@@ -106,11 +107,11 @@ thread_data_init (struct thread_data *d, struct thread_context *c, void *stack,
 static void
 thread_data_save_and_load (struct thread_data *old, struct thread_data *new)
 {
-	old->stack = currentcpu->stackaddr;
-	old->pid = currentcpu->pid;
+	old->stack = currentcpu_get_stackaddr ();
+	old->pid = currentcpu_get_pid ();
 	old->syscallstack = syscallstack;
-	currentcpu->stackaddr = new->stack;
-	currentcpu->pid = new->pid;
+	currentcpu_set_stackaddr (new->stack);
+	currentcpu_set_pid (new->pid);
 	syscallstack = new->syscallstack;
 	old->process_switch = mm_process_switch (new->process_switch);
 }
@@ -118,7 +119,7 @@ thread_data_save_and_load (struct thread_data *old, struct thread_data *new)
 tid_t
 thread_gettid (void)
 {
-	return currentcpu->thread.tid;
+	return currentcpu_get_tid ();
 }
 
 static void
@@ -172,9 +173,9 @@ schedule (void)
 	return;
 found:
 	LIST1_DEL (td_runnable, d);
-	oldtid = currentcpu->thread.tid;
+	oldtid = currentcpu_get_tid ();
 	newtid = d->tid;
-	currentcpu->thread.tid = newtid;
+	currentcpu_set_tid (newtid);
 	thread_data_save_and_load (&td[oldtid], d);
 	switch (td[oldtid].state) {
 	case THREAD_EXIT:
@@ -276,41 +277,43 @@ thread_wakeup (tid_t tid)
 void
 thread_will_stop (void)
 {
-	switch (thread_set_state (currentcpu->thread.tid, THREAD_WILL_STOP)) {
+	tid_t current_tid = currentcpu_get_tid ();
+
+	switch (thread_set_state (current_tid, THREAD_WILL_STOP)) {
 	case THREAD_RUN:
 		break;
 	case THREAD_WILL_STOP:
 		printf ("WARNING: thread_will_stop called twice tid=%d\n",
-			currentcpu->thread.tid);
+			current_tid);
 		break;
 	case THREAD_STOP:
 	case THREAD_EXIT:
 	default:
 		panic ("thread_will_stop: bad state tid=%d state=%d",
-		       currentcpu->thread.tid,
-		       td[currentcpu->thread.tid].state);
+		       current_tid, td[current_tid].state);
 	}
 }
 
 void
 thread_exit (void)
 {
-	switch (thread_set_state (currentcpu->thread.tid, THREAD_EXIT)) {
+	tid_t current_tid = currentcpu_get_tid ();
+
+	switch (thread_set_state (current_tid, THREAD_EXIT)) {
 	case THREAD_EXIT:
 		printf ("WARNING: thread already exited tid=%d\n",
-			currentcpu->thread.tid);
+			current_tid);
 		break;
 	case THREAD_RUN:
 		break;
 	case THREAD_WILL_STOP:
 		printf ("thread_exit called after thread_will_stop tid=%d\n",
-			currentcpu->thread.tid);
+			current_tid);
 		break;
 	case THREAD_STOP:
 	default:
 		panic ("thread_exit: bad state tid=%d state=%d",
-		       currentcpu->thread.tid,
-		       td[currentcpu->thread.tid].state);
+		       current_tid, td[current_tid].state);
 	}
 	schedule ();
 }
@@ -383,9 +386,9 @@ thread_init_pcpu (void)
 	LOCK_LOCK (&thread_lock);
 	d = LIST1_POP (td_free);
 	ASSERT (d);
-	thread_data_init (d, NULL, NULL, currentcpu->cpunum);
+	thread_data_init (d, NULL, NULL, currentcpu_get_id ());
 	d->boot = true;
-	currentcpu->thread.tid = d->tid;
+	currentcpu_set_tid (d->tid);
 	LOCK_UNLOCK (&thread_lock);
 }
 

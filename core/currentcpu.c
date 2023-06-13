@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <core/currentcpu.h>
 #include "asm.h"
+#include "constants.h"
 #include "pcpu.h"
 #include "seg.h"
 
@@ -50,4 +51,61 @@ currentcpu_available (void)
 		return true;
 	else
 		return false;
+}
+
+bool
+currentcpu_get_panic_shell_ready (void)
+{
+	return currentcpu->panic.shell_ready;
+}
+
+void
+currentcpu_set_panic_shell_ready (void)
+{
+	currentcpu->panic.shell_ready = true;
+}
+
+int
+currentcpu_get_pid (void)
+{
+	return currentcpu->pid;
+}
+
+void
+currentcpu_set_pid (int pid)
+{
+	currentcpu->pid = pid;
+}
+
+void *
+currentcpu_get_stackaddr (void)
+{
+	return currentcpu->stackaddr;
+}
+
+void
+currentcpu_set_stackaddr (void *stackaddr)
+{
+	currentcpu->stackaddr = stackaddr;
+}
+
+tid_t
+currentcpu_get_tid (void)
+{
+	return currentcpu->thread.tid;
+}
+
+void
+currentcpu_set_tid (tid_t tid)
+{
+	currentcpu->thread.tid = tid;
+}
+
+bool
+currentcpu_vmm_stack_full (void)
+{
+	ulong curstk;
+
+	asm_rdrsp (&curstk);
+	return curstk - (ulong)currentcpu->stackaddr < VMM_MINSTACKSIZE;
 }
