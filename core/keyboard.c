@@ -27,9 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/currentcpu.h>
+#include <core/currentcpu.h>
 #include "asm.h"
 #include "calluefi.h"
-#include "cpu.h"
 #include "initfunc.h"
 #include "keyboard.h"
 #include "pcpu.h"
@@ -196,7 +197,7 @@ keyboard_getchar (void)
 	int c;
 
 	if (uefi_booted && !uefi_no_more_call && currentcpu_available () &&
-	    get_cpu_id () == 0) {
+	    currentcpu_get_id () == 0) {
 		for (;;) {
 			uefi_key = call_uefi_getkey ();
 			switch (uefi_key & 0xFFFF) {

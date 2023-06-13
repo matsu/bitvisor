@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/currentcpu.h>
 #include "assert.h"
-#include "cpu.h"
 #include "initfunc.h"
 #include "linkage.h"
 #include "list.h"
@@ -135,7 +135,7 @@ schedule_skip (bool start)
 	u32 value = ~0, cpu;
 
 	if (start) {
-		cpu = get_cpu_id ();
+		cpu = currentcpu_get_id ();
 		if (asm_lock_cmpxchgl (&thread_cpu, &value, cpu))
 			return value != cpu;
 	} else {
@@ -155,7 +155,7 @@ schedule (void)
 
 	if (schedule_skip (true))
 		return;
-	cpucur = get_cpu_id ();
+	cpucur = currentcpu_get_id ();
 	LOCK_LOCK (&thread_lock);
 	if (old_stack) {
 		free (old_stack);

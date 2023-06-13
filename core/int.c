@@ -27,6 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/currentcpu.h>
+#include <core/currentcpu.h>
 #include "asm.h"
 #include "constants.h"
 #include "initfunc.h"
@@ -237,7 +239,7 @@ int_fatal (struct int_fatal_stack *s)
 	printf ("  FS: 0x%04lX  GS: 0x%04lX\n",
 		s->fs & 0xFFFF, s->gs & 0xFFFF);
 	if (currentcpu_available ())
-		printf ("CPU%d  ", currentcpu->cpunum);
+		printf ("CPU%d  ", currentcpu_get_id ());
 	printf ("RSP on interrupt: 0x%08lX  ", (ulong)&s->s[0]);
 	printf ("Stack information:\n");
 	stack_info = stack_info_all;

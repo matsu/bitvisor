@@ -27,11 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "cpu.h"
-#include "pcpu.h"
+#ifndef __CORE_CURRENTCPU_H
+#define __CORE_CURRENTCPU_H
 
-int
-get_cpu_id (void)
-{
-	return currentcpu->cpunum;
-}
+int currentcpu_get_id (void);
+
+#endif

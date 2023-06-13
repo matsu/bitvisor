@@ -27,10 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/currentcpu.h>
+#include <core/currentcpu.h>
 #include "arith.h"
 #include "calluefi.h"
 #include "config.h"
-#include "cpu.h"
 #include "initfunc.h"
 #include "list.h"
 #include "mm.h"
@@ -223,7 +224,8 @@ tty_putchar (unsigned char c)
 			uefi_logoffset = 0;
 			spinlock_unlock (&putchar_lock);
 			vramwrite_putchar (c);
-		} else if (currentcpu_available () && get_cpu_id () == 0) {
+		} else if (currentcpu_available () &&
+			   currentcpu_get_id () == 0) {
 			spinlock_lock (&putchar_lock);
 			for (i = 0; i < uefi_logoffset; i++)
 				call_uefi_putchar (uefi_log[i]);

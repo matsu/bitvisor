@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/currentcpu.h>
 #include "asm.h"
 #include "config.h"
 #include "constants.h"
-#include "cpu.h"
 #include "cpu_emul.h"
 #include "cpu_mmu.h"
 #include "current.h"
@@ -817,7 +817,7 @@ svm_mainloop (void)
 void
 svm_init_signal (void)
 {
-	if (!config.vmm.localapic_intercept && get_cpu_id () == 1)
+	if (!config.vmm.localapic_intercept && currentcpu_get_id () == 1)
 		localapic_mmio_register ();
 	current->u.svm.init_signal = true;
 }
@@ -836,7 +836,7 @@ void
 svm_start_vm (void)
 {
 	svm_paging_start ();
-	if (config.vmm.localapic_intercept && !get_cpu_id ())
+	if (config.vmm.localapic_intercept && !currentcpu_get_id ())
 		localapic_mmio_register ();
 	svm_mainloop ();
 }

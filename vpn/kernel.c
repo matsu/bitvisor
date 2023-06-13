@@ -29,7 +29,7 @@
 
 #include <core.h>
 #include <core/arith.h>
-#include <core/cpu.h>
+#include <core/currentcpu.h>
 #include <core/iccard.h>
 #include <core/process.h>
 #include <core/time.h>
@@ -123,7 +123,7 @@ found:
 	spinlock_unlock (&handle_lock);
 	arg = mempool_allocmem (mp, sizeof *arg);
 	arg->handle = i;
-	arg->cpu = get_cpu_id ();
+	arg->cpu = currentcpu_get_id ();
 	setmsgbuf (&buf[0], arg, sizeof *arg, 1);
 	callsub (VPN_MSG_START, buf, 1);
 	ret = arg->retval;
@@ -144,7 +144,7 @@ sendphysicalnicrecv_premap (SE_HANDLE nic_handle, UINT num_packets,
 	arg->nic_handle = nic_handle;
 	arg->param = param;
 	arg->num_packets = num_packets;
-	arg->cpu = get_cpu_id ();
+	arg->cpu = currentcpu_get_id ();
 	buf = alloc (sizeof *buf * (1 + num_packets));
 	setmsgbuf (&buf[0], arg, sizeof *arg, 0);
 	if (premap) {
@@ -193,7 +193,7 @@ sendvirtualnicrecv_premap (SE_HANDLE nic_handle, UINT num_packets,
 	arg->nic_handle = nic_handle;
 	arg->param = param;
 	arg->num_packets = num_packets;
-	arg->cpu = get_cpu_id ();
+	arg->cpu = currentcpu_get_id ();
 	buf = alloc (sizeof *buf * (1 + num_packets));
 	setmsgbuf (&buf[0], arg, sizeof *arg, 0);
 	if (premap) {
@@ -237,7 +237,7 @@ vpn_timer_callback (void *handle, void *data)
 
 	arg = mempool_allocmem (mp, sizeof *arg);
 	arg->now = vpn_GetTickCount ();
-	arg->cpu = get_cpu_id ();
+	arg->cpu = currentcpu_get_id ();
 	setmsgbuf (&buf[0], arg, sizeof *arg, 1);
 	callsub (VPN_MSG_TIMER, buf, 1);
 	mempool_freemem (mp, arg);
@@ -261,7 +261,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 		arg->retval = vpn_ic_rsa_sign (buf[1].base, buf[2].base,
 					       buf[2].len, buf[3].base,
 					       &arg->sign_buf_size);
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else if (c == VPNKERNEL_MSG_GETPHYSICALNICINFO) {
 		struct vpnkernel_msg_getphysicalnicinfo *arg;
@@ -276,7 +276,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 		if (h < 0 || h >= NUM_OF_HANDLE)
 			return -1;
 		vpn_GetPhysicalNicInfo (handle[h], &arg->info);
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else if (c == VPNKERNEL_MSG_GETVIRTUALNICINFO) {
 		struct vpnkernel_msg_getvirtualnicinfo *arg;
@@ -291,7 +291,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 		if (h < 0 || h >= NUM_OF_HANDLE)
 			return -1;
 		vpn_GetVirtualNicInfo (handle[h], &arg->info);
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else if (c == VPNKERNEL_MSG_SENDPHYSICALNIC) {
 		struct vpnkernel_msg_sendphysicalnic *arg;
@@ -329,7 +329,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 		free (packets);
 		free (packet_sizes);
 	skip1:
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else if (c == VPNKERNEL_MSG_SENDVIRTUALNIC) {
 		struct vpnkernel_msg_sendvirtualnic *arg;
@@ -367,7 +367,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 		free (packets);
 		free (packet_sizes);
 	skip2:
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else if (c == VPNKERNEL_MSG_SETPHYSICALNICRECVCALLBACK) {
 		struct vpnkernel_msg_setphysicalnicrecvcallback *arg;
@@ -383,7 +383,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 			return -1;
 		vpn_SetPhysicalNicRecvCallback (handle[h], sendphysicalnicrecv,
 						arg->param);
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else if (c == VPNKERNEL_MSG_SETVIRTUALNICRECVCALLBACK) {
 		struct vpnkernel_msg_setvirtualnicrecvcallback *arg;
@@ -399,7 +399,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 			return -1;
 		vpn_SetVirtualNicRecvCallback (handle[h], sendvirtualnicrecv,
 					       arg->param);
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else if (c == VPNKERNEL_MSG_SET_TIMER) {
 		struct vpnkernel_msg_set_timer *arg;
@@ -410,7 +410,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 			return -1;
 		arg = buf[0].base;
 		vpn_SetTimer (vpn_timer_handle, arg->interval);
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else if (c == VPNKERNEL_MSG_GETTICKCOUNT) {
 		struct vpnkernel_msg_gettickcount *arg;
@@ -421,7 +421,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 			return -1;
 		arg = buf[0].base;
 		arg->retval = vpn_GetTickCount ();
-		arg->cpu = get_cpu_id ();
+		arg->cpu = currentcpu_get_id ();
 		return 0;
 	} else {
 		return -1;
@@ -432,7 +432,7 @@ vpnkernel_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 UINT
 vpn_GetCurrentCpuId (void)
 {
-	return get_cpu_id ();
+	return currentcpu_get_id ();
 }
 
 UINT

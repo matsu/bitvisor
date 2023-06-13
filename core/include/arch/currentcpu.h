@@ -27,9 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_CPU_H
-#define _CORE_CPU_H
+#ifndef _CORE_INCLUDE_ARCH_CURRENTCPU_H
+#define _CORE_INCLUDE_ARCH_CURRENTCPU_H
 
-#include <core/cpu.h>
+#include <core/types.h>
+
+bool currentcpu_available (void);
 
 #endif

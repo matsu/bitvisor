@@ -27,9 +27,27 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CORE_CPU_H
-#define __CORE_CPU_H
+#include <arch/currentcpu.h>
+#include <core/currentcpu.h>
+#include "asm.h"
+#include "pcpu.h"
+#include "seg.h"
 
-int get_cpu_id (void);
+int
+currentcpu_get_id (void)
+{
+	return currentcpu->cpunum;
+}
 
-#endif
+bool
+currentcpu_available (void)
+{
+	u16 gs;
+
+	/* FIXME: SWAPGS in 64bit long mode can't be used. */
+	asm_rdgs (&gs);
+	if (gs == SEG_SEL_PCPU32 || gs == SEG_SEL_PCPU64)
+		return true;
+	else
+		return false;
+}

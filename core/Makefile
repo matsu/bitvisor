@@ -49,7 +49,7 @@ CFLAGS += -Ivpn/lib
 CFLAGS += -Iedk2/MdePkg/Include/ $(CFLAGS-$(bits-$(CONFIG_64)))
 
 objs-1 += acpi.o acpi_dsdt.o ap.o assert.o beep.o cache.o callrealmode.o
-objs-1 += calluefi.o config.o cpu.o cpu_emul.o cpu_interpreter.o cpu_mmu.o
+objs-1 += calluefi.o config.o cpu_emul.o cpu_interpreter.o cpu_mmu.o
 objs-1 += cpu_mmu_spt.o cpu_seg.o cpu_stack.o cpuid.o cpuid_pass.o current.o
 objs-1 += debug.o exint_pass.o gmm_access.o gmm_pass.o i386-stub.o iccard.o
 objs-1 += initfunc.o int.o io_io.o io_iohook.o io_iopass.o keyboard.o
@@ -72,6 +72,7 @@ objs-1 += mmioclr.o
 objs-1 += qsort.o
 objs-1 += acpi_dmar.o
 objs-1 += acpi_iohook.o
+objs-1 += currentcpu.o
 objs-1 += phys.o
 objs-1 += pmap.o
 objs-1 += sym.o

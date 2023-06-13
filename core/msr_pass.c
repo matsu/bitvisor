@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/currentcpu.h>
 #include "ap.h"
 #include "asm.h"
 #include "assert.h"
 #include "config.h"
-#include "cpu.h"
 #include "cpu_mmu.h"
 #include "current.h"
 #include "initfunc.h"
@@ -159,7 +159,7 @@ ia32_bios_updt (virt_t addr)
 	current->vmctl.read_msr (MSR_IA32_EFER, &efer);
 	if (0)
 		printf ("CPU%d: old IA32_BIOS_SIGN_ID %016llX\n",
-			get_cpu_id (), get_ia32_bios_sign_id ());
+			currentcpu_get_id (), get_ia32_bios_sign_id ());
 
 	/* Allocate an empty page directory for address 0-0x3FFFFFFF
 	 * and switch to it. */
@@ -238,7 +238,7 @@ ia32_bios_updt (virt_t addr)
 	mm_process_free (mm_proc_desc);
 	if (0)
 		printf ("CPU%d: new IA32_BIOS_SIGN_ID %016llX\n",
-			get_cpu_id (), get_ia32_bios_sign_id ());
+			currentcpu_get_id (), get_ia32_bios_sign_id ());
 	return ret;
 }
 

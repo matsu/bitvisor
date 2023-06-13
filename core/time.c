@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/currentcpu.h>
 #include "acpi.h"
 #include "ap.h"
 #include "arith.h"
@@ -36,7 +37,6 @@
 #include "config.h"
 #include "constants.h"
 #include "convert.h"
-#include "cpu.h"
 #include "initfunc.h"
 #include "panic.h"
 #include "pcpu.h"
@@ -201,11 +201,12 @@ time_init_pcpu (void)
 	u32 tsc1_l, tsc1_h;
 	u32 tsc2_l, tsc2_h;
 	u64 tsc1, tsc2, count;
+	int cpu;
 
+	cpu = currentcpu_get_id ();
 	asm_cpuid (1, 0, &a, &b, &c, &d);
 	if (!(d & CPUID_1_EDX_TSC_BIT))
-		panic ("Processor %d does not support TSC",
-		       currentcpu->cpunum);
+		panic ("Processor %d does not support TSC", cpu);
 	currentcpu->use_invariant_tsc = false;
 	if (!config.vmm.ignore_tsc_invariant) {
 		asm_cpuid (CPUID_EXT_0, 0, &a, &b, &c, &d);
@@ -217,7 +218,7 @@ time_init_pcpu (void)
 	}
 	sync_all_processors ();
 	asm_rdtsc (&tsc1_l, &tsc1_h);
-	if (currentcpu->cpunum == 0)
+	if (cpu == 0)
 		usleep (1000000 >> 4);
 	sync_all_processors ();
 	asm_rdtsc (&tsc2_l, &tsc2_h);
@@ -233,12 +234,12 @@ time_init_pcpu (void)
 	asm_lock_cmpxchgq (&lastcputime, &lasttime, lasttime);
 	rw_spinlock_unlock_sh (&initsync);
 	count = (tsc2 - tsc1) << 4;
-	printf ("Processor %d %llu Hz%s\n", currentcpu->cpunum, count,
+	printf ("Processor %d %llu Hz%s\n", cpu, count,
 		currentcpu->use_invariant_tsc ? " (Invariant TSC)" : "");
 	currentcpu->tsc = tsc2;
 	currentcpu->hz = count;
 	currentcpu->timediff = lasttime;
-	if (uefi_booted && get_cpu_id () == 0)
+	if (uefi_booted && cpu == 0)
 		/* Using UEFI runtime syscall to store
 		 * the boot time in EPOCH format */
 		time_record_boot_time_uefi ();

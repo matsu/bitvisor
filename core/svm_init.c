@@ -30,7 +30,6 @@
 #include "asm.h"
 #include "assert.h"
 #include "constants.h"
-#include "cpu.h"
 #include "current.h"
 #include "initfunc.h"
 #include "localapic.h"

@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "cpu.h"
+#include <core/currentcpu.h>
 #include "cpu_mmu_spt.h"
 #include "current.h"
 #include "panic.h"
@@ -253,7 +253,7 @@ svm_paging_start (void)
 {
 #ifdef CPU_MMU_SPT_DISABLE
 	/* halt APs because APIC accesses cannot be hooked */
-	if (get_cpu_id ())
+	if (currentcpu_get_id ())
 		for (;;)
 			asm volatile ("clgi; hlt");
 #endif

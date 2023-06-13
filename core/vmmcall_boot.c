@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/currentcpu.h>
 #include "asm.h"
 #include "assert.h"
 #include "config.h"
@@ -90,7 +91,7 @@ boot_guest (void)
 	if (!enable)
 		return;
 
-	if (currentcpu->cpunum != 0)
+	if (currentcpu_get_id () != 0)
 		panic ("boot from AP");
 	current->vmctl.read_general_reg (GENERAL_REG_RBX, &rbx);
 	rbx &= 0xFFFFFFFF;

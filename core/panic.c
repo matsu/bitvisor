@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/currentcpu.h>
 #include "asm.h"
 #include "ap.h"
 #include "callrealmode.h"
 #include "config.h"
-#include "cpu.h"
 #include "current.h"
 #include "debug.h"
 #include "initfunc.h"
@@ -463,7 +463,7 @@ wait_for_dump_completion (u64 timeout)
 static void
 reset_keyboard_and_screen (void)
 {
-	if (!get_cpu_id ()) {
+	if (!currentcpu_get_id ()) {
 		wait_for_dump_completion (1000000);
 #ifndef TTY_SERIAL
 		setkbdled (LED_NUMLOCK_BIT | LED_SCROLLLOCK_BIT |
@@ -541,7 +541,7 @@ panic_main (u8 state, char *msg)
 		break;
 	case 1:
 		if (make_segment_gs_accessible ())
-			panicdat.cpunum = get_cpu_id ();
+			panicdat.cpunum = currentcpu_get_id ();
 		break;
 	case 2:
 		if (panicmsg[0] != '\0')
@@ -586,7 +586,7 @@ panic_main (u8 state, char *msg)
 		break;
 	case 0x12:
 		printf ("Guest state and registers of cpu %d ------------\n",
-			get_cpu_id ());
+			currentcpu_get_id ());
 		catch_exception (dump_vm_general_regs);
 		catch_exception (dump_vm_control_regs);
 		catch_exception (dump_vm_sregs);
@@ -667,7 +667,7 @@ panic_test (void)
 				schedule ();
 		}
 		set_panic_state (0x10);
-		panicdat.cpunum = get_cpu_id ();
+		panicdat.cpunum = currentcpu_get_id ();
 		panicdat.fail = 0xFF;
 		u8 state = 0x10;
 		for (;;)

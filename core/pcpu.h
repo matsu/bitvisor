@@ -104,19 +104,6 @@ struct pcpu_gs {
 extern struct pcpu pcpu_default;
 extern struct pcpu *currentcpu asm ("%gs:gs_currentcpu");
 
-static inline bool
-currentcpu_available (void)
-{
-	u16 gs;
-
-	/* FIXME: SWAPGS in 64bit long mode can't be used. */
-	asm_rdgs (&gs);
-	if (gs == SEG_SEL_PCPU32 || gs == SEG_SEL_PCPU64)
-		return true;
-	else
-		return false;
-}
-
 void pcpu_list_foreach (bool (*func) (struct pcpu *p, void *q), void *q);
 void pcpu_list_add (struct pcpu *d);
 void pcpu_init (void);

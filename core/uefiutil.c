@@ -27,8 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/currentcpu.h>
+#include <core/currentcpu.h>
 #include "calluefi.h"
-#include "cpu.h"
 #include "pcpu.h"
 #include "uefi.h"
 #include "uefiutil.h"
@@ -40,7 +41,7 @@ check_env (void)
 		return false;
 	if (!currentcpu_available () || uefi_no_more_call)
 		return false;
-	if (get_cpu_id ())
+	if (currentcpu_get_id ())
 		return false;
 	return true;
 }

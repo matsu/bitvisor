@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/currentcpu.h>
 #include "asm.h"
-#include "cpu.h"
 #include "cpu_mmu.h"
 #include "current.h"
 #include "exint_pass.h"
@@ -455,13 +455,15 @@ init_shadow_vt (void)
 {
 	struct shadow_vt *ret;
 	struct vmread_vmwrite_bmp *vm_rw_bmp;
+	int cpu;
 
 	ret = alloc (sizeof *ret);
-	printf ("Initialize Shadow VT at CPU %d\n", get_cpu_id ());
+	cpu = currentcpu_get_id ();
+	printf ("Initialize Shadow VT at CPU %d\n", cpu);
 
 	if (current->u.vt.vmcs_shadowing_available) {
 		/* Initialize VM{READ,WRITE} bitmap */
-		printf ("Initialize Shadow VMCS at CPU %d\n", get_cpu_id ());
+		printf ("Initialize Shadow VMCS at CPU %d\n", cpu);
 		vm_rw_bmp = get_vmread_vmwrite_bitmap ();
 		asm_vmwrite (VMCS_VMREAD_BMP_ADDR,  vm_rw_bmp->bmp_pass_phys);
 		asm_vmwrite (VMCS_VMWRITE_BMP_ADDR, vm_rw_bmp->bmp_pass_phys);
@@ -677,7 +679,7 @@ clear_exint_hack (struct shadow_vt *shadow_vt, char *reason)
 		break;
 	case EXINT_HACK_MODE_SET:
 		printf ("CPU%d: %s: cleared at %s, intr info 0x%lX lost\n",
-			get_cpu_id (), __func__, reason,
+			currentcpu_get_id (), __func__, reason,
 			shadow_vt->exint_hack_val);
 		/* Fall through */
 	case EXINT_HACK_MODE_READ:
