@@ -27,21 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_VRAMWRITE_H
-#define _CORE_VRAMWRITE_H
+#ifndef _CORE_INCLUDE_ARCH_VRAMWRITE_H
+#define _CORE_INCLUDE_ARCH_VRAMWRITE_H
 
-struct vramwrite_font {
-	u8 *font;
-	int fontx, fonty, fontlen;
-	u16 saved_cursor_pos;
-	bool fontcompressed;
-};
+struct vramwrite_font;
 
-void vramwrite_clearscreen (void);
-void vramwrite_putchar (unsigned char c);
-void vramwrite_save_and_move_cursor (unsigned int x, unsigned int y);
-void vramwrite_restore_cursor (void);
-void vramwrite_get_cursor_pos (unsigned int *x, unsigned int *y);
-void vramwrite_init_global (void);
+void vramwrite_arch_init_global (void);
+void vramwrite_arch_putchar (unsigned char c);
+void vramwrite_arch_get_font (struct vramwrite_font *vf);
 
 #endif

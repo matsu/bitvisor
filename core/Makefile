@@ -79,3 +79,4 @@ objs-1 += phys.o
 objs-1 += pmap.o
 objs-1 += sym.o
 objs-1 += vmm_mem.o
+objs-1 += vramwrite_x86_pc.o

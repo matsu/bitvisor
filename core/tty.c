@@ -369,8 +369,7 @@ tty_init_global (void)
 	logbuf.loglen = 0;
 	logflag = true;
 	spinlock_init (&putchar_lock);
-	if (!uefi_booted)
-		vramwrite_init_global ((void *)0x800B8000);
+	vramwrite_init_global ();
 	putchar_set_func (tty_putchar, NULL);
 }
 
