@@ -1,0 +1,33 @@
+EXE_CC			= clang
+RM			= rm -f
+STRIP			= strip
+
+# To be used for cross compiling later
+ARCH			= x86
+
+TARGET_x86		= -target x86_64-unknown-windows
+TARGET			= $(TARGET_$(ARCH))
+
+CFLAGS_x86		= -mno-red-zone -mno-sse -I$(EDK2_INC)/X64
+CFLAGS_ARCH		= $(CFLAGS_$(ARCH))
+
+# We use clang to call lld-link for us instead of using lld-link directly
+# because on some platforms, lld-link is not symlinked by default.
+#
+# About for stripping symbols, the caller should use 'strip' command if it
+# wants to. Old lld-link does not have an option for stripping symbol.
+LDFLAGS			= -nostdlib -fuse-ld=lld -Wl,-dll -Wl,-nodefaultlib \
+			  $(TARGET)
+LDFLAGS_EFI_APP		= -Wl,-entry:efi_main -Wl,-subsystem:efi_application
+LDFLAGS_EFI_BSDRV	= -Wl,-entry:EfiDriverEntryPoint \
+			  -Wl,-subsystem:efi_boot_service_driver
+
+CFLAGS		= -nostdinc -O -ffreestanding -fno-builtin \
+		  -fno-stack-protector -fno-strict-aliasing -fno-PIE -MMD \
+		  -Wno-microsoft-static-assert $(TARGET) $(CFLAGS_ARCH)\
+		  -I. \
+		  -I$(INC_SHARE_DIR) \
+		  -I$(EDK2_INC)
+
+%.o : %.c
+	$(EXE_CC) $(CFLAGS) -c $< -o $@

@@ -1,46 +1,41 @@
 INC_SHARE_DIR = ../../include/share
+EDK2_INC      = ../../edk2/MdePkg/Include
 
-MINGW1=$(shell which amd64-mingw32msvc-cc 2> /dev/null)
-MINGW2=$(shell which x86_64-w64-mingw32-gcc 2> /dev/null)
-ifneq ("$(MINGW1)","")
-	EXE_CC=$(MINGW1)
-else ifneq ("$(MINGW2)","")
-	EXE_CC=$(MINGW2)
-else ifndef EXE_CC
-$(error MinGW not found)
-endif
-RM			= rm -f
-EDK2_INC		= ../../edk2/MdePkg/Include
+include ../../Makefile.uefi.common
+
+DBGSH_UEFI_SRC = dbgsh-uefi.c
+
+DBGSH_UEFI_AMD_OBJ = dbgsh-a.o
+DBGSH_UEFI_INTEL_OBJ = dbgsh-i.o
+
+CFLAGS_AMD = $(CFLAGS) -DVMMCALL=\"vmmcall\"
+CFLAGS_INTEL = $(CFLAGS) -DVMMCALL=\"vmcall\"
+
+DEP_x86 = $(DBGSH_UEFI_AMD_OBJ:.o=.d) $(DBGSH_UEFI_INTEL_OBJ:.o=.d)
+DEP = $(DEP_$(ARCH))
+
+OUTPUT_x86 = dbgsh-a.efi dbgsh-i.efi
+OUTPUT = $(OUTPUT_$(ARCH))
 
 .PHONY : all
-all : dbgsh-a.efi dbgsh-i.efi
+all : $(OUTPUT)
 
 .PHONY : clean
 clean :
-	$(RM) dbgsh-a.efi dbgsh-i.efi
+	$(RM) *.efi *.o *.d *.lib
 
-dbgsh-a.efi : dbgsh-uefi.c
-	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
-		-mno-red-zone -mno-sse -nostdinc -s -O \
-		-ffreestanding -fno-builtin -fno-stack-protector \
-		-fno-strict-aliasing \
-		-Wl,--subsystem,10 \
-		-I. \
-		-I$(INC_SHARE_DIR) \
-		-I$(EDK2_INC) \
-		-I$(EDK2_INC)/X64 \
-		-DVMMCALL=\"vmmcall\" \
-		-o dbgsh-a.efi dbgsh-uefi.c
+dbgsh-a.efi : $(DBGSH_UEFI_AMD_OBJ)
+	$(EXE_CC) $(LDFLAGS) $(LDFLAGS_EFI_APP) -o $@ $(DBGSH_UEFI_AMD_OBJ)
+	$(STRIP) $@
 
-dbgsh-i.efi : dbgsh-uefi.c
-	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
-		-mno-red-zone -mno-sse -nostdinc -s -O \
-		-ffreestanding -fno-builtin -fno-stack-protector \
-		-fno-strict-aliasing \
-		-Wl,--subsystem,10 \
-		-I. \
-		-I$(INC_SHARE_DIR) \
-		-I$(EDK2_INC) \
-		-I$(EDK2_INC)/X64 \
-		-DVMMCALL=\"vmcall\" \
-		-o dbgsh-i.efi dbgsh-uefi.c
+dbgsh-i.efi : $(DBGSH_UEFI_INTEL_OBJ)
+	$(EXE_CC) $(LDFLAGS) $(LDFLAGS_EFI_APP) -o $@ $(DBGSH_UEFI_INTEL_OBJ)
+	$(STRIP) $@
+
+$(DBGSH_UEFI_AMD_OBJ) : $(DBGSH_UEFI_SRC)
+	$(EXE_CC) $(CFLAGS_AMD) -c $(DBGSH_UEFI_SRC) -o $@
+
+$(DBGSH_UEFI_INTEL_OBJ) : $(DBGSH_UEFI_SRC)
+	$(EXE_CC) $(CFLAGS_INTEL) -c $(DBGSH_UEFI_SRC) -o $@
+
+-include $(DEP)
