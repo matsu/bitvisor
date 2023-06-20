@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <builtin.h>
 #include "ap.h"
 #include "asm.h"
 #include "assert.h"
@@ -509,19 +510,19 @@ void
 sync_all_processors (void)
 {
 	u32 id = 0;
-	bool ret = false;
+	bool ret = true;
 
 	spinlock_lock (&sync_lock);
-	asm_lock_cmpxchgl (&sync_id, &id, id);
+	atomic_cmpxchg32 (&sync_id, &id, id);
 	sync_count++;
 	if (sync_count == num_of_processors + 1) {
 		sync_count = 0;
 		asm_lock_incl (&sync_id);
-		ret = true;
+		ret = false;
 	}
 	spinlock_unlock (&sync_lock);
-	while (!ret) {
-		ret = asm_lock_cmpxchgl (&sync_id, &id, id);
+	while (ret) {
+		ret = atomic_cmpxchg32 (&sync_id, &id, id);
 		asm_pause ();
 	}
 }

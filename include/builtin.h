@@ -67,4 +67,12 @@ atomic_cmpxchg32 (u32 *ptr, u32 *expected, u32 desired)
 					    __ATOMIC_RELAXED);
 }
 
+static inline bool
+atomic_cmpxchg64 (u64 *ptr, u64 *expected, u64 desired)
+{
+	return __atomic_compare_exchange_n (ptr, expected, desired, false,
+					    __ATOMIC_ACQ_REL,
+					    __ATOMIC_RELAXED);
+}
+
 #endif

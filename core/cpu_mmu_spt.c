@@ -29,6 +29,7 @@
 
 /* MMU emulation, Shadow Page Tables (SPT) */
 
+#include <builtin.h>
 #include <core/mm.h>
 #include "acpi.h"
 #include "asm.h"
@@ -347,7 +348,7 @@ pte_and (u64 *pte, u64 mask)
 {
 	u64 oldpte = 0, newpte = 0;
 
-	while (asm_lock_cmpxchgq (pte, &oldpte, newpte))
+	while (!atomic_cmpxchg64 (pte, &oldpte, newpte))
 		newpte = oldpte & mask;
 	return newpte;
 }
@@ -1897,7 +1898,7 @@ makerdonly (spt_t *cspt, u64 key)
 				continue;
 			} else if (oldpte & PTE_RW_BIT) {
 				newpte = oldpte & ~(PTE_D_BIT | PTE_RW_BIT);
-				if (asm_lock_cmpxchgq (p->pte, &oldpte, newpte))
+				if (!atomic_cmpxchg64 (p->pte, &oldpte, newpte))
 					goto pte_changed;
 			}
 			LIST3_DEL (spt->rwmap_fail, rwmap, p);

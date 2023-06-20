@@ -825,59 +825,6 @@ asm_lock_incl (u32 *d)
 	asm volatile ("lock incl %0" : "+m" (*d));
 }
 
-/*
-  if (*dest == *cmp) {
-      *dest = eq;
-      return false;
-  } else {
-      *cmp = *dest;
-      return true;
-  }
-*/
-static inline bool
-asm_lock_cmpxchgl (u32 *dest, u32 *cmp, u32 eq)
-{
-	u8 tmp;
-
-	asm volatile ("lock cmpxchgl %4,%1 ; setne %2"
-		      : "=&a" (*cmp)
-		      , "+m" (*dest)
-#ifdef __x86_64__
-		      , "=r" (tmp)
-#else
-		      , "=dcb" (tmp)
-#endif
-		      : "0" (*cmp)
-		      , "r" (eq)
-		      : "memory", "cc");
-	return (bool)tmp;
-}
-
-static inline bool
-asm_lock_cmpxchgq (u64 *dest, u64 *cmp, u64 eq)
-{
-	u8 tmp;
-
-#ifdef __x86_64__
-	asm volatile ("lock cmpxchgq %4,%1 ; setne %2"
-		      : "=&a" (*cmp)
-		      , "+m" (*dest)
-		      , "=r" (tmp)
-		      : "0" (*cmp)
-		      , "r" (eq)
-		      : "memory", "cc");
-#else
-	asm volatile ("lock cmpxchg8b %1 ; setne %2"
-		      : "=&A" (*cmp)
-		      , "+m" (*dest)
-		      , "=bc" (tmp)
-		      : "0" (*cmp)
-		      , "b" ((u32)eq)
-		      , "c" ((u32)(eq >> 32))
-		      : "memory", "cc");
-#endif
-	return (bool)tmp;
-}
 
 /* old = *mem; *mem = newval; return old; */
 static inline u32

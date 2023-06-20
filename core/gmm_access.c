@@ -29,6 +29,7 @@
 
 /* accessing memory by guest-physical address */
 
+#include <builtin.h>
 #include "assert.h"
 #include "cache.h"
 #include "constants.h"
@@ -140,9 +141,9 @@ cmpxchg_hphys_l (u64 phys, u32 *olddata, u32 data, u32 attr)
 	bool r;
 
 	p = (u32 *)hphys_mapmem (phys, attr, sizeof *p, true);
-	r = asm_lock_cmpxchgl (p, olddata, data);
+	r = atomic_cmpxchg32 (p, olddata, data);
 	unmapmem (p, sizeof *p);
-	return r;
+	return !r; /* Caller expects false in case of *p = data */
 }
 
 static bool
@@ -152,9 +153,9 @@ cmpxchg_hphys_q (u64 phys, u64 *olddata, u64 data, u32 attr)
 	bool r;
 
 	p = (u64 *)hphys_mapmem (phys, attr, sizeof *p, true);
-	r = asm_lock_cmpxchgq (p, olddata, data);
+	r = atomic_cmpxchg64 (p, olddata, data);
 	unmapmem (p, sizeof *p);
-	return r;
+	return !r; /* Caller expects false in case of *p = data */
 }
 
 void

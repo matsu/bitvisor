@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <builtin.h>
 #include <core/currentcpu.h>
 #include "acpi.h"
 #include "ap.h"
@@ -85,12 +86,12 @@ get_cpu_time (void)
 	u64 tsc, time;
 	u64 lasttime = lasttime;
 
-	asm_lock_cmpxchgq (&lastcputime, &lasttime, lasttime);
+	atomic_cmpxchg64 (&lastcputime, &lasttime, lasttime);
 	tsc = get_cpu_time_raw ();
 	time = tsc_to_time (tsc - currentcpu->tsc, currentcpu->hz);
 	time += currentcpu->timediff;
 	if (lasttime <= time) {
-		asm_lock_cmpxchgq (&lastcputime, &lasttime, time);
+		atomic_cmpxchg64 (&lastcputime, &lasttime, time);
 	} else {
 		currentcpu->timediff += lasttime - time;
 		time = lasttime;
@@ -105,7 +106,7 @@ get_acpi_time (u64 *r)
 	u64 now, tmp[2], oldnow;
 
 	VAR_IS_INITIALIZED (oldnow);
-	asm_lock_cmpxchgq (&lastacpitime, &oldnow, oldnow);
+	atomic_cmpxchg64 (&lastacpitime, &oldnow, oldnow);
 	if (!get_acpi_time_raw (&tmr))
 		return false;
 	oldtmr = oldnow & 16777215;
@@ -114,7 +115,7 @@ get_acpi_time (u64 *r)
 		if (tmr < oldtmr)
 			tmr += 16777216;
 		now += tmr - oldtmr;
-		asm_lock_cmpxchgq (&lastacpitime, &oldnow, now);
+		atomic_cmpxchg64 (&lastacpitime, &oldnow, now);
 	}
 	mpumul_64_64 (now, 1000000ULL, tmp); /* tmp = now * 1000000 */
 	mpudiv_128_32 (tmp, 3579545U, tmp); /* tmp = tmp / 3579545 */
@@ -231,7 +232,7 @@ time_init_pcpu (void)
 	 */
 	u64 lasttime = lasttime;
 	rw_spinlock_lock_sh (&initsync);
-	asm_lock_cmpxchgq (&lastcputime, &lasttime, lasttime);
+	atomic_cmpxchg64 (&lastcputime, &lasttime, lasttime);
 	rw_spinlock_unlock_sh (&initsync);
 	count = (tsc2 - tsc1) << 4;
 	printf ("Processor %d %llu Hz%s\n", cpu, count,
@@ -256,7 +257,7 @@ time_wakeup (void)
 	conv32to64 (tsc_l, tsc_h, &currentcpu->tsc);
 	/* Update timediff */
 	u64 lasttime = lasttime;
-	asm_lock_cmpxchgq (&lastcputime, &lasttime, lasttime);
+	atomic_cmpxchg64 (&lastcputime, &lasttime, lasttime);
 	currentcpu->timediff = lasttime;
 }
 

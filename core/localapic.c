@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <builtin.h>
 #include "asm.h"
 #include "current.h"
 #include "initfunc.h"
@@ -91,8 +92,8 @@ do_startup (struct vcpu *p, void *q)
 		return false;
 	if (match_apic_id (p, d)) {
 		sipi_vector = p->localapic.sipi_vector;
-		asm_lock_cmpxchgl (&p->localapic.sipi_vector, &sipi_vector,
-				   d->sipi_vector);
+		atomic_cmpxchg32 (&p->localapic.sipi_vector, &sipi_vector,
+				  d->sipi_vector);
 	}
 	return false;
 }
@@ -255,12 +256,12 @@ localapic_wait_for_sipi (void)
 	unmapmem (apic_id, sizeof *apic_id);
 x2apic_enabled:
 	sipi_vector = current->localapic.sipi_vector;
-	asm_lock_cmpxchgl (&current->localapic.sipi_vector, &sipi_vector, ~0U);
+	atomic_cmpxchg32 (&current->localapic.sipi_vector, &sipi_vector, ~0U);
 	localapic_sipi_ready ();
 	do {
 		asm_pause ();
-		asm_lock_cmpxchgl (&current->localapic.sipi_vector,
-				   &sipi_vector, ~0U);
+		atomic_cmpxchg32 (&current->localapic.sipi_vector,
+				  &sipi_vector, ~0U);
 	} while (sipi_vector == ~0U);
 	return sipi_vector;
 }
