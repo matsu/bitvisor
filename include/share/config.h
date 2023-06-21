@@ -246,6 +246,19 @@ struct config_data_vmm {
 	struct config_data_vmm_tty_syslog tty_syslog;
 };
 
+struct config_data_wireguard {
+	u8 ipaddr[4];
+	u8 netmask[4];
+	u8 gateway[4];
+	u8 ipaddr_end_point[4];
+	u8 peer_allowed_ip[4];
+	u8 peer_allowed_mask[4];
+	int peer_endpoint_port;
+	int wg_listen_port;
+	char wg_private_key[45];
+	char peer_public_key[45];
+};
+
 struct config_data {
 	int len;
 	struct config_data_idman idman;
@@ -253,6 +266,7 @@ struct config_data {
 	struct config_data_ip ip;
 	struct config_data_storage storage;
 	struct config_data_vmm vmm;
+	struct config_data_wireguard wg;
 } __attribute__ ((packed));
 
 #endif

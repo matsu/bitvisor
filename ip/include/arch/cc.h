@@ -14,10 +14,12 @@
 
 #define U16_F "hu"
 #define S16_F "hd"
+#define X8_F  "02x"
 #define X16_F "hx"
 #define U32_F "u"
 #define S32_F "d"
 #define X32_F "x"
+#define SZT_F "zu"
 
 #define PACK_STRUCT_FIELD(x) x
 #define PACK_STRUCT_STRUCT __attribute__ ((packed))
@@ -81,6 +83,23 @@ inline_lwip_htonl (u32_t n)
 {
 	asm ("bswap %0" : "+r" (n));
 	return n;
+}
+
+/* Definitions for WireGuard */
+
+#define CHAR_BIT 8
+
+typedef unsigned char uint8_t;
+
+static inline char *
+strchr (const char *s, int c)
+{
+	while (*s) {
+		if (*s == c)
+			return (char *)s;
+		s++;
+	}
+	return 0;
 }
 
 #endif /* __ARCH_CC_H__ */

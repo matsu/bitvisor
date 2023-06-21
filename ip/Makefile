@@ -1,8 +1,10 @@
 LWIP_VERSION=2.1.3
+CONSTANTS-$(CONFIG_WIREGUARD) += -DWIREGUARD_VMM
 
 CFLAGS += -I$(DIR)/include -I$(DIR)/include/arch -I$(DIR)/include/lwip \
 	-I$(DIR)/lwip-$(LWIP_VERSION)/src/include \
-	-I$(DIR)/lwip-$(LWIP_VERSION)/src/include/lwip
+	-I$(DIR)/lwip-$(LWIP_VERSION)/src/include/lwip \
+	-I$(DIR)/wireguard/include
 
 objs-1 += lwip-$(LWIP_VERSION)/src/core/def.o
 objs-1 += lwip-$(LWIP_VERSION)/src/core/dns.o
@@ -44,3 +46,13 @@ objs-1 += ip_main.o net_main.o
 objs-1 += echo-server.o echo-client.o echoctl.o
 objs-1 += telnet-server.o telnet-dbgsh.o
 objs-1 += string.o
+objs-$(CONFIG_WIREGUARD) += wireguard/wg_main.o \
+wireguard/wireguard-lwip/src/crypto/refc/blake2s.o \
+wireguard/wireguard-lwip/src/crypto/refc/chacha20.o \
+wireguard/wireguard-lwip/src/crypto/refc/chacha20poly1305.o \
+wireguard/wireguard-lwip/src/crypto/refc/poly1305-donna.o \
+wireguard/wireguard-lwip/src/crypto/refc/x25519.o \
+wireguard/wireguard-lwip/src/wireguardif.o \
+wireguard/wireguard-lwip/src/crypto.o \
+wireguard/wireguard-lwip/src/wireguard.o wireguard/wireguard-platform.o \
+wireguard/wireguard-setup.o

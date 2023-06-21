@@ -66,6 +66,7 @@
 #include "net_main.h"
 #include "ip_main.h"
 #include "tcpip.h"
+#include "wireguard/wg_main.h"
 
 struct tcpip_context {
 	ip_addr_t *oldip_addr;
@@ -323,6 +324,9 @@ ip_main_init (struct ip_main_netif *netif_arg, int netif_num)
 
 	/* Configure and add network interface. */
 	tcpip_netif_conf (netif_arg, netif_num);
+#ifdef WIREGUARD_VMM
+	net_wg_init ();
+#endif
 }
 
 void

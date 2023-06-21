@@ -43,6 +43,9 @@
 #define NO_SYS                          1
 #define MEM_ALIGNMENT                   4 /* 4-byte alignment */
 #define MEM_SIZE                        (16*1024*1024) /* Heap size (16MB) */
+#ifdef WIREGUARD_VMM
+#define MEMP_NUM_SYS_TIMEOUT		(LWIP_NUM_SYS_TIMEOUT_INTERNAL + 1)
+#endif
 
 /* --- DHCP --- */
 #define DHCP_DOES_ARP_CHECK             0 /* Don't Check Binded Addr */

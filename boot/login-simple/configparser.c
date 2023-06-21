@@ -470,6 +470,20 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "vmm.iccard.enable");
 	ss (uintnum, &name, &src, &len, "vmm.iccard.status",
 	    "vmm.iccard.status");
+	/* vmm wireguard */
+	ss (ipv4_addr, &name, &src, &len, "wg.ipaddr", "wg.ipaddr");
+	ss (ipv4_addr, &name, &src, &len, "wg.netmask", "wg.netmask");
+	ss (ipv4_addr, &name, &src, &len, "wg.gateway", "wg.gateway");
+	ss (ipv4_addr, &name, &src, &len, "wg.ipaddr_end_point",
+	    "wg.ipaddr_end_point");
+	ss (ipv4_addr, &name, &src, &len, "wg.peer_allowed_ip",
+	    "wg.peer_allowed_ip");
+	ss (ipv4_addr, &name, &src, &len, "wg.peer_allowed_mask",
+	    "wg.peer_allowed_mask");
+	ss (uintnum, &name, &src, &len, "wg.peer_endpoint_port",
+	    "wg.peer_endpoint_port");
+	ss (uintnum, &name, &src, &len, "wg.wg_listen_port",
+	    "wg.wg_listen_port");
 	/* idman */
 	CONF (idman.crl01);
 	CONF (idman.crl02);
@@ -630,6 +644,17 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.driver.pci_virtual);
 	CONF (vmm.iccard.enable);
 	CONF (vmm.iccard.status);
+	/* vmm wireguard */
+	CONF (wg.ipaddr);
+	CONF (wg.netmask);
+	CONF (wg.gateway);
+	CONF (wg.ipaddr_end_point);
+	CONF (wg.peer_allowed_ip);
+	CONF (wg.peer_allowed_mask);
+	CONF (wg.peer_endpoint_port);
+	CONF (wg.wg_listen_port);
+	CONF (wg.wg_private_key);
+	CONF (wg.peer_public_key);
 	if (!dst) {
 		fprintf (stderr, "unknown config \"%s\"\n", name);
 		exit (EXIT_FAILURE);

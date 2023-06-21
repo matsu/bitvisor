@@ -154,4 +154,22 @@ struct config_data config = {
 			.status = 0,
 		},
 	},
+	.ip = {
+		.use_dhcp = 0,
+		.ipaddr = { 0, 0, 0, 0 },
+		.netmask = { 0, 0, 0, 0 },
+		.gateway = { 0, 0, 0, 0 },
+	},
+	.wg = {
+		.ipaddr = { 0, 0, 0, 0 },
+		.netmask = { 0, 0, 0, 0 },
+		.gateway = { 0, 0, 0, 0 },
+		.ipaddr_end_point = { 0, 0, 0, 0 },
+		.peer_allowed_ip = { 0, 0, 0, 0 },
+		.peer_allowed_mask = { 0, 0, 0, 0 },
+		.peer_endpoint_port = 0,
+		.wg_listen_port = 0,
+		.wg_private_key = "",
+		.peer_public_key = "",
+	}
 };
