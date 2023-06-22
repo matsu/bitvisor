@@ -37,6 +37,7 @@ struct cpuid_data {
 	bool pcid, invpcid;
 	bool hw_feedback;
 	bool pt;
+	bool waitpkg;
 };
 
 void call_cpuid (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od);

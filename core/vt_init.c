@@ -372,9 +372,19 @@ vt__vmcs_init (void)
 			current->cpuid.pt = true;
 		}
 		if (procbased_ctls2_and &
-		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_USER_WAITPAUSE_BIT)
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_USER_WAITPAUSE_BIT) {
 			procbased_ctls2 |=
 			 VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_USER_WAITPAUSE_BIT;
+			/* The guest can use WAITPKG instructions only
+			 * if this enable bit is set.  Otherwise,
+			 * WAITPKG bit of CPUID is concealed to avoid
+			 * unexpected exception in the guest.  Note
+			 * that this enable bit might be reserved on a
+			 * virtual machine even if WAITPKG is
+			 * supported due to incomplete
+			 * implementation. */
+			current->cpuid.waitpkg = true;
+		}
 	}
 	/* Processor Trace (PT):
 	 * [A] PT is supported in VMX operation
