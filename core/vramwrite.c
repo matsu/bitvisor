@@ -527,45 +527,6 @@ vramwrite_putchar (unsigned char c)
 }
 
 void
-vramwrite_mark1 (unsigned int x, unsigned int y)
-{
-	u16 scroll;
-	u8 *p;
-
-	if (vram_virtaddr == NULL)
-		return;
-	scroll = read_scroll ();
-	p = vram_virtaddr + ((scroll + y * 80 + x) << 1);
-	(*p)++;
-}
-
-void
-vramwrite_mark2 (unsigned int x, unsigned int y, u8 xor_color)
-{
-	u16 scroll;
-	u8 *p;
-
-	if (vram_virtaddr == NULL)
-		return;
-	scroll = read_scroll ();
-	p = vram_virtaddr + ((scroll + y * 80 + x) << 1);
-	p[1] ^= xor_color;
-}
-
-void
-vramwrite_mark3 (unsigned int x, unsigned int y, u8 color)
-{
-	u16 scroll;
-	u8 *p;
-
-	if (vram_virtaddr == NULL)
-		return;
-	scroll = read_scroll ();
-	p = vram_virtaddr + ((scroll + y * 80 + x) << 1);
-	p[1] = color;
-}
-
-void
 vramwrite_save_and_move_cursor (unsigned int x, unsigned int y)
 {
 	saved_cursor_pos = read_cursor_pos ();
@@ -593,12 +554,6 @@ void
 vramwrite_init_global (void *new_vram_virtaddr)
 {
 	vram_virtaddr = (u8 *)new_vram_virtaddr;
-}
-
-void
-vramwrite_exit_global (void)
-{
-	vram_virtaddr = NULL;
 }
 
 static int

@@ -32,13 +32,9 @@
 
 void vramwrite_clearscreen (void);
 void vramwrite_putchar (unsigned char c);
-void vramwrite_mark1 (unsigned int x, unsigned int y);
-void vramwrite_mark2 (unsigned int x, unsigned int y, u8 xor_color);
-void vramwrite_mark3 (unsigned int x, unsigned int y, u8 color);
 void vramwrite_save_and_move_cursor (unsigned int x, unsigned int y);
 void vramwrite_restore_cursor (void);
 void vramwrite_get_cursor_pos (unsigned int *x, unsigned int *y);
 void vramwrite_init_global (void *new_vram_virtaddr);
-void vramwrite_exit_global (void);
 
 #endif
