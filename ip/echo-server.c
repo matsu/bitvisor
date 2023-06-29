@@ -75,9 +75,22 @@ static void echo_send(struct tcp_pcb *tpcb, struct echo_state *es);
 static void echo_close(struct tcp_pcb *tpcb, struct echo_state *es);
 
 void
-echo_server_init (int port)
+echo_server_init (int port, char *netif_name)
 {
+  struct netif *netif;
+
   echo_pcb = tcp_new();
+  if (netif_name[0] != '\0' && echo_pcb)
+  {
+    netif = netif_find (netif_name);
+    if (netif == NULL)
+    {
+      printf ("Can not access netif %s\n", netif_name);
+      tcp_close (echo_pcb);
+      return;
+    }
+    tcp_bind_netif (echo_pcb, netif);
+  }
   if (echo_pcb != NULL)
   {
     err_t err;

@@ -36,17 +36,18 @@
 #include <lib_syscalls.h>
 
 static int
-send_echoctl (int d, int cmd, int ipaddr, int port)
+send_echoctl (int d, int cmd, int ipaddr, int port, char *netif_name)
 {
 	int ret = -1;
 	unsigned long array[3];
-	struct msgbuf mbuf;
+	struct msgbuf mbuf[2];
 
 	array[0] = cmd;
 	array[1] = ipaddr;
 	array[2] = port;
-	setmsgbuf (&mbuf, array, sizeof array, 0);
-	ret = msgsendbuf (d, 0, &mbuf, 1);
+	setmsgbuf (&mbuf[0], array, sizeof array, 0);
+	setmsgbuf (&mbuf[1], netif_name, strlen (netif_name) + 1, 0);
+	ret = msgsendbuf (d, 0, mbuf, 2);
 	return ret;
 }
 
@@ -55,9 +56,12 @@ usage (char *hoge)
 {
 	printf ("%s",
 		"usage:\n"
-		"  client connect <ipaddr> <port>  Connect to echo server.\n"
-		"  client send                     Send a message to client.\n"
-		"  server start <port>             Start echo server.\n");
+		"  client connect <ipaddr> <port> [netif]"
+		"  Connect to echo server.\n"
+		"  client send                           "
+		"  Send a message to client.\n"
+		"  server start <port> [netif]           "
+		"  Start echo server.\n");
 }
 
 static int
@@ -78,6 +82,7 @@ static int
 action (int d, int argc, char **argv)
 {
 	int r, cmd, ipaddr = 0, port = 0;
+	char *netif_name = "";
 	unsigned char ipaddr_a[4];
 
 	if (argc < 3) {
@@ -86,10 +91,12 @@ action (int d, int argc, char **argv)
 	}
 	if (!strcmp (argv[1], "client")) {
 		if (!strcmp (argv[2], "connect")) {
-			if (argc != 5) {
+			if (argc < 5 || argc > 6) {
 				usage (argv[0]);
 				return -1;
 			}
+			if (argc == 6)
+				netif_name = argv[5];
 			ipaddr = conv_ipv4addr (argv[3]);
 			ipaddr_a[0] = ipaddr >> 24;
 			ipaddr_a[1] = ipaddr >> 16;
@@ -97,9 +104,9 @@ action (int d, int argc, char **argv)
 			ipaddr_a[3] = ipaddr;
 			port = (int)strtol (argv[4], NULL, 0);
 			printf ("Connecting to server at"
-				" %d.%d.%d.%d:%d (%08x)\n", ipaddr_a[0],
+				" %d.%d.%d.%d:%d (%08x) %s\n", ipaddr_a[0],
 				ipaddr_a[1], ipaddr_a[2], ipaddr_a[3], port,
-				ipaddr);
+				ipaddr, netif_name);
 			cmd = 0;
 		} else if (!strcmp (argv[2], "send")) {
 			if (argc != 3) {
@@ -114,12 +121,15 @@ action (int d, int argc, char **argv)
 		}
 	} else if (!strcmp (argv[1], "server")) {
 		if (!strcmp (argv[2], "start")) {
-			if (argc != 4) {
+			if (argc < 4 || argc > 5) {
 				usage (argv[0]);
 				return -1;
 			}
+			if (argc == 5)
+				netif_name = argv[4];
 			port = (int)strtol (argv[3], NULL, 0);
-			printf ("Starting server (Port:%d)...\n", port);
+			printf ("Starting server (Port:%d)...%s\n", port,
+				netif_name);
 			cmd = 2;
 		} else {
 			usage (argv[0]);
@@ -129,7 +139,7 @@ action (int d, int argc, char **argv)
 		usage (argv[0]);
 		return -1;
 	}
-	r = send_echoctl (d, cmd, ipaddr, port);
+	r = send_echoctl (d, cmd, ipaddr, port, netif_name);
 	if (r)
 		printf ("Error Code: %d\n", r);
 	printf ("Done.\n");

@@ -111,9 +111,10 @@ echo_client_connected (void *arg, struct tcp_pcb *pcb, err_t err)
 }
 
 void
-echo_client_init (int *ipaddr, int port)
+echo_client_init (int *ipaddr, int port, char *netif_name)
 {
 	struct tcp_pcb *pcb;
+	struct netif *netif;
 	err_t e;
 
 	IP4_ADDR (&destip,
@@ -125,6 +126,15 @@ echo_client_init (int *ipaddr, int port)
 
 	printd ("New Connection.\n");
 	pcb = tcp_new ();
+	if (netif_name[0] != '\0' && pcb) {
+		netif = netif_find (netif_name);
+		if (netif == NULL) {
+			printf ("Can not access netif %s\n", netif_name);
+			tcp_close (pcb);
+			return;
+		}
+		tcp_bind_netif (pcb, netif);
+	}
 	if (pcb) {
 		e = tcp_connect (pcb, &destip, destport,
 				 echo_client_connected);
