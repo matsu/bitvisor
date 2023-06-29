@@ -27,22 +27,16 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "constants.h"
-#include "cpu_mmu.h"
+#include <arch/debug.h>
 #include "debug.h"
-#include "gmm_access.h"
-#include "i386-stub.h"
-#include "initfunc.h"
-#include "int.h"
+#include "linkage.h"
 #include "mm.h"
 #include "panic.h"
 #include "printf.h"
 #include "process.h"
-#include "serial.h"
 #include "spinlock.h"
 #include "string.h"
 #include "types.h"
-#include "vmmerr.h"
 
 static int memdump, memfree;
 static spinlock_t debug_msglock = SPINLOCK_INITIALIZER;
@@ -53,12 +47,6 @@ enum memdump_type {
 	MEMDUMP_HVIRT,
 	MEMDUMP_GVIRT,
 	MEMDUMP_HPHYS,
-};
-
-struct memdump_data {
-	u64 physaddr;
-	u64 cr0, cr3, cr4, efer;
-	ulong virtaddr;
 };
 
 struct memdump_gphys_data {
@@ -73,7 +61,7 @@ struct memdump_hvirt_data {
 };
 
 struct memdump_gvirt_data {
-	struct memdump_data *d;
+	struct debug_arch_memdump_data *d;
 	u8 *q;
 	int sendlen, errlen;
 	char *errbuf;
@@ -87,7 +75,7 @@ memdump_gphys (void *data)
 
 	d = data;
 	for (i = 0; i < d->sendlen; i++)
-		read_gphys_b (d->physaddr + i, &d->q[i], 0);
+		debug_arch_read_gphys_mem (d->physaddr + i, &d->q[i]);
 }
 
 static asmlinkage void
@@ -103,35 +91,17 @@ static asmlinkage void
 memdump_gvirt (void *data)
 {
 	struct memdump_gvirt_data *dd;
-	struct memdump_data *d;
-	int i;
-	u64 ent[5];
-	int levels;
-	u64 physaddr;
 
 	dd = data;
-	d = dd->d;
-	for (i = 0; i < dd->sendlen; i++) {
-		if (cpu_mmu_get_pte (d->virtaddr + i, d->cr0, d->cr3, d->cr4,
-				     d->efer, false, false, false, ent,
-				     &levels) == VMMERR_SUCCESS) {
-			physaddr = (ent[0] & PTE_ADDR_MASK64) |
-				((d->virtaddr + i) & 0xFFF);
-		} else {
-			snprintf (dd->errbuf, dd->errlen,
-				  "get_pte failed (virt=0x%lX)",
-				  d->virtaddr + i);
-			break;
-		}
-		read_gphys_b (physaddr, &dd->q[i], 0);
-	}
+	debug_arch_read_gvirt_mem (dd->d, dd->q, dd->sendlen, dd->errbuf,
+				   dd->errlen);
 }
 
 static int
 memdump_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 {
 	u8 *q, *tmp;
-	struct memdump_data *d;
+	struct debug_arch_memdump_data *d;
 	void *recvbuf, *sendbuf;
 	int recvlen, sendlen, errlen;
 	char *errbuf;
@@ -139,6 +109,7 @@ memdump_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 	struct memdump_gphys_data gphys_data;
 	struct memdump_gvirt_data gvirt_data;
 	struct memdump_hvirt_data hvirt_data;
+	u64 physaddr;
 
 	if (m != 1)
 		return -1;
@@ -150,37 +121,42 @@ memdump_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 	sendlen = buf[1].len;
 	errbuf = buf[2].base;
 	errlen = buf[2].len;
-	if (recvlen < sizeof (struct memdump_data))
+	if (recvlen < debug_arch_memdump_data_get_struct_size ())
 		return -1;
 	if (errlen > 0)
 		errbuf[0] = '\0';
-	d = (struct memdump_data *)recvbuf;
+	d = (struct debug_arch_memdump_data *)recvbuf;
 	q = sendbuf;
 	switch ((enum memdump_type)c) {
 	case MEMDUMP_GPHYS:
-		gphys_data.physaddr = d->physaddr;
+		physaddr = debug_arch_memdump_data_get_physaddr (d);
+		gphys_data.physaddr = physaddr;
 		gphys_data.q = q;
 		gphys_data.sendlen = sendlen;
-		num = callfunc_and_getint (memdump_gphys, &gphys_data);
+		num = debug_arch_callfunc_with_possible_int (memdump_gphys,
+							     &gphys_data);
 		break;
 	case MEMDUMP_HVIRT:
-		hvirt_data.p = (u8 *)d->virtaddr;
+		hvirt_data.p = (u8 *)debug_arch_memdump_data_get_virtaddr (d);
 		hvirt_data.q = q;
 		hvirt_data.sendlen = sendlen;
-		num = callfunc_and_getint (memdump_hvirt, &hvirt_data);
+		num = debug_arch_callfunc_with_possible_int (memdump_hvirt,
+							     &hvirt_data);
 		break;
 	case MEMDUMP_HPHYS:
-		tmp = mapmem_hphys (d->physaddr, sendlen, MAPMEM_CANFAIL);
+		physaddr = debug_arch_memdump_data_get_physaddr (d);
+		tmp = mapmem_hphys (physaddr, sendlen, MAPMEM_CANFAIL);
 		if (tmp) {
 			hvirt_data.p = tmp;
 			hvirt_data.q = q;
 			hvirt_data.sendlen = sendlen;
-			num = callfunc_and_getint (memdump_hvirt, &hvirt_data);
+			num = debug_arch_callfunc_with_possible_int (
+						   memdump_hvirt, &hvirt_data);
 			unmapmem (tmp, sendlen);
 		} else {
 			snprintf (errbuf, errlen,
 				  "mapmem_hphys failed (phys=0x%llX)",
-				  d->physaddr);
+				  physaddr);
 		}
 		break;
 	case MEMDUMP_GVIRT:
@@ -189,7 +165,8 @@ memdump_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
 		gvirt_data.sendlen = sendlen;
 		gvirt_data.errbuf = errbuf;
 		gvirt_data.errlen = errlen;
-		num = callfunc_and_getint (memdump_gvirt, &gvirt_data);
+		num = debug_arch_callfunc_with_possible_int (memdump_gvirt,
+							     &gvirt_data);
 		break;
 	default:
 		return -1;
@@ -209,30 +186,6 @@ memfree_msghandler (int m, int c)
 		printf ("%d pages (%d KiB) free\n", n, n * 4);
 	}
 	return 0;
-}
-
-void
-debug_gdb (void)
-{
-#ifdef DEBUG_GDB
-	static bool f = false;
-
-	if (!f) {
-		f = true;
-		printf ("gdb set_debug_traps\n");
-		set_debug_traps ();
-		printf ("gdb breakpoint\n");
-		breakpoint ();
-	}
-#endif
-}
-
-static void
-debug_iohook (void)
-{
-#ifdef DEBUG_GDB
-	serial_init_iohook ();
-#endif
 }
 
 void
@@ -281,5 +234,3 @@ debug_shell (int ttyin, int ttyout)
 	msgclose (shell);
 	debug_msgunregister ();
 }
-
-INITFUNC ("iohook1", debug_iohook);

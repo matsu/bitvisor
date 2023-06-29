@@ -74,6 +74,7 @@ objs-1 += acpi_dmar.o
 objs-1 += acpi_iohook.o
 objs-1 += calluefi_x86.o
 objs-1 += currentcpu.o
+objs-1 += debug_x86.o
 objs-1 += mm_x86.o
 objs-1 += phys.o
 objs-1 += pmap.o
