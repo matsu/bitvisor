@@ -27,21 +27,22 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_PANIC_H
-#define _CORE_PANIC_H
+#ifndef _CORE_INCLUDE_ARCH_PANIC_H
+#define _CORE_INCLUDE_ARCH_PANIC_H
 
-#include <core/panic.h>
-#include "types.h"
+#include <core/types.h>
 
-extern bool panic_reboot;
-extern char panicmsg[1024];
-
-struct panic_pcpu_data {
-	bool shell_ready;
-};
-
-void auto_reboot (void);
-
-void panic_wait_for_dump_completion (u64 timeout);
+u8 panic_arch_get_panic_state (void);
+void panic_arch_set_panic_state (u8 new_state);
+bool panic_arch_pcpu_available (void);
+void panic_arch_dump_vmm_regs (void);
+void panic_arch_dump_trapped_state (void);
+void panic_arch_backtrace (void);
+void panic_arch_wakeup_all (void);
+void panic_arch_reset_keyboard_and_screen (void);
+void panic_arch_reboot (void);
+void panic_arch_infinite_loop (void);
+void panic_arch_fatal_error (void);
+void panic_arch_panic_shell (void);
 
 #endif

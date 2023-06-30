@@ -42,25 +42,6 @@
 static volatile bool rebooting = false;
 
 void
-do_panic_reboot (void)
-{
-	int d;
-
-	printf ("Reboot in 5 seconds...\n");
-	sleep_set_timer_counter ();
-	usleep (5 * 1000000);
-	printf ("Rebooting...");
-	usleep (1 * 1000000);
-	d = msgopen ("reboot");
-	if (d >= 0) {
-		msgsendint (d, 0);
-		msgclose (d);
-		printf ("Reboot failed.\n");
-	} else
-		printf ("reboot not found.\n");
-}
-
-void
 handle_init_to_bsp (void)
 {
 	int d;
