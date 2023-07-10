@@ -28,13 +28,13 @@
  */
 
 #include <arch/vmmcall.h>
+#include <core/thread.h>
 #include "config.h"
 #include "debug.h"
 #include "initfunc.h"
 #include "panic.h"
 #include "printf.h"
 #include "process.h"
-#include "thread.h"
 #include "spinlock.h"
 #include "vmmcall.h"
 

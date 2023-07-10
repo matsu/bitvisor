@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/thread.h>
 #include "asm.h"
 #include "config.h"
 #include "constants.h"
@@ -46,7 +47,6 @@
 #include "printf.h"
 #include "reboot.h"
 #include "string.h"
-#include "thread.h"
 #include "vmmcall.h"
 #include "vmmcall_status.h"
 #include "vt.h"

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/thread.h>
 #include "ap.h"
 #include "beep.h"
 #include "cache.h"

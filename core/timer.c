@@ -27,13 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/thread.h>
 #include <core/types.h>
 #include "constants.h"
 #include "initfunc.h"
 #include "list.h"
 #include "mm.h"
 #include "spinlock.h"
-#include "thread.h"
 #include "time.h"
 #include "timer.h"
 

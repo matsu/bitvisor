@@ -32,7 +32,6 @@
 
 #include <core/types.h>
 #include "linkage.h"
-#include "thread.h"
 
 struct thread_context;
 

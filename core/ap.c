@@ -28,6 +28,7 @@
  */
 
 #include <builtin.h>
+#include <core/thread.h>
 #include "ap.h"
 #include "asm.h"
 #include "assert.h"
@@ -44,7 +45,6 @@
 #include "sleep.h"
 #include "spinlock.h"
 #include "string.h"
-#include "thread.h"
 #include "uefi.h"
 #include "vmm_mem.h"
 

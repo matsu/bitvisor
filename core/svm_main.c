@@ -28,6 +28,7 @@
  */
 
 #include <core/currentcpu.h>
+#include <core/thread.h>
 #include "asm.h"
 #include "config.h"
 #include "constants.h"
@@ -45,7 +46,6 @@
 #include "svm_main.h"
 #include "svm_paging.h"
 #include "svm_regs.h"
-#include "thread.h"
 #include "vmmerr.h"
 #include "vmmcall.h"
 
