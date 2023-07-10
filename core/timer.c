@@ -28,6 +28,7 @@
  */
 
 #include <core/thread.h>
+#include <core/timer.h>
 #include <core/types.h>
 #include "constants.h"
 #include "initfunc.h"
@@ -35,7 +36,6 @@
 #include "mm.h"
 #include "spinlock.h"
 #include "time.h"
-#include "timer.h"
 
 #define MAX_TIMER 128
 
