@@ -31,6 +31,7 @@
 #define _CORE_TIME_H
 
 #include <core/time.h>
+#include <core/types.h>
 
 bool get_acpi_time (u64 *r);
 

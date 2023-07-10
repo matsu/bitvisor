@@ -30,7 +30,7 @@
 #ifndef _CORE_OSLOADER_H
 #define _CORE_OSLOADER_H
 
-#include "types.h"
+#include <core/types.h>
 
 #define OSLOADER_BOOTPARAMS_SIZE 0x2000
 

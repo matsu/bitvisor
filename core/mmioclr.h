@@ -30,7 +30,7 @@
 #ifndef _CORE_MMIOCLR_H
 #define _CORE_MMIOCLR_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct mmioclr *mmioclr_register (void *data,
 				  bool (*callback) (void *data, phys_t s,

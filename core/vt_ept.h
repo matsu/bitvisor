@@ -30,7 +30,7 @@
 #ifndef _CORE_VT_EPT_H
 #define _CORE_VT_EPT_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct vcpu;
 

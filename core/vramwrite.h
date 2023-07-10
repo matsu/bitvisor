@@ -30,6 +30,8 @@
 #ifndef _CORE_VRAMWRITE_H
 #define _CORE_VRAMWRITE_H
 
+#include <core/types.h>
+
 struct vramwrite_font {
 	u8 *font;
 	int fontx, fonty, fontlen;

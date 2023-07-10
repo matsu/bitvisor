@@ -30,6 +30,7 @@
 #ifndef _CORE_PCPU_H
 #define _CORE_PCPU_H
 
+#include <core/types.h>
 #include "asm.h"
 #include "cache.h"
 #include "desc.h"
@@ -38,7 +39,6 @@
 #include "spinlock.h"
 #include "svm.h"
 #include "thread.h"
-#include "types.h"
 #include "vt.h"
 
 #define NUM_OF_SEGDESCTBL 32

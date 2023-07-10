@@ -30,7 +30,7 @@
 #ifndef _CORE_SVM_VMCB_H
 #define _CORE_SVM_VMCB_H
 
-#include "types.h"
+#include <core/types.h>
 
 enum vmcb_tlb_control {
 	VMCB_TLB_CONTROL_DO_NOTHING = 0,

@@ -31,6 +31,7 @@
 #include <arch/panic.h>
 #include <core/currentcpu.h>
 #include <core/thread.h>
+#include <core/types.h>
 #include "asm.h"
 #include "ap.h"
 #include "callrealmode.h"
@@ -53,7 +54,6 @@
 #include "string.h"
 #include "time.h"
 #include "tty.h"
-#include "types.h"
 #include "uefi.h"
 
 #define BIOS_AREA_SIZE 4096

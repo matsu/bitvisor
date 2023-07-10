@@ -30,7 +30,7 @@
 #ifndef _CORE_CPUID_H
 #define _CORE_CPUID_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct cpuid_data {
 	void (*cpuid) (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od);

@@ -30,7 +30,7 @@
 #ifndef _CORE_MSR_H
 #define _CORE_MSR_H
 
-#include "types.h"
+#include <core/types.h>
 #include "vmmerr.h"
 
 struct msr_data {

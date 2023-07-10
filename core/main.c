@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/types.h>
 #include <share/uefi_boot.h>
 #include "ap.h"
 #include "assert.h"
@@ -53,7 +54,6 @@
 #include "string.h"
 #include "svm.h"
 #include "svm_init.h"
-#include "types.h"
 #include "uefi.h"
 #include "uefi_param_ext.h"
 #include "vcpu.h"

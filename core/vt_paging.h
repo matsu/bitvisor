@@ -30,7 +30,7 @@
 #ifndef _CORE_VT_PAGING_H
 #define _CORE_VT_PAGING_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct vcpu;
 

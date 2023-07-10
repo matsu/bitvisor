@@ -30,7 +30,7 @@
 #ifndef _CORE_LOADBOOTSECTOR_H
 #define _CORE_LOADBOOTSECTOR_H
 
-#include "types.h"
+#include <core/types.h>
 
 void load_bootsector (u8 bios_boot_drive, u32 tmpbufaddr, u32 tmpbufsize);
 void copy_bootsector (void);

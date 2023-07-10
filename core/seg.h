@@ -30,7 +30,7 @@
 #ifndef _CORE_SEG_H
 #define _CORE_SEG_H
 
-#include "types.h"
+#include <core/types.h>
 
 #define SEG_SEL_NULL		0
 #define SEG_SEL_CODE32		( 1 * 8) /* SYSENTER_CS+0 */

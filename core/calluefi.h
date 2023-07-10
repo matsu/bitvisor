@@ -30,7 +30,7 @@
 #ifndef _CORE_CALLUEFI_H
 #define _CORE_CALLUEFI_H
 
-#include "types.h"
+#include <core/types.h>
 
 extern u8 uefi_memory_map_data[16384];
 extern ulong uefi_memory_map_size;

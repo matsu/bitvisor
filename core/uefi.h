@@ -30,8 +30,8 @@
 #ifndef _CORE_UEFI_H
 #define _CORE_UEFI_H
 
+#include <core/types.h>
 #include <section.h>
-#include "types.h"
 
 extern void *uefi_conin;
 extern void *uefi_conout;

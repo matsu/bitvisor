@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/types.h>
 #include "acpi.h"
 #include "asm.h"
 #include "current.h"
@@ -37,7 +38,6 @@
 #include "panic.h"
 #include "printf.h"
 #include "tty.h"
-#include "types.h"
 
 enum ioact
 do_iopass_default (enum iotype type, u32 port, void *data)

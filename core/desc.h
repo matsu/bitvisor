@@ -30,7 +30,7 @@
 #ifndef _CORE_DESC_H
 #define _CORE_DESC_H
 
-#include "types.h"
+#include <core/types.h>
 
 enum segdesc_type {
 	SEGDESC_TYPE_RDONLY_DATA                = 0x0,

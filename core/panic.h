@@ -31,7 +31,7 @@
 #define _CORE_PANIC_H
 
 #include <core/panic.h>
-#include "types.h"
+#include <core/types.h>
 
 extern bool panic_reboot;
 extern char panicmsg[1024];

@@ -30,7 +30,7 @@
 #ifndef _CORE_VT_MSR_H
 #define _CORE_VT_MSR_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct vt_msr_entry {
 	u32 index;

@@ -30,9 +30,9 @@
 #ifndef _CORE_WAKEUP_ENTRY_H
 #define _CORE_WAKEUP_ENTRY_H
 
+#include <core/types.h>
 #include "desc.h"
 #include "linkage.h"
-#include "types.h"
 
 extern u8 wakeup_entry_start[], wakeup_entry_end[];
 extern u32 wakeup_entry_cr0, wakeup_entry_cr3, wakeup_entry_cr4;

@@ -30,7 +30,7 @@
 #ifndef _CORE_ACPI_DSDT_H
 #define _CORE_ACPI_DSDT_H
 
-#include "types.h"
+#include <core/types.h>
 
 extern unsigned char acpi_dsdt_system_state[6][5];
 

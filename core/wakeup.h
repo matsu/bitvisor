@@ -30,7 +30,7 @@
 #ifndef _CORE_WAKEUP_H
 #define _CORE_WAKEUP_H
 
-#include "types.h"
+#include <core/types.h>
 
 u32 prepare_for_sleep (u32 firmware_waking_vector);
 void cancel_sleep (void);

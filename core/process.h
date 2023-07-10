@@ -31,7 +31,7 @@
 #define _CORE_PROCESS_H
 
 #include <core/process.h>
-#include "types.h"
+#include <core/types.h>
 
 #define NUM_OF_PID		32
 #define NUM_OF_MSGDSC		32

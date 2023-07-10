@@ -29,6 +29,7 @@
 
 #include <arch/vmmcall.h>
 #include <core/currentcpu.h>
+#include <core/types.h>
 #include <share/loadcfg.h>
 #include "../crypto/decryptcfg.h"
 #include "assert.h"

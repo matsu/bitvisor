@@ -30,8 +30,8 @@
 #ifndef _CORE_CALLREALMODE_ASM_H
 #define _CORE_CALLREALMODE_ASM_H
 
+#include <core/types.h>
 #include "callrealmode.h"
-#include "types.h"
 
 #define CALLREALMODE_OFFSET 0x5000
 extern char callrealmode_start[], callrealmode_end[], callrealmode_start2[];

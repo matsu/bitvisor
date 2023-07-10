@@ -30,6 +30,7 @@
 #ifndef _CORE_VCPU_H
 #define _CORE_VCPU_H
 
+#include <core/types.h>
 #include "acpi.h"
 #include "cache.h"
 #include "cpu_mmu_spt.h"
@@ -43,7 +44,6 @@
 #include "msr.h"
 #include "nmi.h"
 #include "svm.h"
-#include "types.h"
 #include "vmctl.h"
 #include "vt.h"
 #include "xsetbv.h"

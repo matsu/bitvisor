@@ -30,9 +30,9 @@
 #ifndef _CORE_ASM_H
 #define _CORE_ASM_H
 
+#include <core/types.h>
 #include "desc.h"
 #include "linkage.h"
-#include "types.h"
 
 enum invvpid_type {
 	INVVPID_TYPE_INDIVIDUAL_ADDRESS = 0,

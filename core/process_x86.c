@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/types.h>
 #include "asm.h"
 #include "assert.h"
 #include "constants.h"
@@ -39,7 +40,6 @@
 #include "process_sysenter.h"
 #include "string.h"
 #include "sym.h"
-#include "types.h"
 
 struct syscall_regs {
 	ulong rdi, rsi, rbp, rsp, rbx, rdx, rcx, rax;

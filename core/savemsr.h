@@ -30,6 +30,8 @@
 #ifndef _CORE_SAVEMSR_H
 #define _CORE_SAVEMSR_H
 
+#include <core/types.h>
+
 #define NUM_OF_SAVEMSR_DATA 7
 
 struct savemsr_data {

@@ -30,6 +30,8 @@
 #ifndef _CORE_SVM_MSR_H
 #define _CORE_SVM_MSR_H
 
+#include <core/types.h>
+
 struct svm_msrbmp {
 	void *msrbmp;
 	u64 msrbmp_phys;

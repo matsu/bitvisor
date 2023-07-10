@@ -30,7 +30,7 @@
 #ifndef _CORE_GUEST_BIOSHOOK_H
 #define _CORE_GUEST_BIOSHOOK_H
 
-#include "types.h"
+#include <core/types.h>
 
 extern u16 guest_int0x15_e801_fake_ax, guest_int0x15_e801_fake_bx;
 extern i16 guest_int0x15_e820_data_minus0x18, guest_int0x15_e820_end;

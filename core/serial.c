@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/types.h>
 #include "asm.h"
 #include "initfunc.h"
 #include "io_io.h"
 #include "process.h"
 #include "serial.h"
-#include "types.h"
 
 #define PORT			0x3F8 /* COM1, ttyS0 */
 #define NUM_OF_PORT		8

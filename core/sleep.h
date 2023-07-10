@@ -30,7 +30,7 @@
 #ifndef _CORE_SLEEP_H
 #define _CORE_SLEEP_H
 
-#include "types.h"
+#include <core/types.h>
 
 void waitcycles (u32 d, u32 a);
 void usleep (u32 usec);

@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/process.h>
 #include <arch/vmm_mem.h>
+#include <core/types.h>
 #include "assert.h"
 #include "constants.h"
 #include "elf.h"
@@ -43,7 +44,6 @@
 #include "process_builtin.h"
 #include "spinlock.h"
 #include "string.h"
-#include "types.h"
 
 #define NUM_OF_SYSCALLS 32
 #define NAMELEN 16

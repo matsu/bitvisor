@@ -28,13 +28,13 @@
  */
 
 #include <core/mm.h>
+#include <core/types.h>
 #include "assert.h"
 #include "elf.h"
 #include "osloader.h"
 #include "panic.h"
 #include "printf.h"
 #include "string.h"
-#include "types.h"
 #include "vmm_mem.h"
 
 #define MINMEM (128 * 1024 * 1024)

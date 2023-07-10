@@ -31,6 +31,7 @@
 #define _CORE_THREAD_H
 
 #include <core/thread.h>
+#include <core/types.h>
 
 struct thread_pcpu_data {
 	tid_t tid;

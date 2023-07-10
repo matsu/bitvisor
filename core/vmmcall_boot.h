@@ -30,8 +30,6 @@
 #ifndef _CORE_VMMCALL_BOOT_H
 #define _CORE_VMMCALL_BOOT_H
 
-#include "types.h"
-
 void vmmcall_boot_continue (void);
 void vmmcall_boot_enable (void (*func) (void *), void *arg);
 

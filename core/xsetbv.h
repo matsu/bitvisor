@@ -30,7 +30,7 @@
 #ifndef _CORE_XSETBV_H
 #define _CORE_XSETBV_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct xsetbv_data {
 	bool (*xsetbv) (u32 ic, u32 ia, u32 id);

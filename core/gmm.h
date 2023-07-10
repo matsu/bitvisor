@@ -30,7 +30,7 @@
 #ifndef _CORE_GMM_H
 #define _CORE_GMM_H
 
-#include "types.h"
+#include <core/types.h>
 
 #define GMM_GP2HP_2M_1G_FAIL 0xFFFFFFFFFFFFFFFFULL
 

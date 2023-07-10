@@ -30,7 +30,7 @@
 #ifndef _CORE_MULTIBOOT_H
 #define _CORE_MULTIBOOT_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct multiboot_info_flags {
 	unsigned int mem : 1;	/* Bit 0 */

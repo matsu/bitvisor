@@ -30,7 +30,7 @@
 #ifndef _CORE_GMM_ACCESS_H
 #define _CORE_GMM_ACCESS_H
 
-#include "types.h"
+#include <core/types.h>
 
 void read_gphys_b (u64 phys, void *data, u32 attr);
 void write_gphys_b (u64 phys, u32 data, u32 attr);

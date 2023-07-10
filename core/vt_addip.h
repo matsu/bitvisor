@@ -30,7 +30,7 @@
 #ifndef _CORE_VT_ADDIP_H
 #define _CORE_VT_ADDIP_H
 
-#include "types.h"
+#include <core/types.h>
 #include "asm.h"
 #include "constants.h"
 

@@ -30,7 +30,7 @@
 #ifndef _CORE_CPU_EMUL_H
 #define _CORE_CPU_EMUL_H
 
-#include "types.h"
+#include <core/types.h>
 #include "vmmerr.h"
 
 void cpu_emul_cpuid (void);

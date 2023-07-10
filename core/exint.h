@@ -30,8 +30,6 @@
 #ifndef _CORE_EXINT_H
 #define _CORE_EXINT_H
 
-#include "types.h"
-
 struct exint_func {
 	int (*ack) (void);
 };

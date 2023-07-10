@@ -27,13 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/types.h>
 #include "asm.h"
 #include "beep.h"
 #include "constants.h"
 #include "convert.h"
 #include "initfunc.h"
 #include "process.h"
-#include "types.h"
 
 void
 beep_set_freq (unsigned int hz)

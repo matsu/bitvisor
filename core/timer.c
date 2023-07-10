@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/types.h>
 #include "constants.h"
 #include "initfunc.h"
 #include "list.h"
@@ -35,7 +36,6 @@
 #include "thread.h"
 #include "time.h"
 #include "timer.h"
-#include "types.h"
 
 #define MAX_TIMER 128
 

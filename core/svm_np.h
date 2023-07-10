@@ -30,7 +30,7 @@
 #ifndef _CORE_SVM_NP_H
 #define _CORE_SVM_NP_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct vcpu;
 

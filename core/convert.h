@@ -30,7 +30,7 @@
 #ifndef _CORE_CONVERT_H
 #define _CORE_CONVERT_H
 
-#include "types.h"
+#include <core/types.h>
 
 static inline void
 conv64to32 (u64 src, u32 *dest_l, u32 *dest_h)

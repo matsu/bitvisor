@@ -30,7 +30,7 @@
 #ifndef _CORE_CPU_MMU_H
 #define _CORE_CPU_MMU_H
 
-#include "types.h"
+#include <core/types.h>
 #include "vmmerr.h"
 
 enum vmmerr cpu_mmu_get_pte (ulong virt, ulong cr0, ulong cr3, ulong cr4,

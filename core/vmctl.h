@@ -30,9 +30,9 @@
 #ifndef _CORE_VMCTL_H
 #define _CORE_VMCTL_H
 
+#include <core/types.h>
 #include "cpu_seg.h"
 #include "regs.h"
-#include "types.h"
 
 struct vcpu;
 

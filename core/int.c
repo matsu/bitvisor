@@ -29,6 +29,7 @@
 
 #include <arch/currentcpu.h>
 #include <core/currentcpu.h>
+#include <core/types.h>
 #include "asm.h"
 #include "constants.h"
 #include "initfunc.h"
@@ -39,7 +40,6 @@
 #include "printf.h"
 #include "process.h"
 #include "spinlock.h"
-#include "types.h"
 
 #ifdef __x86_64__
 static struct gatedesc64 intrdesctbl[NUM_OF_INT];

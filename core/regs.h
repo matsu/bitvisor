@@ -30,8 +30,6 @@
 #ifndef _CORE_REGS_H
 #define _CORE_REGS_H
 
-#include "types.h"
-
 enum control_reg {
 	CONTROL_REG_CR0 = 0,
 	CONTROL_REG_CR2 = 2,

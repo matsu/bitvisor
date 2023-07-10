@@ -84,7 +84,7 @@
 #ifndef _CORE_ELF_H
 #define _CORE_ELF_H
 
-#include "types.h"
+#include <core/types.h>
 
 #ifdef __x86_64__
 #	define ELF_EHDR Elf64_Ehdr

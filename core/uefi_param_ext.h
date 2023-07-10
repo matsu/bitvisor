@@ -30,6 +30,8 @@
 #ifndef _CORE_UEFI_BOOT_EXT_H
 #define _CORE_UEFI_BOOT_EXT_H
 
+#include <core/types.h>
+
 struct uuid;
 
 phys_t uefi_param_ext_get_phys (struct uuid *ext_uuid);

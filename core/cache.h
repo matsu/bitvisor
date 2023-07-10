@@ -30,7 +30,7 @@
 #ifndef _CORE_CACHE_H
 #define _CORE_CACHE_H
 
-#include "types.h"
+#include <core/types.h>
 
 #define MTRR_VCNT_MAX		10
 #define NUM_MTRR_FIX		11

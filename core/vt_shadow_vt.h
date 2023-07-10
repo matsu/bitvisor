@@ -30,6 +30,8 @@
 #ifndef _CORE_VT_SHADOW_VT_H
 #define _CORE_VT_SHADOW_VT_H
 
+#include <core/types.h>
+
 enum vmcs_mode {
 	MODE_CLEARED,
 	MODE_NORMAL,

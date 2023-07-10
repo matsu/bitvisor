@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/types.h>
 #include "asm.h"
 #include "assert.h"
 #include "constants.h"
@@ -41,7 +42,6 @@
 #include "svm_init.h"
 #include "svm_paging.h"
 #include "svm_vmcb.h"
-#include "types.h"
 
 bool
 svm_available (void)

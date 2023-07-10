@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/types.h>
 #include "current.h"
 #include "initfunc.h"
 #include "nmi.h"
 #include "nmi_pass.h"
-#include "types.h"
 
 static unsigned int
 get_nmi_count (void)

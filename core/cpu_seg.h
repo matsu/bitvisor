@@ -30,9 +30,9 @@
 #ifndef _CORE_CPU_SEG_H
 #define _CORE_CPU_SEG_H
 
+#include <core/types.h>
 #include "asm.h"
 #include "cpu_interpreter.h"
-#include "types.h"
 #include "vmmerr.h"
 
 enum sreg {

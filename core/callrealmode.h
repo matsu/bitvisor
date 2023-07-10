@@ -30,7 +30,7 @@
 #ifndef _CORE_CALLREALMODE_H
 #define _CORE_CALLREALMODE_H
 
-#include "types.h"
+#include <core/types.h>
 
 #define SYSMEMMAP_TYPE_AVAILABLE    0x1
 #define SYSMEMMAP_TYPE_RESERVED     0x2

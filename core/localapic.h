@@ -30,7 +30,7 @@
 #ifndef _CORE_LOCALAPIC_H
 #define _CORE_LOCALAPIC_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct localapic_data {
 	u32 apic_id;

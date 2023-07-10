@@ -31,7 +31,7 @@
 #define _CORE_ENTRY_H
 
 #include "linkage.h"
-#include "types.h"
+#include <core/types.h>
 
 #define APINIT_OFFSET 0x0000
 

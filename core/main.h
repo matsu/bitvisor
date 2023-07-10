@@ -30,6 +30,8 @@
 #ifndef _CORE_MAIN_H
 #define _CORE_MAIN_H
 
+#include <core/types.h>
+
 void resume_vm (u32 wake_addr);
 
 #endif

@@ -31,6 +31,7 @@
 #define _CORE_MMIO_H
 
 #include <core/mmio.h>
+#include <core/types.h>
 #include "list.h"
 
 struct mmio_handle {

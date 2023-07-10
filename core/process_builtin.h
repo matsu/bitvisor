@@ -30,7 +30,7 @@
 #ifndef _PROCESS_BUILTIN_H
 #define _PROCESS_BUILTIN_H
 
-#include "types.h"
+#include <core/types.h>
 
 struct process_builtin_data {
 	char *name __attribute__ ((aligned (8)));
