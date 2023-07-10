@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/spinlock.h>
 #include <core/string.h>
 #include <core/thread.h>
 #include "ap.h"
@@ -40,7 +41,6 @@
 #include "pcpu.h"
 #include "printf.h"
 #include "sleep.h"
-#include "spinlock.h"
 #include "vmm_mem.h"
 #include "wakeup_entry.h"
 

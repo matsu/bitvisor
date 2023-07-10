@@ -30,9 +30,9 @@
 #ifndef _CORE_CPU_MMU_SPT_H
 #define _CORE_CPU_MMU_SPT_H
 
+#include <core/spinlock.h>
 #include <core/types.h>
 #include "list.h"
-#include "spinlock.h"
 
 #ifdef CPU_MMU_SPT_DISABLE
 #	ifndef CPU_MMU_SPT_1

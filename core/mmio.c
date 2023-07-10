@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/spinlock.h>
 #include <core/string.h>
 #include "assert.h"
 #include "constants.h"
@@ -39,7 +40,6 @@
 #include "mmioclr.h"
 #include "panic.h"
 #include "printf.h"
-#include "spinlock.h"
 #include "vmmerr.h"
 
 static int

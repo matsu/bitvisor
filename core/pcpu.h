@@ -30,13 +30,13 @@
 #ifndef _CORE_PCPU_H
 #define _CORE_PCPU_H
 
+#include <core/spinlock.h>
 #include <core/types.h>
 #include "asm.h"
 #include "cache.h"
 #include "desc.h"
 #include "panic.h"
 #include "seg.h"
-#include "spinlock.h"
 #include "svm.h"
 #include "thread.h"
 #include "vt.h"

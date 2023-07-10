@@ -38,6 +38,7 @@
 #include "initfunc.h"
 #include "printf.h"
 #include "process.h"
+#include "sleep.h"
 #include "time.h"
 #include "uefi.h"
 

@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/spinlock.h>
 #include <core/types.h>
 #include "putchar.h"
-#include "spinlock.h"
 
 static putchar_func_t putchar_func;
 static spinlock_t putchar_lock = SPINLOCK_INITIALIZER;

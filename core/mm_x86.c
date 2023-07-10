@@ -29,6 +29,7 @@
 
 #include <arch/mm.h>
 #include <arch/vmm_mem.h>
+#include <core/spinlock.h>
 #include <core/string.h>
 #include "ap.h"
 #include "asm.h"
@@ -40,7 +41,6 @@
 #include "phys.h"
 #include "pmap.h"
 #include "printf.h"
-#include "spinlock.h"
 #include "vmm_mem.h"
 
 #define MAPMEM_ADDR_START	0xD0000000

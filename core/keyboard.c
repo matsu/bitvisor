@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/keyboard.h>
 #include <core/currentcpu.h>
+#include <core/spinlock.h>
 #include "calluefi.h"
 #include "initfunc.h"
 #include "process.h"

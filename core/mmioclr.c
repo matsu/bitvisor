@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/spinlock.h>
 #include "current.h"
 #include "initfunc.h"
 #include "list.h"
 #include "mm.h"
-#include "spinlock.h"
 
 struct mmioclr {
 	LIST1_DEFINE (struct mmioclr);

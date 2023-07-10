@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/spinlock.h>
 #include "pcpu.h"
-#include "spinlock.h"
 
 struct pcpu pcpu_default = {
 	.suspend_lock = SPINLOCK_INITIALIZER,

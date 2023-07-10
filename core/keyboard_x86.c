@@ -28,9 +28,9 @@
  */
 
 #include <arch/keyboard.h>
+#include <core/spinlock.h>
 #include "asm.h"
 #include "keyboard.h"
-#include "spinlock.h"
 #include "uefi.h"
 
 #define KBD_STATUS 0x64

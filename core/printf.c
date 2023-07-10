@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/spinlock.h>
 #include "initfunc.h"
 #include "printf.h"
 #include "putchar.h"
-#include "spinlock.h"
 
 /* printf 20071010
 
