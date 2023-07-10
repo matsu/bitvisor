@@ -28,9 +28,9 @@
  */
 
 #include <arch/reboot.h>
+#include <core/process.h>
 #include "initfunc.h"
 #include "panic.h"
-#include "process.h"
 #include "reboot.h"
 
 void

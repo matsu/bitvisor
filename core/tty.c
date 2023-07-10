@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/serial.h>
 #include <core/currentcpu.h>
+#include <core/process.h>
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/tty.h>
@@ -40,7 +41,6 @@
 #include "list.h"
 #include "mm.h"
 #include "printf.h"
-#include "process.h"
 #include "putchar.h"
 #include "sym.h"
 #include "tty.h"

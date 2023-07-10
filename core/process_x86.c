@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/process.h>
 #include <core/string.h>
 #include <core/types.h>
 #include "asm.h"

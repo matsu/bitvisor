@@ -30,7 +30,6 @@
 #ifndef _CORE_PROCESS_H
 #define _CORE_PROCESS_H
 
-#include <core/process.h>
 #include <core/types.h>
 
 #define NUM_OF_PID		32

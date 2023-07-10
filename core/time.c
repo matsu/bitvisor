@@ -30,6 +30,7 @@
 #include <arch/time.h>
 #include <builtin.h>
 #include <core/currentcpu.h>
+#include <core/process.h>
 #include <core/time.h>
 #include "acpi.h"
 #include "arith.h"
@@ -37,7 +38,6 @@
 #include "comphappy.h"
 #include "initfunc.h"
 #include "printf.h"
-#include "process.h"
 #include "sleep.h"
 #include "time.h"
 #include "uefi.h"
