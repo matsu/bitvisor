@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/string.h>
 #include "asm.h"
 #include "constants.h"
 #include "convert.h"
@@ -36,7 +37,6 @@
 #include "mmioclr.h"
 #include "panic.h"
 #include "phys.h"
-#include "string.h"
 #include "vt_ept.h"
 #include "vt_main.h"
 #include "vt_paging.h"

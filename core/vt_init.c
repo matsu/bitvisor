@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include "asm.h"
 #include "assert.h"
 #include "config.h"
@@ -37,7 +38,6 @@
 #include "mm.h"
 #include "pcpu.h"
 #include "printf.h"
-#include "string.h"
 #include "vt_exitreason.h"
 #include "vt_init.h"
 #include "vt_paging.h"

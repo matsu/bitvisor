@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include "acpi.h"
 #include "acpi_constants.h"
 #include "acpi_dsdt.h"
@@ -37,7 +38,6 @@
 #include "mm.h"
 #include "panic.h"
 #include "printf.h"
-#include "string.h"
 #include "uefi.h"
 
 #define FIND_RSDP_NOT_FOUND	0xFFFFFFFFFFFFFFFFULL

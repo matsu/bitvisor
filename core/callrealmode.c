@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include "asm.h"
 #include "assert.h"
 #include "callrealmode.h"
@@ -38,7 +39,6 @@
 #include "pcpu.h"
 #include "savemsr.h"
 #include "seg.h"
-#include "string.h"
 #include "uefi.h"
 #include "vmmcall_boot.h"
 

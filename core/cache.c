@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include "ap.h"
 #include "asm.h"
 #include "assert.h"
@@ -37,7 +38,6 @@
 #include "int.h"
 #include "panic.h"
 #include "pcpu.h"
-#include "string.h"
 
 #define CACHE_TYPE_UC		0x00 /* Uncacheable */
 #define CACHE_TYPE_WC		0x01 /* Write-Combining */

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include <core/types.h>
 #include <tcg.h>
 #include "callrealmode.h"
@@ -36,7 +37,6 @@
 #include "mm.h"
 #include "panic.h"
 #include "printf.h"
-#include "string.h"
 
 #define PARTITION_STATUS_ACTIVE 0x80
 #define NUM_OF_PARTITIONS 4

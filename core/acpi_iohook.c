@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include <core/time.h>
 #include "acpi.h"
 #include "acpi_constants.h"
@@ -38,7 +39,6 @@
 #include "mm.h"
 #include "panic.h"
 #include "printf.h"
-#include "string.h"
 #include "wakeup.h"
 
 static bool

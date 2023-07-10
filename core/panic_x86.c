@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/panic.h>
 #include <core/currentcpu.h>
+#include <core/string.h>
 #include <core/thread.h>
 #include <core/time.h>
 #include <core/types.h>
@@ -52,7 +53,6 @@
 #include "sleep.h"
 #include "spinlock.h"
 #include "stdarg.h"
-#include "string.h"
 #include "tty.h"
 #include "uefi.h"
 

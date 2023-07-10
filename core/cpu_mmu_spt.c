@@ -31,6 +31,7 @@
 
 #include <builtin.h>
 #include <core/mm.h>
+#include <core/string.h>
 #include "acpi.h"
 #include "asm.h"
 #include "constants.h"
@@ -46,7 +47,6 @@
 #include "pmap.h"
 #include "printf.h"
 #include "spinlock.h"
-#include "string.h"
 #include "vmmcall_status.h"
 
 struct map_page_data1 {

@@ -27,13 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include "debug.h"
 #include "i386-stub.h"
 #include "int.h"
 #include "printf.h"
 #include "serial.h"
 #include "stdarg.h"
-#include "string.h"
 
 #ifdef DEBUG_GDB
 

@@ -28,6 +28,7 @@
  */
 
 #include <arch/vmm_mem.h>
+#include <core/string.h>
 #include "acpi.h"
 #include "acpi_dsdt.h"
 #include "ap.h"
@@ -42,7 +43,6 @@
 #include "panic.h"
 #include "printf.h"
 #include "sleep.h"
-#include "string.h"
 #include "uefi.h"
 #include "vmm_mem.h"
 #include "wakeup.h"

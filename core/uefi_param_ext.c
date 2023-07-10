@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include <core/types.h>
 #include <share/uefi_boot.h>
 #include "initfunc.h"
 #include "mm.h"
 #include "panic.h"
-#include "string.h"
 #include "uefi.h"
 #include "uefi_param_ext.h"
 

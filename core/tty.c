@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/serial.h>
 #include <core/currentcpu.h>
+#include <core/string.h>
 #include <core/tty.h>
 #include "arith.h"
 #include "calluefi.h"
@@ -41,7 +42,6 @@
 #include "process.h"
 #include "putchar.h"
 #include "spinlock.h"
-#include "string.h"
 #include "sym.h"
 #include "tty.h"
 #include "uefi.h"

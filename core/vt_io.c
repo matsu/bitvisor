@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include "asm.h"
 #include "constants.h"
 #include "convert.h"
@@ -35,7 +36,6 @@
 #include "panic.h"
 #include "cpu_interpreter.h"
 #include "printf.h"
-#include "string.h"
 #include "vmmerr.h"
 #include "vt_addip.h"
 #include "vt_io.h"

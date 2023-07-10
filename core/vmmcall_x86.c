@@ -28,10 +28,10 @@
  */
 
 #include <arch/vmmcall.h>
+#include <core/string.h>
 #include "current.h"
 #include "panic.h"
 #include "printf.h"
-#include "string.h"
 
 void
 vmmcall_arch_read_arg (uint order, ulong *arg)

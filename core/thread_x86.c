@@ -28,9 +28,9 @@
  */
 
 #include <arch/thread.h>
+#include <core/string.h>
 #include "thread.h"
 #include "thread_switch.h"
-#include "string.h"
 
 extern ulong volatile syscallstack asm ("%gs:gs_syscallstack");
 

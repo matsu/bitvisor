@@ -28,12 +28,12 @@
  */
 
 #include <arch/vramwrite.h>
+#include <core/string.h>
 #include <core/types.h>
 #include "asm.h"
 #include "callrealmode.h"
 #include "initfunc.h"
 #include "mm.h"
-#include "string.h"
 #include "uefi.h"
 #include "vramwrite.h"
 

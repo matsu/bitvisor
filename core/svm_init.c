@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include <core/types.h>
 #include "asm.h"
 #include "assert.h"
@@ -38,7 +39,6 @@
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
-#include "string.h"
 #include "svm_init.h"
 #include "svm_paging.h"
 #include "svm_vmcb.h"

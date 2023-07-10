@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/string.h>
 #include "assert.h"
 #include "constants.h"
 #include "cpu_mmu.h"
@@ -36,7 +37,6 @@
 #include "panic.h"
 #include "pmap.h"
 #include "printf.h"
-#include "string.h"
 
 struct get_pte_data {
 	unsigned int pg : 1;	/* PG (Paging): CR0 bit 31 */

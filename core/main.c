@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/string.h>
 #include <core/types.h>
 #include <share/uefi_boot.h>
 #include "ap.h"
@@ -51,7 +52,6 @@
 #include "process.h" 
 #include "regs.h"
 #include "sleep.h"
-#include "string.h"
 #include "svm.h"
 #include "svm_init.h"
 #include "uefi.h"

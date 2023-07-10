@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include "asm.h"
 #include "assert.h"
 #include "constants.h"
@@ -36,7 +37,6 @@
 #include "printf.h"
 #include "process_sysenter.h"
 #include "seg.h"
-#include "string.h"
 
 static struct pcpu boot_pcpu;
 static struct pcpu_gs boot_pcpu_gs;

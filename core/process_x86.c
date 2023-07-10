@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include <core/types.h>
 #include "asm.h"
 #include "assert.h"
@@ -38,7 +39,6 @@
 #include "printf.h"
 #include "process.h"
 #include "process_sysenter.h"
-#include "string.h"
 #include "sym.h"
 
 struct syscall_regs {
