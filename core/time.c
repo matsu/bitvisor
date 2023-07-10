@@ -30,6 +30,7 @@
 #include <arch/time.h>
 #include <builtin.h>
 #include <core/currentcpu.h>
+#include <core/time.h>
 #include "acpi.h"
 #include "arith.h"
 #include "calluefi.h"

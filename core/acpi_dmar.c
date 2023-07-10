@@ -43,7 +43,6 @@
 #include "printf.h"
 #include "sleep.h"
 #include "string.h"
-#include "time.h"
 #include "uefi.h"
 #include "vmm_mem.h"
 #include "wakeup.h"

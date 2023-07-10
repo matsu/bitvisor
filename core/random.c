@@ -30,8 +30,8 @@
 #include <arch/currentcpu.h>
 #include <arch/random.h>
 #include <core/panic.h>
+#include <core/time.h>
 #include "initfunc.h"
-#include "time.h"
 
 static void
 random_init_general (void)
