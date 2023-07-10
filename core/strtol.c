@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "strtol.h"
+#include <core/strtol.h>
 
 #define ULONG_MAX (~0UL)
 #define LONG_MAX ((long int)(ULONG_MAX >> 1))
