@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/serial.h>
 #include <core/currentcpu.h>
+#include <core/tty.h>
 #include "arith.h"
 #include "calluefi.h"
 #include "config.h"

@@ -37,7 +37,6 @@
 #include "io_iopass.h"
 #include "panic.h"
 #include "printf.h"
-#include "tty.h"
 
 enum ioact
 do_iopass_default (enum iotype type, u32 port, void *data)

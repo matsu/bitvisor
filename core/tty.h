@@ -30,8 +30,6 @@
 #ifndef _CORE_TTY_H
 #define _CORE_TTY_H
 
-#include <core/tty.h>
-
 void ttylog_stop (void);
 void tty_putchar (unsigned char c);
 void ttylog_copy_from_panicmem (void);
