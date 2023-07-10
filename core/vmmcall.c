@@ -31,10 +31,10 @@
 
 #include <arch/gmm.h>
 #include <arch/vmmcall.h>
+#include <core/printf.h>
 #include <core/string.h>
 #include "initfunc.h"
 #include "panic.h"
-#include "printf.h"
 #include "vmmcall.h"
 
 #define VMMCALL_MAX 128

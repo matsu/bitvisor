@@ -33,6 +33,7 @@
 #ifdef VPN_VE
 #include <arch/gmm.h>
 #include <arch/vmmcall.h>
+#include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/time.h>
@@ -42,7 +43,6 @@
 #include "current.h"
 #include "initfunc.h"
 #include "mm.h"
-#include "printf.h"
 #include "vmmcall.h"
 #include "vpn_ve.h"
 

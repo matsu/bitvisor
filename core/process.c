@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/process.h>
 #include <arch/vmm_mem.h>
+#include <core/printf.h>
 #include <core/process.h>
 #include <core/spinlock.h>
 #include <core/string.h>
@@ -42,7 +43,6 @@
 #include "mm.h"
 #include "msg.h"
 #include "panic.h"
-#include "printf.h"
 #include "process.h"
 #include "process_builtin.h"
 

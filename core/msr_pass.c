@@ -28,6 +28,7 @@
  */
 
 #include <core/currentcpu.h>
+#include <core/printf.h>
 #include "ap.h"
 #include "asm.h"
 #include "assert.h"
@@ -43,7 +44,6 @@
 #include "msr_pass.h"
 #include "panic.h"
 #include "phys.h"
-#include "printf.h"
 
 struct msrarg {
 	u32 msrindex;

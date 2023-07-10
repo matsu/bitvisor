@@ -29,6 +29,7 @@
 
 #include <arch/mm.h>
 #include <arch/vmm_mem.h>
+#include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <section.h>
@@ -41,7 +42,6 @@
 #include "mm.h"
 #include "panic.h"
 #include "phys.h"
-#include "printf.h"
 #include "uefi.h"
 
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)

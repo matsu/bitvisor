@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/printf.h>
 #include "constants.h"
-#include "printf.h"
 #include "vt_exitreason.h"
 
 char *

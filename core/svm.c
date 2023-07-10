@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/printf.h>
 #include <core/string.h>
 #include "asm.h"
 #include "cpu_emul.h"
@@ -34,7 +35,6 @@
 #include "current.h"
 #include "panic.h"
 #include "pcpu.h"
-#include "printf.h"
 #include "svm.h"
 #include "svm_init.h"
 #include "svm_io.h"

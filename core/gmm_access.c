@@ -30,6 +30,7 @@
 /* accessing memory by guest-physical address */
 
 #include <builtin.h>
+#include <core/printf.h>
 #include "assert.h"
 #include "cache.h"
 #include "constants.h"
@@ -39,7 +40,6 @@
 #include "mmio.h"
 #include "panic.h"
 #include "pcpu.h"
-#include "printf.h"
 
 static void *
 hphys_mapmem (u64 phys, u32 attr, uint len, bool wr)

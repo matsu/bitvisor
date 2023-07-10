@@ -30,6 +30,7 @@
 #include <arch/vmm_mem.h>
 #include <core/mm.h>
 #include <core/qsort.h>
+#include <core/printf.h>
 #include <core/string.h>
 #include <core/types.h>
 #include "asm.h"
@@ -43,7 +44,6 @@
 #include "initfunc.h"
 #include "panic.h"
 #include "pcpu.h"
-#include "printf.h"
 #include "sym.h"
 #include "uefi.h"
 #include "vmm_mem.h"

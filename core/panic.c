@@ -31,6 +31,7 @@
 #include <arch/panic.h>
 #include <builtin.h>
 #include <core/currentcpu.h>
+#include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/stdarg.h>
 #include <core/string.h>
@@ -40,7 +41,6 @@
 #include "initfunc.h"
 #include "mm.h"
 #include "panic.h"
-#include "printf.h"
 #include "reboot.h"
 
 bool panic_reboot = false;

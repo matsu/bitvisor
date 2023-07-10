@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/printf.h>
 #include "asm.h"
 #include "constants.h"
 #include "current.h"
 #include "initfunc.h"
-#include "printf.h"
 #include "seg.h"
 #include "svm_exitcode.h"
 #include "svm_panic.h"

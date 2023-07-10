@@ -28,6 +28,7 @@
  */
 
 #include <arch/reboot.h>
+#include <core/printf.h>
 #include <core/process.h>
 #include "acpi.h"
 #include "ap.h"
@@ -36,7 +37,6 @@
 #include "config.h"
 #include "initfunc.h"
 #include "panic.h"
-#include "printf.h"
 #include "reboot.h"
 #include "sleep.h"
 

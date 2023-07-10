@@ -27,13 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/printf.h>
 #include "asm.h"
 #include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "linker.h"
 #include "panic.h"
-#include "printf.h"
 #include "seg.h"
 #include "sym.h"
 #include "vt_main.h"

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/printf.h>	/* DEBUG */
 #include "asm.h"
 #include "comphappy.h"
 #include "constants.h"
@@ -38,7 +39,6 @@
 #include "current.h"
 #include "io_io.h"
 #include "panic.h"
-#include "printf.h"		/* DEBUG */
 
 #define PREFIX_LOCK		0xF0
 #define PREFIX_REPNE		0xF2

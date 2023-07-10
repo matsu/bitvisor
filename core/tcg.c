@@ -28,11 +28,11 @@
  */
 
 #ifdef TCG_BIOS
+#include <core/printf.h>
 #include <core/string.h>
 #include <tcg.h>
 #include "callrealmode.h"
 #include "mm.h"
-#include "printf.h"
 #include "uefi.h"
 
 #define TCPA 0x41504354

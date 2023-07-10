@@ -28,13 +28,13 @@
  */
 
 #include <core/mm.h>
+#include <core/printf.h>
 #include <core/string.h>
 #include "assert.h"
 #include "constants.h"
 #include "gmm_access.h"
 #include "pmap.h"
 #include "phys.h"
-#include "printf.h"
 
 /**********************************************************************/
 /*** accessing page tables ***/

@@ -29,6 +29,7 @@
 
 #include <arch/currentcpu.h>
 #include <core/currentcpu.h>
+#include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/types.h>
 #include "asm.h"
@@ -38,7 +39,6 @@
 #include "int_handler.h"
 #include "panic.h"
 #include "pcpu.h"
-#include "printf.h"
 #include "process.h"
 
 #ifdef __x86_64__

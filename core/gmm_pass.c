@@ -29,6 +29,7 @@
 
 /* address translation for pass-through */
 
+#include <core/printf.h>
 #include <core/string.h>
 #include "assert.h"
 #include "callrealmode.h"
@@ -41,7 +42,6 @@
 #include "io_io.h"
 #include "mm.h"
 #include "panic.h"
-#include "printf.h"
 #include "uefi.h"
 #include "vmm_mem.h"
 

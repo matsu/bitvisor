@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/printf.h>
 #include <core/string.h>
 #include "asm.h"
 #include "assert.h"
@@ -34,7 +35,6 @@
 #include "initfunc.h"
 #include "mm.h"
 #include "pcpu.h"
-#include "printf.h"
 #include "process_sysenter.h"
 #include "seg.h"
 

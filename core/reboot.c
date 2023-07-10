@@ -28,6 +28,7 @@
  */
 
 #include <arch/reboot.h>
+#include <core/printf.h>
 #include <core/process.h>
 #include "initfunc.h"
 #include "panic.h"

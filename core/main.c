@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/printf.h>
 #include <core/process.h>
 #include <core/string.h>
 #include <core/types.h>
@@ -49,7 +50,6 @@
 #include "osloader.h"
 #include "panic.h"
 #include "pcpu.h"
-#include "printf.h"
 #include "regs.h"
 #include "sleep.h"
 #include "svm.h"

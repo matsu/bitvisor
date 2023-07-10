@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/printf.h>
 #include <core/qsort.h>
 #include <core/string.h>
 #include <core/types.h>
 #include "initfunc.h"
-#include "printf.h"
 
 extern struct initfunc_data __initfunc_start[], __initfunc_end[];
 

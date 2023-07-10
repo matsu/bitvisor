@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/printf.h>
 #include <core/string.h>
 #include "cache.h"
 #include "constants.h"
@@ -36,7 +37,6 @@
 #include "panic.h"
 #include "phys.h"
 #include "pmap.h"
-#include "printf.h"
 #include "svm_np.h"
 #include "svm_paging.h"
 #include "vmm_mem.h"

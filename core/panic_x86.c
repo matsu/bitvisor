@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/panic.h>
 #include <core/currentcpu.h>
+#include <core/printf.h>
 #include <core/process.h>
 #include <core/spinlock.h>
 #include <core/stdarg.h>
@@ -49,7 +50,6 @@
 #include "mm.h"
 #include "panic.h"
 #include "pcpu.h"
-#include "printf.h"
 #include "reboot.h"
 #include "seg.h"
 #include "sleep.h"

@@ -28,6 +28,7 @@
  */
 
 #include <arch/debug.h>
+#include <core/printf.h>
 #include <core/types.h>
 #include "constants.h"
 #include "cpu_mmu.h"
@@ -36,7 +37,6 @@
 #include "i386-stub.h"
 #include "initfunc.h"
 #include "int.h"
-#include "printf.h"
 #include "serial.h"
 #include "vmmerr.h"
 
