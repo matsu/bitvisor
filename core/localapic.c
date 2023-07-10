@@ -28,6 +28,7 @@
  */
 
 #include <builtin.h>
+#include <core/panic.h>
 #include <core/thread.h>
 #include "asm.h"
 #include "current.h"
@@ -36,7 +37,6 @@
 #include "mm.h"
 #include "mmio.h"
 #include "msr_pass.h"
-#include "panic.h"
 
 #define APIC_BASE	0xFEE00000
 #define APIC_LEN	0x1000

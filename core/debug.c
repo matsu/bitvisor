@@ -28,6 +28,7 @@
  */
 
 #include <arch/debug.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
 #include <core/spinlock.h>
@@ -36,7 +37,6 @@
 #include "debug.h"
 #include "linkage.h"
 #include "mm.h"
-#include "panic.h"
 
 static int memdump, memfree;
 static spinlock_t debug_msglock = SPINLOCK_INITIALIZER;

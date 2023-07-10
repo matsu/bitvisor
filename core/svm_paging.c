@@ -28,9 +28,9 @@
  */
 
 #include <core/currentcpu.h>
+#include <core/panic.h>
 #include "cpu_mmu_spt.h"
 #include "current.h"
-#include "panic.h"
 #include "pcpu.h"
 #include "pmap.h"
 #include "svm_np.h"

@@ -30,6 +30,7 @@
 /* accessing memory by guest-physical address */
 
 #include <builtin.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include "assert.h"
 #include "cache.h"
@@ -38,7 +39,6 @@
 #include "gmm_access.h"
 #include "mm.h"
 #include "mmio.h"
-#include "panic.h"
 #include "pcpu.h"
 
 static void *

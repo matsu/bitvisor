@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include <core/thread.h>
@@ -44,7 +45,6 @@
 #include "linkage.h"
 #include "localapic.h"
 #include "nmi.h"
-#include "panic.h"
 #include "pcpu.h"
 #include "reboot.h"
 #include "vmmcall.h"

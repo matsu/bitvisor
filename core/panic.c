@@ -31,6 +31,7 @@
 #include <arch/panic.h>
 #include <builtin.h>
 #include <core/currentcpu.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/stdarg.h>

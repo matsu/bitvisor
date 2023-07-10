@@ -30,13 +30,13 @@
 /* For debugging:
    cc -DDEBUG_APP -DDEBUG_DUMP core/acpi_dsdt.c && ./a.out < dsdt.dat */
 #ifndef DEBUG_APP
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/stdarg.h>
 #include <core/string.h>
 #include "acpi_dsdt.h"
 #include "assert.h"
 #include "mm.h"
-#include "panic.h"
 #else
 #include <stdio.h>
 #include <stdlib.h>

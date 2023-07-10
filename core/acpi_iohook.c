@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include <core/time.h>
@@ -38,7 +39,6 @@
 #include "initfunc.h"
 #include "io_io.h"
 #include "mm.h"
-#include "panic.h"
 #include "wakeup.h"
 
 static bool

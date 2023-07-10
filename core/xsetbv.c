@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include "xsetbv.h"
 #include "current.h"
 #include "initfunc.h"
-#include "panic.h"
 
 static bool
 do_xsetbv_error (u32 ic, u32 ia, u32 id)

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include <core/string.h>
 #include "ap.h"
 #include "asm.h"
@@ -36,7 +37,6 @@
 #include "current.h"
 #include "initfunc.h"
 #include "int.h"
-#include "panic.h"
 #include "pcpu.h"
 
 #define CACHE_TYPE_UC		0x00 /* Uncacheable */

@@ -31,6 +31,7 @@
 #include <arch/thread.h>
 #include <builtin.h>
 #include <core/currentcpu.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
 #include <core/spinlock.h>
@@ -41,7 +42,6 @@
 #include "linkage.h"
 #include "list.h"
 #include "mm.h"
-#include "panic.h"
 
 #define MAXNUM_OF_THREADS	256
 #define CPUNUM_ANY		-1

@@ -28,6 +28,7 @@
  */
 
 #include <core/currentcpu.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include "ap.h"
 #include "asm.h"
@@ -42,7 +43,6 @@
 #include "mmioclr.h"
 #include "msr.h"
 #include "msr_pass.h"
-#include "panic.h"
 #include "phys.h"
 
 struct msrarg {

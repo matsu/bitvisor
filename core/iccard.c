@@ -31,6 +31,7 @@ int prohibit_iccard_init;
 
 #ifdef IDMAN
 #include <IDMan.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
@@ -39,7 +40,6 @@ int prohibit_iccard_init;
 #include "config.h"
 #include "iccard.h"
 #include "initfunc.h"
-#include "panic.h"
 
 static bool idman_ready;
 static spinlock_t idman_lock;

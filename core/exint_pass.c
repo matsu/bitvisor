@@ -28,10 +28,10 @@
  */
 
 #include <arch/exint_pass.h>
+#include <core/panic.h>
 #include "exint_pass.h"
 #include "list.h"
 #include "mm.h"
-#include "panic.h"
 
 struct exint_pass_intr {
 	int (*callback) (void *data, int num);

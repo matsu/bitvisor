@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include "convert.h"
 #include "cpu_mmu_spt.h"
 #include "current.h"
-#include "panic.h"
 #include "pcpu.h"
 #include "vt_ept.h"
 #include "vt_main.h"

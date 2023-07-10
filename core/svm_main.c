@@ -28,6 +28,7 @@
  */
 
 #include <core/currentcpu.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/thread.h>
 #include "asm.h"
@@ -38,7 +39,6 @@
 #include "current.h"
 #include "exint_pass.h"
 #include "mm.h"
-#include "panic.h"
 #include "pcpu.h"
 #include "svm_exitcode.h"
 #include "svm_init.h"

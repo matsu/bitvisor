@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include "assert.h"
@@ -35,7 +36,6 @@
 #include "cpu_mmu.h"
 #include "current.h"
 #include "gmm_access.h"
-#include "panic.h"
 #include "pmap.h"
 
 struct get_pte_data {

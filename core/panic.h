@@ -30,7 +30,6 @@
 #ifndef _CORE_PANIC_H
 #define _CORE_PANIC_H
 
-#include <core/panic.h>
 #include <core/types.h>
 
 extern bool panic_reboot;

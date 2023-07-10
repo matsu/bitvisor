@@ -31,6 +31,7 @@
 
 #include <builtin.h>
 #include <core/mm.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
@@ -43,7 +44,6 @@
 #include "initfunc.h"
 #include "mmio.h"
 #include "mmioclr.h"
-#include "panic.h"
 #include "pcpu.h"
 #include "phys.h"
 #include "pmap.h"

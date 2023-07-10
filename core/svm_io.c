@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include "current.h"
-#include "panic.h"
 #include "svm_io.h"
 #include "vcpu.h"
 

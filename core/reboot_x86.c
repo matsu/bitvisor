@@ -28,6 +28,7 @@
  */
 
 #include <arch/reboot.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
 #include "acpi.h"

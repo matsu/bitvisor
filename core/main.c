@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
 #include <core/string.h>
@@ -48,7 +49,6 @@
 #include "main.h"
 #include "multiboot.h"
 #include "osloader.h"
-#include "panic.h"
 #include "pcpu.h"
 #include "regs.h"
 #include "sleep.h"

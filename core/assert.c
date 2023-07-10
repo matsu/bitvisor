@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include "assert.h"
-#include "panic.h"
 
 void
 assertion_failed (char *x, const char *funcname, char *filename, int linenum)

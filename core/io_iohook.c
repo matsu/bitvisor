@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include <core/printf.h>
 #include "config.h"
 #include "current.h"
@@ -34,7 +35,6 @@
 #include "initfunc.h"
 #include "io_io.h"
 #include "io_iohook.h"
-#include "panic.h"
 
 /* Debug serial port for Linux early console:
  * "earlyprintk=serial,0x400,keep" */

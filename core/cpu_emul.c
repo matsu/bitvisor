@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include <core/printf.h>
 #include "constants.h"
 #include "convert.h"
@@ -34,7 +35,6 @@
 #include "cpu_mmu.h"
 #include "cpu_stack.h"
 #include "current.h"
-#include "panic.h"
 
 void
 cpu_emul_cpuid (void)

@@ -29,6 +29,7 @@
 
 /* address translation for pass-through */
 
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include "assert.h"
@@ -41,7 +42,6 @@
 #include "initfunc.h"
 #include "io_io.h"
 #include "mm.h"
-#include "panic.h"
 #include "uefi.h"
 #include "vmm_mem.h"
 

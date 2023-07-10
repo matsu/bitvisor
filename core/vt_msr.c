@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include <core/printf.h>
 #include "asm.h"
 #include "cache.h"
@@ -35,7 +36,6 @@
 #include "current.h"
 #include "int.h"
 #include "mm.h"
-#include "panic.h"
 #include "process.h"
 #include "vt_msr.h"
 #include "vt_paging.h"

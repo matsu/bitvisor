@@ -29,6 +29,7 @@
 
 #include <arch/currentcpu.h>
 #include <core/currentcpu.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/types.h>
@@ -37,7 +38,6 @@
 #include "initfunc.h"
 #include "int.h"
 #include "int_handler.h"
-#include "panic.h"
 #include "pcpu.h"
 #include "process.h"
 

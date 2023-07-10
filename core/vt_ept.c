@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <core/panic.h>
 #include <core/string.h>
 #include "asm.h"
 #include "constants.h"
@@ -35,7 +36,6 @@
 #include "current.h"
 #include "gmm_access.h"
 #include "mmioclr.h"
-#include "panic.h"
 #include "phys.h"
 #include "vt_ept.h"
 #include "vt_main.h"

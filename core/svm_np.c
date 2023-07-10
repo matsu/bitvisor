@@ -28,13 +28,13 @@
  */
 
 #include <core/mm.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include "cache.h"
 #include "constants.h"
 #include "current.h"
 #include "mmioclr.h"
-#include "panic.h"
 #include "phys.h"
 #include "pmap.h"
 #include "svm_np.h"

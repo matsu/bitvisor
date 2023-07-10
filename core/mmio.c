@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
@@ -39,7 +40,6 @@
 #include "mm.h"
 #include "mmio.h"
 #include "mmioclr.h"
-#include "panic.h"
 #include "vmmerr.h"
 
 static int

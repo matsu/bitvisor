@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/panic.h>
 #include "cpuid.h"
 #include "current.h"
 #include "initfunc.h"
-#include "panic.h"
 
 static void
 do_cpuid_error (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
