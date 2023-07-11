@@ -32,7 +32,6 @@
 
 #include <core/spinlock.h>
 #include <core/types.h>
-#include "list.h"
 
 #ifdef CPU_MMU_SPT_DISABLE
 #	ifndef CPU_MMU_SPT_1

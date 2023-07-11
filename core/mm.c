@@ -29,6 +29,7 @@
 
 #include <arch/mm.h>
 #include <arch/vmm_mem.h>
+#include <core/list.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -40,7 +41,6 @@
 #include "constants.h"
 #include "initfunc.h"
 #include "linker.h"
-#include "list.h"
 #include "mm.h"
 #include "phys.h"
 #include "uefi.h"

@@ -30,8 +30,8 @@
 #ifndef _CORE_MSG_H
 #define _CORE_MSG_H
 
+#include <core/list.h>
 #include <core/types.h>
-#include "list.h"
 
 typedef int kmfunc_t (void *arg, void *data, unsigned int len);
 

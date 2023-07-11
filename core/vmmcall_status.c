@@ -29,12 +29,12 @@
 
 #include <arch/gmm.h>
 #include <arch/vmmcall.h>
+#include <core/list.h>
 #include <core/mm.h>
 #include <core/spinlock.h>
 #include <core/string.h>
 #include "config.h"
 #include "initfunc.h"
-#include "list.h"
 #include "vmmcall.h"
 #include "vmmcall_status.h"
 

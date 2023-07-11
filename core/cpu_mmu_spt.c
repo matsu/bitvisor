@@ -30,6 +30,7 @@
 /* MMU emulation, Shadow Page Tables (SPT) */
 
 #include <builtin.h>
+#include <core/list.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -265,7 +266,7 @@ init_vcpu (void)
 #endif /* CPU_MMU_SPT_1 */
 
 #ifdef CPU_MMU_SPT_2
-#include "list.h"
+#include <core/list.h>
 
 /* key:
    bit 63-12: gfn
@@ -1238,7 +1239,7 @@ init_vcpu (void)
 #endif /* CPU_MMU_SPT_2 */
 
 #ifdef CPU_MMU_SPT_3
-#include "list.h"
+#include <core/list.h>
 
 /* key:
    bit 63-12: gfn

@@ -30,9 +30,9 @@
 #ifndef _CORE_MMIO_H
 #define _CORE_MMIO_H
 
+#include <core/list.h>
 #include <core/mmio.h>
 #include <core/types.h>
-#include "list.h"
 
 struct mmio_handle {
 	LIST1_DEFINE (struct mmio_handle);
