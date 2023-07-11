@@ -29,6 +29,7 @@
 
 #include <arch/vmm_mem.h>
 #include <constants.h>
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/mmio.h>
@@ -38,7 +39,6 @@
 #include "acpi.h"
 #include "acpi_dsdt.h"
 #include "ap.h"
-#include "assert.h"
 #include "beep.h"
 #include "calluefi.h"
 #include "current.h"

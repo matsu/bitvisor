@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/assert.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
-#include "assert.h"
 #include "constants.h"
 #include "cpu_mmu.h"
 #include "current.h"

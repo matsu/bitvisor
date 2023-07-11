@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/assert.h>
 #include <core/config.h>
 #include <core/initfunc.h>
 #include <core/linkage.h>
@@ -38,7 +39,6 @@
 #include <core/types.h>
 #include <share/uefi_boot.h>
 #include "ap.h"
-#include "assert.h"
 #include "callrealmode.h"
 #include "calluefi.h"
 #include "constants.h"

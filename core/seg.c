@@ -28,12 +28,12 @@
  */
 
 #include <constants.h>
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include "asm.h"
-#include "assert.h"
 #include "constants.h"
 #include "pcpu.h"
 #include "process_sysenter.h"

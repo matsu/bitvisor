@@ -28,6 +28,7 @@
  */
 
 #include <builtin.h>
+#include <core/assert.h>
 #include <core/linkage.h>
 #include <core/mm.h>
 #include <core/panic.h>
@@ -37,7 +38,6 @@
 #include <core/thread.h>
 #include "ap.h"
 #include "asm.h"
-#include "assert.h"
 #include "constants.h"
 #include "entry.h"
 #include "int.h"

@@ -30,6 +30,7 @@
 #include <arch/mm.h>
 #include <arch/vmm_mem.h>
 #include <constants.h>
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mm.h>
@@ -38,7 +39,6 @@
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <section.h>
-#include "assert.h"
 #include "calluefi.h"
 #include "linker.h"
 #include "mm.h"

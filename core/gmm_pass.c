@@ -29,12 +29,12 @@
 
 /* address translation for pass-through */
 
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
-#include "assert.h"
 #include "callrealmode.h"
 #include "constants.h"
 #include "convert.h"

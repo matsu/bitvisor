@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/string.h>
 #include "asm.h"
-#include "assert.h"
 #include "callrealmode.h"
 #include "callrealmode_asm.h"
 #include "constants.h"

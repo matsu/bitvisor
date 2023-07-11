@@ -28,6 +28,7 @@
  */
 
 #include <constants.h>
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/mmio.h>
@@ -35,7 +36,6 @@
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
-#include "assert.h"
 #include "cpu_interpreter.h"
 #include "cpu_mmu.h"
 #include "current.h"

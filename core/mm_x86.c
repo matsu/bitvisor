@@ -30,6 +30,7 @@
 #include <arch/mm.h>
 #include <arch/vmm_mem.h>
 #include <constants.h>
+#include <core/assert.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -37,7 +38,6 @@
 #include <core/string.h>
 #include "ap.h"
 #include "asm.h"
-#include "assert.h"
 #include "constants.h"
 #include "mm.h"
 #include "pcpu.h"

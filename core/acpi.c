@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
@@ -35,7 +36,6 @@
 #include "acpi.h"
 #include "acpi_constants.h"
 #include "acpi_dsdt.h"
-#include "assert.h"
 #include "calluefi.h"
 #include "uefi.h"
 

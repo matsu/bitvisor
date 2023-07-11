@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/assert.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include <core/types.h>
-#include "assert.h"
 #include "elf.h"
 #include "osloader.h"
 #include "vmm_mem.h"

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/assert.h>
 #include <core/config.h>
 #include <core/currentcpu.h>
 #include <core/initfunc.h>
@@ -35,7 +36,6 @@
 #include <core/printf.h>
 #include "ap.h"
 #include "asm.h"
-#include "assert.h"
 #include "constants.h"
 #include "cpu_mmu.h"
 #include "current.h"

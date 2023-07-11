@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/io.h>
 #include <core/mm.h>
@@ -36,7 +37,6 @@
 #include <core/time.h>
 #include "acpi.h"
 #include "acpi_constants.h"
-#include "assert.h"
 #include "constants.h"
 #include "current.h"
 #include "mm.h"

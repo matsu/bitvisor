@@ -28,6 +28,7 @@
  */
 
 #include <arch/vmm_mem.h>
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/qsort.h>
@@ -36,7 +37,6 @@
 #include <core/string.h>
 #include <core/types.h>
 #include "asm.h"
-#include "assert.h"
 #include "constants.h"
 #include "callrealmode.h"
 #include "calluefi.h"

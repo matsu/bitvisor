@@ -31,6 +31,7 @@
 #include <arch/process.h>
 #include <arch/vmm_mem.h>
 #include <constants.h>
+#include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mm.h>
@@ -40,7 +41,6 @@
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/types.h>
-#include "assert.h"
 #include "elf.h"
 #include "mm.h"
 #include "msg.h"

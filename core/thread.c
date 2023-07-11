@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/thread.h>
 #include <builtin.h>
+#include <core/assert.h>
 #include <core/currentcpu.h>
 #include <core/initfunc.h>
 #include <core/linkage.h>
@@ -41,7 +42,6 @@
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/thread.h>
-#include "assert.h"
 #include "mm.h"
 
 #define MAXNUM_OF_THREADS	256

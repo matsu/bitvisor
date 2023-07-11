@@ -30,6 +30,7 @@
 #ifdef CARDSTATUS
 #include <IDMan.h>
 #include <arch/vmmcall.h>
+#include <core/assert.h>
 #include <core/config.h>
 #include <core/iccard.h>
 #include <core/initfunc.h>
@@ -37,7 +38,6 @@
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/timer.h>
-#include "assert.h"
 #include "iccard.h"
 #include "vmmcall.h"
 
