@@ -78,6 +78,7 @@ echo_client_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 	if (!p) {
 		/* Disconnected by remote. */
 		printd ("Disconnected!\n");
+		tcp_close (pcb);
 		echo_client_pcb = NULL;
 		return ERR_OK;
 	} else if (err != ERR_OK) {
