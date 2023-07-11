@@ -31,6 +31,7 @@
 #define _CORE_VCPU_H
 
 #include <core/types.h>
+#include "asm.h"
 #include "acpi.h"
 #include "cache.h"
 #include "cpu_mmu_spt.h"

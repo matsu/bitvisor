@@ -42,7 +42,6 @@
 #include "constants.h"
 #include "current.h"
 #include "initfunc.h"
-#include "io_io.h"
 #include "sleep.h"
 #include "uefi.h"
 #include "vmm_mem.h"

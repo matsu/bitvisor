@@ -36,7 +36,6 @@
 #include "current.h"
 #include "debug.h"
 #include "initfunc.h"
-#include "io_io.h"
 
 enum ioact
 do_iopass_default (enum iotype type, u32 port, void *data)

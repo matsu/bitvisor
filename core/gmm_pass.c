@@ -41,7 +41,6 @@
 #include "current.h"
 #include "guest_bioshook.h"
 #include "initfunc.h"
-#include "io_io.h"
 #include "mm.h"
 #include "uefi.h"
 #include "vmm_mem.h"

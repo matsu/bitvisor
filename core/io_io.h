@@ -32,9 +32,7 @@
 
 #include <core/io.h>
 #include <core/types.h>
-#include "asm.h"
 #include "constants.h"
-#include "cpu_mmu_spt.h"
 
 #define do_io_default do_iopass_default
 

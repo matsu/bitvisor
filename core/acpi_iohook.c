@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/io.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -38,7 +39,6 @@
 #include "constants.h"
 #include "current.h"
 #include "initfunc.h"
-#include "io_io.h"
 #include "mm.h"
 #include "wakeup.h"
 
