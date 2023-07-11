@@ -28,6 +28,7 @@
  */
 
 #include <arch/reboot.h>
+#include <core/config.h>
 #include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -36,7 +37,6 @@
 #include "ap.h"
 #include "asm.h"
 #include "callrealmode.h"
-#include "config.h"
 #include "panic.h"
 #include "reboot.h"
 #include "sleep.h"

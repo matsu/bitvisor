@@ -28,6 +28,7 @@
  */
 
 #include <arch/vmmcall.h>
+#include <core/config.h>
 #include <core/currentcpu.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
@@ -39,7 +40,6 @@
 #include <share/loadcfg.h>
 #include "../crypto/decryptcfg.h"
 #include "assert.h"
-#include "config.h"
 #include "thread.h"
 #include "vmmcall.h"
 #include "vmmcall_boot.h"

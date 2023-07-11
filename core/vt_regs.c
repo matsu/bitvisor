@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include "asm.h"
-#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "linker.h"

@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include "asm.h"
 #include "cache.h"
-#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "svm_msr.h"

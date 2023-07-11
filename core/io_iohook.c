@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/initfunc.h>
 #include <core/io.h>
 #include <core/panic.h>
 #include <core/printf.h>
-#include "config.h"
 #include "current.h"
 #include "debug.h"
 #include "io_iohook.h"

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/exint_pass.h>
 #include <core/initfunc.h>
 #include <core/linkage.h>
@@ -35,7 +36,6 @@
 #include <core/string.h>
 #include <core/thread.h>
 #include "asm.h"
-#include "config.h"
 #include "constants.h"
 #include "convert.h"
 #include "cpu_emul.h"

@@ -31,6 +31,7 @@ int prohibit_iccard_init;
 
 #ifdef IDMAN
 #include <IDMan.h>
+#include <core/config.h>
 #include <core/iccard.h>
 #include <core/initfunc.h>
 #include <core/panic.h>
@@ -39,7 +40,6 @@ int prohibit_iccard_init;
 #include <core/string.h>
 #include <core/timer.h>
 #include "assert.h"
-#include "config.h"
 #include "iccard.h"
 
 static bool idman_ready;

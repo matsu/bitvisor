@@ -29,6 +29,7 @@
 
 #include <arch/currentcpu.h>
 #include <arch/panic.h>
+#include <core/config.h>
 #include <core/currentcpu.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
@@ -44,7 +45,6 @@
 #include "asm.h"
 #include "ap.h"
 #include "callrealmode.h"
-#include "config.h"
 #include "current.h"
 #include "debug.h"
 #include "int.h"

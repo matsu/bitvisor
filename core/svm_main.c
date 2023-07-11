@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/currentcpu.h>
 #include <core/exint_pass.h>
 #include <core/mm.h>
@@ -34,7 +35,6 @@
 #include <core/printf.h>
 #include <core/thread.h>
 #include "asm.h"
-#include "config.h"
 #include "constants.h"
 #include "cpu_emul.h"
 #include "cpu_mmu.h"

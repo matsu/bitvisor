@@ -29,6 +29,7 @@
 
 #include <arch/time.h>
 #include <builtin.h>
+#include <core/config.h>
 #include <core/currentcpu.h>
 #include <core/initfunc.h>
 #include <core/printf.h>

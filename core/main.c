@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/initfunc.h>
 #include <core/linkage.h>
 #include <core/mm.h>
@@ -40,7 +41,6 @@
 #include "assert.h"
 #include "callrealmode.h"
 #include "calluefi.h"
-#include "config.h"
 #include "constants.h"
 #include "convert.h"
 #include "current.h"

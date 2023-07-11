@@ -27,5 +27,5 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "config.h"
+#include <core/config.h>
 #include "../defconfig"
