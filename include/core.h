@@ -41,7 +41,6 @@
 #define MB (1024*KB)
 #define GB (u64)(1024*MB)
 #define PAGESIZE 4096
-#define PAGESHIFT 12
 
 #define BIT(n) (1ULL << n)
 
@@ -61,7 +60,6 @@ int  core_io_register_handler(ioport_t start, size_t num, core_io_handler_t hand
 			       void *arg, enum core_io_prio priority, const char *name);
 int  core_io_modify_handler(int hd, ioport_t start, size_t num);
 int  core_io_unregister_handler(int hd);
-int  core_io_set_pass_through(u32 start, u32 end);
 void core_io_handle_default(core_io_t io, void *data);
 
 /** lock functions */
