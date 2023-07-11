@@ -36,12 +36,8 @@
 #define _CORE_H
 #include <bits.h>
 #include <common.h>
+#include <constants.h>
 #include <core/config.h>
-
-#define KB 1024
-#define MB (1024*KB)
-#define GB (u64)(1024*MB)
-#define PAGESIZE 4096
 
 /** I/O handler functions */
 #include <core/io.h>

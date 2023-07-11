@@ -28,9 +28,9 @@
  */
 
 #include <arch/currentcpu.h>
+#include <constants.h>
 #include <core/currentcpu.h>
 #include "asm.h"
-#include "constants.h"
 #include "pcpu.h"
 #include "seg.h"
 

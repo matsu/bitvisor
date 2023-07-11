@@ -31,6 +31,7 @@
 #define _CORE_VT_H
 
 #include "asm.h"
+#include "constants.h"
 #include "vt_io.h"
 #include "vt_msr.h"
 #include "vt_vmcs.h"

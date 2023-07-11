@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <constants.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/mmio.h>
@@ -35,7 +36,6 @@
 #include <core/spinlock.h>
 #include <core/string.h>
 #include "assert.h"
-#include "constants.h"
 #include "cpu_interpreter.h"
 #include "cpu_mmu.h"
 #include "current.h"

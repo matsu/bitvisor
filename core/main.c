@@ -41,6 +41,7 @@
 #include "callrealmode.h"
 #include "calluefi.h"
 #include "config.h"
+#include "constants.h"
 #include "convert.h"
 #include "current.h"
 #include "debug.h"

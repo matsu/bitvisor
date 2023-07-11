@@ -37,7 +37,6 @@
 #include "acpi_dsdt.h"
 #include "assert.h"
 #include "calluefi.h"
-#include "constants.h"
 #include "uefi.h"
 
 #define FIND_RSDP_NOT_FOUND	0xFFFFFFFFFFFFFFFFULL

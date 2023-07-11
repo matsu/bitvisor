@@ -29,6 +29,7 @@
 
 #include <core/currentcpu.h>
 #include <core/panic.h>
+#include "constants.h"
 #include "cpu_mmu_spt.h"
 #include "current.h"
 #include "pcpu.h"

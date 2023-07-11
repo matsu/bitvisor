@@ -31,6 +31,7 @@
 #include <core/printf.h>
 #include <core/string.h>
 #include "asm.h"
+#include "constants.h"
 #include "cpu_emul.h"
 #include "cpuid.h"
 #include "current.h"

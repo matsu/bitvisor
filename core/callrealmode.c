@@ -35,6 +35,7 @@
 #include "assert.h"
 #include "callrealmode.h"
 #include "callrealmode_asm.h"
+#include "constants.h"
 #include "current.h"
 #include "entry.h"
 #include "pcpu.h"

@@ -28,6 +28,7 @@
  */
 
 #include <arch/vmm_mem.h>
+#include <constants.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/mmio.h>
@@ -40,7 +41,6 @@
 #include "assert.h"
 #include "beep.h"
 #include "calluefi.h"
-#include "constants.h"
 #include "current.h"
 #include "sleep.h"
 #include "uefi.h"

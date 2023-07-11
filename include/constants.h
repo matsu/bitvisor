@@ -27,19 +27,28 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_IO_IO_H
-#define _CORE_IO_IO_H
+#ifndef _CONSTANTS_H
+#define _CONSTANTS_H
 
-#include <constants.h>
-#include <core/io.h>
-#include <core/types.h>
+#define NUM_OF_IOPORT			0x10000
 
-#define do_io_default do_iopass_default
+#define PAGESIZE			0x1000
+#define PAGESIZE2M			0x200000
+#define PAGESIZE4M			0x400000
+#define PAGESIZE1G			0x40000000
+#define PAGESIZE_SHIFT			12
+#define PAGESIZE2M_SHIFT		21
+#define PAGESIZE4M_SHIFT		22
+#define PAGESIZE1G_SHIFT		30
+#define PAGESIZE_MASK			(PAGESIZE - 1)
+#define PAGESIZE2M_MASK			(PAGESIZE2M - 1)
+#define PAGESIZE4M_MASK			(PAGESIZE4M - 1)
+#define PAGESIZE1G_MASK			(PAGESIZE1G - 1)
 
-struct io_io_data {
-	iofunc_t iofunc[NUM_OF_IOPORT];
-};
+#define VMM_MINSTACKSIZE		3072
 
-enum ioact call_io (enum iotype type, u32 port, void *data);
+#define KB				1024
+#define MB				(1024 * KB)
+#define GB				(u64)(1024 * MB)
 
 #endif

@@ -31,7 +31,6 @@
 #define _CORE_MM_H
 
 #include <core/types.h>
-#include "constants.h"
 
 #define MAPMEM_PWT			MAPMEM_PLAT (3)
 #define MAPMEM_PCD			MAPMEM_PLAT (4)

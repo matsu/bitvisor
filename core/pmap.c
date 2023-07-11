@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <constants.h>
 #include <core/mm.h>
 #include <core/printf.h>
 #include <core/string.h>

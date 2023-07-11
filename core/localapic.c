@@ -34,6 +34,7 @@
 #include <core/panic.h>
 #include <core/thread.h>
 #include "asm.h"
+#include "constants.h"
 #include "current.h"
 #include "localapic.h"
 #include "msr_pass.h"

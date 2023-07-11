@@ -36,6 +36,7 @@
 #include "asm.h"
 #include "assert.h"
 #include "config.h"
+#include "constants.h"
 #include "cpu_mmu.h"
 #include "current.h"
 #include "int.h"
