@@ -40,6 +40,7 @@
 #include "int.h"
 #include "localapic.h"
 #include "mm.h"
+#include "mmio.h"
 #include "mmioclr.h"
 #include "msr.h"
 #include "msr_pass.h"

@@ -35,6 +35,7 @@
 #include "convert.h"
 #include "current.h"
 #include "gmm_access.h"
+#include "mmio.h"
 #include "mmioclr.h"
 #include "phys.h"
 #include "vt_ept.h"

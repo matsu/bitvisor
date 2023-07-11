@@ -34,6 +34,7 @@
 #include "cache.h"
 #include "constants.h"
 #include "current.h"
+#include "mmio.h"
 #include "mmioclr.h"
 #include "phys.h"
 #include "pmap.h"

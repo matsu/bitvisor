@@ -28,6 +28,7 @@
  */
 
 #include <arch/vmm_mem.h>
+#include <core/mmio.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
