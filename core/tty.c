@@ -29,6 +29,7 @@
 
 #include <arch/currentcpu.h>
 #include <arch/serial.h>
+#include <core/arith.h>
 #include <core/config.h>
 #include <core/currentcpu.h>
 #include <core/initfunc.h>
@@ -39,7 +40,6 @@
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/tty.h>
-#include "arith.h"
 #include "calluefi.h"
 #include "mm.h"
 #include "putchar.h"
