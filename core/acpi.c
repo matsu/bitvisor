@@ -27,12 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/acpi.h>
 #include <core/assert.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
+#include <io.h>
 #include "acpi.h"
 #include "acpi_constants.h"
 #include "acpi_dsdt.h"

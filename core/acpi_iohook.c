@@ -35,7 +35,6 @@
 #include <core/printf.h>
 #include <core/string.h>
 #include <core/time.h>
-#include "acpi.h"
 #include "acpi_constants.h"
 #include "constants.h"
 #include "current.h"

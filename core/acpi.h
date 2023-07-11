@@ -30,9 +30,7 @@
 #ifndef _CORE_ACPI_H
 #define _CORE_ACPI_H
 
-#include <core/acpi.h>
 #include <core/types.h>
-#include <io.h>
 
 #define ACPI_SIGNATURE_LEN	4
 
