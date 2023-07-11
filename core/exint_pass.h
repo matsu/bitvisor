@@ -30,8 +30,6 @@
 #ifndef _CORE_EXINT_PASS_H
 #define _CORE_EXINT_PASS_H
 
-#include <core/exint_pass.h>
-
 int exint_pass_intr_call (int num);
 int exint_pass_intr_run_callback_list (int num);
 
