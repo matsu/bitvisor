@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include "asm.h"
 #include "xsetbv_pass.h"
 #include "current.h"
-#include "initfunc.h"
 #include "int.h"
 
 struct xsetbv_arg {

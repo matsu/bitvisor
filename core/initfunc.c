@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/printf.h>
 #include <core/qsort.h>
 #include <core/string.h>

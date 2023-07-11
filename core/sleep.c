@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/process.h>
 #include "asm.h"
 #include "constants.h"
-#include "initfunc.h"
 #include "sleep.h"
 #include "time.h"
 #include "uefi.h"

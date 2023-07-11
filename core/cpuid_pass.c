@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include "asm.h"
 #include "cpuid_pass.h"
 #include "current.h"
-#include "initfunc.h"
 
 static void
 do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)

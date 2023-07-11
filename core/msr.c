@@ -28,8 +28,8 @@
  */
 
 #include "current.h"
-#include "initfunc.h"
 #include "msr.h"
+#include <core/initfunc.h>
 
 static bool
 read_msr_error (u32 msrindex, u64 *msrdata)

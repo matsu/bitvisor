@@ -28,6 +28,7 @@
  */
 
 #include <arch/vmm_mem.h>
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/qsort.h>
 #include <core/panic.h>
@@ -42,7 +43,6 @@
 #include "current.h"
 #include "entry.h"
 #include "guest_bioshook.h"
-#include "initfunc.h"
 #include "pcpu.h"
 #include "sym.h"
 #include "uefi.h"

@@ -27,13 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/io.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include "config.h"
 #include "current.h"
 #include "debug.h"
-#include "initfunc.h"
 #include "io_iohook.h"
 
 /* Debug serial port for Linux early console:

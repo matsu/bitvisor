@@ -31,8 +31,8 @@
 #include <builtin.h>
 #include <arch/gmm.h>
 #include <arch/vmmcall.h>
+#include <core/initfunc.h>
 #include <core/mm.h>
-#include "initfunc.h"
 #include "putchar.h"
 #include "vmmcall.h"
 

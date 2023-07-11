@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include "current.h"
-#include "initfunc.h"
 #include "initipi.h"
 #include "int.h"
 #include "sx_handler.h"

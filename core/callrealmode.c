@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/string.h>
@@ -36,7 +37,6 @@
 #include "callrealmode_asm.h"
 #include "current.h"
 #include "entry.h"
-#include "initfunc.h"
 #include "pcpu.h"
 #include "savemsr.h"
 #include "seg.h"

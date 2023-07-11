@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -37,7 +38,6 @@
 #include "beep.h"
 #include "cache.h"
 #include "entry.h"
-#include "initfunc.h"
 #include "main.h"
 #include "pcpu.h"
 #include "sleep.h"

@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/types.h>
 #include "current.h"
-#include "initfunc.h"
 #include "int.h"
 #include "nmi.h"
 #include "nmi_handler.h"

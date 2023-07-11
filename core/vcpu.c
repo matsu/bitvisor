@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/types.h>
 #include "current.h"
-#include "initfunc.h"
 #include "vcpu.h"
 
 static struct vcpu *vcpu_list_head;

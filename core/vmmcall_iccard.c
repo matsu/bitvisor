@@ -30,6 +30,7 @@
 #ifdef CARDSTATUS
 #include <IDMan.h>
 #include <arch/vmmcall.h>
+#include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
@@ -37,7 +38,6 @@
 #include "assert.h"
 #include "config.h"
 #include "iccard.h"
-#include "initfunc.h"
 #include "vmmcall.h"
 
 static enum {

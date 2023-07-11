@@ -30,10 +30,10 @@
 #include <arch/currentcpu.h>
 #include <arch/keyboard.h>
 #include <core/currentcpu.h>
+#include <core/initfunc.h>
 #include <core/process.h>
 #include <core/spinlock.h>
 #include "calluefi.h"
-#include "initfunc.h"
 #include "uefi.h"
 
 static int

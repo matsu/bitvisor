@@ -29,6 +29,7 @@
 
 /* address translation for pass-through */
 
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -40,7 +41,6 @@
 #include "cpu_seg.h"
 #include "current.h"
 #include "guest_bioshook.h"
-#include "initfunc.h"
 #include "mm.h"
 #include "uefi.h"
 #include "vmm_mem.h"

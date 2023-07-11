@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/serial.h>
 #include <core/currentcpu.h>
+#include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mm.h>
 #include <core/printf.h>
@@ -40,7 +41,6 @@
 #include "arith.h"
 #include "calluefi.h"
 #include "config.h"
-#include "initfunc.h"
 #include "mm.h"
 #include "putchar.h"
 #include "sym.h"

@@ -28,13 +28,13 @@
  */
 
 #include <builtin.h>
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/mmio.h>
 #include <core/panic.h>
 #include <core/thread.h>
 #include "asm.h"
 #include "current.h"
-#include "initfunc.h"
 #include "localapic.h"
 #include "msr_pass.h"
 

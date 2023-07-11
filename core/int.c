@@ -29,13 +29,13 @@
 
 #include <arch/currentcpu.h>
 #include <core/currentcpu.h>
+#include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/types.h>
 #include "asm.h"
 #include "constants.h"
-#include "initfunc.h"
 #include "int.h"
 #include "int_handler.h"
 #include "pcpu.h"

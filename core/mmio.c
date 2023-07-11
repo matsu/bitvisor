@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/mmio.h>
 #include <core/panic.h>
@@ -38,7 +39,6 @@
 #include "cpu_interpreter.h"
 #include "cpu_mmu.h"
 #include "current.h"
-#include "initfunc.h"
 #include "mm.h"
 #include "mmio.h"
 #include "mmioclr.h"

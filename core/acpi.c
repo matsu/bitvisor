@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -37,7 +38,6 @@
 #include "assert.h"
 #include "calluefi.h"
 #include "constants.h"
-#include "initfunc.h"
 #include "uefi.h"
 
 #define FIND_RSDP_NOT_FOUND	0xFFFFFFFFFFFFFFFFULL

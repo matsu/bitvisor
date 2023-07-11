@@ -28,13 +28,13 @@
  */
 
 #include <arch/vramwrite.h>
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/process.h>
 #include <core/string.h>
 #include <core/types.h>
 #include <core/vga.h>
-#include "initfunc.h"
 #include "uefi.h"
 #include "vramwrite.h"
 

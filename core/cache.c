@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/string.h>
 #include "ap.h"
@@ -35,7 +36,6 @@
 #include "cache.h"
 #include "constants.h"
 #include "current.h"
-#include "initfunc.h"
 #include "int.h"
 #include "pcpu.h"
 

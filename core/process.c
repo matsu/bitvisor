@@ -30,6 +30,7 @@
 #include <arch/currentcpu.h>
 #include <arch/process.h>
 #include <arch/vmm_mem.h>
+#include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mm.h>
 #include <core/panic.h>
@@ -41,7 +42,6 @@
 #include "assert.h"
 #include "constants.h"
 #include "elf.h"
-#include "initfunc.h"
 #include "mm.h"
 #include "msg.h"
 #include "process.h"

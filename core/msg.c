@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
-#include "initfunc.h"
 #include "msg.h"
 
 static LIST1_DEFINE_HEAD (struct msg_data, msg_data_free);

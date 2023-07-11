@@ -28,10 +28,10 @@
  */
 
 #include <arch/exint_pass.h>
+#include <core/initfunc.h>
 #include <core/string.h>
 #include "current.h"
 #include "exint_pass.h"
-#include "initfunc.h"
 #include "int.h"
 
 /* Interrupts 0x10-0x1F are reserved by CPU for exceptions but can be

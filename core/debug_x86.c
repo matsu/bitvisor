@@ -28,6 +28,7 @@
  */
 
 #include <arch/debug.h>
+#include <core/initfunc.h>
 #include <core/printf.h>
 #include <core/types.h>
 #include "constants.h"
@@ -35,7 +36,6 @@
 #include "debug.h"
 #include "gmm_access.h"
 #include "i386-stub.h"
-#include "initfunc.h"
 #include "int.h"
 #include "serial.h"
 #include "vmmerr.h"

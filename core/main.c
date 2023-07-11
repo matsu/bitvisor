@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/linkage.h>
 #include <core/mm.h>
 #include <core/panic.h>

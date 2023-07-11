@@ -30,6 +30,7 @@
 /* MMU emulation, Shadow Page Tables (SPT) */
 
 #include <builtin.h>
+#include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mm.h>
 #include <core/panic.h>
@@ -42,7 +43,6 @@
 #include "cpu_mmu.h"
 #include "cpu_mmu_spt.h"
 #include "current.h"
-#include "initfunc.h"
 #include "mmio.h"
 #include "mmioclr.h"
 #include "pcpu.h"

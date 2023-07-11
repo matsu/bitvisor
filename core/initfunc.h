@@ -30,8 +30,6 @@
 #ifndef _CORE_INITFUNC_H
 #define _CORE_INITFUNC_H
 
-#include <core/initfunc.h>
-
 void initfunc_init (void);
 
 #endif

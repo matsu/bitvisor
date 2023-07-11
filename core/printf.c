@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
-#include "initfunc.h"
 #include "putchar.h"
 
 /* printf 20071010

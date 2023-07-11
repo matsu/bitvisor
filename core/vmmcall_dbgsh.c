@@ -28,6 +28,7 @@
  */
 
 #include <arch/vmmcall.h>
+#include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
@@ -35,7 +36,6 @@
 #include <core/thread.h>
 #include "config.h"
 #include "debug.h"
-#include "initfunc.h"
 #include "vmmcall.h"
 
 static volatile int s, r;

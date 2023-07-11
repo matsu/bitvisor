@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include "current.h"
 #include "exint.h"
-#include "initfunc.h"
 
 static int
 exint_default_ack (void)

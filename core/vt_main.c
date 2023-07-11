@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/initfunc.h>
 #include <core/linkage.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -40,7 +41,6 @@
 #include "cpu_mmu.h"
 #include "current.h"
 #include "exint_pass.h"
-#include "initfunc.h"
 #include "initipi.h"
 #include "int.h"
 #include "localapic.h"
