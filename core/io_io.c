@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/io.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include "asm.h"
@@ -36,7 +37,6 @@
 #include "current.h"
 #include "initfunc.h"
 #include "io_io.h"
-#include "io_iopass.h"
 
 enum ioact
 do_io_nothing (enum iotype type, u32 port, void *data)
