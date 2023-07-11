@@ -30,7 +30,7 @@
 #ifndef _CORE_INT_HANDLER_H
 #define _CORE_INT_HANDLER_H
 
-#include "linkage.h"
+#include <core/linkage.h>
 
 asmlinkage int int_callfunc (void *arg, asmlinkage void (*func)(void *arg));
 

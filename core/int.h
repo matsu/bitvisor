@@ -30,7 +30,7 @@
 #ifndef _CORE_INT_H
 #define _CORE_INT_H
 
-#include "linkage.h"
+#include <core/linkage.h>
 
 int callfunc_and_getint (asmlinkage void (*func)(void *arg), void *arg);
 int do_externalint_enable (void);

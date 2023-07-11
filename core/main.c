@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/linkage.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -44,7 +45,6 @@
 #include "debug.h"
 #include "initfunc.h"
 #include "keyboard.h"
-#include "linkage.h"
 #include "loadbootsector.h"
 #include "main.h"
 #include "multiboot.h"

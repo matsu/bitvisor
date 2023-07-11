@@ -28,6 +28,7 @@
  */
 
 #include <arch/debug.h>
+#include <core/linkage.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -36,7 +37,6 @@
 #include <core/string.h>
 #include <core/types.h>
 #include "debug.h"
-#include "linkage.h"
 #include "mm.h"
 
 static int memdump, memfree;

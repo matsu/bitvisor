@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/linkage.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
@@ -42,7 +43,6 @@
 #include "initfunc.h"
 #include "initipi.h"
 #include "int.h"
-#include "linkage.h"
 #include "localapic.h"
 #include "nmi.h"
 #include "pcpu.h"

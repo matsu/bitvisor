@@ -30,8 +30,8 @@
 #ifndef _CORE_THREAD_SWITCH_H
 #define _CORE_THREAD_SWITCH_H
 
+#include <core/linkage.h>
 #include <core/types.h>
-#include "linkage.h"
 
 struct thread_context;
 

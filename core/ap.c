@@ -28,6 +28,7 @@
  */
 
 #include <builtin.h>
+#include <core/linkage.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -40,7 +41,6 @@
 #include "constants.h"
 #include "entry.h"
 #include "int.h"
-#include "linkage.h"
 #include "localapic.h"
 #include "pcpu.h"
 #include "seg.h"

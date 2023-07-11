@@ -30,8 +30,8 @@
 #ifndef _CORE_PROCESS_SYSENTER_H
 #define _CORE_PROCESS_SYSENTER_H
 
+#include <core/linkage.h>
 #include <core/types.h>
-#include "linkage.h"
 
 extern u8 processuser_sysenter[], processuser_no_sysenter[];
 extern u8 processuser_syscall[];
