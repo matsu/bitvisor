@@ -30,8 +30,6 @@
 #ifndef _CORE_DEBUG_H
 #define _CORE_DEBUG_H
 
-#include <core/debug.h>
-
 #ifdef DEBUG_GDB
 #	ifdef __x86_64__
 #		error DEBUG_GDB is not supported on 64bit

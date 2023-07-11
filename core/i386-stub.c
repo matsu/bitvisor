@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/debug.h>
 #include <core/printf.h>
 #include <core/stdarg.h>
 #include <core/string.h>
-#include "debug.h"
 #include "i386-stub.h"
 #include "int.h"
 #include "serial.h"
