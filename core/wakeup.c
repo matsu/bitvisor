@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
@@ -38,7 +39,6 @@
 #include "entry.h"
 #include "initfunc.h"
 #include "main.h"
-#include "mm.h"
 #include "pcpu.h"
 #include "sleep.h"
 #include "vmm_mem.h"

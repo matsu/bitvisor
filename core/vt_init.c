@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
@@ -36,7 +37,6 @@
 #include "constants.h"
 #include "current.h"
 #include "initfunc.h"
-#include "mm.h"
 #include "pcpu.h"
 #include "vt_exitreason.h"
 #include "vt_init.h"

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/string.h>
 #include "asm.h"
@@ -36,7 +37,6 @@
 #include "current.h"
 #include "entry.h"
 #include "initfunc.h"
-#include "mm.h"
 #include "pcpu.h"
 #include "savemsr.h"
 #include "seg.h"

@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
@@ -37,7 +38,6 @@
 #include "current.h"
 #include "initfunc.h"
 #include "localapic.h"
-#include "mm.h"
 #include "pcpu.h"
 #include "svm_init.h"
 #include "svm_paging.h"

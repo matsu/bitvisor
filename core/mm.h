@@ -30,7 +30,6 @@
 #ifndef _CORE_MM_H
 #define _CORE_MM_H
 
-#include <core/mm.h>
 #include <core/types.h>
 #include "constants.h"
 
@@ -43,6 +42,7 @@
 #define MM_PROCESS_MAP_EXEC		(1 << 2)
 
 struct mm_arch_proc_desc;
+struct mm_as;
 
 int num_of_available_pages (void);
 void mm_flush_wb_cache (void);

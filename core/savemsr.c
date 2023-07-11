@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include "asm.h"
 #include "constants.h"
 #include "int.h"
-#include "mm.h"
 #include "savemsr.h"
 
 struct msrarg {

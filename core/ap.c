@@ -28,6 +28,7 @@
  */
 
 #include <builtin.h>
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>
@@ -41,7 +42,6 @@
 #include "int.h"
 #include "linkage.h"
 #include "localapic.h"
-#include "mm.h"
 #include "pcpu.h"
 #include "seg.h"
 #include "sleep.h"

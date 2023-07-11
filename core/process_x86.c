@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
@@ -36,7 +37,6 @@
 #include "assert.h"
 #include "constants.h"
 #include "initfunc.h"
-#include "mm.h"
 #include "pcpu.h"
 #include "process.h"
 #include "process_sysenter.h"

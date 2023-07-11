@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/mmio.h>
 #include <core/panic.h>
 #include <core/printf.h>

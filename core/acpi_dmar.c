@@ -28,6 +28,7 @@
  */
 
 #include <arch/vmm_mem.h>
+#include <core/mm.h>
 #include <core/mmio.h>
 #include <core/panic.h>
 #include <core/printf.h>
@@ -42,7 +43,6 @@
 #include "current.h"
 #include "initfunc.h"
 #include "io_io.h"
-#include "mm.h"
 #include "sleep.h"
 #include "uefi.h"
 #include "vmm_mem.h"

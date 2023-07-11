@@ -35,9 +35,9 @@
 #include <share/efi_extra/device_path_helper.h>
 #undef NULL
 #include <arch/calluefi.h>
+#include <core/mm.h>
 #include <core/printf.h>
 #include <core/string.h>
-#include "mm.h"
 #include "sym.h"
 #include "uefi.h"
 

@@ -27,10 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/string.h>
 #include "current.h"
 #include "entry.h"
-#include "mm.h"
 #include "pmap.h"
 #include "sym.h"
 #include "vmm_mem.h"

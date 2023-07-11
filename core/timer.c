@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/spinlock.h>
 #include <core/thread.h>
 #include <core/time.h>
@@ -35,7 +36,6 @@
 #include "constants.h"
 #include "initfunc.h"
 #include "list.h"
-#include "mm.h"
 
 #define MAX_TIMER 128
 

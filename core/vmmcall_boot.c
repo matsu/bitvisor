@@ -29,6 +29,7 @@
 
 #include <arch/vmmcall.h>
 #include <core/currentcpu.h>
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
@@ -39,7 +40,6 @@
 #include "assert.h"
 #include "config.h"
 #include "initfunc.h"
-#include "mm.h"
 #include "thread.h"
 #include "vmmcall.h"
 #include "vmmcall_boot.h"

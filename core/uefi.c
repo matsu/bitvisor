@@ -32,6 +32,7 @@
 #include <Protocol/SimpleFileSystem.h>
 #undef NULL
 #include <arch/entry.h>
+#include <core/mm.h>
 #include <section.h>
 #include <share/uefi_boot.h>
 #include "entry.h"

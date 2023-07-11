@@ -31,6 +31,7 @@
 #include <arch/thread.h>
 #include <builtin.h>
 #include <core/currentcpu.h>
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>

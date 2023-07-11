@@ -30,6 +30,7 @@
 /* accessing memory by guest-physical address */
 
 #include <builtin.h>
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include "assert.h"

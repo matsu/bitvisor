@@ -29,6 +29,7 @@
 
 #include <arch/mm.h>
 #include <arch/vmm_mem.h>
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/spinlock.h>

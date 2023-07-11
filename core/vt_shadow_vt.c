@@ -28,6 +28,7 @@
  */
 
 #include <core/currentcpu.h>
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
@@ -35,7 +36,6 @@
 #include "cpu_mmu.h"
 #include "current.h"
 #include "exint_pass.h"
-#include "mm.h"
 #include "pcpu.h"
 #include "vt_addip.h"
 #include "vt_exitreason.h"

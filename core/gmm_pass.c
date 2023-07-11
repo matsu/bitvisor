@@ -29,6 +29,7 @@
 
 /* address translation for pass-through */
 
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>

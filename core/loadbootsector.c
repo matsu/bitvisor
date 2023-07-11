@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
@@ -36,7 +37,6 @@
 #include "current.h"
 #include "config.h"
 #include "loadbootsector.h"
-#include "mm.h"
 
 #define PARTITION_STATUS_ACTIVE 0x80
 #define NUM_OF_PARTITIONS 4

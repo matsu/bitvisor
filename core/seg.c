@@ -27,13 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/mm.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include "asm.h"
 #include "assert.h"
 #include "constants.h"
 #include "initfunc.h"
-#include "mm.h"
 #include "pcpu.h"
 #include "process_sysenter.h"
 #include "seg.h"
