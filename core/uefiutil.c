@@ -29,9 +29,9 @@
 
 #include <arch/currentcpu.h>
 #include <core/currentcpu.h>
+#include <core/uefiutil.h>
 #include "calluefi.h"
 #include "uefi.h"
-#include "uefiutil.h"
 
 static bool
 check_env (void)
