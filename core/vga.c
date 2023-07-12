@@ -27,11 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/vga.h>
 #include "initfunc.h"
 #include "list.h"
 #include "mm.h"
 #include "spinlock.h"
-#include "vga.h"
 
 struct vga_data {
 	LIST1_DEFINE (struct vga_data);

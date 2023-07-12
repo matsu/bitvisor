@@ -28,6 +28,7 @@
  */
 
 #include <arch/vramwrite.h>
+#include <core/vga.h>
 #include "initfunc.h"
 #include "mm.h"
 #include "panic.h"
@@ -35,7 +36,6 @@
 #include "string.h"
 #include "types.h"
 #include "uefi.h"
-#include "vga.h"
 #include "vramwrite.h"
 
 static struct vramwrite_font vf;
