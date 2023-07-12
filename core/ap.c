@@ -28,6 +28,7 @@
  */
 
 #include <builtin.h>
+#include <core/ap.h>
 #include <core/assert.h>
 #include <core/linkage.h>
 #include <core/mm.h>

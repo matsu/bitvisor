@@ -30,7 +30,6 @@
 #ifndef _CORE_AP_H
 #define _CORE_AP_H
 
-#include <core/ap.h>
 #include <core/types.h>
 
 extern volatile int num_of_processors;
