@@ -30,6 +30,7 @@
 #ifdef CARDSTATUS
 #include <IDMan.h>
 #include <arch/vmmcall.h>
+#include <core/iccard.h>
 #include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/printf.h>

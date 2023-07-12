@@ -31,6 +31,7 @@ int prohibit_iccard_init;
 
 #ifdef IDMAN
 #include <IDMan.h>
+#include <core/iccard.h>
 #include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/printf.h>
