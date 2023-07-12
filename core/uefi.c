@@ -31,6 +31,7 @@
 #include <Protocol/SimpleFileSystem.h>
 #include <Guid/Acpi.h>
 #undef NULL
+#include <arch/entry.h>
 #include <section.h>
 #include "asm.h"
 #include "entry.h"
@@ -38,6 +39,10 @@
 #include "mm.h"
 #include "uefi.h"
 #include <share/uefi_boot.h>
+
+#define UEFI_READ_PHYS(vaddr, paddr) \
+	uefi_entry_arch_pcpy (uefi_entry_arch_virttophys ((vaddr)), (paddr), \
+			      sizeof *(vaddr))
 
 #define _PRINT(s) do { \
 	static char SECTION_ENTRY_DATA _p[] = \
@@ -86,8 +91,8 @@ _putchar (char c)
 	u64 buf;
 
 	buf = (unsigned char)c;
-	uefi_entry_call (uefi_conout_output_string, 0, uefi_conout,
-			 uefi_entry_virttophys (&buf));
+	uefi_entry_arch_call (uefi_conout_output_string, 0, uefi_conout,
+			      uefi_entry_arch_virttophys (&buf));
 }
 
 static void SECTION_ENTRY_TEXT
@@ -132,13 +137,10 @@ read_configuration_table (EFI_SYSTEM_TABLE *systab)
 	UINTN tablenum, i;
 	EFI_CONFIGURATION_TABLE *table, tablecopy;
 
-	uefi_entry_pcpy (uefi_entry_virttophys (&tablenum),
-			 &systab->NumberOfTableEntries, sizeof tablenum);
-	uefi_entry_pcpy (uefi_entry_virttophys (&table),
-			 &systab->ConfigurationTable, sizeof table);
+	UEFI_READ_PHYS (&tablenum, &systab->NumberOfTableEntries);
+	UEFI_READ_PHYS (&table, &systab->ConfigurationTable);
 	for (i = 0; i < tablenum; i++) {
-		uefi_entry_pcpy (uefi_entry_virttophys (&tablecopy),
-				 &table[i], sizeof table[i]);
+		UEFI_READ_PHYS (&tablecopy, &table[i]);
 		if (!uefi_guid_cmp (&tablecopy.VendorGuid,
 				    &acpi_20_table_guid))
 			uefi_acpi_20_table = (ulong)tablecopy.VendorTable;
@@ -157,13 +159,10 @@ boot_param_get_phys (struct uuid *boot_uuid)
 	uint i;
 
 	for (i = 0; i < MAX_N_PARAM_EXTS; i++) {
-		uefi_entry_pcpy (uefi_entry_virttophys (&opt_addr),
-				 &opt_table_phys[i], sizeof (opt_addr));
+		UEFI_READ_PHYS (&opt_addr, &opt_table_phys[i]);
 		if (!opt_addr)
 			break;
-		uefi_entry_pcpy (uefi_entry_virttophys (&opt_uuid),
-				 (void *)(ulong)opt_addr,
-				 sizeof (opt_uuid));
+		UEFI_READ_PHYS (&opt_uuid, (void *)(ulong)opt_addr);
 		if (!uefi_guid_cmp ((EFI_GUID *)&opt_uuid,
 				    (EFI_GUID *)boot_uuid))
 			return opt_addr;
@@ -194,65 +193,38 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 
 	uefi_boot_param_ext_addr = (ulong)boot_options;
 	uefi_image_handle = (ulong)image;
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_runtime_services),
-			 &systab->RuntimeServices,
-			 sizeof uefi_runtime_services);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_get_time),
-			 &uefi_runtime_services->GetTime,
-			 sizeof uefi_get_time);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_conin),
-			 &systab->ConIn, sizeof uefi_conin);
+	UEFI_READ_PHYS (&uefi_runtime_services, &systab->RuntimeServices);
+	UEFI_READ_PHYS (&uefi_get_time, &uefi_runtime_services->GetTime);
+	UEFI_READ_PHYS (&uefi_conin, &systab->ConIn);
 	conin = uefi_conin;
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_conin_read_key_stroke),
-			 &conin->ReadKeyStroke,
-			 sizeof uefi_conin_read_key_stroke);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_conout),
-			 &systab->ConOut, sizeof uefi_conout);
+	UEFI_READ_PHYS (&uefi_conin_read_key_stroke, &conin->ReadKeyStroke);
+	UEFI_READ_PHYS (&uefi_conout, &systab->ConOut);
 	conout = uefi_conout;
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_conout_output_string),
-			 &conout->OutputString,
-			 sizeof uefi_conout_output_string);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_boot_services),
-			 &systab->BootServices, sizeof uefi_boot_services);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_allocate_pages),
-			 &uefi_boot_services->AllocatePages,
-			 sizeof uefi_allocate_pages);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_free_pages),
-			 &uefi_boot_services->FreePages,
-			 sizeof uefi_free_pages);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_wait_for_event),
-			 &uefi_boot_services->WaitForEvent,
-			 sizeof uefi_wait_for_event);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_get_memory_map),
-			 &uefi_boot_services->GetMemoryMap,
-			 sizeof uefi_get_memory_map);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_locate_handle_buffer),
-			 &uefi_boot_services->LocateHandleBuffer,
-			 sizeof uefi_locate_handle_buffer);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_free_pool),
-			 &uefi_boot_services->FreePool, sizeof uefi_free_pool);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_locate_device_path),
-			 &uefi_boot_services->LocateDevicePath,
-			 sizeof uefi_locate_device_path);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_open_protocol),
-			 &uefi_boot_services->OpenProtocol,
-			 sizeof uefi_open_protocol);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_close_protocol),
-			 &uefi_boot_services->CloseProtocol,
-			 sizeof uefi_close_protocol);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_disconnect_controller),
-			 &uefi_boot_services->DisconnectController,
-			 sizeof uefi_disconnect_controller);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_protocols_per_handle),
-			 &uefi_boot_services->ProtocolsPerHandle,
-			 sizeof uefi_protocols_per_handle);
-	uefi_entry_pcpy (uefi_entry_virttophys
-			 (&uefi_uninstall_protocol_interface),
-			 &uefi_boot_services->UninstallProtocolInterface,
-			 sizeof uefi_uninstall_protocol_interface);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_create_event),
-			 &uefi_boot_services->CreateEvent,
-			 sizeof uefi_create_event);
+	UEFI_READ_PHYS (&uefi_conout_output_string, &conout->OutputString);
+	UEFI_READ_PHYS (&uefi_boot_services, &systab->BootServices);
+	UEFI_READ_PHYS (&uefi_allocate_pages,
+			&uefi_boot_services->AllocatePages);
+	UEFI_READ_PHYS (&uefi_free_pages, &uefi_boot_services->FreePages);
+	UEFI_READ_PHYS (&uefi_wait_for_event,
+			&uefi_boot_services->WaitForEvent);
+	UEFI_READ_PHYS (&uefi_get_memory_map,
+			&uefi_boot_services->GetMemoryMap);
+	UEFI_READ_PHYS (&uefi_locate_handle_buffer,
+			&uefi_boot_services->LocateHandleBuffer);
+	UEFI_READ_PHYS (&uefi_free_pool, &uefi_boot_services->FreePool);
+	UEFI_READ_PHYS (&uefi_locate_device_path,
+			&uefi_boot_services->LocateDevicePath);
+	UEFI_READ_PHYS (&uefi_open_protocol,
+			&uefi_boot_services->OpenProtocol);
+	UEFI_READ_PHYS (&uefi_close_protocol,
+			&uefi_boot_services->CloseProtocol);
+	UEFI_READ_PHYS (&uefi_disconnect_controller,
+			&uefi_boot_services->DisconnectController);
+	UEFI_READ_PHYS (&uefi_protocols_per_handle,
+			&uefi_boot_services->ProtocolsPerHandle);
+	UEFI_READ_PHYS (&uefi_uninstall_protocol_interface,
+			&uefi_boot_services->UninstallProtocolInterface);
+	UEFI_READ_PHYS (&uefi_create_event, &uefi_boot_services->CreateEvent);
 	read_configuration_table (systab);
 
 	if (!boot_options) {
@@ -264,25 +236,20 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 		_PRINT ("Fatal: Cannot find boot handler\n");
 		return 0;
 	}
-	uefi_entry_pcpy (uefi_entry_virttophys (&bitvisor_opt),
-			 (void *)(ulong)boot_opt_addr,
-			 sizeof (bitvisor_opt));
+	UEFI_READ_PHYS (&bitvisor_opt, (void *)(ulong)boot_opt_addr);
 	disconnect_controller_opt_addr =
 		boot_param_get_phys (&disconnect_controller_opt_uuid);
 	if (disconnect_controller_opt_addr) {
-		uefi_entry_pcpy (uefi_entry_virttophys
-				 (&disconnect_controller_opt),
-				 (void *)(ulong)disconnect_controller_opt_addr,
-				 sizeof disconnect_controller_opt);
+		UEFI_READ_PHYS (&disconnect_controller_opt,
+				(void *)(ulong)disconnect_controller_opt_addr);
 		uefi_disconnect_controller = (ulong)
 			disconnect_controller_opt.disconnect_controller;
 	}
 	acpi_table_mod_opt_addr =
 		boot_param_get_phys (&acpi_table_mod_opt_uuid);
 	if (acpi_table_mod_opt_addr) {
-		uefi_entry_pcpy (uefi_entry_virttophys (&acpi_table_mod_opt),
-				 (void *)(ulong)acpi_table_mod_opt_addr,
-				 sizeof acpi_table_mod_opt);
+		UEFI_READ_PHYS (&acpi_table_mod_opt,
+				(void *)(ulong)acpi_table_mod_opt_addr);
 		uefi_boot_acpi_table_mod = (ulong)acpi_table_mod_opt.modify;
 	}
 
@@ -290,17 +257,18 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 	loadsize = bitvisor_opt.loadsize;
 	file = bitvisor_opt.file;
 
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_read),
-			 &file->Read, sizeof uefi_read);
+	UEFI_READ_PHYS (&uefi_read, &file->Read);
 
 	uefi_init_get_vmmsize (&vmmsize, &align);
 	vmmsize = (vmmsize + PAGESIZE - 1) & ~PAGESIZE_MASK;
 	alloc_addr64 = 0xFFFFFFFF;
 	npages = (vmmsize + align - 1) >> PAGESIZE_SHIFT;
-	ret = uefi_entry_call (uefi_allocate_pages, 0,
-			       1 /* AllocateMaxAddress */,
-			       8 /* EfiUnusableMemory */,
-			       npages, uefi_entry_virttophys (&alloc_addr64));
+	ret = uefi_entry_arch_call (uefi_allocate_pages, 0,
+				    1 /* AllocateMaxAddress */,
+				    8 /* EfiUnusableMemory */,
+				    npages,
+				    uefi_entry_arch_virttophys
+				    (&alloc_addr64));
 	if (ret) {
 		_PRINT ("AllocatePages failed ");
 		_printhex (ret, 8);
@@ -313,14 +281,15 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 		alloc_addr += align - (alloc_addr % align);
 	freesize = (alloc_addr - alloc_addr64) >> PAGESIZE_SHIFT;
 	if (freesize > 0)
-		uefi_entry_call (uefi_free_pages, 0, alloc_addr64, freesize);
+		uefi_entry_arch_call (uefi_free_pages, 0, alloc_addr64,
+				      freesize);
 	freesize = npages - freesize - (vmmsize >> PAGESIZE_SHIFT);
 	if (freesize > 0)
-		uefi_entry_call (uefi_free_pages, 0, alloc_addr + vmmsize,
-				 freesize);
+		uefi_entry_arch_call (uefi_free_pages, 0, alloc_addr + vmmsize,
+				      freesize);
 	_PRINT ("ing ");
-	uefi_entry_pcpy ((u8 *)alloc_addr + 0x100000, (u8 *)(ulong)loadaddr,
-			 loadsize);
+	uefi_entry_arch_pcpy ((u8 *)alloc_addr + 0x100000,
+			      (u8 *)(ulong)loadaddr, loadsize);
 	loadedsize = loadsize;
 	blocksize = (((dataend - head) / 64 + 511) / 512) * 512;
 	do {
@@ -328,10 +297,11 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 		readsize = dataend - head - loadedsize;
 		if (readsize > blocksize)
 			readsize = blocksize;
-		ret = uefi_entry_call (uefi_read, 0, file,
-				       uefi_entry_virttophys (&readsize),
-				       (void *)(alloc_addr + 0x100000 +
-						loadedsize));
+		ret = uefi_entry_arch_call (uefi_read, 0, file,
+					    uefi_entry_arch_virttophys
+					    (&readsize),
+					    (void *)(alloc_addr + 0x100000 +
+						     loadedsize));
 		if (ret) {
 			_PRINT ("\nRead error.\n");
 			return 0;

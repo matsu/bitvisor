@@ -461,15 +461,15 @@ uefi_entry_restore_regs:
 	pop	%rax
 	ret
 
-	.globl	uefi_entry_virttophys
-uefi_entry_virttophys:
+	.globl	uefi_entry_arch_virttophys
+uefi_entry_arch_virttophys:
 	mov	uefi_entry_physoff(%rip),%rax
 	add	%rdi,%rax
 	ret
 
-# uefi_entry_call: number of arguments of UEFI API must be <= 4
-	.globl	uefi_entry_call
-uefi_entry_call:
+# uefi_entry_arch_call: number of arguments of UEFI API must be <= 4
+	.globl	uefi_entry_arch_call
+uefi_entry_arch_call:
 	mov	uefi_entry_physoff(%rip),%rax
 	call	uefi_entry_rip_plus_rax
 	mov	%rsp,%rsi
@@ -491,8 +491,8 @@ uefi_entry_call:
 	mov	%rsi,%cr3
 	ret
 
-	.globl	uefi_entry_pcpy
-uefi_entry_pcpy:
+	.globl	uefi_entry_arch_pcpy
+uefi_entry_arch_pcpy:
 	mov	uefi_entry_physoff(%rip),%rax
 	call	uefi_entry_rip_plus_rax
 	mov	uefi_entry_cr3(%rip),%rax
