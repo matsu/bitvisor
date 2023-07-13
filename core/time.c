@@ -35,11 +35,11 @@
 #include <core/initfunc.h>
 #include <core/printf.h>
 #include <core/process.h>
+#include <core/sleep.h>
 #include <core/time.h>
 #include "acpi.h"
 #include "calluefi.h"
 #include "comphappy.h"
-#include "sleep.h"
 #include "time.h"
 #include "uefi.h"
 

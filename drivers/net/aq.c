@@ -59,13 +59,12 @@
 #include <core/list.h>
 #include <core/mmio.h>
 #include <core/time.h>
+#include <core/sleep.h>
 #include <core/thread.h>
 #include <core/uefiutil.h>
 #include <net/netapi.h>
 #include "pci.h"
 #include "virtio_net.h"
-
-void usleep (u32);
 
 /*
  * NOTE

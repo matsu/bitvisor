@@ -32,12 +32,11 @@
 #include <builtin.h>
 #include <core.h>
 #include <core/mmio.h>
+#include <core/sleep.h>
 #include <core/uefiutil.h>
 #include <net/netapi.h>
 #include "pci.h"
 #include "virtio_net.h"
-
-void usleep (u32);
 
 static const char driver_name[] = "bnx";
 static const char driver_longname[] =

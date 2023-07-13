@@ -33,13 +33,13 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
+#include <core/sleep.h>
 #include "acpi.h"
 #include "ap.h"
 #include "asm.h"
 #include "callrealmode.h"
 #include "panic.h"
 #include "reboot.h"
-#include "sleep.h"
 
 static volatile bool rebooting = false;
 

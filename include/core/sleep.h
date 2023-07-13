@@ -27,12 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_SLEEP_H
-#define _CORE_SLEEP_H
+#ifndef __CORE_SLEEP_H
+#define __CORE_SLEEP_H
 
 #include <core/types.h>
 
-void waitcycles (u32 d, u32 a);
-void sleep_set_timer_counter (void);
+void usleep (u32 usec);
 
 #endif

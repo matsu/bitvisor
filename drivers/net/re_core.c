@@ -63,6 +63,7 @@
 #include <core/mmio.h>
 #include <core/time.h>
 #include <core/thread.h>
+#include <core/sleep.h>
 #include <net/netapi.h>
 
 #include <stdint.h>
@@ -125,7 +126,6 @@
 #define RE_CMAC_READ_1(sc, reg) \
 	((u8)cmac_read ((sc), (reg), 1))
 
-void usleep (u32);
 static uint read_reg (struct re_softc *sc, uint reg_offset, uint nbytes);
 static void write_reg (struct re_softc *sc, uint reg_offset, uint val,
 		       uint nbytes);

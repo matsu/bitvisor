@@ -36,6 +36,7 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
+#include <core/sleep.h>
 #include <core/spinlock.h>
 #include <core/stdarg.h>
 #include <core/string.h>

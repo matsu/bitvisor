@@ -35,6 +35,7 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
+#include <core/sleep.h>
 #include <core/string.h>
 #include <core/types.h>
 #include <share/uefi_boot.h>

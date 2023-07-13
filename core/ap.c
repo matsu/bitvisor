@@ -34,6 +34,7 @@
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
+#include <core/sleep.h>
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/thread.h>
@@ -45,7 +46,6 @@
 #include "localapic.h"
 #include "pcpu.h"
 #include "seg.h"
-#include "sleep.h"
 #include "uefi.h"
 #include "vmm_mem.h"
 

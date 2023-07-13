@@ -31,6 +31,7 @@
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mmio.h>
+#include <core/sleep.h>
 #include <net/netapi.h>
 #include "pci.h"
 #include "pci_vtd_trans.h"
@@ -1430,7 +1431,6 @@ pro1000_enable_dma_and_memory (struct pci_device *pci_device)
 static void
 seize_pro1000 (struct data2 *d2)
 {
-	void usleep (u32);
 	void *base = d2->d1[0].map;
 	u32 v, n, i;
 	u16 dev_id = d2->pci_device->config_space.device_id;

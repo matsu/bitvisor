@@ -29,6 +29,7 @@
 
 #include <core/initfunc.h>
 #include <core/process.h>
+#include <core/sleep.h>
 #include "asm.h"
 #include "constants.h"
 #include "sleep.h"

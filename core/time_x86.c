@@ -35,6 +35,7 @@
 #include <core/initfunc.h>
 #include <core/panic.h>
 #include <core/printf.h>
+#include <core/sleep.h>
 #include <core/spinlock.h>
 #include <core/time.h>
 #include "ap.h"
@@ -42,7 +43,6 @@
 #include "constants.h"
 #include "convert.h"
 #include "pcpu.h"
-#include "sleep.h"
 #include "vmmcall_status.h"
 
 static u64 lastcputime;
