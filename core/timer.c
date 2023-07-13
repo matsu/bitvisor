@@ -27,7 +27,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "comphappy.h"
 #include "constants.h"
 #include "initfunc.h"
 #include "list.h"
@@ -125,34 +124,33 @@ timer_thread (void *thread_data)
 {
 	struct timer_data *p;
 	u64 time;
-	bool call;
 	void (*callback) (void *handle, void *data);
 	void *data;
 
-	VAR_IS_INITIALIZED (callback);
-	VAR_IS_INITIALIZED (data);
 	for (;;) {
-		call = false;
 		spinlock_lock (&timer_lock);
-		p = LIST1_POP (list1_timer_on);
-		if (p) {
+		LIST1_FOREACH (list1_timer_on, p) {
+			/* p->enable must be true */
 			time = get_time ();
-			if (p->enable && (time - p->settime) >= p->interval) {
-				p->enable = false;
-				call = true;
-				callback = p->callback;
-				data = p->data;
-			}
-			if (p->enable)
-				LIST1_PUSH (list1_timer_on, p);
-			else
-				LIST1_ADD (list1_timer_off, p);
+			if ((time - p->settime) >= p->interval)
+				goto found;
+			break;
 		}
 		spinlock_unlock (&timer_lock);
-		if (call)
-			callback (p, data);
-		else
-			schedule ();
+		schedule ();
+		continue;
+	found:
+		LIST1_DEL (list1_timer_on, p);
+		p->enable = false;
+		/* Copy callback and data to avoid race condition with
+		 * timer_free() and timer_new() after unlock which is
+		 * necessary for making timer_set() usable in the
+		 * callback. */
+		callback = p->callback;
+		data = p->data;
+		LIST1_ADD (list1_timer_off, p);
+		spinlock_unlock (&timer_lock);
+		callback (p, data);
 	}
 }
 
