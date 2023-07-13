@@ -27,12 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_CALLUEFI_ASM_H
-#define _CORE_CALLUEFI_ASM_H
+#ifndef _CORE_INCLUDE_ARCH_CALLUEFI_H
+#define _CORE_INCLUDE_ARCH_CALLUEFI_H
 
-#include "linkage.h"
-#include "types.h"
+#include <core/linkage.h>
+#include <core/types.h>
 
-asmlinkage int calluefi (ulong func, uint num_args, ...);
+asmlinkage int calluefi_arch (ulong func, uint num_args, ...);
 
 #endif

@@ -34,7 +34,7 @@
 #include <Protocol/GraphicsOutput.h>
 #include <share/efi_extra/device_path_helper.h>
 #undef NULL
-#include "calluefi_asm.h"
+#include <arch/calluefi.h>
 #include "mm.h"
 #include "printf.h"
 #include "string.h"
@@ -60,10 +60,11 @@ call_uefi_get_memory_map (void)
 	static u32 version;
 	static ulong key;
 
-	calluefi (uefi_get_memory_map, 5, sym_to_phys (&uefi_memory_map_size),
-		  sym_to_phys (uefi_memory_map_data), sym_to_phys (&key),
-		  sym_to_phys (&uefi_memory_map_descsize),
-		  sym_to_phys (&version));
+	calluefi_arch (uefi_get_memory_map, 5,
+		       sym_to_phys (&uefi_memory_map_size),
+		       sym_to_phys (uefi_memory_map_data), sym_to_phys (&key),
+		       sym_to_phys (&uefi_memory_map_descsize),
+		       sym_to_phys (&version));
 }
 
 int
@@ -73,8 +74,8 @@ call_uefi_allocate_pages (int type, int memtype, u64 npages, u64 *phys)
 	int ret;
 
 	buf = *phys;
-	ret = calluefi (uefi_allocate_pages, 4, type, memtype, npages,
-			sym_to_phys (&buf));
+	ret = calluefi_arch (uefi_allocate_pages, 4, type, memtype, npages,
+			     sym_to_phys (&buf));
 	*phys = buf;
 	return ret;
 }
@@ -86,7 +87,7 @@ call_uefi_get_time (u16 *year, u8 *month, u8 *day, u8 *hour, u8 *minute,
 	static EFI_TIME efi_time;
 	int ret;
 
-	ret = calluefi (uefi_get_time, 2, sym_to_phys (&efi_time), NULL);
+	ret = calluefi_arch (uefi_get_time, 2, sym_to_phys (&efi_time), NULL);
 	if (ret) {
 		printf ("Cannot get uefi time with %d\n", ret);
 		return ret;
@@ -104,7 +105,7 @@ call_uefi_get_time (u16 *year, u8 *month, u8 *day, u8 *hour, u8 *minute,
 int
 call_uefi_free_pages (u64 phys, u64 npages)
 {
-	return calluefi (uefi_free_pages, 2, phys, npages);
+	return calluefi_arch (uefi_free_pages, 2, phys, npages);
 }
 
 int
@@ -114,8 +115,9 @@ call_uefi_create_event_exit_boot_services (u64 phys, u64 context,
 	static EFI_EVENT event;
 	int ret;
 
-	ret = calluefi (uefi_create_event, 5, EVT_SIGNAL_EXIT_BOOT_SERVICES,
-			TPL_NOTIFY, phys, context, sym_to_phys (&event));
+	ret = calluefi_arch (uefi_create_event, 5,
+			     EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_NOTIFY, phys,
+			     context, sym_to_phys (&event));
 	*event_ret = event;
 	return ret;
 }
@@ -133,8 +135,8 @@ call_uefi_boot_acpi_table_mod (char *signature, u64 table_addr)
 		return -1;
 	for (i = 0; i < 4; i++)
 		s.signature[i] = signature[i];
-	return calluefi (uefi_boot_acpi_table_mod, 2, s.signature32,
-			 table_addr);
+	return calluefi_arch (uefi_boot_acpi_table_mod, 2, s.signature32,
+			      table_addr);
 }
 
 u32
@@ -144,10 +146,10 @@ call_uefi_getkey (void)
 	static u64 index;
 	EFI_SIMPLE_TEXT_INPUT_PROTOCOL *conin = uefi_conin;
 
-	while (calluefi (uefi_conin_read_key_stroke, 2, conin,
-			 sym_to_phys (&buf)))
-		calluefi (uefi_wait_for_event, 3, 1, &conin->WaitForKey,
-			  sym_to_phys (&index));
+	while (calluefi_arch (uefi_conin_read_key_stroke, 2, conin,
+			      sym_to_phys (&buf)))
+		calluefi_arch (uefi_wait_for_event, 3, 1, &conin->WaitForKey,
+			       sym_to_phys (&index));
 	return buf;
 }
 
@@ -157,8 +159,8 @@ call_uefi_putchar (unsigned char c)
 	static u64 buf;
 
 	buf = c == '\n' ? 0x0A000D : c;
-	calluefi (uefi_conout_output_string, 2, uefi_conout,
-		  sym_to_phys (&buf));
+	calluefi_arch (uefi_conout_output_string, 2, uefi_conout,
+		       sym_to_phys (&buf));
 }
 
 static int
@@ -177,10 +179,9 @@ cleanup_protocols (ulong controller)
 {
 	static u64 protocol_list, n_protocol_list;
 	int err;
-	err = calluefi (uefi_protocols_per_handle, 3,
-			controller,
-			sym_to_phys (&protocol_list),
-			sym_to_phys (&n_protocol_list));
+	err = calluefi_arch (uefi_protocols_per_handle, 3, controller,
+			     sym_to_phys (&protocol_list),
+			     sym_to_phys (&n_protocol_list));
 	if (err) {
 		printf ("Error in ProtocolsPerHandle with: %d\n", err);
 		return;
@@ -200,39 +201,31 @@ cleanup_protocols (ulong controller)
 			continue;
 		n_should_be_uninstalled++;
 		static u64 interface;
-		err = calluefi (uefi_open_protocol, 6,
-				controller,
-				guid_list[i],
-				sym_to_phys (&interface),
-				uefi_image_handle,
-				NULL,
-				EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+		err = calluefi_arch (uefi_open_protocol, 6, controller,
+				     guid_list[i], sym_to_phys (&interface),
+				     uefi_image_handle, NULL,
+				     EFI_OPEN_PROTOCOL_GET_PROTOCOL);
 		if (err) {
 			printf ("Cannot open protocol with %d\n", err);
 			continue;
 		}
-		err = calluefi (uefi_uninstall_protocol_interface, 3,
-				controller,
-				guid_list[i],
-				interface);
+		err = calluefi_arch (uefi_uninstall_protocol_interface, 3,
+				     controller, guid_list[i], interface);
 		if (err) {
 			printf ("Cannot uninstall protocol with %d\n", err);
 			continue;
 		}
-		err = calluefi (uefi_open_protocol, 6,
-				controller,
-				guid_list[i],
-				sym_to_phys (&interface),
-				uefi_image_handle,
-				NULL,
-				EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+		err = calluefi_arch (uefi_open_protocol, 6, controller,
+				     guid_list[i], sym_to_phys (&interface),
+				     uefi_image_handle, NULL,
+				     EFI_OPEN_PROTOCOL_GET_PROTOCOL);
 		if (!err)
 			printf ("Protocol still exits after uninstall");
 		else
 			n_uninstalled++;
 	}
 	unmapmem (guid_list, sizeof *guid_list * n_protocol_list);
-	calluefi (uefi_free_pool, 1, protocol_list);
+	calluefi_arch (uefi_free_pool, 1, protocol_list);
 	if (n_should_be_uninstalled > 0)
 		printf ("Uninstall %u protocol(s) successfully\n",
 			n_uninstalled);
@@ -248,19 +241,19 @@ disconnect_pcidev_driver (ulong tseg, ulong tbus, ulong tdev, ulong tfunc,
 	EFI_PCI_IO_PROTOCOL *pci_io;
 	int retrycount = 10;
 
-	if (calluefi (uefi_open_protocol, 6, controller,
-		      sym_to_phys (&pci_io_protocol_guid),
-		      sym_to_phys (&protocol), uefi_image_handle, NULL,
-		      EFI_OPEN_PROTOCOL_GET_PROTOCOL))
+	if (calluefi_arch (uefi_open_protocol, 6, controller,
+			   sym_to_phys (&pci_io_protocol_guid),
+			   sym_to_phys (&protocol), uefi_image_handle, NULL,
+			   EFI_OPEN_PROTOCOL_GET_PROTOCOL))
 		return;
 	pci_io = mapmem_hphys (protocol, sizeof *pci_io, 0);
-	if (!calluefi ((ulong)pci_io->GetLocation, 5, protocol,
-		       sym_to_phys (&seg), sym_to_phys (&bus),
-		       sym_to_phys (&dev), sym_to_phys (&func)) &&
+	if (!calluefi_arch ((ulong)pci_io->GetLocation, 5, protocol,
+			    sym_to_phys (&seg), sym_to_phys (&bus),
+			    sym_to_phys (&dev), sym_to_phys (&func)) &&
 	    seg == tseg && bus == tbus && dev == tdev && func == tfunc) {
 		while (retrycount-- > 0) {
-			if (!calluefi (uefi_disconnect_controller, 3,
-				       controller, NULL, NULL)) {
+			if (!calluefi_arch (uefi_disconnect_controller, 3,
+					    controller, NULL, NULL)) {
 				cleanup_protocols (controller);
 				break;
 			}
@@ -270,9 +263,9 @@ disconnect_pcidev_driver (ulong tseg, ulong tbus, ulong tdev, ulong tfunc,
 			"Failed to disconnect" : "Disconnected");
 	}
 	unmapmem (pci_io, sizeof *pci_io);
-	calluefi (uefi_close_protocol, 4, controller,
-		  sym_to_phys (&pci_io_protocol_guid), uefi_image_handle,
-		  NULL);
+	calluefi_arch (uefi_close_protocol, 4, controller,
+		       sym_to_phys (&pci_io_protocol_guid), uefi_image_handle,
+		       NULL);
 }
 
 /* Call disconnect_pcidev_driver() with every EFI_PCI_IO_PROTOCOL handle */
@@ -284,9 +277,9 @@ call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
 	ulong *handles_map;
 	u64 ihandles;
 
-	if (calluefi (uefi_locate_handle_buffer, 5, ByProtocol,
-		      sym_to_phys (&pci_io_protocol_guid), NULL,
-		      sym_to_phys (&nhandles), sym_to_phys (&handles)))
+	if (calluefi_arch (uefi_locate_handle_buffer, 5, ByProtocol,
+			   sym_to_phys (&pci_io_protocol_guid), NULL,
+			   sym_to_phys (&nhandles), sym_to_phys (&handles)))
 		return;
 	if (nhandles) {
 		handles_map = mapmem_hphys (handles, sizeof *handles_map *
@@ -296,7 +289,7 @@ call_uefi_disconnect_pcidev_driver (ulong seg, ulong bus, ulong dev,
 						  handles_map[ihandles]);
 		unmapmem (handles_map, sizeof *handles_map * nhandles);
 	}
-	calluefi (uefi_free_pool, 1, handles);
+	calluefi_arch (uefi_free_pool, 1, handles);
 }
 
 static void
@@ -332,34 +325,35 @@ do_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
 	static u64 controller, c_seg, c_bus, c_dev, c_func;
 	EFI_PCI_IO_PROTOCOL *pci_io;
 
-	if (calluefi (uefi_open_protocol, 6, handle,
-		      sym_to_phys (&device_path_protocol_guid),
-		      sym_to_phys (&dp_interface), uefi_image_handle, NULL,
-		      EFI_OPEN_PROTOCOL_GET_PROTOCOL))
+	if (calluefi_arch (uefi_open_protocol, 6, handle,
+			   sym_to_phys (&device_path_protocol_guid),
+			   sym_to_phys (&dp_interface), uefi_image_handle,
+			   NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL))
 		return;
-	if (calluefi (uefi_locate_device_path, 3,
-		      sym_to_phys (&pci_io_protocol_guid),
-		      sym_to_phys (&dp_interface), sym_to_phys (&controller)))
+	if (calluefi_arch (uefi_locate_device_path, 3,
+			   sym_to_phys (&pci_io_protocol_guid),
+			   sym_to_phys (&dp_interface),
+			   sym_to_phys (&controller)))
 		goto end;
-	if (calluefi (uefi_open_protocol, 6, controller,
-		      sym_to_phys (&pci_io_protocol_guid),
-		      sym_to_phys (&pci_io_interface),
-		      uefi_image_handle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL))
+	if (calluefi_arch (uefi_open_protocol, 6, controller,
+			   sym_to_phys (&pci_io_protocol_guid),
+			   sym_to_phys (&pci_io_interface), uefi_image_handle,
+			   NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL))
 		goto end;
 	pci_io = mapmem_hphys (pci_io_interface, sizeof *pci_io, 0);
-	if (!calluefi ((ulong)pci_io->GetLocation, 5, pci_io_interface,
-		       sym_to_phys (&c_seg), sym_to_phys (&c_bus),
-		       sym_to_phys (&c_dev), sym_to_phys (&c_func)) &&
+	if (!calluefi_arch ((ulong)pci_io->GetLocation, 5, pci_io_interface,
+			    sym_to_phys (&c_seg), sym_to_phys (&c_bus),
+			    sym_to_phys (&c_dev), sym_to_phys (&c_func)) &&
 	    seg == c_seg && bus == c_bus && dev == c_dev && func == c_func)
 		do_netdev_get_mac_addr_from_device_path (dp_interface, mac);
 	unmapmem (pci_io, sizeof *pci_io);
-	calluefi (uefi_close_protocol, 4, controller,
-		  sym_to_phys (&pci_io_protocol_guid),
-		  uefi_image_handle, NULL);
+	calluefi_arch (uefi_close_protocol, 4, controller,
+		       sym_to_phys (&pci_io_protocol_guid), uefi_image_handle,
+		       NULL);
 end:
-	calluefi (uefi_close_protocol, 4, handle,
-		  sym_to_phys (&device_path_protocol_guid),
-		  uefi_image_handle, NULL);
+	calluefi_arch (uefi_close_protocol, 4, handle,
+		       sym_to_phys (&device_path_protocol_guid),
+		       uefi_image_handle, NULL);
 }
 
 void
@@ -372,9 +366,9 @@ call_uefi_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
 
 	if (len < 6 || !mac)
 		return;
-	if (calluefi (uefi_locate_handle_buffer, 5, ByProtocol,
-		      sym_to_phys (&simple_network_protocol_guid), NULL,
-		      sym_to_phys (&nhandles), sym_to_phys (&handles)))
+	if (calluefi_arch (uefi_locate_handle_buffer, 5, ByProtocol,
+			   sym_to_phys (&simple_network_protocol_guid), NULL,
+			   sym_to_phys (&nhandles), sym_to_phys (&handles)))
 		return;
 	if (nhandles) {
 		handles_map = mapmem_hphys (handles, sizeof *handles_map *
@@ -384,7 +378,7 @@ call_uefi_netdev_get_mac_addr (ulong seg, ulong bus, ulong dev, ulong func,
 						handles_map[i], mac, len);
 		unmapmem (handles_map, sizeof *handles_map * nhandles);
 	}
-	calluefi (uefi_free_pool, 1, handles);
+	calluefi_arch (uefi_free_pool, 1, handles);
 }
 
 int
@@ -392,9 +386,9 @@ call_uefi_get_graphics_info (u32 *hres, u32 *vres, u32 *rmask, u32 *gmask,
 			     u32 *bmask, u32 *pxlin, u64 *addr, u64 *size)
 {
 	static u64 nhandles, handles;
-	if (calluefi (uefi_locate_handle_buffer, 5, ByProtocol,
-		      sym_to_phys (&graphics_output_protocol_guid), NULL,
-		      sym_to_phys (&nhandles), sym_to_phys (&handles)))
+	if (calluefi_arch (uefi_locate_handle_buffer, 5, ByProtocol,
+			   sym_to_phys (&graphics_output_protocol_guid), NULL,
+			   sym_to_phys (&nhandles), sym_to_phys (&handles)))
 		return -1;
 	u64 handle = 0;
 	if (nhandles) {
@@ -404,14 +398,15 @@ call_uefi_get_graphics_info (u32 *hres, u32 *vres, u32 *rmask, u32 *gmask,
 		handle = handles_map[0];
 		unmapmem (handles_map, sizeof *handles_map * nhandles);
 	}
-	calluefi (uefi_free_pool, 1, handles);
+	calluefi_arch (uefi_free_pool, 1, handles);
 	if (!handle)
 		return -1;
 	static u64 graphics_output_interface;
-	if (calluefi (uefi_open_protocol, 6, handle,
-		      sym_to_phys (&graphics_output_protocol_guid),
-		      sym_to_phys (&graphics_output_interface),
-		      uefi_image_handle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL))
+	if (calluefi_arch (uefi_open_protocol, 6, handle,
+			   sym_to_phys (&graphics_output_protocol_guid),
+			   sym_to_phys (&graphics_output_interface),
+			   uefi_image_handle, NULL,
+			   EFI_OPEN_PROTOCOL_GET_PROTOCOL))
 		return -1;
 	int ret = -1;
 	EFI_GRAPHICS_OUTPUT_PROTOCOL *graphics_output;
@@ -458,8 +453,8 @@ unmap2:
 	unmapmem (mode, sizeof *mode);
 unmap1:
 	unmapmem (graphics_output, sizeof *graphics_output);
-	calluefi (uefi_close_protocol, 4, handle,
-		  sym_to_phys (&graphics_output_protocol_guid),
-		  uefi_image_handle, NULL);
+	calluefi_arch (uefi_close_protocol, 4, handle,
+		       sym_to_phys (&graphics_output_protocol_guid),
+		       uefi_image_handle, NULL);
 	return ret;
 }

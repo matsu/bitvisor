@@ -36,8 +36,8 @@
 	.align	PAGESIZE
 calluefi_pt:
 	.space	PAGESIZE*4
-	.globl	calluefi
-calluefi:
+	.globl	calluefi_arch
+calluefi_arch:
 	# NOTE: This code must be stored in one page
 .if longmode
 	push	%rbp
@@ -50,7 +50,7 @@ calluefi:
 	push	%rdi
 	mov	$calluefi_pt,%rdi
 	mov	calluefi_pt_phys,%rsi
-	mov	$calluefi,%rdx
+	mov	$calluefi_arch,%rdx
 	call	fill_pagetable
 	mov	%rax,calluefi_pt_phys
 	sub	$uefi_entry_save_regs_size,%rsp
