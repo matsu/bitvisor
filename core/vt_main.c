@@ -40,6 +40,7 @@
 #include "initipi.h"
 #include "int.h"
 #include "linkage.h"
+#include "localapic.h"
 #include "nmi.h"
 #include "panic.h"
 #include "pcpu.h"
@@ -555,22 +556,22 @@ vt_init_signal (void)
 	if (currentcpu->cpunum == 0)
 		handle_init_to_bsp ();
 
-	if (!currentcpu->vt.wait_for_sipi_support)
-		panic ("This processor does not support wait-for-SIPI state.");
-	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
-		     VMCS_GUEST_ACTIVITY_STATE_WAIT_FOR_SIPI);
+	if (current->u.vt.wait_for_sipi_emulation) {
+		if (!config.vmm.localapic_intercept && currentcpu->cpunum == 1)
+			localapic_mmio_register ();
+		current->u.vt.init_signal = true;
+	} else {
+		asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
+			     VMCS_GUEST_ACTIVITY_STATE_WAIT_FOR_SIPI);
+	}
 	current->halt = false;
 	current->u.vt.vr.sw.enable = 0;
 	vt_update_exception_bmp ();
 }
 
 static void
-do_startup_ipi (void)
+do_startup_ipi_with_vector (ulong vector)
 {
-	ulong vector;
-
-	asm_vmread (VMCS_EXIT_QUALIFICATION, &vector);
-	vector &= 0xFF;
 	vt_reset ();
 	vt_write_realmode_seg (SREG_CS, vector << 8);
 	vt_write_general_reg (GENERAL_REG_RAX, 0);
@@ -590,8 +591,36 @@ do_startup_ipi (void)
 }
 
 static void
+do_startup_ipi (void)
+{
+	ulong vector;
+
+	asm_vmread (VMCS_EXIT_QUALIFICATION, &vector);
+	vector &= 0xFF;
+	do_startup_ipi_with_vector (vector);
+}
+
+/* Wait-for-SIPI emulation */
+static void
+vt_wait_for_sipi (void)
+{
+	u32 sipi_vector;
+
+	sipi_vector = localapic_wait_for_sipi ();
+	current->initipi.get_init_count (); /* Clear init_counter here */
+	current->u.vt.init_signal = false;
+	do_startup_ipi_with_vector (sipi_vector);
+}
+
+static void
 do_init_signal (void)
 {
+	if (current->u.vt.wait_for_sipi_emulation) {
+		vt_init_signal ();
+		vt_wait_for_sipi ();
+		return;
+	}
+
 	/* On nested virtualization environment, VMX instructions may
 	 * consume longer time than a physical machine.  Change
 	 * activity state to wait-for-SIPI as soon as possible to
@@ -1282,6 +1311,8 @@ vt_mainloop (void)
 		panic_test ();
 		if (current->initipi.get_init_count ())
 			vt_init_signal ();
+		if (current->u.vt.init_signal)
+			vt_wait_for_sipi ();
 		if (current->halt) {
 			vt__halt ();
 			current->halt = false;
@@ -1417,6 +1448,9 @@ void
 vt_start_vm (void)
 {
 	vt_paging_start ();
+	if (current->u.vt.wait_for_sipi_emulation &&
+	    config.vmm.localapic_intercept && !currentcpu->cpunum)
+		localapic_mmio_register ();
 	vt_mainloop ();
 }
 

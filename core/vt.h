@@ -90,6 +90,8 @@ struct vt {
 	bool vmxe;
 	bool vmxon;
 	bool vmcs_shadowing_available;
+	bool wait_for_sipi_emulation;
+	bool init_signal;
 };
 
 struct vt_pcpu_data {

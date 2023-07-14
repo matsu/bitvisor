@@ -295,6 +295,18 @@ vt__vmcs_init (void)
 	current->u.vt.vmxe = false;
 	current->u.vt.vmxon = false;
 	current->u.vt.vmcs_shadowing_available = false;
+	current->u.vt.wait_for_sipi_emulation = false;
+	/* If config.vmm.localapic_intercept is set or wait-for-SIPI
+	 * state is not supported, wait-for-SIPI emulation is enabled.
+	 * The config might be useful for running on nested
+	 * virtualization environment which could not handle local
+	 * APIC pass-through properly. */
+	if (config.vmm.localapic_intercept ||
+	    !currentcpu->vt.wait_for_sipi_support) {
+		printf ("Wait-for-SIPI emulation is enabled.\n");
+		current->u.vt.wait_for_sipi_emulation = true;
+	}
+	current->u.vt.init_signal = false;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;

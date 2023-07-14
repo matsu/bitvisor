@@ -817,7 +817,7 @@ svm_mainloop (void)
 void
 svm_init_signal (void)
 {
-	if (get_cpu_id () == 1)
+	if (!config.vmm.localapic_intercept && get_cpu_id () == 1)
 		localapic_mmio_register ();
 	current->u.svm.init_signal = true;
 }
@@ -826,5 +826,7 @@ void
 svm_start_vm (void)
 {
 	svm_paging_start ();
+	if (config.vmm.localapic_intercept && !get_cpu_id ())
+		localapic_mmio_register ();
 	svm_mainloop ();
 }
