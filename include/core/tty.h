@@ -30,6 +30,8 @@
 #ifndef __CORE_TTY_H
 #define __CORE_TTY_H
 
+#include <core/types.h>
+
 void tty_udp_register (void (*tty_send) (void *handle, void *packet,
 					 unsigned int packet_size),
 		       void *handle);
