@@ -27,11 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_SERIAL_H
-#define _CORE_SERIAL_H
+#ifndef _CORE_INCLUDE_ARCH_SERIAL_H
+#define _CORE_INCLUDE_ARCH_SERIAL_H
 
-void serial_putDebugChar (int c);
-int serial_getDebugChar (void);
-void serial_init_iohook (void);
+void serial_arch_putchar (unsigned char c);
 
 #endif

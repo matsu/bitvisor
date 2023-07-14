@@ -28,6 +28,7 @@
  */
 
 #include <arch/currentcpu.h>
+#include <arch/serial.h>
 #include <core/currentcpu.h>
 #include "arith.h"
 #include "calluefi.h"
@@ -38,7 +39,6 @@
 #include "printf.h"
 #include "process.h"
 #include "putchar.h"
-#include "serial.h"
 #include "spinlock.h"
 #include "string.h"
 #include "sym.h"
@@ -209,7 +209,7 @@ tty_putchar (unsigned char c)
 	}
 	tty_udp_putchar (c);
 #ifdef TTY_SERIAL
-	serial_putchar (c);
+	serial_arch_putchar (c);
 #else
 	if (uefi_booted) {
 		static unsigned char uefi_log[1024];

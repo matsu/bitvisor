@@ -151,7 +151,7 @@ serial_getDebugChar (void)
 	return serialin_msghandler (0, 0);
 }
 
-void
+static void
 serial_putchar (unsigned char c)
 {
 	if (!initialized) {
@@ -163,6 +163,12 @@ serial_putchar (unsigned char c)
 	else if (c == '\0')
 		c = ' ';
 	serial_send (PORT, c);
+}
+
+void
+serial_arch_putchar (unsigned char c)
+{
+	serial_putchar (c);
 }
 
 void
