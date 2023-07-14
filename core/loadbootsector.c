@@ -136,6 +136,9 @@ try_hddboot (u8 bios_boot_drive, u32 tmpbufaddr, u32 tmpbufsize)
 
 	if (tmpbufsize < 512)
 		return false;
+	/* Map real-address mode pages to avoid INS instruction
+	 * handling. */
+	current->vmctl.paging_map_1mb ();
 	printf ("Loading MBR.\n");
 	if (callrealmode_disk_readmbr (bios_boot_drive, tmpbufaddr)) {
 		printf ("MBR read error.\n");
