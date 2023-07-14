@@ -44,7 +44,19 @@ gmm_arch_readlinear_b (ulong linear, void *data)
 }
 
 int
+gmm_arch_readlinear_l (ulong linear, void *data)
+{
+	return read_linearaddr_l (linear, data);
+}
+
+int
 gmm_arch_writelinear_b (ulong linear, u8 data)
 {
 	return write_linearaddr_b (linear, data);
+}
+
+int
+gmm_arch_writelinear_l (ulong linear, u32 data)
+{
+	return write_linearaddr_l (linear, data);
 }

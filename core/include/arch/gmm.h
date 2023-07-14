@@ -56,6 +56,8 @@ struct mm_as;
  */
 const struct mm_as *gmm_arch_current_as (void);
 int gmm_arch_readlinear_b (ulong linear, void *data);
+int gmm_arch_readlinear_l (ulong linear, void *data);
 int gmm_arch_writelinear_b (ulong linear, u8 data);
+int gmm_arch_writelinear_l (ulong linear, u32 data);
 
 #endif

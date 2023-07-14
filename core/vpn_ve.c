@@ -31,9 +31,9 @@
 
 #ifdef VPN
 #ifdef VPN_VE
+#include <arch/gmm.h>
 #include <arch/vmmcall.h>
 #include "config.h"
-#include "cpu_mmu.h"
 #include "crypt.h"
 #include "current.h"
 #include "initfunc.h"
@@ -351,7 +351,7 @@ void crypt_ve_handler()
 
 	for (i = 0;i < (VE_BUFSIZE / 4);i++)
 	{
-		if (read_linearaddr_l((u32)((ulong)(((UCHAR *)addr) + (i * 4))), (u32 *)(data + (i * 4))) != VMMERR_SUCCESS)
+		if (gmm_arch_readlinear_l ((u32)((ulong)(((UCHAR *)addr) + (i * 4))), (u32 *)(data + (i * 4))) != GMM_ACCESS_OK)
 		{
 			ok = false;
 			break;
@@ -370,7 +370,7 @@ void crypt_ve_handler()
 
 	for (i = 0;i < (VE_BUFSIZE / 4);i++)
 	{
-		if (write_linearaddr_l((u32)((ulong)(((UCHAR *)addr) + (i * 4))), *((UINT *)(&data2[i * 4]))) != VMMERR_SUCCESS)
+		if (gmm_arch_writelinear_l ((u32)((ulong)(((UCHAR *)addr) + (i * 4))), *((UINT *)(&data2[i * 4]))) != GMM_ACCESS_OK)
 		{
 			ok = false;
 			break;
