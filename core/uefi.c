@@ -36,7 +36,6 @@
 #include <core/mm.h>
 #include <section.h>
 #include <share/uefi_boot.h>
-#include "entry.h"
 #include "linker.h"
 #include "mm.h"
 #include "uefi.h"
@@ -322,17 +321,4 @@ uefi_load_bitvisor (void *img, void *sys_tab, void **boot_options,
 	*vmm_paddr = alloc_addr;
 	*vmm_size = vmmsize;
 	return 1;
-}
-
-int SECTION_ENTRY_TEXT
-uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
-{
-	ulong alloc_addr;
-	u32 vmm_size;
-
-	if (!uefi_load_bitvisor (image, systab, boot_options, 0x100000,
-				 &alloc_addr, &vmm_size))
-		return 0; /* Fail to load BitVisor */
-
-	uefi_entry_start (alloc_addr);
 }

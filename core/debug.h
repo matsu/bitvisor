@@ -30,14 +30,7 @@
 #ifndef _CORE_DEBUG_H
 #define _CORE_DEBUG_H
 
-#ifdef DEBUG_GDB
-#	ifdef __x86_64__
-#		error DEBUG_GDB is not supported on 64bit
-#	endif
-#endif
-
 void debug_msgregister (void);
 void debug_msgunregister (void);
-void debug_gdb (void);
 
 #endif

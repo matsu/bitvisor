@@ -35,10 +35,6 @@
 extern bool panic_reboot;
 extern char panicmsg[1024];
 
-struct panic_pcpu_data {
-	bool shell_ready;
-};
-
 void auto_reboot (void);
 
 void panic_wait_for_dump_completion (u64 timeout);

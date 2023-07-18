@@ -31,6 +31,5 @@
 #define _CORE_REBOOT_H
 
 void reboot_test (void);
-void handle_init_to_bsp (void);
 
 #endif

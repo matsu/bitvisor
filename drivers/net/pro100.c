@@ -37,7 +37,9 @@
 #include <net/netapi.h>
 #include <Se/Se.h>
 #include "pro100.h"
-#include "../../core/beep.h"	/* DEBUG */
+#if defined (__i386__) || defined (__x86_64__)
+#include "../../core/x86/beep.h"	/* DEBUG */
+#endif
 
 #define SeCopy			memcpy
 #define SeZero(addr, len)	memset (addr, 0, len)
@@ -214,10 +216,12 @@ void pro100_init_vpn_client(PRO100_CTX *ctx)
 // BEEP 再生
 void pro100_beep(UINT freq, UINT msecs)
 {
+#if defined (__i386__) || defined (__x86_64__)
 	beep_on();
 	beep_set_freq(freq);
 	pro100_sleep(msecs);
 	beep_off();
+#endif
 }
 
 // スリープ

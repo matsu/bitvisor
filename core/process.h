@@ -41,8 +41,6 @@
 typedef ulong (*syscall_func_t) (ulong ip, ulong sp, ulong num, ulong arg0,
 				 ulong arg1);
 
-bool own_process64_msrs (void (*func) (void *data), void *data);
-
 void process_kill (bool (*func) (void *data), void *data);
 syscall_func_t process_get_syscall_func (uint num);
 ulong sys_msgsetfunc (ulong ip, ulong sp, ulong num, ulong si, ulong di);

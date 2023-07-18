@@ -32,26 +32,18 @@
 
 #include <core/types.h>
 
-#define MAPMEM_PWT			MAPMEM_PLAT (3)
-#define MAPMEM_PCD			MAPMEM_PLAT (4)
-#define MAPMEM_PAT			MAPMEM_PLAT (7)
-
 #define MM_PROCESS_MAP_WRITE		(1 << 0)
 #define MM_PROCESS_MAP_SHARE		(1 << 1)
 #define MM_PROCESS_MAP_EXEC		(1 << 2)
 
 struct mm_arch_proc_desc;
-struct mm_as;
 
 int num_of_available_pages (void);
-void mm_flush_wb_cache (void);
 void mm_force_unlock (void);
 void __attribute__ ((section (".entry.text")))
 uefi_init_get_vmmsize (u32 *vmmsize, u32 *align);
 void *mm_get_panicmem (int *len);
 void mm_free_panicmem (void);
-u64 mm_as_translate (const struct mm_as *handle, unsigned int *npages,
-		     u64 address);
 
 /* process */
 int mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,

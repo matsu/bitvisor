@@ -46,11 +46,6 @@ struct acpi_description_header {
 	u8 creator_revision[4];
 } __attribute__ ((packed));
 
-struct acpi_data {
-	bool iopass;
-	bool smi_hook_disabled;
-};
-
 u8 acpi_checksum (void *p, int len);
 void *acpi_mapmem (u64 addr, int len);
 void *acpi_find_entry (char *signature);
@@ -69,7 +64,6 @@ void acpi_set_waking_vector (u32 new_waking_vector, u32 old_waking_vector_ref);
 
 void acpi_poweroff (void);
 bool get_acpi_time_raw (u32 *r);
-void acpi_smi_hook (void);
 void acpi_reset (void);
 
 #endif

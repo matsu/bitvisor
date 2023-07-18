@@ -39,11 +39,7 @@ struct vramwrite_font {
 	bool fontcompressed;
 };
 
-void vramwrite_clearscreen (void);
 void vramwrite_putchar (unsigned char c);
-void vramwrite_save_and_move_cursor (unsigned int x, unsigned int y);
-void vramwrite_restore_cursor (void);
-void vramwrite_get_cursor_pos (unsigned int *x, unsigned int *y);
 void vramwrite_init_global (void);
 
 #endif
