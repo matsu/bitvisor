@@ -77,6 +77,7 @@ objs-1 += currentcpu.o
 objs-1 += exint_pass_x86.o
 objs-1 += debug_x86.o
 objs-1 += gmm.o
+objs-1 += keyboard_x86.o
 objs-1 += mm_x86.o
 objs-1 += panic_x86.o
 objs-1 += phys.o
