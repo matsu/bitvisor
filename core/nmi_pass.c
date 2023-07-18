@@ -31,7 +31,6 @@
 #include <core/types.h>
 #include "current.h"
 #include "nmi.h"
-#include "nmi_pass.h"
 
 static unsigned int
 get_nmi_count (void)

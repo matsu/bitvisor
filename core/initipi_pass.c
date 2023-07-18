@@ -30,7 +30,6 @@
 #include <core/initfunc.h>
 #include "current.h"
 #include "initipi.h"
-#include "initipi_pass.h"
 
 static unsigned int
 get_init_count (void)

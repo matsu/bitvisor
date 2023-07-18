@@ -31,7 +31,6 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include "asm.h"
-#include "xsetbv_pass.h"
 #include "current.h"
 #include "int.h"
 

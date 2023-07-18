@@ -30,7 +30,6 @@
 #include <core/initfunc.h>
 #include "asm.h"
 #include "constants.h"
-#include "cpuid_pass.h"
 #include "current.h"
 
 static void

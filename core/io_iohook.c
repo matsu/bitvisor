@@ -34,7 +34,6 @@
 #include <core/printf.h>
 #include "current.h"
 #include "debug.h"
-#include "io_iohook.h"
 
 /* Debug serial port for Linux early console:
  * "earlyprintk=serial,0x400,keep" */
