@@ -81,7 +81,6 @@ struct pcpu {
 	u64 tsc, hz, timediff;
 	spinlock_t suspend_lock;
 	phys_t cr3;
-	bool pass_vm_created;
 	bool use_invariant_tsc;
 	void (*release_process64_msrs) (void *release_process64_msrs_data);
 	void *release_process64_msrs_data;

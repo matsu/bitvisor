@@ -32,7 +32,6 @@
 
 struct pcpu pcpu_default = {
 	.suspend_lock = SPINLOCK_INITIALIZER,
-	.pass_vm_created = false,
 };
 
 #define DEFINE_GS_OFFSET(name, offset) \

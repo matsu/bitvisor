@@ -349,7 +349,6 @@ create_pass_vm (void)
 		print_startvm_msg ();
 		uefi_no_more_call = true;
 	}
-	currentcpu->pass_vm_created = true;
 #ifdef DEBUG_GDB
 	if (!bsp)
 		for (;;)
