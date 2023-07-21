@@ -56,5 +56,6 @@ extern ulong uefi_create_event;
 extern ulong uefi_boot_acpi_table_mod;
 extern bool uefi_booted;
 extern ulong uefi_get_time;
+extern bool uefi_no_more_call;
 
 #endif

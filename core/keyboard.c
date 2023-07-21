@@ -195,8 +195,8 @@ keyboard_getchar (void)
 	u8 key;
 	int c;
 
-	if (uefi_booted && currentcpu_available () &&
-	    !currentcpu->pass_vm_created && get_cpu_id () == 0) {
+	if (uefi_booted && !uefi_no_more_call && currentcpu_available () &&
+	    get_cpu_id () == 0) {
 		for (;;) {
 			uefi_key = call_uefi_getkey ();
 			switch (uefi_key & 0xFFFF) {

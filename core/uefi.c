@@ -79,6 +79,7 @@ ulong SECTION_ENTRY_DATA uefi_create_event;
 ulong SECTION_ENTRY_DATA uefi_boot_acpi_table_mod;
 ulong SECTION_ENTRY_DATA uefi_get_time;
 bool uefi_booted;
+bool uefi_no_more_call = false;
 
 static void SECTION_ENTRY_TEXT
 _putchar (char c)

@@ -216,7 +216,7 @@ tty_putchar (unsigned char c)
 		static int uefi_logoffset;
 		int i;
 
-		if (currentcpu_available () && currentcpu->pass_vm_created) {
+		if (currentcpu_available () && uefi_no_more_call) {
 			spinlock_lock (&putchar_lock);
 			for (i = 0; i < uefi_logoffset; i++)
 				vramwrite_putchar (uefi_log[i]);

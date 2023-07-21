@@ -38,7 +38,7 @@ check_env (void)
 {
 	if (!uefi_booted)
 		return false;
-	if (!currentcpu_available () || currentcpu->pass_vm_created)
+	if (!currentcpu_available () || uefi_no_more_call)
 		return false;
 	if (get_cpu_id ())
 		return false;
