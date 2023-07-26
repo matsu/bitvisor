@@ -43,7 +43,7 @@
 
 #define N_RETRIES   (3)
 #define PASS_NBYTES (4096)
-#define MODULE2_NPAGES 0x10
+#define MODULE2_NPAGES 0x100
 
 #define EFI_BLOCK_IO_CRYPTO_PROTOCOL_GUID \
 	{0xa00490ba,0x3f1a,0x4b4c,\
