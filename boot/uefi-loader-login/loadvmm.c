@@ -43,6 +43,7 @@
 
 #define N_RETRIES   (3)
 #define PASS_NBYTES (4096)
+#define MODULE2_NPAGES 0x10
 
 #define EFI_BLOCK_IO_CRYPTO_PROTOCOL_GUID \
 	{0xa00490ba,0x3f1a,0x4b4c,\
@@ -390,10 +391,11 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 
 	paddr = 0x50000000;
 
-	readsize = 0x10000;
+	readsize = MODULE2_NPAGES * EFI_PAGE_SIZE;
 
 	status = systab->BootServices->AllocatePages (AllocateMaxAddress,
-						      EfiLoaderData, 0x10,
+						      EfiLoaderData,
+						      MODULE2_NPAGES,
 						      &paddr);
 	if (EFI_ERROR (status)) {
 		print (systab, L"AllocatePages ", status);
@@ -405,6 +407,12 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 
 	if (EFI_ERROR (status)) {
 		conout->OutputString (conout, L"Cannot load module2.bin\r\n");
+		goto error1;
+	}
+	if (readsize == MODULE2_NPAGES * EFI_PAGE_SIZE) {
+		conout->OutputString (conout, L"module2.bin exceeds"
+				      " MODULE2_NPAGES * EFI_PAGE_SIZE - 1"
+				      " bytes\r\n");
 		goto error1;
 	}
 
