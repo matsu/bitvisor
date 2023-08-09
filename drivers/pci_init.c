@@ -492,9 +492,8 @@ static void pci_find_devices()
 		printf ("PCI: %d virtual devices created\n", vnum);
 	pci_dump_pci_dev_list ();
 	return;
-
 oom:
-	panic_oom();
+	panic ("Out of memory");
 }
 
 static void

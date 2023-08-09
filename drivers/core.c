@@ -202,9 +202,8 @@ int core_io_register_handler(ioport_t start, size_t num, core_io_handler_t handl
 
 	// printf("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start, end);
 	return hd;
-
 oom:
-	panic_oom();
+	panic ("Out of memory");
 	return -1;
 }
 
@@ -287,11 +286,6 @@ void core_io_handle_default(core_io_t io, void *data)
 		panic("core_io_handle_default: unknown iotype\n");
 	}
 	return;
-}
-
-void panic_oom()
-{
-	panic("Out of memory\n");
 }
 
 void core_init()

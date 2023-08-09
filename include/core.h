@@ -91,7 +91,6 @@ static struct type *calloc_##type(int n)		\
 /** debug functions */
 #include <core/panic.h>
 #include <core/printf.h>
-void	panic_oom() __attribute__ ((noreturn));
 
 /** init functions */
 #include <core/initfunc.h>
