@@ -29,17 +29,17 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <pci.h>
-#include <pci_vtd_trans.h>
 #include <core.h>
 #include <core/mmio.h>
 #include <core/time.h>
 #include <net/netapi.h>
-#include <Se/Se.h>
-#include "pro100.h"
+#include <pci.h>
+#include <pci_vtd_trans.h>
+#include <Se/Se.h> /* Se header needs to be here */
 #if defined (__i386__) || defined (__x86_64__)
 #include "../../core/x86/beep.h"	/* DEBUG */
 #endif
+#include "pro100.h"
 
 #define SeCopy			memcpy
 #define SeZero(addr, len)	memset (addr, 0, len)

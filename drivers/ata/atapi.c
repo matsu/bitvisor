@@ -28,11 +28,11 @@
  */
 
 #include <core.h>
+#include <debug.h>
+#include <security.h>
 #include "ata.h"
 #include "atapi.h"
 #include "packet.h"
-#include <security.h>
-#include <debug.h>
 
 //                                     <-              40 chars              ->
 static const char atapi_virtual_model[40] = "BitVisor Encrypted Virtual ATAPI Drive  ";

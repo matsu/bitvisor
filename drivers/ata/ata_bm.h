@@ -30,6 +30,8 @@
 #ifndef _ATA_BM_H
 #define _ATA_BM_H
 
+#include <core/types.h>
+
 #define ATA_BM_STOP		0
 #define ATA_BM_START		1
 

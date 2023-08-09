@@ -29,6 +29,7 @@
 
 #ifndef _EHCI_H
 #define _EHCI_H
+#include <core/types.h>
 #include "usb.h"
 #include "usb_log.h"
   

@@ -33,15 +33,15 @@
  * @author      K. Matsubara 
  */
 #include <core.h>
-#include <core/timer.h>
 #include <core/thread.h>
-#include "usb.h"
-#include "usb_device.h"
-#include "usb_log.h"
+#include <core/timer.h>
 #if defined(SHADOW_UHCI)
 #include "uhci.h" /* just for reactivating transaction 
 		     if SPD in usb_control_msg() */
 #endif /* defined(SHADOW_UHCI) */
+#include "usb.h"
+#include "usb_device.h"
+#include "usb_log.h"
 
 LIST_DEFINE_HEAD(usb_busses);
 LIST_DEFINE_HEAD(usb_hc_list);

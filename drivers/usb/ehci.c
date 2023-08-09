@@ -37,10 +37,10 @@
 #include <core/timer.h>
 #include <pci.h>
 #include <pci_conceal.h>
-#include "usb.h"
-#include "usb_device.h"
 #include "ehci.h"
 #include "ehci_debug.h"
+#include "usb.h"
+#include "usb_device.h"
 
 static const char driver_name[] = "ehci";
 static const char driver_longname[] = 

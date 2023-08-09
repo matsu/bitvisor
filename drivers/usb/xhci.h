@@ -35,10 +35,11 @@
 #define REG_DEBUG_LEVEL 3
 #define CMD_DEBUG_LEVEL 1
 
-#include <core/timer.h>
 #include <core/thread.h>
-
+#include <core/timer.h>
+#include <core/types.h>
 #include "usb.h"
+#include "usb_device.h"
 #include "usb_log.h"
 
 #define POSSIBLE_USB_ADDR (256)

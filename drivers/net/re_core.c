@@ -61,17 +61,12 @@
 
 #include <core.h>
 #include <core/mmio.h>
-#include <core/time.h>
-#include <core/thread.h>
 #include <core/sleep.h>
+#include <core/thread.h>
+#include <core/time.h>
 #include <net/netapi.h>
-
-#include <stdint.h>
-
 #include <pci.h>
-
 #include "re_core.h"
-
 #include "re_mod_header.h"
 
 #define __P(a) a

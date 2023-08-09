@@ -34,8 +34,8 @@
  */
 
 #include <core.h>
-#include "ata.h"
 #include <debug.h>
+#include "ata.h"
 
 void ata_init_vendor(struct ata_host *host)
 {

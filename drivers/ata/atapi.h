@@ -31,6 +31,8 @@ void atapi_packet_handle_rw(struct packet_device *packet_device, packet_type_t t
 #ifndef _ATAPI_H
 #define _ATAPI_H
 
+#include <core/types.h>
+
 /* ATAPI I/O registers */
 #define ATAPI_InterruptReason	2
 #define ATAPI_ByteCountLow	4

@@ -32,6 +32,8 @@
  * $FreeBSD: src/sys/dev/re/if_rereg.h,v 1.14.2.1 2001/07/19 18:33:07 wpaul Exp $
  */
 
+#include <stdint.h>
+
 #if 0
 /*#define VERSION(_MainVer,_MinorVer)	((_MainVer)*10+(_MinorVer))*/
 /*#define OS_VER	VERSION(5,1)*/

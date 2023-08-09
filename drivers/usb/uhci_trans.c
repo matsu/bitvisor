@@ -35,10 +35,10 @@
 #include <builtin.h>
 #include <core.h>
 #include <pci.h>
+#include "uhci.h"
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_log.h"
-#include "uhci.h"
 
 DEFINE_ZALLOC_FUNC(usb_request_block);
 DEFINE_ZALLOC_FUNC(urb_private_uhci);

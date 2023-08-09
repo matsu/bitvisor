@@ -42,10 +42,8 @@
 
 #include <core.h>
 #include <core/thread.h>
-#include <storage_io.h>
-
 #include <pci.h>
-
+#include <storage_io.h>
 #include "nvme_io.h"
 
 #define MAX_STORAGE (8)

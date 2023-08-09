@@ -30,6 +30,10 @@
 #ifndef _DRIVERS_INCLUDE_PCI_CONCEAL_H
 #define _DRIVERS_INCLUDE_PCI_CONCEAL_H
 
+#include <core/types.h>
+
+struct pci_device;
+
 struct pci_driver *pci_conceal_new_device (struct pci_device *dev);
 int pci_conceal_config_read (struct pci_device *pci_device, u8 iosize,
 			     u16 offset, union mem *data);

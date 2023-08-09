@@ -1,6 +1,8 @@
 #ifndef __USB_HOOK_H__
 #define __USB_HOOK_H__
 
+#include <core/types.h>
+
 #define USB_HOOK_PASS         0x00010000U
 #define USB_HOOK_DISCARD      0x00020000U
 

@@ -40,8 +40,8 @@
 #include <core/exint_pass.h>
 #include <core/process.h>
 #include <core/strtol.h>
-#include <token.h>
 #include <pci.h>
+#include <token.h>
 #include "pci_internal.h"
 #include "pci_match.h"
 

@@ -30,6 +30,11 @@
 #ifndef _PCI_INTERNAL_H
 #define _PCI_INTERNAL_H
 
+#include <io.h>
+#include <core/types.h>
+
+struct pci_device;
+
 struct pci_config_mmio_data {
 	struct pci_config_mmio_data *next;
 	u64 base;

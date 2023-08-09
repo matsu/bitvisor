@@ -29,10 +29,10 @@
 
 #ifndef _ATA_H
 #define _ATA_H
+#include <core/list.h>
 #include <pci.h>
 #include <storage.h>
 #include <storage_io.h>
-#include <core/list.h>
 
 /* ATA registers */
 #define ATA_CMD_PORT_NUMS	8

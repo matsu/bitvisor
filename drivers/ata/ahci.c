@@ -31,12 +31,12 @@
 #include <core/mmio.h>
 #include <core/thread.h>
 #include <core/time.h>
+#include <pci.h>
 #include <storage.h>
 #include <storage_io.h>
 #include "ata.h"
-#include "atapi.h"
-#include <pci.h>
 #include "ata_cmd.h"
+#include "atapi.h"
 #include "packet.h"
 
 #define NUM_OF_AHCI_PORTS	32

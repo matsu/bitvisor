@@ -107,6 +107,8 @@
  *
  */
 
+#include <core/types.h>
+
 struct pci_device;
 
 struct nvme_host;

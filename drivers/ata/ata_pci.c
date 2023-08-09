@@ -34,9 +34,9 @@
  */
 
 #include <core.h>
+#include "ahci.h"
 #include "ata.h"
 #include "ata_pci.h"
-#include "ahci.h"
 
 /********************************************************************************
  * ATA handlers install

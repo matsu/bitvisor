@@ -36,7 +36,6 @@
 #include <core.h>
 #include <core/thread.h>
 #include <core/time.h>
-
 #include "nvme.h"
 #include "nvme_io.h"
 

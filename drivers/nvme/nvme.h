@@ -36,6 +36,10 @@
 #ifndef _NVME_H
 #define _NVME_H
 
+#include <core/mm.h>
+#include <core/spinlock.h>
+#include <core/string.h>
+#include <core/types.h>
 #include "nvme_debug.h"
 
 #define STR(macro) #macro

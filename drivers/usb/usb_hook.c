@@ -36,8 +36,8 @@
 #include <core.h>
 #include "usb.h"
 #include "usb_device.h"
-#include "usb_log.h"
 #include "usb_hook.h"
+#include "usb_log.h"
 
 static int
 usb_match_buffers (const struct mm_as *as, const struct usb_hook_pattern *data,

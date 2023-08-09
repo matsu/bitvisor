@@ -37,7 +37,6 @@
 #include <usb.h>
 #include <usb_device.h>
 #include <usb_hook.h>
-
 #include "xhci.h"
 
 static struct xhci_trb *tr_seg_trbs_ref (struct xhci_host *host,

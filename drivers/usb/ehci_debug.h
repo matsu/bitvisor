@@ -1,5 +1,7 @@
 #ifndef _EHCI_DEBUG_H
 #define _EHCI_DEBUG_H
+#include <core/mm.h>
+#include <core/types.h>
 #include "ehci.h"
 
 phys32_t ehci_dump_qtd (int loglvl, int indent, const struct mm_as *as,

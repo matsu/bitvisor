@@ -33,12 +33,12 @@
  * @author	T. Shinagawa
  */
 
-#include <debug.h>
 #include <core.h>
+#include <debug.h>
 #include "ata.h"
-#include "atapi.h"
 #include "ata_bm.h"
 #include "ata_error.h"
+#include "atapi.h"
 
 /**********************************************************************************************************************
  * ATA Bus Master

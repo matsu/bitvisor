@@ -129,6 +129,10 @@
 #define _RE_CORE_H
 
 #include <core/list.h>
+#include <core/spinlock.h>
+#include <core/types.h>
+#include <net/netapi.h>
+#include <pci.h>
 
 typedef u8  u_char;
 

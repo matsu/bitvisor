@@ -33,13 +33,13 @@
  * @author	T. Shinagawa
  */
 
-#include <debug.h>
 #include <core.h>
+#include <debug.h>
 #include <security.h>
 #include "ata.h"
-#include "atapi.h"
 #include "ata_debug.h"
 #include "ata_time.h"
+#include "atapi.h"
 
 #define DEBUG_ATA_PUTLOG(fmt, name, value, title, ...) do		\
 	{								\

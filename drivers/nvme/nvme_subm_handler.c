@@ -34,7 +34,6 @@
  */
 
 #include <core.h>
-
 #include "nvme.h"
 #include "nvme_io.h"
 #include "nvme_subm_handler.h"

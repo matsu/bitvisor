@@ -36,11 +36,11 @@
 #include <core/thread.h>
 #include <core/time.h>
 #include <pci.h>
+#include "uhci.h"
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_hook.h"
 #include "usb_log.h"
-#include "uhci.h"
 
 extern phys32_t uhci_monitor_boost_hc;
 

@@ -28,11 +28,11 @@
  */
 
 #include <core.h>
-#include "usb.h"
-#include "usb_log.h"
-#include "usb_hook.h"
-#include "usb_device.h"
 #include "uhci.h"
+#include "usb.h"
+#include "usb_device.h"
+#include "usb_hook.h"
+#include "usb_log.h"
 
 extern int prohibit_iccard_init;
 

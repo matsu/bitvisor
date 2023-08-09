@@ -5,8 +5,8 @@
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_hook.h"
-#include "usb_log.h"
 #include "usb_hub.h"
+#include "usb_log.h"
 
 DEFINE_GET_U16_FROM_SETUP_FUNC(wIndex);
 DEFINE_GET_U16_FROM_SETUP_FUNC(wValue);

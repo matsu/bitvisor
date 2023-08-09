@@ -35,7 +35,6 @@
 
 #include <core.h>
 #include <storage.h>
-
 #include "nvme_io.h"
 
 static uint storage_id;

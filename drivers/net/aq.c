@@ -58,9 +58,9 @@
 #include <core.h>
 #include <core/list.h>
 #include <core/mmio.h>
-#include <core/time.h>
 #include <core/sleep.h>
 #include <core/thread.h>
+#include <core/time.h>
 #include <core/uefiutil.h>
 #include <net/netapi.h>
 #include <pci.h>

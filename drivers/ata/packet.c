@@ -28,8 +28,8 @@
  */
 
 #include <core.h>
-#include "packet.h"
 #include "ata.h"
+#include "packet.h"
 
 /**********************************************************************************************************************
  * PACKET Command specific handler

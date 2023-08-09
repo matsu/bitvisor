@@ -41,8 +41,8 @@
 #include <storage.h>
 #include "usb.h"
 #include "usb_device.h"
-#include "usb_log.h"
 #include "usb_hook.h"
+#include "usb_log.h"
 #include "usb_mscd.h"
 
 /* these defines are workaround for doing #include uhci.h and ehci.h */

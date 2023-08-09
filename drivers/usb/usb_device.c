@@ -35,12 +35,11 @@
 #include <core.h>
 #include "usb.h"
 #include "usb_device.h"
-#include "usb_log.h"
 #include "usb_hook.h"
-
 #if defined(HANDLE_USBHUB)
 #include "usb_hub.h"
 #endif
+#include "usb_log.h"
 
 DEFINE_ZALLOC_FUNC(usb_device);
 DEFINE_ZALLOC_FUNC(usb_endpoint_descriptor);

@@ -31,8 +31,8 @@
 #define _UHCI_H
 
 #include <core.h>
-#include <core/mm.h>
 #include <core/list.h>
+#include <core/mm.h>
 #include <pci.h>
 #include "usb.h"
 

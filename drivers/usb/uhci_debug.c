@@ -35,10 +35,10 @@
 #include <core.h>
 #include <core/timer.h>
 #include <pci.h>
+#include "uhci.h"
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_log.h"
-#include "uhci.h"
 
 #define UHCI_WALK_QH_SLOW_SPEED    3
 #define UHCI_WALK_TD_SLOW_SPEED    3

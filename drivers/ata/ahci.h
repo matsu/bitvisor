@@ -30,6 +30,10 @@
 #ifndef _ATA_AHCI_H
 #define _ATA_AHCI_H
 
+#include <core/types.h>
+
+struct pci_device;
+
 void *ahci_new (struct pci_device *pci_device);
 bool ahci_config_read (void *ahci_data, struct pci_device *pci_device,
 		       u8 iosize, u16 offset, union mem *data);

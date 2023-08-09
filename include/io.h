@@ -30,6 +30,8 @@
 #ifndef _IO_H
 #define _IO_H
 
+#include <core/types.h>
+
 typedef u16 ioport_t;
 typedef struct {
 	ioport_t	port;

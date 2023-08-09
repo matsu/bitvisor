@@ -34,14 +34,14 @@
  */
 
 #include <core.h>
-#include "ata.h"
-#include "atapi.h"
-#include "ata_init.h"
-#include "ahci.h"
 #ifdef VTD_TRANS
 #include <passthrough/vtd.h>
 int add_remap() ;
 #endif // of VTD_TRANS
+#include "ahci.h"
+#include "ata.h"
+#include "ata_init.h"
+#include "atapi.h"
 
 static const char ata_driver_name[] = "ata";
 static const char ata_driver_longname[] = "Generic ATA/ATAPI para pass-through driver 0.4";

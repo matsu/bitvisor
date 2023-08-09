@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <core/time.h>
 #include <core/arith.h>
+#include <core/time.h>
 
 struct time_t{
 	u64	sec;

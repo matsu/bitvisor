@@ -30,7 +30,10 @@
 
 #include <core/types.h>
 
+struct mm_as;
 struct nicfunc;
+struct pci_bar_info;
+struct pci_device;
 
 #ifdef VIRTIO_NET
 void virtio_net_handle_config_read (void *handle, u8 iosize, u16 offset,

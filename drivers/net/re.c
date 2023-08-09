@@ -31,10 +31,8 @@
 #include <core/mmio.h>
 #include <net/netapi.h>
 #include <pci.h>
-
-#include "virtio_net.h"
-
 #include "re_core.h"
+#include "virtio_net.h"
 
 static const char driver_name[] = "re";
 static const char driver_longname[] = "Realtek Ethernet Driver";

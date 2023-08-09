@@ -4,10 +4,10 @@
  * @author	K. Matsubara
  */
 #include <core.h>
-#include "usb.h"
-#include "usb_device.h"
 #include "ehci.h"
 #include "ehci_debug.h"
+#include "usb.h"
+#include "usb_device.h"
 
 static void
 _ehci_dump_qtd (int loglvl, int indent, const struct mm_as *as,

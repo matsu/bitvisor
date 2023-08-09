@@ -30,16 +30,17 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <pci.h>
-#include "../../crypto/chelp.h"
-#include <core/mmio.h>
-#include <net/netapi.h>
-#include <Se/Se.h>
 #include <core.h>
-#include <Se/SeVpn.h>
+#include <core/mmio.h>
+#include <core/time.h>
+#include <net/netapi.h>
+#include <pci.h>
+/* NOTE Se headers need to be here */
+#include <Se/Se.h>
 #include <Se/SeKernel.h>
 #include <Se/SeSec.h>
-#include <core/time.h>
+#include <Se/SeVpn.h>
+#include "../../crypto/chelp.h"
 #include "rtl8169.h"
 
 u16 ipchecksum (void *buf, u32 len);

@@ -30,6 +30,8 @@
 #ifndef _ATA_PCI_H
 #define _ATA_PCI_H
 
+#include <core/types.h>
+
 /* Compatiblity Mode I/O registers address */
 #define ATA_MAX_COMPAT_HOSTS	4
 #define ATA_COMPAT_PRI_CMD_BASE 0x01F0
