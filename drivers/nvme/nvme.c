@@ -37,7 +37,7 @@
 #include <core/mmio.h>
 #include <core/time.h>
 #include <core/thread.h>
-#include "pci.h"
+#include <pci.h>
 
 #include "nvme.h"
 #include "nvme_io.h"

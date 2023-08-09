@@ -9,7 +9,7 @@ CONSTANTS-$(CONFIG_PS2KBD_F10USB) += -DF10USBTEST
 CONSTANTS-$(CONFIG_PS2KBD_F12USB) += -DF12DUMPEHCI
 CONSTANTS-1 += -DENABLE_DPRINTF
 
-CFLAGS += -Idrivers
+CFLAGS += -Idrivers/include
 
 objs-$(CONFIG_SHADOW_UHCI) += uhci.o uhci_debug.o uhci_shadow.o uhci_trans.o
 objs-$(CONFIG_SHADOW_EHCI) += ehci.o ehci_debug.o ehci_shadow.o ehci_trans.o

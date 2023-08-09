@@ -32,7 +32,7 @@
 #include <core/mmio.h>
 #include <core/time.h>
 #include <net/netapi.h>
-#include "pci.h"
+#include <pci.h>
 #include "virtio_net.h"
 
 #define OFFSET_TO_DWORD_BLOCK(offset) ((offset) / sizeof (u32))

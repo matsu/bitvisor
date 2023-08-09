@@ -29,13 +29,13 @@
 
 #include <common.h>
 #include <core.h>
-#include "passthrough/vtd.h"
+#include <passthrough/vtd.h>
 #include "../core/include/arch/vmm_mem.h"
-#include "passthrough/iodom.h"
-#include "passthrough/intel-iommu.h"
-#include "passthrough/dmar.h"
+#include <passthrough/iodom.h>
+#include <passthrough/intel-iommu.h>
+#include <passthrough/dmar.h>
 
-#include "pci.h"
+#include <pci.h>
 extern struct list pci_device_list_head;
 
 static inline void asm_wbinvd (void)

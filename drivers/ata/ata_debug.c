@@ -33,9 +33,9 @@
  * @author	T. Shinagawa
  */
 
-#include "debug.h"
+#include <debug.h>
 #include <core.h>
-#include "security.h"
+#include <security.h>
 #include "ata.h"
 #include "atapi.h"
 #include "ata_debug.h"

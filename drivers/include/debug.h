@@ -27,14 +27,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _SECURITY_H_
-#define _SECURITY_H_
+#ifndef _DRIVERS_INCLUDE_DEBUG_H
+#define _DRIVERS_INCLUDE_DEBUG_H
 
-#include <storage.h>
+#define DEBUG
 
-#define SECURITY_ALLOW	0
-#define SECURITY_DENY	1
-	
-int security_storage_check_lba(struct storage_device *device, int rw, lba_t lba, size_t size);
+#ifdef DEBUG
+#define dbg_printf(fmt, ...) printf("%s: " fmt, __func__, __VA_ARGS__)
+#else
+#define dbg_printf(...)
+#endif
 
 #endif

@@ -32,7 +32,7 @@
  * @brief	PCI driver (init)
  * @author	T. Shinagawa
  */
-#include "pci.h"
+#include <pci.h>
 #include "pci_internal.h"
 #include "pci_init.h"
 #include "pci_match.h"

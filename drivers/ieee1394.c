@@ -33,7 +33,7 @@
  * @author	K. Matsubara, H. Eiraku
  */
 #include <core.h>
-#include "pci.h"
+#include <pci.h>
 
 static const char driver_name[] = "ieee1394";
 static const char driver_longname[] = 

@@ -68,7 +68,7 @@
 
 #include <stdint.h>
 
-#include "pci.h"
+#include <pci.h>
 
 #include "re_core.h"
 

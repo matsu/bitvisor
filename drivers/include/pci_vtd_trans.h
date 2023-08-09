@@ -27,17 +27,23 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __ERROR_H__
-#define __ERROR_H__
+#ifndef _DRIVERS_INCLUDE_PCI_VTD_TRANS_H
+#define _DRIVERS_INCLUDE_PCI_VTD_TRANS_H
 
-#define ERROR_PANIC_ON_UNEXPECTED_IO
+struct pci_device;
 
-#ifdef ERROR_PANIC_ON_UNEXPECTED_IO
-#define error_msg_func panic
+#ifdef VTD_TRANS
+
+int pci_vtd_trans_add_remap_with_vmm_mem (struct pci_device *pci_device);
+
 #else
-#define error_msg_func printf
+
+static inline int
+pci_vtd_trans_add_remap_with_vmm_mem (struct pci_device *pci_device)
+{
+	return 0;
+}
+
 #endif
 
-#define error_handle_unexpected_io(msg, ...) \
-	error_msg_func("%s: " msg, __func__, __VA_ARGS__)
 #endif

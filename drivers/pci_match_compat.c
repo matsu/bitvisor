@@ -31,7 +31,7 @@
 #include <core/config.h>
 #include <core/initfunc.h>
 #include <token.h>
-#include "pci.h"
+#include <pci.h>
 #include "pci_match.h"
 
 /*

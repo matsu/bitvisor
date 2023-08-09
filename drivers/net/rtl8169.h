@@ -34,8 +34,8 @@
 #ifndef _CORE_VPN_RTL8169_H
 #define _CORE_VPN_RTL8169_H
 
-#include "io.h"
-#include "pci.h"
+#include <io.h>
+#include <pci.h>
 
 //
 #define RTL8169_REGISTER_SIZE			256	// レジスタサイズ

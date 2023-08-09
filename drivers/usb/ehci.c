@@ -35,8 +35,8 @@
 #include <core.h>
 #include <core/mmio.h>
 #include <core/timer.h>
-#include "pci.h"
-#include "pci_conceal.h"
+#include <pci.h>
+#include <pci_conceal.h>
 #include "usb.h"
 #include "usb_device.h"
 #include "ehci.h"

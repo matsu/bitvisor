@@ -34,8 +34,8 @@
  */
 #include <core.h>
 #include <core/mmio.h>
-#include "pci.h"
-#include "pci_conceal.h"
+#include <pci.h>
+#include <pci_conceal.h>
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_hook.h"

@@ -32,8 +32,8 @@
 #ifndef _CORE_VPN_PRO100_H
 #define _CORE_VPN_PRO100_H
 
-#include "io.h"
-#include "pci.h"
+#include <io.h>
+#include <pci.h>
 #define UCHAR	unsigned char
 #define UINT	unsigned int
 #define DWORD	unsigned int

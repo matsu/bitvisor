@@ -35,7 +35,7 @@
 #include <core.h>
 #include <core/thread.h>
 #include <core/time.h>
-#include "pci.h"
+#include <pci.h>
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_hook.h"

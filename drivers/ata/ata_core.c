@@ -33,7 +33,7 @@
  * @author	T. Shinagawa
  */
 
-#include "debug.h"
+#include <debug.h>
 #include <core.h>
 #include <core/thread.h>
 #include <core/time.h>
@@ -42,7 +42,7 @@
 #include "ata_cmd.h"
 #include "ata_error.h"
 #include "atapi.h"
-#include "security.h"
+#include <security.h>
 
 struct ata_command_list {
 	LIST1_DEFINE (struct ata_command_list);

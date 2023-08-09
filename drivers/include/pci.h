@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PCI_H
-#define _PCI_H
+#ifndef _DRIVERS_INCLUDE_PCI_H
+#define _DRIVERS_INCLUDE_PCI_H
 #include <core.h>
 
 #define PCI_CONFIG_REGS8_NUM	256

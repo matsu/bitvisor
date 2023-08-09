@@ -29,10 +29,10 @@
 
 #include <common.h>
 #include <core.h>
-#include "passthrough/vtd.h"
-#include "passthrough/dmar.h"
+#include <passthrough/vtd.h>
+#include <passthrough/dmar.h>
 
-#include "pci.h"
+#include <pci.h>
 extern struct list pci_device_list_head;
 
 u8 iommu_detected;

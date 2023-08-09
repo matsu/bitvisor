@@ -44,7 +44,7 @@
 #include <core/thread.h>
 #include <storage_io.h>
 
-#include "pci.h"
+#include <pci.h>
 
 #include "nvme_io.h"
 

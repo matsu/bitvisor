@@ -30,7 +30,7 @@
 #ifndef __ATA_ERROR_H__
 #define __ATA_ERROR_H__
 
-#include "error.h"
+#include <error.h>
 
 #define ata_error_invalid_param error_handle_unexpected_io
 #define ata_error_invalid_state(channel)			\

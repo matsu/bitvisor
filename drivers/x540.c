@@ -33,7 +33,7 @@
 #include <core/mmio.h>
 #include <core/time.h>
 #include <core/tty.h>
-#include "pci.h"
+#include <pci.h>
 
 /******** X540 configuration ********/
 struct x540_config {

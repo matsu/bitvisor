@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2010 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,23 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PCI_VTD_TRANS_H
-#define _PCI_VTD_TRANS_H
+#ifndef _DRIVERS_INCLUDE_PCI_CONCEAL_H
+#define _DRIVERS_INCLUDE_PCI_CONCEAL_H
 
-struct pci_device;
-
-#ifdef VTD_TRANS
-
-int pci_vtd_trans_add_remap_with_vmm_mem (struct pci_device *pci_device);
-
-#else
-
-static inline int
-pci_vtd_trans_add_remap_with_vmm_mem (struct pci_device *pci_device)
-{
-	return 0;
-}
-
-#endif
+struct pci_driver *pci_conceal_new_device (struct pci_device *dev);
+int pci_conceal_config_read (struct pci_device *pci_device, u8 iosize,
+			     u16 offset, union mem *data);
+int pci_conceal_config_write (struct pci_device *pci_device, u8 iosize,
+			      u16 offset, union mem *data);
+void pci_conceal_new (struct pci_device *pci_device);
 
 #endif

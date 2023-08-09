@@ -30,8 +30,8 @@
 
 #include <core.h>
 #include <core/mmio.h>
-#include "pci.h"
-#include "pci_conceal.h"
+#include <pci.h>
+#include <pci_conceal.h>
 
 static int
 iohandler (core_io_t io, union mem *data, void *arg)

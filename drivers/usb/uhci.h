@@ -33,7 +33,7 @@
 #include <core.h>
 #include <core/mm.h>
 #include <core/list.h>
-#include "pci.h"
+#include <pci.h>
 #include "usb.h"
 
 struct uhci_host;

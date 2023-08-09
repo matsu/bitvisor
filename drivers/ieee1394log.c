@@ -33,8 +33,8 @@
 #include <core/mmio.h>
 #include <core/time.h>
 #include <core/tty.h>
-#include "pci.h"
-#include "pci_conceal.h"
+#include <pci.h>
+#include <pci_conceal.h>
 
 #define RETRY_COUNT 30
 

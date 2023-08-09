@@ -39,7 +39,7 @@
 #include "ata_init.h"
 #include "ahci.h"
 #ifdef VTD_TRANS
-#include "passthrough/vtd.h"
+#include <passthrough/vtd.h>
 int add_remap() ;
 #endif // of VTD_TRANS
 

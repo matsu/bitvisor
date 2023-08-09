@@ -34,8 +34,8 @@
  */
 #include <core.h>
 #include <core/thread.h>
-#include "pci.h"
-#include "pci_vtd_trans.h"
+#include <pci.h>
+#include <pci_vtd_trans.h>
 #include "uhci.h"
 #include "usb.h"
 #include "usb_device.h"

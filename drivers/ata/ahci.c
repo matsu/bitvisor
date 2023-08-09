@@ -35,7 +35,7 @@
 #include <storage_io.h>
 #include "ata.h"
 #include "atapi.h"
-#include "pci.h"
+#include <pci.h>
 #include "ata_cmd.h"
 #include "packet.h"
 

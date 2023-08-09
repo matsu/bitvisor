@@ -30,7 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pci.h"
+#include <pci.h>
 #include "../../crypto/chelp.h"
 #include <core/mmio.h>
 #include <net/netapi.h>

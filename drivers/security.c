@@ -28,7 +28,7 @@
  */
 
 #include <core.h>
-#include "security.h"
+#include <security.h>
 
 int security_storage_check_lba(struct storage_device *device, int rw, lba_t lba, size_t size)
 {

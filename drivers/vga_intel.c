@@ -30,7 +30,7 @@
 #include <core.h>
 #include <core/mmio.h>
 #include <core/vga.h>
-#include "pci.h"
+#include <pci.h>
 
 #define MAX_NFENCE 16
 

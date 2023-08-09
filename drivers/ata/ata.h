@@ -29,7 +29,7 @@
 
 #ifndef _ATA_H
 #define _ATA_H
-#include "pci.h"
+#include <pci.h>
 #include <storage.h>
 #include <storage_io.h>
 #include <core/list.h>
@@ -393,7 +393,7 @@ static inline char *ata_convert_string(const char *src, char *dst, int len)
 	return dst;
 }
 
-#include "debug.h"
+#include <debug.h>
 static inline int ata_get_regname(struct ata_channel *channel, core_io_t io, int id)
 {
 	int regname = io.port - channel->base[id];

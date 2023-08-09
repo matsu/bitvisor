@@ -33,7 +33,7 @@
  * @author	T. Shinagawa
  */
 
-#include "debug.h"
+#include <debug.h>
 #include <core.h>
 #include "ata.h"
 #include "atapi.h"

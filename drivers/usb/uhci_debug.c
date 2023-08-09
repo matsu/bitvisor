@@ -34,7 +34,7 @@
  */
 #include <core.h>
 #include <core/timer.h>
-#include "pci.h"
+#include <pci.h>
 #include "usb.h"
 #include "usb_device.h"
 #include "usb_log.h"

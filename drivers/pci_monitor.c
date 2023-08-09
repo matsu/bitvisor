@@ -34,7 +34,7 @@
 #include <core/process.h>
 #include <core/time.h>
 #include <core/strtol.h>
-#include "pci.h"
+#include <pci.h>
 
 /* PCI I/O monitor driver
 

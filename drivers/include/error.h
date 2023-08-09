@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010 Igel Co., Ltd
+ * Copyright (c) 2007, 2008 University of Tsukuba
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,14 +27,17 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PCI_CONCEAL_H
-#define _PCI_CONCEAL_H
+#ifndef _DRIVERS_INCLUDE_ERROR_H
+#define _DRIVERS_INCLUDE_ERROR_H
 
-struct pci_driver *pci_conceal_new_device (struct pci_device *dev);
-int pci_conceal_config_read (struct pci_device *pci_device, u8 iosize,
-			     u16 offset, union mem *data);
-int pci_conceal_config_write (struct pci_device *pci_device, u8 iosize,
-			      u16 offset, union mem *data);
-void pci_conceal_new (struct pci_device *pci_device);
+#define ERROR_PANIC_ON_UNEXPECTED_IO
 
+#ifdef ERROR_PANIC_ON_UNEXPECTED_IO
+#define error_msg_func panic
+#else
+#define error_msg_func printf
+#endif
+
+#define error_handle_unexpected_io(msg, ...) \
+	error_msg_func("%s: " msg, __func__, __VA_ARGS__)
 #endif

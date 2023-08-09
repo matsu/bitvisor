@@ -33,8 +33,8 @@
 #include <core/mmio.h>
 #include <core/sleep.h>
 #include <net/netapi.h>
-#include "pci.h"
-#include "pci_vtd_trans.h"
+#include <pci.h>
+#include <pci_vtd_trans.h>
 #include "virtio_net.h"
 
 typedef unsigned int UINT;

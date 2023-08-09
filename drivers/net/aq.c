@@ -63,7 +63,7 @@
 #include <core/thread.h>
 #include <core/uefiutil.h>
 #include <net/netapi.h>
-#include "pci.h"
+#include <pci.h>
 #include "virtio_net.h"
 
 /*

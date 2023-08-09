@@ -29,8 +29,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pci.h"
-#include "pci_vtd_trans.h"
+#include <pci.h>
+#include <pci_vtd_trans.h>
 #include <core.h>
 #include <core/mmio.h>
 #include <core/time.h>

@@ -33,7 +33,7 @@
  * @author	T. Shinagawa
  */
 
-#include "pci.h"
+#include <pci.h>
 
 void pci_print_device(pci_config_address_t addr, struct pci_config_space *cs)
 {
