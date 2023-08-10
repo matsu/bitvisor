@@ -32,9 +32,9 @@
 #include <core.h>
 
 #define PCI_CONFIG_REGS8_NUM	256
-#define PCI_CONFIG_REGS32_NUM	(PCI_CONFIG_REGS8_NUM / sizeof(u32))
+#define PCI_CONFIG_REGS32_NUM	(PCI_CONFIG_REGS8_NUM / sizeof (u32))
 
-// configuration address
+/* configuration address */
 typedef struct {
 	union {
 		u32 value;
@@ -50,7 +50,7 @@ typedef struct {
 	};
 } pci_config_address_t;
 
-// configuration space
+/* configuration space */
 struct pci_config_space {
 	union {
 		u8 regs8[PCI_CONFIG_REGS8_NUM];
@@ -103,17 +103,19 @@ struct pci_config_space {
 #define PCI_CONFIG_BASE_ADDRESS_TYPEMASK	0x00000006
 #define PCI_CONFIG_BASE_ADDRESS_TYPE64		0x00000004
 
-#define PCI_CONFIG_SPACE_GET_OFFSET(regname) offsetof(struct pci_config_space, regname)
-#define PCI_CONFIG_ADDRESS_GET_REG_NO(regname) (offsetof(struct pci_config_space, regname) / sizeof(u32))
+#define PCI_CONFIG_SPACE_GET_OFFSET(regname) \
+	offsetof (struct pci_config_space, regname)
+#define PCI_CONFIG_ADDRESS_GET_REG_NO(regname) \
+	(offsetof (struct pci_config_space, regname) / sizeof (u32))
 
 #define PCI_CONFIG_BASE_ADDRESS_NUMS 6
-#define PCI_CONFIG_BASE_ADDRESS0 PCI_CONFIG_SPACE_GET_OFFSET(base_address[0])
-#define PCI_CONFIG_BASE_ADDRESS1 PCI_CONFIG_SPACE_GET_OFFSET(base_address[1])
-#define PCI_CONFIG_BASE_ADDRESS2 PCI_CONFIG_SPACE_GET_OFFSET(base_address[2])
-#define PCI_CONFIG_BASE_ADDRESS3 PCI_CONFIG_SPACE_GET_OFFSET(base_address[3])
-#define PCI_CONFIG_BASE_ADDRESS4 PCI_CONFIG_SPACE_GET_OFFSET(base_address[4])
-#define PCI_CONFIG_BASE_ADDRESS5 PCI_CONFIG_SPACE_GET_OFFSET(base_address[5])
-#define PCI_CONFIG_COMMAND PCI_CONFIG_SPACE_GET_OFFSET(command)
+#define PCI_CONFIG_BASE_ADDRESS0 PCI_CONFIG_SPACE_GET_OFFSET (base_address[0])
+#define PCI_CONFIG_BASE_ADDRESS1 PCI_CONFIG_SPACE_GET_OFFSET (base_address[1])
+#define PCI_CONFIG_BASE_ADDRESS2 PCI_CONFIG_SPACE_GET_OFFSET (base_address[2])
+#define PCI_CONFIG_BASE_ADDRESS3 PCI_CONFIG_SPACE_GET_OFFSET (base_address[3])
+#define PCI_CONFIG_BASE_ADDRESS4 PCI_CONFIG_SPACE_GET_OFFSET (base_address[4])
+#define PCI_CONFIG_BASE_ADDRESS5 PCI_CONFIG_SPACE_GET_OFFSET (base_address[5])
+#define PCI_CONFIG_COMMAND PCI_CONFIG_SPACE_GET_OFFSET (command)
 
 #define PCI_CONFIG_COMMAND_IOENABLE	0x1
 #define PCI_CONFIG_COMMAND_MEMENABLE	0x2
@@ -136,15 +138,15 @@ struct pci_msi;
 struct pci_bridge_callback_list;
 struct pci_msi_callback;
 
-// data structures
+/* data structures */
 struct pci_device {
-	LIST_DEFINE(pci_device_list);
+	LIST_DEFINE (pci_device_list);
 	pci_config_address_t address;
 	void *host;
 	struct pci_driver *driver;
 	char **driver_options;
 	struct pci_config_space config_space;
-	u32 base_address_mask[PCI_CONFIG_BASE_ADDRESS_NUMS+1];
+	u32 base_address_mask[PCI_CONFIG_BASE_ADDRESS_NUMS + 1];
 	u8 in_base_address_mask_emulation;
 	u8 base_address_mask_valid;
 	struct pci_config_mmio_data *config_mmio;
@@ -166,7 +168,7 @@ struct pci_device {
 };
 
 struct pci_driver {
-	LIST_DEFINE(pci_driver_list);
+	LIST_DEFINE (pci_driver_list);
 	char *device;
 	void (*new)(struct pci_device *dev);
 	int (*config_read) (struct pci_device *dev, u8 iosize, u16 offset,
@@ -235,7 +237,7 @@ struct msix_table {
 
 extern u64 pci_msi_dummyaddr;
 
-// exported functions
+/* exported functions */
 extern void pci_register_driver (struct pci_driver *driver);
 void pci_register_virtual_driver (struct pci_virtual_driver *driver);
 extern void pci_register_intr_callback (int (*callback) (void *data, int num),

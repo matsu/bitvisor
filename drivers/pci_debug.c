@@ -35,15 +35,15 @@
 
 #include <pci.h>
 
-void pci_print_device(pci_config_address_t addr, struct pci_config_space *cs)
+void
+pci_print_device (pci_config_address_t addr, struct pci_config_space *cs)
 {
-//	int i;
-	printf("%02x:%02x.%1d %02x:%02x:%02x(%x) %04x:%04x %04x,%04x\n",
-	       addr.bus_no, addr.device_no, addr.func_no,
-	       cs->base_class, cs->sub_class, cs->programming_interface, cs->class_code,
-	       cs->vendor_id, cs->device_id,
-	       cs->command, cs->status);
+	printf ("%02x:%02x.%1d %02x:%02x:%02x(%x) %04x:%04x %04x,%04x\n",
+		addr.bus_no, addr.device_no, addr.func_no, cs->base_class,
+		cs->sub_class, cs->programming_interface, cs->class_code,
+		cs->vendor_id, cs->device_id, cs->command, cs->status);
 #if 0
+	int i;
 	for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++)
 		printf("%08x ", cs->regs32[i]);
 	printf("\n");

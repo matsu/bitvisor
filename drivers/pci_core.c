@@ -86,27 +86,29 @@ static pci_config_address_t current_config_addr;
 static spinlock_t pci_msi_callback_lock = SPINLOCK_INITIALIZER;
 static struct pci_msi_callback *msi_callback_list;
 
-/********************************************************************************
+/******************************************************************************
  * PCI internal interfaces
- ********************************************************************************/
+ *****************************************************************************/
 
-LIST_DEFINE_HEAD(pci_device_list);
-LIST_DEFINE_HEAD(pci_driver_list);
+LIST_DEFINE_HEAD (pci_device_list);
+LIST_DEFINE_HEAD (pci_driver_list);
 static struct pci_virtual_device **pci_virtual_devices[32];
 LIST_DEFINE_HEAD (pci_virtual_driver_list);
 struct pci_config_mmio_data *pci_config_mmio_data_head;
 
-void pci_save_config_addr(void)
+void
+pci_save_config_addr (void)
 {
 	pci_config_pmio_addrlock (ADDR_LOCK);
-	in32(PCI_CONFIG_ADDR_PORT, &current_config_addr.value);
+	in32 (PCI_CONFIG_ADDR_PORT, &current_config_addr.value);
 	pci_config_pmio_addrlock (ADDR_UNLOCK);
 }
 
-void pci_append_device(struct pci_device *dev)
+void
+pci_append_device (struct pci_device *dev)
 {
-	LIST_APPEND(pci_device_list, dev);
-	// pci_print_device(addr, &dev->config_space);
+	LIST_APPEND (pci_device_list, dev);
+	/* pci_print_device (addr, &dev->config_space); */
 }
 
 #define BIT_SET(flag, index)	(flag |=  (1 << index))
@@ -122,7 +124,7 @@ pci_config_emulate_base_address_mask (struct pci_device *dev,
 
 	if (reg_offset < 0x10)
 		return false;
-	if (! ((0 <= index && index <= 5) || index == 8) )
+	if (!((0 <= index && index <= 5) || index == 8))
 		return false;
 	if (index == 8)		/* expansion ROM base address */
 		index -= 2;
@@ -562,7 +564,8 @@ ret:
 	spinlock_unlock (&pci_config_io_lock);
 }
 
-int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
+int
+pci_config_data_handler (core_io_t io, union mem *data, void *arg)
 {
 	pci_config_address_t caddr;
 	u8 offset;
@@ -576,7 +579,8 @@ int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
 				    data);
 		goto leave;
 	}
-	offset = caddr.reg_no * sizeof(u32) + (io.port - PCI_CONFIG_DATA_PORT);
+	offset = caddr.reg_no * sizeof (u32) +
+		 (io.port - PCI_CONFIG_DATA_PORT);
 	pci_config_io_handler (NULL, io.dir != CORE_IO_DIR_IN, caddr.bus_no,
 			       caddr.device_no, caddr.func_no, offset, io.size,
 			       data);
@@ -585,7 +589,8 @@ leave:
 	return CORE_IO_RET_DONE;
 }
 
-int pci_config_addr_handler(core_io_t io, union mem *data, void *arg)
+int
+pci_config_addr_handler (core_io_t io, union mem *data, void *arg)
 {
 	switch (io.type) {
 	case CORE_IO_TYPE_IN32:
@@ -609,7 +614,7 @@ int pci_config_addr_handler(core_io_t io, union mem *data, void *arg)
 		pci_config_pmio_addrlock (ADDR_RESTORE_UNLOCK);
 		break;
 	default:
-		panic("pci_config_addr_handler: unknown iotype\n");
+		panic ("pci_config_addr_handler: unknown iotype\n");
 	}
 	return CORE_IO_RET_DONE;
 }
@@ -745,20 +750,21 @@ pci_set_bridge_callback (struct pci_device *pci_device,
 	}
 }
 
-/********************************************************************************
+/******************************************************************************
  * PCI service functions exported to PCI device drivers
- ********************************************************************************/
-/* ------------------------------------------------------------------------------
+ *****************************************************************************/
+/* ----------------------------------------------------------------------------
    PCI driver registration
- ------------------------------------------------------------------------------ */
+ --------------------------------------------------------------------------- */
 
 /**
  * @brief		PCI driver registration function
  * @param  driver	pointer to struct pci_driver
  */
-void pci_register_driver(struct pci_driver *driver)
+void
+pci_register_driver (struct pci_driver *driver)
 {
-	LIST_APPEND(pci_driver_list, driver);
+	LIST_APPEND (pci_driver_list, driver);
 	if (driver->longname)
 		printf ("%s registered\n", driver->longname);
 	return;
@@ -781,9 +787,9 @@ pci_register_intr_callback (int (*callback) (void *data, int num), void *data)
 	exint_pass_intr_register_callback (callback, data);
 }
 
-/* ------------------------------------------------------------------------------
+/* ----------------------------------------------------------------------------
    PCI configuration registers access
- ------------------------------------------------------------------------------ */
+ --------------------------------------------------------------------------- */
 
 void
 pci_readwrite_config_mmio (struct pci_config_mmio_data *p, bool wr,
