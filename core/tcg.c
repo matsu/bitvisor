@@ -28,12 +28,12 @@
  */
 
 #ifdef TCG_BIOS
+#include <tcg.h>
 #include "callrealmode.h"
 #include "mm.h"
 #include "printf.h"
 #include "string.h"
 #include "uefi.h"
-#include <tcg.h>
 
 #define TCPA 0x41504354
 #define FUNC_TCG_StatusCheck			0x00

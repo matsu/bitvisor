@@ -29,6 +29,8 @@
 
 #include <arch/vmmcall.h>
 #include <core/currentcpu.h>
+#include <share/loadcfg.h>
+#include "../crypto/decryptcfg.h"
 #include "assert.h"
 #include "config.h"
 #include "initfunc.h"
@@ -39,8 +41,6 @@
 #include "string.h"
 #include "vmmcall.h"
 #include "vmmcall_boot.h"
-#include "../crypto/decryptcfg.h"
-#include <share/loadcfg.h>
 
 struct vmmcall_boot_thread_data {
 	void (*func) (void *);

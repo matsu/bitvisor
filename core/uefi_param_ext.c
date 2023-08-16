@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <share/uefi_boot.h>
 #include "initfunc.h"
 #include "mm.h"
 #include "panic.h"
@@ -34,7 +35,6 @@
 #include "types.h"
 #include "uefi.h"
 #include "uefi_param_ext.h"
-#include <share/uefi_boot.h>
 
 static phys_t boot_param_ext_addrs[MAX_N_PARAM_EXTS];
 static u64 n_param_exts;

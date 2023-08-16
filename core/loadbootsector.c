@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <tcg.h>
 #include "callrealmode.h"
 #include "current.h"
 #include "config.h"
@@ -36,7 +37,6 @@
 #include "printf.h"
 #include "string.h"
 #include "types.h"
-#include <tcg.h>
 
 #define PARTITION_STATUS_ACTIVE 0x80
 #define NUM_OF_PARTITIONS 4

@@ -33,6 +33,7 @@
 #ifdef VPN_VE
 #include <arch/gmm.h>
 #include <arch/vmmcall.h>
+#include <net/netapi.h>
 #include "config.h"
 #include "crypt.h"
 #include "current.h"
@@ -44,7 +45,6 @@
 #include "time.h"
 #include "vmmcall.h"
 #include "vpn_ve.h"
-#include <net/netapi.h>
 
 struct pqueue_list {
 	LIST1_DEFINE (struct pqueue_list);

@@ -28,16 +28,16 @@
  */
 
 #include <Uefi.h>
-#include <Protocol/SimpleFileSystem.h>
 #include <Guid/Acpi.h>
+#include <Protocol/SimpleFileSystem.h>
 #undef NULL
 #include <arch/entry.h>
 #include <section.h>
+#include <share/uefi_boot.h>
 #include "entry.h"
 #include "linker.h"
 #include "mm.h"
 #include "uefi.h"
-#include <share/uefi_boot.h>
 
 #define UEFI_READ_PHYS(vaddr, paddr) \
 	uefi_entry_arch_pcpy (uefi_entry_arch_virttophys ((vaddr)), (paddr), \

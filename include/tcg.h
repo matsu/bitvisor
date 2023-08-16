@@ -30,6 +30,8 @@
 #ifndef _TCG_H
 #define _TCG_H
 
+#include <core/types.h>
+
 #define TPM_ALG_SHA 4
 
 /* Return Codes */

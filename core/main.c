@@ -28,6 +28,7 @@
  */
 
 #include <core/mm.h>
+#include <share/uefi_boot.h>
 #include "ap.h"
 #include "assert.h"
 #include "callrealmode.h"
@@ -62,7 +63,6 @@
 #include "vramwrite.h"
 #include "vt.h"
 #include "vt_init.h"
-#include <share/uefi_boot.h>
 
 static struct multiboot_info mi;
 static u32 minios_startaddr;
