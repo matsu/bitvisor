@@ -28,8 +28,8 @@
  */
 
 #include <Uefi.h>
-#include <Protocol/LoadedImage.h>
 #include <Guid/Acpi.h>
+#include <Protocol/LoadedImage.h>
 #include "bsdriver.h"
 
 struct acpi_table_mod_list {

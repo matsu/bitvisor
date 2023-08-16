@@ -31,9 +31,8 @@
 #include <Protocol/BlockIoCrypto.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/SimpleFileSystem.h>
-#include <vmm_types.h>
-#include <uefi_boot.h>
 #include <efi_extra/device_path_helper.h>
+#include <uefi_boot.h>
 
 typedef int EFIAPI entry_func_t (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab,
 				 void **boot_exts);

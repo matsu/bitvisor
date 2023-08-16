@@ -31,11 +31,10 @@
 #include <Protocol/BlockIoCrypto.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/SimpleFileSystem.h>
-#include <vmm_types.h>
 #include <config.h>
+#include <efi_extra/device_path_helper.h>
 #include <loadcfg.h>
 #include <uefi_boot.h>
-#include <efi_extra/device_path_helper.h>
 #include "pass_auth.h"
 #include "randseed.h"
 
