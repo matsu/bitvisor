@@ -31,6 +31,8 @@
 #ifndef __SHARE_LOADCFG_H
 #define __SHARE_LOADCFG_H
 
+#include "vmm_types.h"
+
 struct loadcfg_data {
 	u32 len;
 	u32 pass, passlen;

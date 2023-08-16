@@ -31,6 +31,8 @@
 #ifndef __SHARE_CONFIG_H
 #define __SHARE_CONFIG_H
 
+#include "vmm_types.h"
+
 #define NUM_OF_STORAGE_KEYS 16
 #define NUM_OF_STORAGE_KEYS_CONF 16
 #define STORAGE_GUID_NULL {0, 0, 0, {0, 0, 0 ,0 ,0, 0, 0, 0}}
