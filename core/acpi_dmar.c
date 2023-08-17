@@ -37,6 +37,8 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
+#include <passthrough/iodom.h>
+#include <passthrough/vtd.h>
 #include "acpi_dsdt.h"
 #include "ap.h"
 #include "beep.h"
@@ -46,8 +48,6 @@
 #include "uefi.h"
 #include "vmm_mem.h"
 #include "wakeup.h"
-#include "passthrough/vtd.h"
-#include "passthrough/iodom.h"
 
 #define DMAR_SIGNATURE		"DMAR"
 

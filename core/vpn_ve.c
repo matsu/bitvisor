@@ -41,8 +41,8 @@
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/time.h>
+#include <crypt.h>
 #include <net/netapi.h>
-#include "crypt.h"
 #include "vmmcall.h"
 #include "vpn_ve.h"
 

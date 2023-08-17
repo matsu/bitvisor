@@ -27,7 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "common/list.h"
+#include <common/list.h>
+#include <core/spinlock.h>
 
 struct domain
 {
