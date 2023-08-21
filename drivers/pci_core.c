@@ -1419,7 +1419,7 @@ pci_disable_msi_callback (struct pci_msi_callback *p)
 }
 
 void
-pci_dmar_force_map (struct pci_device *dev)
+pci_iommu_arch_force_map (struct pci_device *dev)
 {
 	if (dev->as_dma != &dev->as_dma_dmar)
 		return;

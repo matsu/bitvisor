@@ -306,6 +306,5 @@ pci_register_msi_callback (struct pci_device *pci_device,
 void pci_enable_msi_callback (struct pci_msi_callback *p, u32 maddr,
 			      u32 mupper, u16 mdata);
 void pci_disable_msi_callback (struct pci_msi_callback *p);
-void pci_dmar_force_map (struct pci_device *pci_device);
 
 #endif

@@ -33,6 +33,7 @@
  * @author	Ake Koomsin
  */
 
+#include <arch/pci.h>
 #include <core.h>
 #include <core/mmio.h>
 #include <core/thread.h>
@@ -489,7 +490,7 @@ end:
 		init_admin_queue (host);
 		host->enable = 1;
 		spinlock_unlock (&host->lock);
-		pci_dmar_force_map (host->pci);
+		pci_iommu_arch_force_map (host->pci);
 		dprintf (NVME_ETC_DEBUG, "NVMe has been enabled\n");
 	}
 

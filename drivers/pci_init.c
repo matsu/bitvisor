@@ -32,6 +32,7 @@
  * @brief	PCI driver (init)
  * @author	T. Shinagawa
  */
+#include <arch/pci_init.h>
 #include <core/acpi.h>
 #include <core/mmio.h>
 #include <core/uefiutil.h>
@@ -350,8 +351,8 @@ virtual_dmar_msi_to_icr (void *data, u32 maddr, u32 mupper, u16 mdata)
 }
 
 static const struct mm_as *
-pci_init_as_dma (struct pci_device *dev, struct pci_device *pdev,
-		 struct acpi_pci_addr *next)
+do_init_as_dma (struct pci_device *dev, struct pci_device *pdev,
+		struct acpi_pci_addr *next)
 {
 	struct acpi_pci_addr addr;
 
@@ -360,7 +361,7 @@ pci_init_as_dma (struct pci_device *dev, struct pci_device *pdev,
 	addr.func = pdev->address.func_no;
 	addr.next = next;
 	if (pdev->parent_bridge)
-		return pci_init_as_dma (dev, pdev->parent_bridge, &addr);
+		return do_init_as_dma (dev, pdev->parent_bridge, &addr);
 	dev->dmar_info = acpi_dmar_add_pci_device (0, &addr,
 						   !!dev->bridge.yes);
 	if (dev->dmar_info) {
@@ -372,8 +373,14 @@ pci_init_as_dma (struct pci_device *dev, struct pci_device *pdev,
 	return as_passvm;
 }
 
-static const struct mm_as *
-pci_virtual_init_as_dma (struct pci_virtual_device *dev)
+const struct mm_as *
+pci_init_arch_as_dma (struct pci_device *dev, struct pci_device *pdev)
+{
+	return do_init_as_dma (dev, pdev, NULL);
+}
+
+const struct mm_as *
+pci_init_arch_virtual_as_dma (struct pci_virtual_device *dev)
 {
 	struct acpi_pci_addr addr;
 
@@ -414,7 +421,7 @@ pci_possible_new_device (pci_config_address_t addr,
 		if (ret->parent_bridge)
 			ret->initial_bus_no = ret->parent_bridge->bridge.
 				initial_secondary_bus_no;
-		ret->as_dma = pci_init_as_dma (ret, ret, NULL);
+		ret->as_dma = pci_init_arch_as_dma (ret, ret);
 	}
 	return ret;
 }
@@ -471,7 +478,7 @@ pci_find_devices (void)
 		dev->parent_bridge =
 			pci_get_bridge_from_bus_no (dev->address.bus_no);
 	LIST_FOREACH (pci_device_list, dev)
-		dev->as_dma = pci_init_as_dma (dev, dev, NULL);
+		dev->as_dma = pci_init_arch_as_dma (dev, dev);
 	LIST_FOREACH (pci_device_list, dev) {
 		driver = pci_find_driver_for_device (dev);
 		if (driver) {
@@ -489,7 +496,7 @@ pci_find_devices (void)
 		virtual_device->address =
 			pci_make_config_address (0, dn, fn, 0);
 		virtual_device->as_dma =
-			pci_virtual_init_as_dma (virtual_device);
+			pci_init_arch_virtual_as_dma (virtual_device);
 		virtual_device->driver->new (virtual_device);
 		vnum++;
 	}
