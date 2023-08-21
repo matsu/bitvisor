@@ -27,72 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <core/initfunc.h>
-#include <core/panic.h>
-#include <core/printf.h>
-#include <core/x86/io.h>
-#include "asm.h"
-#include "constants.h"
-#include "cpu_interpreter.h"
-#include "cpu_mmu.h"
-#include "current.h"
-#include "io_io.h"
+#ifndef __CORE_X86_AP_H
+#define __CORE_X86_AP_H
 
-enum ioact
-do_io_nothing (enum iotype type, u32 port, void *data)
-{
-	switch (type) {
-	case IOTYPE_INB:
-		*(u8 *)data = 0xFF;
-		break;
-	case IOTYPE_INW:
-		*(u16 *)data = 0xFFFF;
-		break;
-	case IOTYPE_INL:
-		*(u32 *)data = 0xFFFFFFFF;
-		break;
-	case IOTYPE_OUTB:
-	case IOTYPE_OUTW:
-	case IOTYPE_OUTL:
-		break;
-	default:
-		panic ("Fatal error: do_io_nothing: Bad type");
-	}
-	return IOACT_CONT;
-}
+#include <core/types.h>
 
-iofunc_t
-set_iofunc (u32 port, iofunc_t func)
-{
-	iofunc_t old, *p;
-	bool pass;
+void self_ipi (int intnum);
+void send_ipi (u64 icr);
+void eoi (void);
+bool is_icr_destination_me (u64 icr);
 
-	p = &current->vcpu0->io.iofunc[port & 0xFFFF];
-	/* old = *p; *p = func; */
-	old = (iofunc_t)asm_lock_ulong_swap ((ulong *)p, (ulong)func);
-	if (func == do_iopass_default)
-		pass = true;
-	else
-		pass = false;
-	current->vmctl.iopass (port, pass);
-	return old;
-}
-
-static void
-io_io_init (void)
-{
-	u32 i;
-
-	if (current->vcpu0 == current)
-		for (i = 0; i < NUM_OF_IOPORT; i++)
-			set_iofunc (i, do_io_nothing);
-}
-
-enum ioact
-call_io (enum iotype type, u32 port, void *data)
-{
-	port &= 0xFFFF;
-	return current->vcpu0->io.iofunc[port] (type, port, data);
-}
-
-INITFUNC ("vcpu0", io_io_init);
+#endif

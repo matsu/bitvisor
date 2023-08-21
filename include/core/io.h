@@ -47,8 +47,5 @@ enum ioact {
 };
 
 typedef enum ioact (*iofunc_t) (enum iotype type, u32 port, void *data);
-enum ioact do_io_nothing (enum iotype type, u32 port, void *data);
-enum ioact do_iopass_default (enum iotype type, u32 port, void *data);
-iofunc_t set_iofunc (u32 port, iofunc_t func);
 
 #endif

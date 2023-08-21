@@ -29,12 +29,12 @@
 
 #include <core/assert.h>
 #include <core/initfunc.h>
-#include <core/io.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
 #include <core/time.h>
+#include <core/x86/io.h>
 #include "../acpi.h"
 #include "../acpi_constants.h"
 #include "constants.h"

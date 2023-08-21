@@ -28,8 +28,8 @@
  */
 
 #include <arch/pci.h>
-#include <core/acpi.h>
-#include <core/ap.h>
+#include <core/x86/acpi.h>
+#include <core/x86/ap.h>
 #include <pci.h>
 #include "../pci_internal.h"
 

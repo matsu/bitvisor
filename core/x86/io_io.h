@@ -31,8 +31,8 @@
 #define _CORE_X86_IO_IO_H
 
 #include <constants.h>
-#include <core/io.h>
 #include <core/types.h>
+#include <core/x86/io.h>
 
 #define do_io_default do_iopass_default
 

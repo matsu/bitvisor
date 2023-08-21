@@ -29,7 +29,7 @@
 
 #include <arch/pci.h>
 #include <arch/pci_init.h>
-#include <core/acpi.h>
+#include <core/x86/acpi.h>
 #include <core/mmio.h>
 #include <pci.h>
 #include "../pci_internal.h"

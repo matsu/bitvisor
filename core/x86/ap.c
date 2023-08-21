@@ -28,7 +28,6 @@
  */
 
 #include <builtin.h>
-#include <core/ap.h>
 #include <core/assert.h>
 #include <core/linkage.h>
 #include <core/mm.h>
@@ -38,6 +37,7 @@
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/thread.h>
+#include <core/x86/ap.h>
 #include "../uefi.h"
 #include "ap.h"
 #include "asm.h"

@@ -29,9 +29,9 @@
 
 #include <core/config.h>
 #include <core/initfunc.h>
-#include <core/io.h>
 #include <core/panic.h>
 #include <core/printf.h>
+#include <core/x86/io.h>
 #include "current.h"
 #include "debug.h"
 

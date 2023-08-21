@@ -29,10 +29,10 @@
 
 #include <core/debug.h>
 #include <core/initfunc.h>
-#include <core/io.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/types.h>
+#include <core/x86/io.h>
 #include "acpi.h"
 #include "asm.h"
 #include "current.h"

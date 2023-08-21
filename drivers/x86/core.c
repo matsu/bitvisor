@@ -28,7 +28,7 @@
  */
 
 #include <arch/io.h>
-#include <core/io.h>
+#include <core/x86/io.h>
 
 bool
 core_io_arch_iospace_exist (void)

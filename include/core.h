@@ -40,7 +40,6 @@
 #include <core/config.h>
 
 /** I/O handler functions */
-#include <core/io.h>
 #include <io.h>
 void in8(ioport_t port, u8 *data);
 void in16(ioport_t port, u16 *data);

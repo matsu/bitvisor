@@ -30,7 +30,6 @@
 
 #include <arch/pci.h>
 #include <core.h>
-#include <core/ap.h>
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mmio.h>

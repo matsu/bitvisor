@@ -27,14 +27,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CORE_AP_H
-#define __CORE_AP_H
+#ifndef __CORE_X86_IO_H
+#define __CORE_X86_IO_H
 
+#include <core/io.h>
 #include <core/types.h>
 
-void self_ipi (int intnum);
-void send_ipi (u64 icr);
-void eoi (void);
-bool is_icr_destination_me (u64 icr);
+enum ioact do_io_nothing (enum iotype type, u32 port, void *data);
+enum ioact do_iopass_default (enum iotype type, u32 port, void *data);
+iofunc_t set_iofunc (u32 port, iofunc_t func);
 
 #endif

@@ -37,6 +37,7 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
+#include <core/x86/acpi.h>
 #include <passthrough/iodom.h>
 #include <passthrough/vtd.h>
 #include "../acpi.h"

@@ -28,9 +28,9 @@
  */
 
 #include <core/initfunc.h>
-#include <core/io.h>
 #include <core/process.h>
 #include <core/types.h>
+#include <core/x86/io.h>
 #include "asm.h"
 #include "serial.h"
 
