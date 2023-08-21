@@ -426,13 +426,46 @@ pci_possible_new_device (pci_config_address_t addr,
 	return ret;
 }
 
+static struct pci_device *
+pci_try_add_device (pci_config_address_t addr,
+		    struct pci_config_mmio_data *mmio,
+		    u32 *bus0_devs)
+{
+	u16 data;
+	struct pci_device *dev;
+
+	if (mmio)
+		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
+				      addr.func_no, 0, sizeof data, &data);
+	else
+		pci_read_config_pmio (addr.bus_no, addr.device_no,
+				      addr.func_no, 0, sizeof data, &data);
+	if (data == 0xFFFF) /* not exist */
+		return NULL;
+
+	dev = pci_new_device (addr);
+	if (!dev)
+		panic ("Out of memory");
+	if (addr.bus_no == 0)
+		*bus0_devs |= 1 << addr.device_no;
+
+	dev->initial_bus_no = addr.bus_no;
+	if (dev->bridge.yes) {
+		dev->bridge.initial_secondary_bus_no =
+			dev->bridge.secondary_bus_no;
+		pci_set_bridge_from_bus_no (dev->bridge.secondary_bus_no, dev);
+	}
+
+	return dev;
+}
+
 static void
 pci_find_devices (void)
 {
 	int bn, dn, fn, num = 0;
 	struct pci_device *dev;
 	pci_config_address_t addr;
-	u16 data;
+	struct pci_config_mmio_data *mmio;
 	struct pci_driver *driver;
 	u32 bus0_devs = 0;
 	int vnum = 0;
@@ -444,36 +477,22 @@ pci_find_devices (void)
 	pci_config_pmio_enter ();
 	for (bn = 0; bn < PCI_MAX_BUSES; bn++)
 		pci_set_bridge_from_bus_no (bn, NULL);
-	for (bn = 0; bn < PCI_MAX_BUSES; bn++)
-		for (dn = 0; dn < PCI_MAX_DEVICES; dn++)
+	for (bn = 0; bn < PCI_MAX_BUSES; bn++) {
+		mmio = pci_search_config_mmio (0, bn);
+		for (dn = 0; dn < PCI_MAX_DEVICES; dn++) {
 			for (fn = 0; fn < PCI_MAX_FUNCS; fn++) {
 				addr = pci_make_config_address (bn, dn, fn, 0);
-				pci_read_config_pmio (addr.bus_no,
-						      addr.device_no,
-						      addr.func_no, 0,
-						      sizeof data, &data);
-				if (data == 0xFFFF) /* not exist */
+				dev = pci_try_add_device (addr, mmio,
+							  &bus0_devs);
+				if (!dev)
 					continue;
-
-				dev = pci_new_device (addr);
-				if (dev == NULL)
-					goto oom;
 				num++;
-				if (!bn)
-					bus0_devs |= 1 << dn;
-
-				dev->initial_bus_no = bn;
-				if (dev->bridge.yes) {
-					dev->bridge.initial_secondary_bus_no =
-						dev->bridge.secondary_bus_no;
-					pci_set_bridge_from_bus_no
-					(dev->bridge.secondary_bus_no, dev);
-				}
-
 				if (fn == 0 &&
 				    dev->config_space.multi_function == 0)
 					break;
 			}
+		}
+	}
 	LIST_FOREACH (pci_device_list, dev)
 		dev->parent_bridge =
 			pci_get_bridge_from_bus_no (dev->address.bus_no);
@@ -506,9 +525,6 @@ pci_find_devices (void)
 	if (vnum)
 		printf ("PCI: %d virtual devices created\n", vnum);
 	pci_dump_pci_dev_list ();
-	return;
-oom:
-	panic ("Out of memory");
 }
 
 static void
