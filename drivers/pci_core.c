@@ -76,6 +76,7 @@ enum addrlock_mode {
 };
 
 u64 pci_msi_dummyaddr;
+struct pci_msi_callback *pci_msi_callback_list;
 
 static void pci_config_pmio_addrlock (enum addrlock_mode mode);
 static void pci_config_pmio_do (bool wr, pci_config_address_t addr,
@@ -84,7 +85,6 @@ static void pci_config_pmio_do (bool wr, pci_config_address_t addr,
 static spinlock_t pci_config_io_lock = SPINLOCK_INITIALIZER;
 static pci_config_address_t current_config_addr;
 static spinlock_t pci_msi_callback_lock = SPINLOCK_INITIALIZER;
-static struct pci_msi_callback *msi_callback_list;
 
 /******************************************************************************
  * PCI internal interfaces
@@ -1335,20 +1335,22 @@ pci_msi_disable (struct pci_msi *msi)
 }
 
 void
-pci_msi_to_ipi (const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata)
+pci_arch_msi_to_ipi (const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata)
 {
 	u64 icr = mm_as_msi_to_icr (as, maddr, mupper, mdata);
 	send_ipi (icr);
 }
 
-static int
-msi_callback (void *data, int num)
+int
+pci_arch_msi_callback (void *data, int num)
 {
+	struct pci_msi_callback *p;
+
 	if (num < 0x10)
 		return num;
 	int hit = 0;
 	int ok = 0;
-	for (struct pci_msi_callback *p = msi_callback_list; p; p = p->next) {
+	for (p = pci_msi_callback_list; p; p = p->next) {
 		if (!p->enable)
 			continue;
 		u64 icr = mm_as_msi_to_icr (p->pci_device->as_dma, p->maddr,
@@ -1394,10 +1396,11 @@ pci_register_msi_callback (struct pci_device *pci_device,
 	p->data = data;
 	p->enable = false;
 	spinlock_lock (&pci_msi_callback_lock);
-	p->next = msi_callback_list;
+	p->next = pci_msi_callback_list;
 	if (!p->next)
-		exint_pass_intr_register_callback (msi_callback, NULL);
-	msi_callback_list = p;
+		exint_pass_intr_register_callback (pci_arch_msi_callback,
+						   NULL);
+	pci_msi_callback_list = p;
 	spinlock_unlock (&pci_msi_callback_lock);
 	return p;
 }

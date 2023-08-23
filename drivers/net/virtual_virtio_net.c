@@ -28,6 +28,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/pci.h>
 #include <core.h>
 #include <core/ap.h>
 #include <core/initfunc.h>
@@ -139,7 +140,7 @@ virtual_virtio_net_msix_generate (void *param, unsigned int queue)
 	if (queue < 3)
 		m = d->msix_tbl[d->msix_qvec[queue]];
 	if (!(m.mask & 1))
-		pci_msi_to_ipi (d->as_dma, m.addr, m.upper, m.data);
+		pci_arch_msi_to_ipi (d->as_dma, m.addr, m.upper, m.data);
 }
 
 static void
