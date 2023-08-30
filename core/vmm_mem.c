@@ -62,6 +62,12 @@ struct sysmemmapdata {
 	struct sysmemmap m;
 };
 
+/*
+ * vmm_start_phys explicitly uses u32 to remind that it uses special page
+ * tables that only support less than 4GB address for initialization. It is due
+ * to 32-bit implementation and old driver code that only support 32-bit
+ * address.
+ */
 u32 __attribute__ ((section (".data"))) vmm_start_phys;
 
 static u16 e801_fake_ax, e801_fake_bx;
