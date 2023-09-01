@@ -27,39 +27,21 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_MM_H
-#define _CORE_MM_H
+#ifndef _CORE_INCLUDE_ARCH_MM_H
+#define _CORE_INCLUDE_ARCH_MM_H
 
-#include <core/mm.h>
-#include "constants.h"
-#include "types.h"
+#include <core/types.h>
 
-#define MAPMEM_PWT			MAPMEM_PLAT (3)
-#define MAPMEM_PCD			MAPMEM_PLAT (4)
-#define MAPMEM_PAT			MAPMEM_PLAT (7)
-
-#define MM_PROCESS_MAP_WRITE		(1 << 0)
-#define MM_PROCESS_MAP_SHARE		(1 << 1)
-
-int num_of_available_pages (void);
-void mm_flush_wb_cache (void);
-void mm_force_unlock (void);
-void __attribute__ ((section (".entry.text")))
-uefi_init_get_vmmsize (u32 *vmmsize, u32 *align);
-void *mm_get_panicmem (int *len);
-void mm_free_panicmem (void);
-
-/* process */
-int mm_process_alloc (phys_t *phys);
-void mm_process_free (phys_t phys);
-int mm_process_map_alloc (virt_t virt, uint len);
-int mm_process_unmap (virt_t virt, uint len);
-void mm_process_unmapall (void);
-virt_t mm_process_map_stack (uint len, bool noalloc, bool align);
-int mm_process_unmap_stack (virt_t virt, uint len);
-int mm_process_map_shared_physpage (virt_t virt, phys_t phys, bool rw);
-void *mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw,
-			     bool pre);
-phys_t mm_process_switch (phys_t switchto);
+int mm_process_arch_alloc (phys_t *phys);
+void mm_process_arch_free (phys_t phys);
+void mm_process_arch_mappage (virt_t virt, phys_t phys, u64 flags);
+int mm_process_arch_mapstack (virt_t virt, bool noalloc);
+bool mm_process_arch_shared_mem_absent (virt_t virt);
+int mm_process_arch_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys);
+bool mm_process_arch_stack_absent (virt_t virt);
+int mm_process_arch_unmap (virt_t aligned_virt, uint npages);
+int mm_process_arch_unmap_stack (virt_t aligned_virt, uint npages);
+void mm_process_arch_unmapall (void);
+phys_t mm_process_arch_switch (phys_t switchto);
 
 #endif

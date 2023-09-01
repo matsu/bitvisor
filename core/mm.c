@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/mm.h>
 #include <arch/vmm_mem.h>
 #include "ap.h"
 #include "asm.h"
@@ -1067,7 +1068,7 @@ process_create_initial_map (void *virt, phys_t phys)
 }
 
 int
-mm_process_alloc (phys_t *phys2)
+mm_process_arch_alloc (phys_t *phys2)
 {
 	void *virt;
 	phys_t phys;
@@ -1078,18 +1079,37 @@ mm_process_alloc (phys_t *phys2)
 	return 0;
 }
 
+int
+mm_process_alloc (phys_t *phys)
+{
+	return mm_process_arch_alloc (phys);
+}
+
 void
-mm_process_free (phys_t phys)
+mm_process_arch_free (phys_t phys)
 {
 	free_page_phys (phys);
 }
 
-static void
-mm_process_mappage (virt_t virt, u64 pte)
+void
+mm_process_free (phys_t phys)
+{
+	mm_process_arch_free (phys);
+}
+
+void
+mm_process_arch_mappage (virt_t virt, phys_t phys, u64 flags)
 {
 	ulong cr3;
 	pmap_t m;
+	u64 pte;
 
+	pte = PTE_P_BIT | PTE_US_BIT;
+	if (flags & MM_PROCESS_MAP_WRITE)
+		pte |= PTE_RW_BIT;
+	if (flags & MM_PROCESS_MAP_SHARE)
+		pte |= PTE_AVAILABLE2_BIT;
+	pte = phys | pte;
 	asm_rdcr3 (&cr3);
 	pmap_open_vmm (&m, cr3, PMAP_LEVELS);
 	pmap_seek (&m, virt, 1);
@@ -1100,8 +1120,8 @@ mm_process_mappage (virt_t virt, u64 pte)
 	asm_wrcr3 (cr3);
 }
 
-static int
-mm_process_mapstack (virt_t virt, bool noalloc)
+int
+mm_process_arch_mapstack (virt_t virt, bool noalloc)
 {
 	ulong cr3;
 	pmap_t m;
@@ -1159,14 +1179,13 @@ mm_process_map_alloc (virt_t virt, uint len)
 	for (v = virt; npages > 0; v += PAGESIZE, npages--) {
 		alloc_page (&tmp, &phys);
 		memset (tmp, 0, PAGESIZE);
-		mm_process_mappage (v, phys | PTE_P_BIT | PTE_RW_BIT |
-				    PTE_US_BIT);
+		mm_process_arch_mappage (v, phys, MM_PROCESS_MAP_WRITE);
 	}
 	return 0;
 }
 
-static bool
-alloc_sharedmem_sub (u32 virt)
+bool
+mm_process_arch_shared_mem_absent (virt_t virt)
 {
 	pmap_t m;
 	ulong cr3;
@@ -1189,9 +1208,8 @@ mm_process_map_shared_physpage (virt_t virt, phys_t phys, bool rw)
 	if (virt >= vmm_mem_proc_end_virt ())
 		return -1;
 	mm_process_unmap (virt, PAGESIZE);
-	mm_process_mappage (virt, phys | PTE_P_BIT |
-			    (rw ? PTE_RW_BIT : 0) | PTE_US_BIT |
-			    PTE_AVAILABLE2_BIT);
+	mm_process_arch_mappage (virt, phys, (rw ? MM_PROCESS_MAP_WRITE : 0) |
+					     MM_PROCESS_MAP_SHARE);
 	return 0;
 }
 
@@ -1205,8 +1223,8 @@ process_virt_to_phys_prepare (void)
 	process_virt_to_phys_pdp = virt;
 }
 
-static int
-process_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
+int
+mm_process_arch_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
 {
 	u64 pte;
 	int r = -1;
@@ -1253,7 +1271,8 @@ retry:
 		for (virt = virt_s & ~0xFFF; virt < virt_e; virt += PAGESIZE) {
 			uservirt += PAGESIZE;
 			ASSERT (uservirt < 0x30000000);
-			if (!alloc_sharedmem_sub (uservirt - PAGESIZE))
+			if (!mm_process_arch_shared_mem_absent
+			     (uservirt - PAGESIZE))
 				goto retry;
 			off += PAGESIZE;
 		}
@@ -1262,13 +1281,13 @@ retry:
 		for (virt = virt_s & ~0xFFF; virt < virt_e; virt += PAGESIZE) {
 			uservirt -= PAGESIZE;
 			ASSERT (uservirt > 0x20000000);
-			if (!alloc_sharedmem_sub (uservirt))
+			if (!mm_process_arch_shared_mem_absent (uservirt))
 				goto retry;
 		}
 	}
 	for (virt = virt_s & ~0xFFF, off = 0; virt < virt_e;
 	     virt += PAGESIZE, off += PAGESIZE) {
-		if (process_virt_to_phys (procphys, virt, &phys)) {
+		if (mm_process_arch_virt_to_phys (procphys, virt, &phys)) {
 			mm_process_unmap ((virt_t)(uservirt + (virt_s &
 							       0xFFF)),
 					  len);
@@ -1279,8 +1298,8 @@ retry:
 	return (void *)(uservirt + (virt_s & 0xFFF));
 }
 
-static bool
-alloc_stack_sub (virt_t virt)
+bool
+mm_process_arch_stack_absent (virt_t virt)
 {
 	pmap_t m;
 	ulong cr3;
@@ -1315,7 +1334,7 @@ retry:
 	for (i = 0; i < npages; i++) {
 		if (virt - i * PAGESIZE <= 0x20000000)
 			return 0;
-		if (!alloc_stack_sub (virt - i * PAGESIZE)) {
+		if (!mm_process_arch_stack_absent (virt - i * PAGESIZE)) {
 			if (align)
 				virt = virt - PAGESIZE * npages;
 			else
@@ -1324,7 +1343,7 @@ retry:
 		}
 	}
 	for (i = 0; i < npages; i++) {
-		if (mm_process_mapstack (virt - i * PAGESIZE, noalloc)) {
+		if (mm_process_arch_mapstack (virt - i * PAGESIZE, noalloc)) {
 			mm_process_unmap_stack (virt + PAGESIZE, i * PAGESIZE);
 			return 0;
 		}
@@ -1333,26 +1352,16 @@ retry:
 }
 
 int
-mm_process_unmap (virt_t virt, uint len)
+mm_process_arch_unmap (virt_t aligned_virt, uint npages)
 {
-	uint npages;
 	virt_t v;
 	u64 pte;
 	ulong cr3;
 	pmap_t m;
 
-	if (virt >= vmm_mem_proc_end_virt ())
-		return -1;
-	if (virt + len >= vmm_mem_proc_end_virt ())
-		return -1;
-	if (virt > virt + len)
-		return -1;
-	len += virt & PAGESIZE_MASK;
-	virt -= virt & PAGESIZE_MASK;
-	npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
 	asm_rdcr3 (&cr3);
 	pmap_open_vmm (&m, cr3, PMAP_LEVELS);
-	for (v = virt; npages > 0; v += PAGESIZE, npages--) {
+	for (v = aligned_virt; npages > 0; v += PAGESIZE, npages--) {
 		pmap_seek (&m, v, 1);
 		pte = pmap_read (&m);
 		if (!(pte & PTE_P_BIT))
@@ -1367,27 +1376,33 @@ mm_process_unmap (virt_t virt, uint len)
 }
 
 int
-mm_process_unmap_stack (virt_t virt, uint len)
+mm_process_unmap (virt_t virt, uint len)
 {
 	uint npages;
+
+	if (virt >= vmm_mem_proc_end_virt ())
+		return -1;
+	if (virt + len >= vmm_mem_proc_end_virt ())
+		return -1;
+	if (virt > virt + len)
+		return -1;
+	len += virt & PAGESIZE_MASK;
+	virt -= virt & PAGESIZE_MASK;
+	npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
+	return mm_process_arch_unmap (virt, npages);
+}
+
+int
+mm_process_arch_unmap_stack (virt_t aligned_virt, uint npages)
+{
 	virt_t v;
 	u64 pte;
 	ulong cr3;
 	pmap_t m;
 
-	virt -= len;
-	if (virt >= vmm_mem_proc_end_virt ())
-		return -1;
-	if (virt + len >= vmm_mem_proc_end_virt ())
-		return -1;
-	if (virt >= virt + len)
-		return -1;
-	len += virt & PAGESIZE_MASK;
-	virt -= virt & PAGESIZE_MASK;
-	npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
 	asm_rdcr3 (&cr3);
 	pmap_open_vmm (&m, cr3, PMAP_LEVELS);
-	for (v = virt; npages > 0; v += PAGESIZE, npages--) {
+	for (v = aligned_virt; npages > 0; v += PAGESIZE, npages--) {
 		pmap_seek (&m, v, 1);
 		pte = pmap_read (&m);
 		if (!(pte & PTE_P_BIT))
@@ -1415,7 +1430,7 @@ mm_process_unmap_stack (virt_t virt, uint len)
 		pte &= ~(PTE_A_BIT | PTE_D_BIT);
 		pmap_write (&m, pte, 0xFFF);
 	}
-	pmap_seek (&m, virt - PAGESIZE, 1);
+	pmap_seek (&m, aligned_virt - PAGESIZE, 1);
 	pte = pmap_read (&m);
 	if ((pte & PTE_A_BIT) && /* accessed */
 	    (pte & PTE_P_BIT) && /* present */
@@ -1434,15 +1449,32 @@ mm_process_unmap_stack (virt_t virt, uint len)
 	return 0;
 }
 
+int
+mm_process_unmap_stack (virt_t virt, uint len)
+{
+	uint npages;
+
+	virt -= len;
+	if (virt >= vmm_mem_proc_end_virt ())
+		return -1;
+	if (virt + len >= vmm_mem_proc_end_virt ())
+		return -1;
+	if (virt >= virt + len)
+		return -1;
+	len += virt & PAGESIZE_MASK;
+	virt -= virt & PAGESIZE_MASK;
+	npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
+	return mm_process_arch_unmap_stack (virt, npages);
+}
+
 void
-mm_process_unmapall (void)
+mm_process_arch_unmapall (void)
 {
 	virt_t v;
 	u64 pde;
 	pmap_t m;
 	ulong cr3;
 
-	ASSERT (!mm_process_unmap (0, vmm_mem_proc_end_virt () - 1));
 	asm_rdcr3 (&cr3);
 	pmap_open_vmm (&m, cr3, PMAP_LEVELS);
 	for (v = 0; v < vmm_mem_proc_end_virt (); v += PAGESIZE2M) {
@@ -1457,8 +1489,15 @@ mm_process_unmapall (void)
 	asm_wrcr3 (cr3);
 }
 
+void
+mm_process_unmapall (void)
+{
+	ASSERT (!mm_process_unmap (0, vmm_mem_proc_end_virt () - 1));
+	mm_process_arch_unmapall ();
+}
+
 phys_t
-mm_process_switch (phys_t switchto)
+mm_process_arch_switch (phys_t switchto)
 {
 	u64 old, new;
 	phys_t ret;
@@ -1484,6 +1523,12 @@ mm_process_switch (phys_t switchto)
 	}
 	pmap_close (&m);
 	return ret;
+}
+
+phys_t
+mm_process_switch (phys_t switchto)
+{
+	return mm_process_arch_switch (switchto);
 }
 
 /**********************************************************************/
