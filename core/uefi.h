@@ -30,6 +30,7 @@
 #ifndef _CORE_UEFI_H
 #define _CORE_UEFI_H
 
+#include <section.h>
 #include "types.h"
 
 extern void *uefi_conin;
@@ -57,5 +58,14 @@ extern ulong uefi_boot_acpi_table_mod;
 extern bool uefi_booted;
 extern ulong uefi_get_time;
 extern bool uefi_no_more_call;
+
+/*
+ * Use void * for img and sys_tab here. It is because including uefi header
+ * here causes definition conflict and it is difficult to deal with.
+ */
+int SECTION_ENTRY_TEXT uefi_load_bitvisor (void *img, void *sys_tab,
+					   void **boot_options,
+					   ulong load_offset, ulong *vmm_paddr,
+					   u32 *vmm_size);
 
 #endif

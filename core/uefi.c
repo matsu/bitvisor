@@ -171,8 +171,11 @@ boot_param_get_phys (struct uuid *boot_uuid)
 }
 
 int SECTION_ENTRY_TEXT
-uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
+uefi_load_bitvisor (void *img, void *sys_tab, void **boot_options,
+		    ulong load_offset, ulong *vmm_paddr, u32 *vmm_size)
 {
+	EFI_HANDLE *image;
+	EFI_SYSTEM_TABLE *systab;
 	EFI_BOOT_SERVICES *uefi_boot_services;
 	EFI_RUNTIME_SERVICES *uefi_runtime_services;
 	EFI_FILE_HANDLE file;
@@ -191,6 +194,8 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 	struct bitvisor_acpi_table_mod acpi_table_mod_opt;
 	u64 acpi_table_mod_opt_addr;
 
+	image = img;
+	systab = sys_tab;
 	uefi_boot_param_ext_addr = (ulong)boot_options;
 	uefi_image_handle = (ulong)image;
 	UEFI_READ_PHYS (&uefi_runtime_services, &systab->RuntimeServices);
@@ -288,7 +293,7 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 		uefi_entry_arch_call (uefi_free_pages, 0, alloc_addr + vmmsize,
 				      freesize);
 	_PRINT ("ing ");
-	uefi_entry_arch_pcpy ((u8 *)alloc_addr + 0x100000,
+	uefi_entry_arch_pcpy ((u8 *)alloc_addr + load_offset,
 			      (u8 *)(ulong)loadaddr, loadsize);
 	loadedsize = loadsize;
 	blocksize = (((dataend - head) / 64 + 511) / 512) * 512;
@@ -300,7 +305,7 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 		ret = uefi_entry_arch_call (uefi_read, 0, file,
 					    uefi_entry_arch_virttophys
 					    (&readsize),
-					    (void *)(alloc_addr + 0x100000 +
+					    (void *)(alloc_addr + load_offset +
 						     loadedsize));
 		if (ret) {
 			_PRINT ("\nRead error.\n");
@@ -313,5 +318,20 @@ uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 		_PRINT ("Load failed\n");
 		return 0;
 	}
+	*vmm_paddr = alloc_addr;
+	*vmm_size = vmmsize;
+	return 1;
+}
+
+int SECTION_ENTRY_TEXT
+uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
+{
+	ulong alloc_addr;
+	u32 vmm_size;
+
+	if (!uefi_load_bitvisor (image, systab, boot_options, 0x100000,
+				 &alloc_addr, &vmm_size))
+		return 0; /* Fail to load BitVisor */
+
 	uefi_entry_start (alloc_addr);
 }
