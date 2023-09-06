@@ -41,20 +41,6 @@
 
 /** I/O handler functions */
 #include <io.h>
-void in8(ioport_t port, u8 *data);
-void in16(ioport_t port, u16 *data);
-void in32(ioport_t port, u32 *data);
-void ins16(ioport_t port, u16 *buf, u32 count);
-void out8(ioport_t port, u8 data);
-void out16(ioport_t port, u16 data);
-void out32(ioport_t port, u32 data);
-void outs16(ioport_t port, u16 *buf, u32 count);
-
-int  core_io_register_handler(ioport_t start, size_t num, core_io_handler_t handler,
-			       void *arg, enum core_io_prio priority, const char *name);
-int  core_io_modify_handler(int hd, ioport_t start, size_t num);
-int  core_io_unregister_handler(int hd);
-void core_io_handle_default(core_io_t io, void *data);
 
 /** lock functions */
 #include <core/spinlock.h>
