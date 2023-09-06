@@ -75,6 +75,7 @@ enum core_io_prio {
 typedef int (*core_io_handler_t) (core_io_t ioaddr, union mem *data,
 				  void *arg);
 
+#if defined (__x86_64__) || defined (__i386__)
 static inline void
 in8 (ioport_t port, u8 *data)
 {
@@ -115,17 +116,6 @@ ins32 (ioport_t port, u32 *buf, u32 count)
 }
 
 static inline void
-insn (ioport_t port, void *buf, int unit_size, u32 total_size)
-{
-	if (unit_size == 4)
-		ins32 (port, buf, total_size / 4);
-	else if (unit_size == 2)
-		ins16 (port, buf, total_size / 2);
-	else if (unit_size == 1)
-		ins8 (port, buf, total_size);
-}
-
-static inline void
 out8 (ioport_t port, u8 data)
 {
 	asm volatile ("outb %%al, %%dx" : : "a" (data), "d" (port));
@@ -163,17 +153,7 @@ outs32 (ioport_t port, u32 *buf, u32 count)
 	asm volatile ("cld; rep outsl" : "=c" (count), "=S" (buf)
 		      : "c" (count), "d" (port), "S" (buf));
 }
-
-static inline void
-outsn (ioport_t port, void *buf, int unit_size, u32 total_size)
-{
-	if (unit_size == 4)
-		outs32 (port, buf, total_size / 4);
-	else if (unit_size == 2)
-		outs16 (port, buf, total_size / 2);
-	else if (unit_size == 1)
-		outs8 (port, buf, total_size);
-}
+#endif
 
 void in8 (ioport_t port, u8 *data);
 void in16 (ioport_t port, u16 *data);
@@ -187,6 +167,28 @@ void out32 (ioport_t port, u32 data);
 void outs8 (ioport_t port, u8 *buf, u32 count);
 void outs16 (ioport_t port, u16 *buf, u32 count);
 void outs32 (ioport_t port, u32 *buf, u32 count);
+
+static inline void
+insn (ioport_t port, void *buf, int unit_size, u32 total_size)
+{
+	if (unit_size == 4)
+		ins32 (port, buf, total_size / 4);
+	else if (unit_size == 2)
+		ins16 (port, buf, total_size / 2);
+	else if (unit_size == 1)
+		ins8 (port, buf, total_size);
+}
+
+static inline void
+outsn (ioport_t port, void *buf, int unit_size, u32 total_size)
+{
+	if (unit_size == 4)
+		outs32 (port, buf, total_size / 4);
+	else if (unit_size == 2)
+		outs16 (port, buf, total_size / 2);
+	else if (unit_size == 1)
+		outs8 (port, buf, total_size);
+}
 
 int core_io_register_handler (ioport_t start, size_t num,
 			      core_io_handler_t handler, void *arg,
