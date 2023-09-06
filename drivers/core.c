@@ -35,9 +35,10 @@
  */
 #include <core.h>
 
-static bool iotype_is_out(enum iotype iotype)
+static bool
+iotype_is_out (enum iotype iotype)
 {
-	switch(iotype) {
+	switch (iotype) {
 	case IOTYPE_INB:
 	case IOTYPE_INW:
 	case IOTYPE_INL:
@@ -47,12 +48,13 @@ static bool iotype_is_out(enum iotype iotype)
 	case IOTYPE_OUTL:
 		return 1;
 	}
-	panic("unknown iotype\n");
+	panic ("unknown iotype");
 }
 
-static int iotype_get_size(enum iotype iotype)
+static int
+iotype_get_size (enum iotype iotype)
 {
-	switch(iotype) {
+	switch (iotype) {
 	case IOTYPE_INB:
 	case IOTYPE_OUTB:
 		return 1;
@@ -63,7 +65,7 @@ static int iotype_get_size(enum iotype iotype)
 	case IOTYPE_OUTL:
 		return 4;
 	}
-	panic("unknown iosize\n");
+	panic ("unknown iosize");
 }
 
 #define IOTYPE_GET_SIZE(iotype)	(iotype & 0x0F)
@@ -83,13 +85,14 @@ struct handler_descriptor {
 } *handler_descriptor[MAX_HD] = { NULL };
 spinlock_t handler_descriptor_lock;
 
-struct handler_descriptor *alloc_handler_descriptor()
+static struct handler_descriptor *
+alloc_handler_descriptor (void)
 {
-	return alloc(sizeof(struct handler_descriptor));
+	return alloc (sizeof (struct handler_descriptor));
 }
 
-
-static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
+static enum ioact
+core_iofunc (enum iotype iotype, u32 port, void *data)
 {
 	int i, hd, ret = CORE_IO_RET_DEFAULT;
 	core_io_t io;
@@ -98,15 +101,15 @@ static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
 	bool hooked = false;
 
 	io.port = port;
-	io.size = iotype_get_size(iotype);
-	io.dir = iotype_is_out(iotype);
+	io.size = iotype_get_size (iotype);
+	io.dir = iotype_is_out (iotype);
 
-	spinlock_lock(&handler_descriptor_lock);
+	spinlock_lock (&handler_descriptor_lock);
 	for (i = 0, hd = 0; i < hd_num; i++, hd++) {
 		while (handler_descriptor[hd] == NULL)
 			hd++;
 		if (hd > MAX_HD)
-			panic("hd overflow\n");
+			panic ("hd overflow");
 
 		if (handler_descriptor[hd]->enabled != true ||
 		    handler_descriptor[hd]->start > port ||
@@ -116,9 +119,9 @@ static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
 		handler = handler_descriptor[hd]->handler;
 		arg = handler_descriptor[hd]->arg;
 
-		spinlock_unlock(&handler_descriptor_lock);
-		ret = handler(io, data, arg);
-		spinlock_lock(&handler_descriptor_lock);
+		spinlock_unlock (&handler_descriptor_lock);
+		ret = handler (io, data, arg);
+		spinlock_lock (&handler_descriptor_lock);
 
 		hooked = true;
 
@@ -128,20 +131,21 @@ static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
 	if (!hooked)
 		for (i = 0; i < io.size; i++)
 			set_iofunc (port + i, do_iopass_default);
-	spinlock_unlock(&handler_descriptor_lock);
+	spinlock_unlock (&handler_descriptor_lock);
 
 	switch (ret) {
 	case CORE_IO_RET_DEFAULT:
 	case CORE_IO_RET_NEXT:
-		core_io_handle_default(io, data);
+		core_io_handle_default (io, data);
 		break;
 	case CORE_IO_RET_DONE:
 		break;
 	case CORE_IO_RET_INVALID:
-		panic ("%s: CORE_IO_RET_INVALID: %08x\n", __func__, *(int *)&io);
+		panic ("%s: CORE_IO_RET_INVALID: %08x", __func__, *(int *)&io);
 		break;
 	case CORE_IO_RET_BLOCK:
-		printf("%s: CORE_IO_RET_BLOCK: %08x\n", __func__, *(int *)&io);
+		printf ("%s: CORE_IO_RET_BLOCK: %08x\n", __func__,
+			*(int *)&io);
 		if (io.dir == CORE_IO_DIR_IN) {
 			if (io.size == 4)
 				*(u32 *)data = 0xFFFFFFFF;
@@ -155,7 +159,7 @@ static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
 	return IOACT_CONT;
 }
 
-/** 
+/**
  * @brief		core_io_register_handler
  * @param start		start port
  * @param num		end port
@@ -165,14 +169,16 @@ static enum ioact core_iofunc(enum iotype iotype, u32 port, void *data)
  * @param name		driver's name
  * @return		handler descriptor
  */
-int core_io_register_handler(ioport_t start, size_t num, core_io_handler_t handler, void *arg,
-			     enum core_io_prio priority, const char *name)
+int
+core_io_register_handler (ioport_t start, size_t num,
+			  core_io_handler_t handler, void *arg,
+			  enum core_io_prio priority, const char *name)
 {
 	int i, hd, ihd;
 	ioport_t end = start + num - 1;
 	struct handler_descriptor *new;
 
-	new = alloc_handler_descriptor();
+	new = alloc_handler_descriptor ();
 	if (new == NULL)
 		goto oom;
 
@@ -185,7 +191,7 @@ int core_io_register_handler(ioport_t start, size_t num, core_io_handler_t handl
 	new->enabled = end >= start ? true : false;
 
 	ihd = priority == CORE_IO_PRIO_HIGH ? 0 : 10;
-	spinlock_lock(&handler_descriptor_lock);
+	spinlock_lock (&handler_descriptor_lock);
 	for (hd = ihd; hd < MAX_HD; hd++) {
 		if (handler_descriptor[hd] != NULL)
 			continue;
@@ -196,29 +202,33 @@ int core_io_register_handler(ioport_t start, size_t num, core_io_handler_t handl
 	if (hd < MAX_HD && handler_descriptor[hd]->enabled)
 		for (i = 0; i < num; i++)
 			set_iofunc (start + i, core_iofunc);
-	spinlock_unlock(&handler_descriptor_lock);
+	spinlock_unlock (&handler_descriptor_lock);
 	if (hd >= MAX_HD)
 		goto oom;
 
-	// printf("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start, end);
+	/*
+	 * printf ("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start,
+	 * 	   end);
+	 */
 	return hd;
 oom:
 	panic ("Out of memory");
 	return -1;
 }
 
-/** 
+/**
  * @brief		core_io_modify_handler
  * @param start		start port
  * @param num		end port
  * @return		handler descriptor
  */
-int core_io_modify_handler(int hd, ioport_t start, size_t num)
+int
+core_io_modify_handler (int hd, ioport_t start, size_t num)
 {
 	int i;
 	ioport_t end = start + num - 1;
 
-	spinlock_lock(&handler_descriptor_lock);
+	spinlock_lock (&handler_descriptor_lock);
 	if (0 <= hd && hd < MAX_HD && handler_descriptor[hd] != NULL) {
 		handler_descriptor[hd]->start = start;
 		handler_descriptor[hd]->end = end;
@@ -226,10 +236,13 @@ int core_io_modify_handler(int hd, ioport_t start, size_t num)
 	}
 	if (handler_descriptor[hd]->enabled)
 		for (i = 0; i < num; i++)
-			set_iofunc(start + i, core_iofunc);
-	spinlock_unlock(&handler_descriptor_lock);
+			set_iofunc (start + i, core_iofunc);
+	spinlock_unlock (&handler_descriptor_lock);
 
-//	printf("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start, end);
+	/*
+	 * printf ("%s: hd=%2d, port=%04x-%04x\n", __func__, hd, start,
+	 * 	   end);
+	 */
 	return hd;
 }
 
@@ -237,16 +250,18 @@ int core_io_modify_handler(int hd, ioport_t start, size_t num)
  * @brief		unregister io handler
  * @param hd		handler descriptor
  */
-int core_io_unregister_handler(int hd)
+int
+core_io_unregister_handler (int hd)
 {
-	printf("%s: port: %04x-%04x\n", __func__, handler_descriptor[hd]->start, handler_descriptor[hd]->end);
-	spinlock_lock(&handler_descriptor_lock);
+	printf ("%s: port: %04x-%04x\n", __func__,
+		handler_descriptor[hd]->start, handler_descriptor[hd]->end);
+	spinlock_lock (&handler_descriptor_lock);
 	if (0 <= hd && hd < MAX_HD && handler_descriptor[hd] != NULL) {
-		// free(handler_descriptor[hd]);
+		/*  free (handler_descriptor[hd]); */
 		handler_descriptor[hd] = NULL;
 		hd_num--;
 	}
-	spinlock_unlock(&handler_descriptor_lock);
+	spinlock_unlock (&handler_descriptor_lock);
 	return -1;
 }
 
@@ -255,41 +270,37 @@ int core_io_unregister_handler(int hd)
  * @param io	io
  * @param data		data
  */
-void core_io_handle_default(core_io_t io, void *data)
+void
+core_io_handle_default (core_io_t io, void *data)
 {
 	switch (io.type) {
 	case CORE_IO_TYPE_IN8:
-		in8(io.port, (u8 *)data);
+		in8 (io.port, (u8 *)data);
 		break;
-
 	case CORE_IO_TYPE_IN16:
-		in16(io.port, (u16 *)data);
+		in16 (io.port, (u16 *)data);
 		break;
-
 	case CORE_IO_TYPE_IN32:
-		in32(io.port, (u32 *)data);
+		in32 (io.port, (u32 *)data);
 		break;
-
 	case CORE_IO_TYPE_OUT8:
-		out8(io.port, *(u8 *)data);
+		out8 (io.port, *(u8 *)data);
 		break;
-
 	case CORE_IO_TYPE_OUT16:
-		out16(io.port, *(u16 *)data);
+		out16 (io.port, *(u16 *)data);
 		break;
-
 	case CORE_IO_TYPE_OUT32:
-		out32(io.port, *(u32 *)data);
+		out32 (io.port, *(u32 *)data);
 		break;
-
 	default:
-		panic("core_io_handle_default: unknown iotype\n");
+		panic ("core_io_handle_default: unknown iotype");
 	}
-	return;
 }
 
-void core_init()
+static void
+core_init (void)
 {
-	spinlock_init(&handler_descriptor_lock);
+	spinlock_init (&handler_descriptor_lock);
 }
-CORE_INIT(core_init);
+
+CORE_INIT (core_init);
