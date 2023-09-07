@@ -35,6 +35,7 @@
  */
 #include <arch/io.h>
 #include <core.h>
+#include <core_io.h>
 
 static bool
 iotype_is_out (enum iotype iotype)
@@ -104,7 +105,7 @@ alloc_handler_descriptor (void)
 	return alloc (sizeof (struct handler_descriptor));
 }
 
-static enum ioact
+enum ioact
 core_iofunc (enum iotype iotype, u32 port, void *data)
 {
 	int i, hd, ret = CORE_IO_RET_DEFAULT;
