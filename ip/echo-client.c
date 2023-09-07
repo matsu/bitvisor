@@ -91,6 +91,7 @@ echo_client_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 		str = p->payload;
 		for (i = 0; i < p->len; i++)
 			printf ("%c", str[i]);
+		pbuf_free (p);
 		return ERR_OK;
 	}
 }
