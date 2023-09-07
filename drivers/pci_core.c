@@ -800,6 +800,12 @@ pci_register_intr_callback (int (*callback) (void *data, int num), void *data)
  --------------------------------------------------------------------------- */
 
 void
+pci_arch_find_devices_end (void)
+{
+	acpi_dmar_done_pci_device ();
+}
+
+void
 pci_readwrite_config_mmio (struct pci_config_mmio_data *p, bool wr,
 			   uint bus_no, uint device_no, uint func_no,
 			   uint offset, uint iosize, void *data)

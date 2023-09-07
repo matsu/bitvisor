@@ -520,7 +520,7 @@ pci_find_devices (void)
 		virtual_device->driver->new (virtual_device);
 		vnum++;
 	}
-	acpi_dmar_done_pci_device ();
+	pci_arch_find_devices_end ();
 	pci_config_pmio_leave ();
 	printf ("PCI: %d devices found\n", num);
 	if (vnum)
