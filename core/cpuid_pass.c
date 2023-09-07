@@ -76,6 +76,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 			*oc &= ~CPUID_7_ECX_OSPKE_BIT;
 		if (!current->cpuid.waitpkg)
 			*oc &= ~CPUID_7_ECX_WAITPKG_BIT;
+		/* Currently 5-level paging is not supported. */
+		*oc &= ~CPUID_7_ECX_LA57_BIT;
 	} else if (tmpa >= 0xD && ia == 0xD && ic == 0) {
 		/* Processor Extended State Enumeration Main Leaf */
 		/* see xsetbv_pass.c */
