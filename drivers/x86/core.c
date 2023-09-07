@@ -27,53 +27,29 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PCI_INTERNAL_H
-#define _PCI_INTERNAL_H
+#include <arch/io.h>
+#include <core/io.h>
 
-#include <io.h>
-#include <core/types.h>
+bool
+core_io_arch_iospace_exist (void)
+{
+	return true; /* Always true on x86 */
+}
 
-struct pci_device;
+void
+core_io_arch_set_pass_default (u32 port)
+{
+	set_iofunc (port, do_iopass_default);
+}
 
-struct pci_config_mmio_data {
-	struct pci_config_mmio_data *next;
-	u64 base;
-	u16 seg_group;
-	u8 bus_start;
-	u8 bus_end;
-	phys_t phys;
-	uint len;
-	void *map;
-};
+void
+core_io_arch_set_iofunc (u32 port, iofunc_t func)
+{
+	set_iofunc (port, func);
+}
 
-struct pci_msi_callback {
-	struct pci_msi_callback *next;
-	struct pci_device *pci_device;
-	bool (*callback) (struct pci_device *pci_device, void *data);
-	void *data;
-	u32 maddr;
-	u32 mupper;
-	u16 mdata;
-	bool enable;
-};
-
-/******************************************************************************
- * PCI internal definitions and interfaces
- *****************************************************************************/
-#define PCI_CONFIG_ADDR_PORT	0x0CF8
-#define PCI_CONFIG_DATA_PORT	0x0CFC
-
-extern int pci_config_data_handler (core_io_t io, union mem *data, void *arg);
-extern int pci_config_addr_handler (core_io_t io, union mem *data, void *arg);
-void pci_save_config_addr (void);
-extern void pci_append_device (struct pci_device *dev);
-int pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
-			     uint len, u32 flags);
-void pci_config_pmio_enter (void);
-void pci_config_pmio_leave (void);
-
-extern struct pci_config_mmio_data *pci_config_mmio_data_head;
-extern struct list pci_device_list_head;
-extern struct pci_msi_callback *pci_msi_callback_list;
-
-#endif
+void
+core_io_arch_init (void)
+{
+	/* Do nothing */
+}

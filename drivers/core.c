@@ -87,18 +87,6 @@ struct handler_descriptor {
 } *handler_descriptor[MAX_HD] = { NULL };
 spinlock_t handler_descriptor_lock;
 
-bool
-core_io_arch_iospace_exist (void)
-{
-	return true; /* Always true on x86 */
-}
-
-void
-core_io_arch_set_pass_default (u32 port)
-{
-	set_iofunc (port, do_iopass_default);
-}
-
 static struct handler_descriptor *
 alloc_handler_descriptor (void)
 {
@@ -171,12 +159,6 @@ core_iofunc (enum iotype iotype, u32 port, void *data)
 		break;
 	}
 	return IOACT_CONT;
-}
-
-void
-core_io_arch_set_iofunc (u32 port, iofunc_t func)
-{
-	set_iofunc (port, func);
 }
 
 /**
@@ -333,12 +315,6 @@ core_io_handle_default (core_io_t io, void *data)
 	default:
 		panic ("core_io_handle_default: unknown iotype");
 	}
-}
-
-void
-core_io_arch_init (void)
-{
-	/* Do nothing */
 }
 
 static void

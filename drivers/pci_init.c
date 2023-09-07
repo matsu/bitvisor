@@ -42,9 +42,6 @@
 #include "pci_internal.h"
 #include "pci_match.h"
 
-#define PTE_P_BIT			0x1
-#define PTE_RW_BIT			0x2
-
 static const char driver_name[] = "pci_driver";
 
 DEFINE_ALLOC_FUNC (pci_device)
@@ -279,125 +276,6 @@ pci_new_device (pci_config_address_t addr)
 		pci_append_device (dev);
 	}
 	return dev;
-}
-
-static u64
-dmar_translate (void *data, unsigned int *npages, u64 address)
-{
-	struct pci_device *dev = data;
-	unsigned int i;
-	u64 ret;
-	u64 tmp;
-
-	ret = acpi_dmar_translate (dev->dmar_info, dev->initial_bus_no,
-				   dev->address.device_no,
-				   dev->address.func_no, address);
-	if (!(ret & PTE_P_BIT) || !(ret & PTE_RW_BIT))
-		goto end;
-	for (i = 1; i < *npages; i++) {
-		tmp = acpi_dmar_translate (dev->dmar_info,
-					   dev->initial_bus_no,
-					   dev->address.device_no,
-					   dev->address.func_no,
-					   address + i * PAGESIZE);
-		if (tmp != ret + i * PAGESIZE) {
-			*npages = i;
-			break;
-		}
-	}
-end:
-	return ret;
-}
-
-static u64
-dmar_msi_to_icr (void *data, u32 maddr, u32 mupper, u16 mdata)
-{
-	struct pci_device *dev = data;
-
-	return acpi_dmar_msi_to_icr (dev->dmar_info, maddr, mupper, mdata);
-}
-
-static u64
-virtual_dmar_translate (void *data, unsigned int *npages, u64 address)
-{
-	struct pci_virtual_device *dev = data;
-	unsigned int i;
-	u64 ret;
-	u64 tmp;
-
-	ret = acpi_dmar_translate (dev->dmar_info, 0, dev->address.device_no,
-				   dev->address.func_no, address);
-	if (!(ret & PTE_P_BIT) || !(ret & PTE_RW_BIT))
-		goto end;
-	for (i = 1; i < *npages; i++) {
-		tmp = acpi_dmar_translate (dev->dmar_info, 0,
-					   dev->address.device_no,
-					   dev->address.func_no,
-					   address + i * PAGESIZE);
-		if (tmp != ret + i * PAGESIZE) {
-			*npages = i;
-			break;
-		}
-	}
-end:
-	return ret;
-}
-
-static u64
-virtual_dmar_msi_to_icr (void *data, u32 maddr, u32 mupper, u16 mdata)
-{
-	struct pci_virtual_device *dev = data;
-
-	return acpi_dmar_msi_to_icr (dev->dmar_info, maddr, mupper, mdata);
-}
-
-static const struct mm_as *
-do_init_as_dma (struct pci_device *dev, struct pci_device *pdev,
-		struct acpi_pci_addr *next)
-{
-	struct acpi_pci_addr addr;
-
-	addr.bus = pdev->initial_bus_no; /* -1 for hotplug */
-	addr.dev = pdev->address.device_no;
-	addr.func = pdev->address.func_no;
-	addr.next = next;
-	if (pdev->parent_bridge)
-		return do_init_as_dma (dev, pdev->parent_bridge, &addr);
-	dev->dmar_info = acpi_dmar_add_pci_device (0, &addr,
-						   !!dev->bridge.yes);
-	if (dev->dmar_info) {
-		dev->as_dma_dmar.translate = dmar_translate;
-		dev->as_dma_dmar.msi_to_icr = dmar_msi_to_icr;
-		dev->as_dma_dmar.data = dev;
-		return &dev->as_dma_dmar;
-	}
-	return as_passvm;
-}
-
-const struct mm_as *
-pci_init_arch_as_dma (struct pci_device *dev, struct pci_device *pdev)
-{
-	return do_init_as_dma (dev, pdev, NULL);
-}
-
-const struct mm_as *
-pci_init_arch_virtual_as_dma (struct pci_virtual_device *dev)
-{
-	struct acpi_pci_addr addr;
-
-	ASSERT (!dev->address.bus_no);
-	addr.bus = 0;
-	addr.dev = dev->address.device_no;
-	addr.func = dev->address.func_no;
-	addr.next = NULL;
-	dev->dmar_info = acpi_dmar_add_pci_device (0, &addr, false);
-	if (dev->dmar_info) {
-		dev->as_dma_dmar.translate = virtual_dmar_translate;
-		dev->as_dma_dmar.msi_to_icr = virtual_dmar_msi_to_icr;
-		dev->as_dma_dmar.data = dev;
-		return &dev->as_dma_dmar;
-	}
-	return as_passvm;
 }
 
 struct pci_device *

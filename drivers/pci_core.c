@@ -36,8 +36,6 @@
 #include <arch/pci.h>
 #include <common.h>
 #include <core.h>
-#include <core/acpi.h>
-#include <core/ap.h>
 #include <core/exint_pass.h>
 #include <core/process.h>
 #include <core/strtol.h>
@@ -57,17 +55,6 @@ struct pci_bridge_callback_list {
 	struct pci_bridge_callback_list *next;
 	struct pci_device *dev;
 	struct pci_bridge_callback *callback;
-};
-
-struct pci_msi_callback {
-	struct pci_msi_callback *next;
-	struct pci_device *pci_device;
-	bool (*callback) (struct pci_device *pci_device, void *data);
-	void *data;
-	u32 maddr;
-	u32 mupper;
-	u16 mdata;
-	bool enable;
 };
 
 enum addrlock_mode {
@@ -800,12 +787,6 @@ pci_register_intr_callback (int (*callback) (void *data, int num), void *data)
  --------------------------------------------------------------------------- */
 
 void
-pci_arch_find_devices_end (void)
-{
-	acpi_dmar_done_pci_device ();
-}
-
-void
 pci_readwrite_config_mmio (struct pci_config_mmio_data *p, bool wr,
 			   uint bus_no, uint device_no, uint func_no,
 			   uint offset, uint iosize, void *data)
@@ -1353,56 +1334,6 @@ pci_msi_disable (struct pci_msi *msi)
 	pci_config_write (pci_device, &mctl, sizeof mctl, cap + 2);
 }
 
-void
-pci_arch_msi_to_ipi (pci_config_address_t pci_config_addr,
-		     const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata)
-{
-	u64 icr = mm_as_msi_to_icr (as, maddr, mupper, mdata);
-	send_ipi (icr);
-}
-
-int
-pci_arch_msi_callback (void *data, int num)
-{
-	struct pci_msi_callback *p;
-
-	if (num < 0x10)
-		return num;
-	int hit = 0;
-	int ok = 0;
-	for (p = pci_msi_callback_list; p; p = p->next) {
-		if (!p->enable)
-			continue;
-		u64 icr = mm_as_msi_to_icr (p->pci_device->as_dma, p->maddr,
-					    p->mupper, p->mdata);
-		if (!~icr)
-			/* Invalid address */
-			continue;
-		if ((icr & 0xFF) != num)
-			/* Vector is different */
-			continue;
-		if ((icr & 0x700) > 0x100)
-			/* Delivery Mode is not Fixed Mode or Lowest
-			 * Priority */
-			continue;
-		if (!is_icr_destination_me (icr))
-			/* Not to me */
-			continue;
-		hit++;
-		if (p->callback (p->pci_device, p->data))
-			ok++;
-	}
-	if (hit != ok) {
-		if (!ok) {
-			eoi ();
-			return -1;
-		}
-		printf ("MSI(0x%02X): %d callbacks in %d callbacks"
-			" wants to drop.\n", num, hit - ok, hit);
-	}
-	return num;
-}
-
 struct pci_msi_callback *
 pci_register_msi_callback (struct pci_device *pci_device,
 			   bool (*callback) (struct pci_device *pci_device,
@@ -1439,13 +1370,4 @@ void
 pci_disable_msi_callback (struct pci_msi_callback *p)
 {
 	p->enable = false;
-}
-
-void
-pci_iommu_arch_force_map (struct pci_device *dev)
-{
-	if (dev->as_dma != &dev->as_dma_dmar)
-		return;
-	acpi_dmar_force_map (dev->dmar_info, dev->initial_bus_no,
-			     dev->address.device_no, dev->address.func_no);
 }
