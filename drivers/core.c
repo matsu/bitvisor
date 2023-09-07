@@ -33,6 +33,7 @@
  * @file core.c
  * @author T. Shinagawa
  */
+#include <arch/io.h>
 #include <core.h>
 
 static bool
@@ -85,6 +86,18 @@ struct handler_descriptor {
 } *handler_descriptor[MAX_HD] = { NULL };
 spinlock_t handler_descriptor_lock;
 
+bool
+core_io_arch_iospace_exist (void)
+{
+	return true; /* Always true on x86 */
+}
+
+void
+core_io_arch_set_pass_default (u32 port)
+{
+	set_iofunc (port, do_iopass_default);
+}
+
 static struct handler_descriptor *
 alloc_handler_descriptor (void)
 {
@@ -130,7 +143,7 @@ core_iofunc (enum iotype iotype, u32 port, void *data)
 	}
 	if (!hooked)
 		for (i = 0; i < io.size; i++)
-			set_iofunc (port + i, do_iopass_default);
+			core_io_arch_set_pass_default (port + i);
 	spinlock_unlock (&handler_descriptor_lock);
 
 	switch (ret) {
@@ -159,6 +172,12 @@ core_iofunc (enum iotype iotype, u32 port, void *data)
 	return IOACT_CONT;
 }
 
+void
+core_io_arch_set_iofunc (u32 port, iofunc_t func)
+{
+	set_iofunc (port, func);
+}
+
 /**
  * @brief		core_io_register_handler
  * @param start		start port
@@ -177,6 +196,12 @@ core_io_register_handler (ioport_t start, size_t num,
 	int i, hd, ihd;
 	ioport_t end = start + num - 1;
 	struct handler_descriptor *new;
+
+	if (!core_io_arch_iospace_exist ()) {
+		printf ("%s(): no I/O space to handle port %u num %lu\n",
+			__func__, start, num);
+		return -1;
+	}
 
 	new = alloc_handler_descriptor ();
 	if (new == NULL)
@@ -201,7 +226,7 @@ core_io_register_handler (ioport_t start, size_t num,
 	}
 	if (hd < MAX_HD && handler_descriptor[hd]->enabled)
 		for (i = 0; i < num; i++)
-			set_iofunc (start + i, core_iofunc);
+			core_io_arch_set_iofunc (start + i, core_iofunc);
 	spinlock_unlock (&handler_descriptor_lock);
 	if (hd >= MAX_HD)
 		goto oom;
@@ -228,6 +253,12 @@ core_io_modify_handler (int hd, ioport_t start, size_t num)
 	int i;
 	ioport_t end = start + num - 1;
 
+	if (!core_io_arch_iospace_exist ()) {
+		printf ("%s(): no I/O space to handle port %u num %lu\n",
+			__func__, start, num);
+		return -1;
+	}
+
 	spinlock_lock (&handler_descriptor_lock);
 	if (0 <= hd && hd < MAX_HD && handler_descriptor[hd] != NULL) {
 		handler_descriptor[hd]->start = start;
@@ -236,7 +267,7 @@ core_io_modify_handler (int hd, ioport_t start, size_t num)
 	}
 	if (handler_descriptor[hd]->enabled)
 		for (i = 0; i < num; i++)
-			set_iofunc (start + i, core_iofunc);
+			core_io_arch_set_iofunc (start + i, core_iofunc);
 	spinlock_unlock (&handler_descriptor_lock);
 
 	/*
@@ -253,6 +284,10 @@ core_io_modify_handler (int hd, ioport_t start, size_t num)
 int
 core_io_unregister_handler (int hd)
 {
+	if (!core_io_arch_iospace_exist ()) {
+		printf ("%s(): no I/O space hd %d\n", __func__, hd);
+		return -1;
+	}
 	printf ("%s: port: %04x-%04x\n", __func__,
 		handler_descriptor[hd]->start, handler_descriptor[hd]->end);
 	spinlock_lock (&handler_descriptor_lock);
@@ -273,6 +308,8 @@ core_io_unregister_handler (int hd)
 void
 core_io_handle_default (core_io_t io, void *data)
 {
+	if (!core_io_arch_iospace_exist ())
+		panic ("core_io_handle_default: cannot access I/O space");
 	switch (io.type) {
 	case CORE_IO_TYPE_IN8:
 		in8 (io.port, (u8 *)data);
@@ -297,10 +334,17 @@ core_io_handle_default (core_io_t io, void *data)
 	}
 }
 
+void
+core_io_arch_init (void)
+{
+	/* Do nothing */
+}
+
 static void
 core_init (void)
 {
 	spinlock_init (&handler_descriptor_lock);
+	core_io_arch_init ();
 }
 
 CORE_INIT (core_init);
