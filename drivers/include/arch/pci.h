@@ -32,9 +32,16 @@
 
 #include <core/types.h>
 #include <pci.h>
+#include "io.h"
 
 struct mm_as;
 struct pci_device;
+
+static inline bool
+pci_arch_iospace_exist (void)
+{
+	return core_io_arch_iospace_exist ();
+}
 
 void pci_arch_msi_to_ipi (pci_config_address_t pci_config_addr,
 			  const struct mm_as *as, u32 maddr, u32 mupper,

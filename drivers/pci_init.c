@@ -32,6 +32,7 @@
  * @brief	PCI driver (init)
  * @author	T. Shinagawa
  */
+#include <arch/pci.h>
 #include <arch/pci_init.h>
 #include <core/acpi.h>
 #include <core/mmio.h>

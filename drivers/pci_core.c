@@ -33,6 +33,7 @@
  * @author	T. Shinagawa
  */
 
+#include <arch/pci.h>
 #include <common.h>
 #include <core.h>
 #include <core/acpi.h>
@@ -99,9 +100,11 @@ struct pci_config_mmio_data *pci_config_mmio_data_head;
 void
 pci_save_config_addr (void)
 {
-	pci_config_pmio_addrlock (ADDR_LOCK);
-	in32 (PCI_CONFIG_ADDR_PORT, &current_config_addr.value);
-	pci_config_pmio_addrlock (ADDR_UNLOCK);
+	if (pci_arch_iospace_exist ()) {
+		pci_config_pmio_addrlock (ADDR_LOCK);
+		in32 (PCI_CONFIG_ADDR_PORT, &current_config_addr.value);
+		pci_config_pmio_addrlock (ADDR_UNLOCK);
+	}
 }
 
 void
@@ -564,6 +567,11 @@ ret:
 	spinlock_unlock (&pci_config_io_lock);
 }
 
+/*
+ * Both pci_config_data_handler() and  pci_config_addr_handler() are not
+ * registered by core_io_register_handler() if I/O space does not exist. So,
+ * there is no need to check for IO space here.
+ */
 int
 pci_config_data_handler (core_io_t io, union mem *data, void *arg)
 {
@@ -906,6 +914,9 @@ pci_config_pmio_count (int add)
 	static spinlock_t pmio_count_lock = SPINLOCK_INITIALIZER;
 	static int count;
 
+	if (!pci_arch_iospace_exist ())
+		return;
+
 	spinlock_lock (&pmio_count_lock);
 	if (add > 0) {
 		if (!count)
@@ -937,6 +948,8 @@ pci_readwrite_config_pmio (bool wr, uint bus_no, uint device_no, uint func_no,
 {
 	pci_config_address_t addr;
 
+	if (!pci_arch_iospace_exist ())
+		panic ("%s(): no IO bus to access PCI config space", __func__);
 	if (bus_no > 0xFF || device_no > 0x1F || func_no > 0x7 ||
 	    offset > 0xFF || !(iosize == 1 || iosize == 2 || iosize == 4))
 		panic ("pci_readwrite_config_pmio: invalid parameter"
