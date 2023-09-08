@@ -1298,13 +1298,18 @@ run_l2vm (bool vmlaunched)
 		     (exit_ctl01 & EXIT_CTL_SHADOW_MASK));
 
 	/* Clear enable VPID bit to invalidate cached mappings
-	 * associated with VPID 0 at VM entry and VM exit */
+	 * associated with VPID 0 at VM entry and VM exit if
+	 * unrestricted guest is not used.  If unrestricted guest is
+	 * used, EPT is used and shadow paging is not used.  In case
+	 * of EPT, cached mappings are associated with EPTP bits
+	 * 51:12, so invalidation is not needed. */
 	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &procbased_ctls);
 	if (procbased_ctls & VMCS_PROC_BASED_VMEXEC_CTL_ACTIVATECTLS2_BIT)
 		asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL2, &procbased_ctls2);
 	else
 		procbased_ctls2 = 0;
-	if (procbased_ctls2 & VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT)
+	if ((procbased_ctls2 & VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT) &&
+	    !current->u.vt.unrestricted_guest)
 		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, procbased_ctls2 &
 			     ~VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT);
 
@@ -1324,7 +1329,8 @@ run_l2vm (bool vmlaunched)
 	asm_wrmsr64 (MSR_IA32_EFER, saved_host_efer);
 
 	/* Restore enable VPID bit */
-	if (procbased_ctls2 & VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT) {
+	if ((procbased_ctls2 & VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT) &&
+	    !current->u.vt.unrestricted_guest) {
 		asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL2, &procbased_ctls2);
 		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, procbased_ctls2 |
 			     VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT);
