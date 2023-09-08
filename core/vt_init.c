@@ -198,7 +198,8 @@ ept_init (void)
 	current->u.vt.ept_available = true;
 	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_INVEPT_BIT))
 		return;
-	if (!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_INVEPT_ALL_CONTEXT_BIT))
+	if (!(ept_vpid_cap &
+	      MSR_IA32_VMX_EPT_VPID_CAP_INVEPT_SINGLE_CONTEXT_BIT))
 		return;
 	current->u.vt.invept_available = true;
 }

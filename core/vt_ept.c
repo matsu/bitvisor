@@ -74,6 +74,19 @@ vt_ept_mmioclr_callback (void *data, phys_t start, phys_t end)
 	return vt_ept_extern_mapsearch (p, start, end);
 }
 
+/* Invalidate guest-physical mappings.  This is required when EPT
+ * entries are cleared. */
+static void
+invept (struct vt_ept *ept)
+{
+	if (current->u.vt.invept_available) {
+		struct invept_desc eptdesc;
+		eptdesc.reserved = 0;
+		eptdesc.eptp = ept->ncr3tbl_phys;
+		asm_invept (INVEPT_TYPE_SINGLE_CONTEXT, &eptdesc);
+	}
+}
+
 void
 vt_ept_init (void)
 {
@@ -94,6 +107,7 @@ vt_ept_init (void)
 	asm_vmwrite64 (VMCS_EPT_POINTER, ept->ncr3tbl_phys |
 		       VMCS_EPT_POINTER_EPT_WB | VMCS_EPT_PAGEWALK_LENGTH_4);
 	mmioclr_register (current, vt_ept_mmioclr_callback);
+	invept (ept);
 }
 
 static void
@@ -149,7 +163,7 @@ cur_fill (struct vt_ept *ept, u64 gphys, int level)
 		memset (ept->ncr3tbl, 0, PAGESIZE);
 		ept->cleared = 1;
 		ept->cnt = 0;
-		vt_paging_flush_guest_tlb ();
+		invept (ept);
 		ept->cur.level = EPT_LEVELS - 1;
 	}
 	l = ept->cur.level;
@@ -314,7 +328,7 @@ vt_ept_clear_all (void)
 	ept->cleared = 1;
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
-	vt_paging_flush_guest_tlb ();
+	invept (ept);
 }
 
 static bool
@@ -344,6 +358,11 @@ vt_ept_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 			}
 		}
 	}
+	/* If an entry is cleared, invept is required.  In addition,
+	 * flushing guest TLB is needed since entries might be cached
+	 * in combind mappings. */
+	invept (ept);
+	vt_paging_flush_guest_tlb ();
 	return false;
 }
 

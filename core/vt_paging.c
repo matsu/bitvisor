@@ -57,17 +57,12 @@ void
 vt_paging_flush_guest_tlb (void)
 {
 	struct invvpid_desc desc;
-	struct invept_desc eptdesc;
 	ulong vpid;
 
 	vpid = current->u.vt.vpid;
 	if (vpid) {
 		desc.vpid = vpid;
 		asm_invvpid (INVVPID_TYPE_SINGLE_CONTEXT, &desc);
-	}
-	if (ept_enabled () && current->u.vt.invept_available) {
-		eptdesc.reserved = 0;
-		asm_invept (INVEPT_TYPE_ALL_CONTEXTS, &eptdesc);
 	}
 }
 
