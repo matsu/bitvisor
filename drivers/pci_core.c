@@ -1335,7 +1335,8 @@ pci_msi_disable (struct pci_msi *msi)
 }
 
 void
-pci_arch_msi_to_ipi (const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata)
+pci_arch_msi_to_ipi (pci_config_address_t pci_config_addr,
+		     const struct mm_as *as, u32 maddr, u32 mupper, u16 mdata)
 {
 	u64 icr = mm_as_msi_to_icr (as, maddr, mupper, mdata);
 	send_ipi (icr);

@@ -56,6 +56,7 @@ struct data {
 	const struct mm_as *as_dma;
 	int msix_qvec[3];
 	struct msix_table *msix_tbl;
+	pci_config_address_t address;
 };
 
 static void
@@ -140,7 +141,8 @@ virtual_virtio_net_msix_generate (void *param, unsigned int queue)
 	if (queue < 3)
 		m = d->msix_tbl[d->msix_qvec[queue]];
 	if (!(m.mask & 1))
-		pci_arch_msi_to_ipi (d->as_dma, m.addr, m.upper, m.data);
+		pci_arch_msi_to_ipi (d->address, d->as_dma, m.addr, m.upper,
+				     m.data);
 }
 
 static void
@@ -175,6 +177,7 @@ virtual_virtio_net_new (struct pci_virtual_device *dev)
 					 virtual_virtio_net_intr_set,
 					 virtual_virtio_net_intr_disable,
 					 virtual_virtio_net_intr_enable, d);
+	d->address = dev->address;
 	if (d->virtio_net) {
 		d->as_dma = dev->as_dma;
 		d->msix_qvec[0] = -1;

@@ -31,11 +31,13 @@
 #define _DRIVERS_INCLUDE_ARCH_PCI_H
 
 #include <core/types.h>
+#include <pci.h>
 
 struct mm_as;
 struct pci_device;
 
-void pci_arch_msi_to_ipi (const struct mm_as *as, u32 maddr, u32 mupper,
+void pci_arch_msi_to_ipi (pci_config_address_t pci_config_addr,
+			  const struct mm_as *as, u32 maddr, u32 mupper,
 			  u16 mdata);
 int pci_arch_msi_callback (void *data, int num);
 void pci_iommu_arch_force_map (struct pci_device *dev);

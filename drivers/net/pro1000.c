@@ -1654,7 +1654,8 @@ pro1000_msix_generate (void *param, unsigned int queue)
 	if (queue < 3)
 		m = d2->msix_tbl[d2->msix_qvec[queue]];
 	if (!(m.mask & 1))
-		pci_arch_msi_to_ipi (d2->pci_device->as_dma, m.addr, m.upper,
+		pci_arch_msi_to_ipi (d2->pci_device->address,
+				     d2->pci_device->as_dma, m.addr, m.upper,
 				     m.data);
 }
 
