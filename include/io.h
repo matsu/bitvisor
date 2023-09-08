@@ -178,11 +178,15 @@ outsn (ioport_t port, void *buf, int unit_size, u32 total_size)
 void in8 (ioport_t port, u8 *data);
 void in16 (ioport_t port, u16 *data);
 void in32 (ioport_t port, u32 *data);
+void ins8 (ioport_t port, u8 *buf, u32 count);
 void ins16 (ioport_t port, u16 *buf, u32 count);
+void ins32 (ioport_t port, u32 *buf, u32 count);
 void out8 (ioport_t port, u8 data);
 void out16 (ioport_t port, u16 data);
 void out32 (ioport_t port, u32 data);
+void outs8 (ioport_t port, u8 *buf, u32 count);
 void outs16 (ioport_t port, u16 *buf, u32 count);
+void outs32 (ioport_t port, u32 *buf, u32 count);
 
 int core_io_register_handler (ioport_t start, size_t num,
 			      core_io_handler_t handler, void *arg,
