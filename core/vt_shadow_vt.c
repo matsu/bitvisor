@@ -1077,6 +1077,7 @@ switch_vmcs_and_load_l1_host_state (u64 orig_vmcs_addr_phys, ulong efer_l2,
 	 */
 	bool to_64bit_mode;
 	ulong cr0, cr3, cr4;
+	ulong ccr0, ccr3, ccr4;
 	const ulong cr0_not_reserved = CR0_PE_BIT | CR0_MP_BIT | CR0_EM_BIT |
 		CR0_TS_BIT | CR0_ET_BIT | CR0_NE_BIT | CR0_WP_BIT |
 		CR0_AM_BIT | CR0_NW_BIT | CR0_CD_BIT | CR0_PG_BIT;
@@ -1085,6 +1086,8 @@ switch_vmcs_and_load_l1_host_state (u64 orig_vmcs_addr_phys, ulong efer_l2,
 	ulong cr3_mask = ~(current->pte_addr_mask | PAGESIZE_MASK);
 	ulong cr4_mask = CR4_VMXE_BIT;
 	u64 guest_efer;
+	u64 cguest_efer;
+	u64 cguest_pat;
 	const u64 efer_mask = MSR_IA32_EFER_LME_BIT | MSR_IA32_EFER_LMA_BIT;
 	ulong exec_ctl;
 
@@ -1103,6 +1106,9 @@ switch_vmcs_and_load_l1_host_state (u64 orig_vmcs_addr_phys, ulong efer_l2,
 	vt_read_control_reg (CONTROL_REG_CR0, &cr0);
 	vt_read_control_reg (CONTROL_REG_CR3, &cr3);
 	vt_read_control_reg (CONTROL_REG_CR4, &cr4);
+	ccr0 = cr0;
+	ccr3 = cr3;
+	ccr4 = cr4;
 	cr0 = (cr0 & cr0_mask) | (hs->cr0 & ~cr0_mask);
 	cr3 = (cr3 & cr3_mask) | (hs->cr3 & ~cr3_mask);
 	cr4 = (cr4 & cr4_mask) | (hs->cr4 & ~cr4_mask);
@@ -1121,8 +1127,10 @@ switch_vmcs_and_load_l1_host_state (u64 orig_vmcs_addr_phys, ulong efer_l2,
 		guest_efer &= ~efer_mask;
 	}
 
-	vt_write_control_reg (CONTROL_REG_CR0, cr0);
-	vt_write_control_reg (CONTROL_REG_CR4, cr4);
+	if (ccr0 != cr0)
+		vt_write_control_reg (CONTROL_REG_CR0, cr0);
+	if (ccr4 != cr4)
+		vt_write_control_reg (CONTROL_REG_CR4, cr4);
 	asm_vmwrite (VMCS_GUEST_DR7, 0x400);
 	vt_write_msr (MSR_IA32_DEBUGCTL, 0x0);
 	vt_write_msr (MSR_IA32_SYSENTER_CS, hs->ia32_sysenter_cs);
@@ -1131,12 +1139,21 @@ switch_vmcs_and_load_l1_host_state (u64 orig_vmcs_addr_phys, ulong efer_l2,
 	if (exit_ctl & VMCS_VMEXIT_CTL_LOAD_IA32_PERF_GLOBAL_CTRL_BIT)
 		vt_write_msr (MSR_IA32_PERF_GLOBAL_CTRL,
 			      hs->ia32_perf_global_ctrl);
-	if (exit_ctl & VMCS_VMEXIT_CTL_LOAD_IA32_PAT_BIT)
-		vt_write_msr (MSR_IA32_PAT, hs->ia32_pat);
-	vt_write_msr (MSR_IA32_EFER, guest_efer);
+	if (exit_ctl & VMCS_VMEXIT_CTL_LOAD_IA32_PAT_BIT) {
+		vt_read_msr (MSR_IA32_PAT, &cguest_pat);
+		if (cguest_pat != hs->ia32_pat)
+			vt_write_msr (MSR_IA32_PAT, hs->ia32_pat);
+	}
+	vt_read_msr (MSR_IA32_EFER, &cguest_efer);
+	if (cguest_efer != guest_efer)
+		vt_write_msr (MSR_IA32_EFER, guest_efer);
 
 	/* CR3 depends on CR0, CR4 and EFER, so load after them */
-	vt_write_control_reg (CONTROL_REG_CR3, cr3);
+	/* Loading CR3 invalidates TLBs.  If CR3 is not changed, avoid
+	 * invalidation for performance, in case of enable VPID=1.  If
+	 * enable VPID=0, VM exit invalidates TLBs. */
+	if (ccr3 != cr3)
+		vt_write_control_reg (CONTROL_REG_CR3, cr3);
 
 	/* Selector */
 	asm_vmwrite (VMCS_GUEST_ES_SEL, hs->es_sel);
