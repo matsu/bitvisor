@@ -93,6 +93,17 @@ vt_paging_init (void)
 	}
 	if (current->u.vt.ept_available)
 		vt_ept_init ();
+	if (current->u.vt.unrestricted_guest) {
+		/* While unrestricted guest is enabled, guest can
+		 * modify CR0.PE bit and CR4.PGE bit directly without
+		 * VM exits. */
+		current->u.vt.cr0_guesthost_mask &= ~CR0_PE_BIT;
+		current->u.vt.cr4_guesthost_mask &= ~CR4_PGE_BIT;
+		asm_vmwrite (VMCS_CR0_GUESTHOST_MASK,
+			     current->u.vt.cr0_guesthost_mask);
+		asm_vmwrite (VMCS_CR4_GUESTHOST_MASK,
+			     current->u.vt.cr4_guesthost_mask);
+	}
 	vt_paging_pg_change ();
 }
 

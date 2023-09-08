@@ -45,6 +45,13 @@
 #include "vt_shadow_vt.h"
 #include "vt_regs.h"
 
+#define VT_DEFAULT_CR0_GUESTHOST_MASK \
+	(~0U ^ CR0_MP_BIT ^ CR0_EM_BIT ^ CR0_TS_BIT ^ CR0_NE_BIT ^ CR0_AM_BIT)
+#define VT_DEFAULT_CR4_GUESTHOST_MASK \
+	(~0U ^ CR4_VME_BIT ^ CR4_PVI_BIT ^ CR4_TSD_BIT ^ CR4_DE_BIT ^ \
+	 CR4_MCE_BIT ^ CR4_PCE_BIT ^ CR4_OSFXSR_BIT ^ CR4_OSXMMEXCPT_BIT)
+
+
 /* Check whether VMX is usable
    Return value:
    0:usable
@@ -307,6 +314,8 @@ vt__vmcs_init (void)
 		current->u.vt.wait_for_sipi_emulation = true;
 	}
 	current->u.vt.init_signal = false;
+	current->u.vt.cr0_guesthost_mask = VT_DEFAULT_CR0_GUESTHOST_MASK;
+	current->u.vt.cr4_guesthost_mask = VT_DEFAULT_CR4_GUESTHOST_MASK;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
@@ -523,8 +532,10 @@ vt__vmcs_init (void)
 	/* 32-Bit Host-State Field */
 	asm_vmwrite (VMCS_HOST_IA32_SYSENTER_CS, sysenter_cs);
 	/* Natural-Width Control Fields */
-	asm_vmwrite (VMCS_CR0_GUESTHOST_MASK, VT_CR0_GUESTHOST_MASK);
-	asm_vmwrite (VMCS_CR4_GUESTHOST_MASK, VT_CR4_GUESTHOST_MASK);
+	asm_vmwrite (VMCS_CR0_GUESTHOST_MASK,
+		     current->u.vt.cr0_guesthost_mask);
+	asm_vmwrite (VMCS_CR4_GUESTHOST_MASK,
+		     current->u.vt.cr4_guesthost_mask);
 	asm_vmwrite (VMCS_CR0_READ_SHADOW, guest_riv.cr0);
 	asm_vmwrite (VMCS_CR4_READ_SHADOW, guest_riv.cr4);
 	asm_vmwrite (VMCS_CR3_TARGET_VALUE_0, 0);

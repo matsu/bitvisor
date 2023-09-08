@@ -67,15 +67,15 @@ vt_read_cr (ulong mask, ulong index_1, ulong index_0)
 static inline ulong
 vt_read_cr0 (void)
 {
-	return vt_read_cr (VT_CR0_GUESTHOST_MASK, VMCS_CR0_READ_SHADOW,
-			   VMCS_GUEST_CR0);
+	return vt_read_cr (current->u.vt.cr0_guesthost_mask,
+			   VMCS_CR0_READ_SHADOW, VMCS_GUEST_CR0);
 }
 
 static inline ulong
 vt_read_cr4 (void)
 {
-	return vt_read_cr (VT_CR4_GUESTHOST_MASK, VMCS_CR4_READ_SHADOW,
-			   VMCS_GUEST_CR4);
+	return vt_read_cr (current->u.vt.cr4_guesthost_mask,
+			   VMCS_CR4_READ_SHADOW, VMCS_GUEST_CR4);
 }
 
 static inline ulong
