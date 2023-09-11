@@ -54,7 +54,7 @@ clean-dir : $(subclean_p)
 	$(RM) $(dir)$(target) $(dir)$(outo) $(dir)$(outa) $(objs) $(deps)
 	$(RM) $(dir)$(flags) $(dir)$(depends) $(dir)$(objects)
 	$(RM) $(dir)$(outp) $(bobjs) $(bins) $(bins:%=%.s) $(dir)$(boptions) \
-		$(bins:%=%.debug)
+		$(bins:%=%.debug) $(map:%=$(dir)%)
 
 .PHONY : $(subclean_p)
 $(subclean_p) :
