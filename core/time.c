@@ -27,76 +27,27 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/time.h>
 #include <builtin.h>
 #include <core/currentcpu.h>
 #include "acpi.h"
-#include "ap.h"
 #include "arith.h"
-#include "asm.h"
 #include "calluefi.h"
 #include "comphappy.h"
-#include "config.h"
-#include "constants.h"
-#include "convert.h"
 #include "initfunc.h"
-#include "panic.h"
-#include "pcpu.h"
 #include "printf.h"
 #include "process.h"
-#include "sleep.h"
-#include "spinlock.h"
 #include "time.h"
 #include "uefi.h"
-#include "vmmcall_status.h"
 
 static u64 boot_init_time;
 static u64 boot_preposition_time;
-static u64 lastcputime;
 static u64 lastacpitime;
-static rw_spinlock_t initsync;
-
-static u64
-tsc_to_time (u64 tsc, u64 hz)
-{
-	u64 tmp[2];
-
-	while (hz > 0xFFFFFFFFULL) {
-		tsc >>= 1;
-		hz >>= 1;
-	}
-	mpumul_64_64 (tsc, 1000000ULL, tmp); /* tmp = tsc * 1000000 */
-	mpudiv_128_32 (tmp, (u32)hz, tmp); /* tmp = tmp / hz */
-	return tmp[0];
-}
-
-static u64
-get_cpu_time_raw (void)
-{
-	u32 tsc_l, tsc_h;
-	u64 tsc;
-
-	asm_rdtsc (&tsc_l, &tsc_h);
-	conv32to64 (tsc_l, tsc_h, &tsc);
-	return tsc;
-}
 
 u64
 get_cpu_time (void)
 {
-	u64 tsc, time;
-	u64 lasttime = lasttime;
-
-	atomic_cmpxchg64 (&lastcputime, &lasttime, lasttime);
-	tsc = get_cpu_time_raw ();
-	time = tsc_to_time (tsc - currentcpu->tsc, currentcpu->hz);
-	time += currentcpu->timediff;
-	if (lasttime <= time) {
-		atomic_cmpxchg64 (&lastcputime, &lasttime, time);
-	} else {
-		currentcpu->timediff += lasttime - time;
-		time = lasttime;
-	}
-	return time;
+	return time_arch_get_cpu_time ();
 }
 
 bool
@@ -131,26 +82,12 @@ get_time (void)
 
 	ok = false;
 #ifdef ACPI_TIME_SOURCE
-	/* prefer invariant TSC */
-	if (!currentcpu->use_invariant_tsc)
+	if (!time_arch_override_acpi_time ())
 		ok = get_acpi_time (&ret);
 #endif
 	if (!ok)
 		ret = get_cpu_time ();
 	return ret;
-}
-
-static void
-time_init_dbsp (void)
-{
-	rw_spinlock_lock_ex (&initsync);
-	sync_all_processors ();
-	usleep (1000000 >> 4);
-	sync_all_processors ();
-	/* Update lastcputime */
-	u64 time = get_cpu_time ();
-	rw_spinlock_unlock_ex (&initsync);
-	printf ("Time: %llu\n", time);
 }
 
 static void
@@ -198,67 +135,12 @@ time_record_boot_time_uefi (void)
 static void
 time_init_pcpu (void)
 {
-	u32 a, b, c, d;
-	u32 tsc1_l, tsc1_h;
-	u32 tsc2_l, tsc2_h;
-	u64 tsc1, tsc2, count;
-	int cpu;
-
-	cpu = currentcpu_get_id ();
-	asm_cpuid (1, 0, &a, &b, &c, &d);
-	if (!(d & CPUID_1_EDX_TSC_BIT))
-		panic ("Processor %d does not support TSC", cpu);
-	currentcpu->use_invariant_tsc = false;
-	if (!config.vmm.ignore_tsc_invariant) {
-		asm_cpuid (CPUID_EXT_0, 0, &a, &b, &c, &d);
-		if (a >= CPUID_EXT_7) {
-			asm_cpuid (CPUID_EXT_7, 0, &a, &b, &c, &d);
-			if (d & CPUID_EXT_7_EDX_TSCINVARIANT_BIT)
-				currentcpu->use_invariant_tsc = true;
-		}
-	}
-	sync_all_processors ();
-	asm_rdtsc (&tsc1_l, &tsc1_h);
-	if (cpu == 0)
-		usleep (1000000 >> 4);
-	sync_all_processors ();
-	asm_rdtsc (&tsc2_l, &tsc2_h);
-	conv32to64 (tsc1_l, tsc1_h, &tsc1);
-	conv32to64 (tsc2_l, tsc2_h, &tsc2);
-	/* Set timediff value to:
-	 * - Zero for all processors on BIOS environment
-	 * - Zero for BSP on UEFI environment
-	 * - Current time of BSP for APs on UEFI environment
-	 */
-	u64 lasttime = lasttime;
-	rw_spinlock_lock_sh (&initsync);
-	atomic_cmpxchg64 (&lastcputime, &lasttime, lasttime);
-	rw_spinlock_unlock_sh (&initsync);
-	count = (tsc2 - tsc1) << 4;
-	printf ("Processor %d %llu Hz%s\n", cpu, count,
-		currentcpu->use_invariant_tsc ? " (Invariant TSC)" : "");
-	currentcpu->tsc = tsc2;
-	currentcpu->hz = count;
-	currentcpu->timediff = lasttime;
-	if (uefi_booted && cpu == 0)
+	time_arch_init_pcpu ();
+	if (uefi_booted && currentcpu_get_id () == 0)
 		/* Using UEFI runtime syscall to store
 		 * the boot time in EPOCH format */
 		time_record_boot_time_uefi ();
 
-}
-
-static void
-time_wakeup (void)
-{
-	u32 tsc_l, tsc_h;
-
-	/* Read current TSC again to keep TSC >= currentcpu->tsc */
-	asm_rdtsc (&tsc_l, &tsc_h);
-	conv32to64 (tsc_l, tsc_h, &currentcpu->tsc);
-	/* Update timediff */
-	u64 lasttime = lasttime;
-	atomic_cmpxchg64 (&lastcputime, &lasttime, lasttime);
-	currentcpu->timediff = lasttime;
 }
 
 static int
@@ -276,38 +158,11 @@ time_init_msg (void)
 		msgregister ("time", time_msghandler);
 }
 
-static char *
-time_status (void)
-{
-	static char buf[1024];
-
-	snprintf (buf, 1024,
-		  "time:\n"
-		  " cpu: %d\n"
-		  " hz: %llu\n"
-		  " tsc: %llu\n"
-		  " lastcputime: %llu\n"
-		  " timediff: %llu\n"
-		  , currentcpu->cpunum
-		  , currentcpu->hz
-		  , currentcpu->tsc
-		  , lastcputime
-		  , currentcpu->timediff);
-	return buf;
-}
-
-static void
-time_init_global_status (void)
-{
-	register_status_callback (time_status);
-}
-
 static void
 time_init_global (void)
 {
-	lastcputime = 0;
 	lastacpitime = 0;
-	rw_spinlock_init (&initsync);
+	time_arch_init_global ();
 }
 
 void
@@ -349,9 +204,6 @@ epochtime_init_msg (void)
 }
 
 INITFUNC ("global3", time_init_global);
-INITFUNC ("paral01", time_init_global_status);
 INITFUNC ("pcpu4", time_init_pcpu);
-INITFUNC ("dbsp4", time_init_dbsp);
 INITFUNC ("msg0", time_init_msg);
-INITFUNC ("wakeup0", time_wakeup);
 INITFUNC ("msg1", epochtime_init_msg);

@@ -86,6 +86,7 @@ objs-1 += process_x86.o
 objs-1 += reboot_x86.o
 objs-1 += sym.o
 objs-1 += thread_x86.o
+objs-1 += time_x86.o
 objs-1 += tty_x86.o
 objs-1 += vmm_mem.o
 objs-1 += vmmcall_x86.o
