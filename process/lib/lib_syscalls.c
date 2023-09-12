@@ -46,40 +46,10 @@ typedef unsigned long ulong;
 #define SYS_EXITPROCESS		13
 #define SYS_SETLIMIT		14
 
-#ifdef __x86_64__
-#	define DOSYSCALL0(rb, ra) asm volatile \
-		("call *%1" : "=a" (ra) \
-			    : "0" ((ulong)CALLADDR), "b" ((ulong)rb) \
-			    : "memory", "cc", "%rcx", "%rdx" \
-			    , "%r8", "%r9", "%r10", "%r11", "%r12", "%r13" \
-			    , "%r14", "%r15")
-#	define DOSYSCALL1(rb, rs, ra) asm volatile \
-		("call *%1" : "=a" (ra) \
-			    : "0" ((ulong)CALLADDR), "b" ((ulong)rb) \
-			    , "S" ((ulong)rs) \
-			    : "memory", "cc", "%rcx", "%rdx" \
-			    , "%r8", "%r9", "%r10", "%r11", "%r12", "%r13" \
-			    , "%r14", "%r15")
-#	define DOSYSCALL2(rb, rs, rd, ra) asm volatile \
-		("call *%1" : "=a" (ra) \
-			    : "0" ((ulong)CALLADDR), "b" ((ulong)rb) \
-			    , "S" ((ulong)rs), "D" ((ulong)rd) \
-			    : "memory", "cc", "%rcx", "%rdx" \
-			    , "%r8", "%r9", "%r10", "%r11", "%r12", "%r13" \
-			    , "%r14", "%r15")
+#if defined (__i386__) || defined (__x86_64__)
+#include "x86/lib_syscall.h"
 #else
-#	define DOSYSCALL0(rb, ra) asm volatile \
-		("call *%1" : "=a" (ra) \
-			    : "0" (CALLADDR), "b" (rb) \
-			    : "memory", "cc", "%ecx", "%edx")
-#	define DOSYSCALL1(rb, rs, ra) asm volatile \
-		("call *%1" : "=a" (ra) \
-			    : "0" (CALLADDR), "b" (rb), "S" (rs) \
-			    : "memory", "cc", "%ecx", "%edx")
-#	define DOSYSCALL2(rb, rs, rd, ra) asm volatile \
-		("call *%1" : "=a" (ra) \
-			    : "0" (CALLADDR), "b" (rb), "S" (rs), "D" (rd) \
-			    : "memory", "cc", "%ecx", "%edx")
+#error "Unsupported architecture"
 #endif
 
 void
