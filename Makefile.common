@@ -1,13 +1,13 @@
 # -*- makefile-gmake -*-
 
 # commands
-AR = ar
-CC = cc
+AR = $(CROSS_COMPILE)ar
+CC = $(CROSS_COMPILE)cc
 RM = rm -f
-OBJCOPY = objcopy
+OBJCOPY = $(CROSS_COMPILE)objcopy
 SED = sed
-SIZE = size
-STRIP = strip
+SIZE = $(CROSS_COMPILE)size
+STRIP = $(CROSS_COMPILE)strip
 
 # files
 CONFIG = .config

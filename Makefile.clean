@@ -58,4 +58,4 @@ clean-dir : $(subclean_p)
 
 .PHONY : $(subclean_p)
 $(subclean_p) :
-	$(MAKE) -f Makefile.clean clean-dir DIR=$(@D)
+	$(MAKE) -f Makefile.clean clean-dir DIR=$(@D) ARCH=$(ARCH)

@@ -22,13 +22,8 @@ CONSTANTS-$(CONFIG_DMAR_PASS_THROUGH) += -DDMAR_PASS_THROUGH
 CONSTANTS-$(CONFIG_USE_SYSCALL64) += -DUSE_SYSCALL64
 CONSTANTS-$(CONFIG_DEBUG_SERIAL) += -DDEBUG_SERIAL
 
-bits-0 = 32
-bits-1 = 64
-CFLAGS-32 = -Iedk2/MdePkg/Include/Ia32
-CFLAGS-64 = -Iedk2/MdePkg/Include/X64
-
 CFLAGS += -Icore/include
-CFLAGS += -fshort-wchar -Iedk2/MdePkg/Include/ $(CFLAGS-$(bits-$(CONFIG_64)))
+CFLAGS += $(CFLAGS_EDK2_INC)
 
 objs-1 += acpi_dmar.o
 objs-1 += acpi_iohook.o

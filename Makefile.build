@@ -4,18 +4,16 @@ build-dir : build-target
 
 include Makefile.common
 include $(CONFIG)
+include Makefile.build.$(ARCH)
+CFLAGS_EDK2_INC = -fshort-wchar -Iedk2/MdePkg/Include/ $(CFLAGS_EDK2_ARCH_INC)
 backtrace-0 = -fomit-frame-pointer
 backtrace-1 = -fno-omit-frame-pointer
 backtrace = $(backtrace-$(CONFIG_BACKTRACE))
-bits-0 = 32
-bits-1 = 64
-CFLAGS = -m$(bits-$(CONFIG_64)) -mno-red-zone -mno-sse -nostdinc -g -O \
--ffreestanding -fno-builtin -fno-stack-protector $(backtrace) -fno-PIE \
--fno-strict-aliasing -Wall -Wno-address-of-packed-member $(CONSTANTS-1) \
--Iinclude -I$(DIR)
-ASFLAGS = -m$(bits-$(CONFIG_64)) -g -Wa,-I,$(DIR) -Wa,--divide \
- -Wa,--noexecstack
-LDFLAGS = -m$(bits-$(CONFIG_64)) -g -nostdlib -Wl,--build-id=none -static
+CFLAGS = -nostdinc -g -O -ffreestanding -fno-builtin -fno-stack-protector \
+	 -fno-PIE -Wall $(CONSTANTS-1) -Iinclude -I$(DIR) $(backtrace) \
+	 $(CFLAGS_ARCH)
+ASFLAGS = -g -Wa,-I,$(DIR) $(ASFLAGS_ARCH)
+LDFLAGS = -g -nostdlib -Wl,--build-id=none -static $(LDFLAGS_ARCH)
 outo_p = $(outo)_p
 outa_p = $(outa)_p
 outp_p = $(outp)_p
@@ -135,7 +133,8 @@ $(subouto) $(subouta) $(suboutp) : $(subouto_p) $(subouta_p) $(suboutp_p)
 $(subouto_p) $(subouta_p) $(suboutp_p) :
 	case "`$(SED) 1q $(@D)/$(depends) 2>/dev/null`" in \
 	''): >> $(@D)/$(depends);; esac
-	$(MAKE) $(V-makeopt) -f Makefile.build $(@:_p=) DIR=$(@D) V=$(V)
+	$(MAKE) $(V-makeopt) -f Makefile.build $(@:_p=) DIR=$(@D) V=$(V) \
+		ARCH=$(ARCH)
 
 # Suffix rules
 .SUFFIXES :

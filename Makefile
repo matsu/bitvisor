@@ -1,15 +1,19 @@
 DIR ?= .
 V ?= 0
 include Makefile.common
+include $(CONFIG)
+
+arch-default-$(CONFIG_ARCH_DFLT_X86) = x86
+ARCH ?= $(arch-default-1)
 
 .PHONY : all
-all : build-all
+all : pre-build-all
 
 .PHONY : clean
-clean : clean-all
+clean : pre-clean-all
 
 NAME   = bitvisor
-FORMAT = elf32-i386
+FORMAT = $(FORMAT_ARCH)
 elf    = $(NAME).elf
 map    = $(NAME).map
 lds    = $(NAME).lds
@@ -33,20 +37,30 @@ process-depends-$(CONFIG_VPN) += $(dir)vpn/$(outo_p)
 
 $(dir)$(elf) : $(defouto) $(dir)$(lds)
 	$(V-info) LD $(dir)$(elf)
-	$(CC) $(LDFLAGS) -Wl,-T,$(dir)$(lds) -Wl,--cref \
+	$(CC) $(LDFLAGS) $(LDFLAGS_ELF) -Wl,-T,$(dir)$(lds) -Wl,--cref \
 		-Wl,-Map,$(dir)$(map) -o $(dir)$(elf) $(defouto)
 	$(OBJCOPY) --output-format $(FORMAT) $(dir)$(elf)
 
+.PHONY : pre-build-all
+pre-build-all : $(CONFIG) defconfig
+	$(MAKE) $(V-makeopt-$(V)) -f Makefile build-all
+
 .PHONY : build-all
-build-all : $(CONFIG) defconfig
+build-all :
 	case "`$(SED) 1q $(DIR)/$(depends) 2>/dev/null`" in \
 	''): >> $(DIR)/$(depends);; esac
-	$(MAKE) $(V-makeopt-$(V)) -f Makefile.build build-dir DIR=$(DIR) V=$(V)
+	$(MAKE) $(V-makeopt-$(V)) -f Makefile.build build-dir DIR=$(DIR) \
+		V=$(V) ARCH=$(ARCH)
 	$(SIZE) $(dir)$(elf)
+
+.PHONY : pre-clean-all
+pre-clean-all : $(CONFIG) defconfig
+	$(MAKE) $(V-makeopt-$(V)) -f Makefile clean-all
 
 .PHONY : clean-all
 clean-all :
-	$(MAKE) $(V-makeopt-$(V)) -f Makefile.clean clean-dir DIR=$(DIR) V=$(V)
+	$(MAKE) $(V-makeopt-$(V)) -f Makefile.clean clean-dir DIR=$(DIR) \
+		V=$(V) ARCH=$(ARCH)
 	$(RM) compile_commands.json
 
 .PHONY : config

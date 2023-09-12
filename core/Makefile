@@ -17,17 +17,11 @@ CONSTANTS-$(CONFIG_TTY_VGA) += -DTTY_VGA
 CONSTANTS-$(CONFIG_THREAD_1CPU) += -DTHREAD_1CPU
 CONSTANTS-$(CONFIG_ACPI_IGNORE_ERROR) += -DACPI_IGNORE_ERROR
 
-bits-0 = 32
-bits-1 = 64
-CFLAGS-32 = -Iedk2/MdePkg/Include/Ia32
-CFLAGS-64 = -Iedk2/MdePkg/Include/X64
-
-CFLAGS += -fshort-wchar
 CFLAGS += -I$(DIR)/include
 CFLAGS += -Ivpn/lib
-CFLAGS += -Iedk2/MdePkg/Include/ $(CFLAGS-$(bits-$(CONFIG_64)))
+CFLAGS += $(CFLAGS_EDK2_INC)
 
-subdirs-1 += x86
+subdirs-1 += $(ARCH)
 
 objs-1 += acpi.o
 objs-1 += acpi_dsdt.o

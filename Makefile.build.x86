@@ -1,0 +1,17 @@
+# -*- makefile-gmake -*-
+
+bits-0 = 32
+bits-1 = 64
+CFLAGS_EDK2-32 = -Iedk2/MdePkg/Include/Ia32
+CFLAGS_EDK2-64 = -Iedk2/MdePkg/Include/X64
+CFLAGS_EDK2_ARCH_INC = $(CFLAGS_EDK2-$(bits-$(CONFIG_64)))
+CFLAGS_ARCH = -m$(bits-$(CONFIG_64)) -mno-red-zone -mno-sse \
+	      -fno-strict-aliasing -Wno-address-of-packed-member
+ASFLAGS_ARCH = -m$(bits-$(CONFIG_64)) -Wa,--divide -Wa,--noexecstack
+LDFLAGS_ARCH = -m$(bits-$(CONFIG_64))
+
+# Currently no special flags for x86
+LDFLAGS_ELF =
+
+# objcopy format
+FORMAT_ARCH = elf32-i386

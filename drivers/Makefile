@@ -9,7 +9,7 @@ CONSTANTS-$(CONFIG_NET_RE) += -DNET_RE
 CFLAGS += -Idrivers/include
 CFLAGS += -Ivpn
 
-subdirs-1 += x86
+subdirs-1 += $(ARCH)
 
 subdirs-$(CONFIG_ATA_DRIVER) += ata
 subdirs-$(CONFIG_NVME_DRIVER) += nvme
