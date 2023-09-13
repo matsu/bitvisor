@@ -114,6 +114,8 @@ void	panic_oom() __attribute__ ((noreturn));
 #define PCI_DRIVER_INIT(func)	INITFUNC ("driver3", func)
 #define DEBUG_DRIVER_INIT(func)	INITFUNC ("driver9", func)
 
+#if defined (__i386__) || defined (__x86_64__)
+
 static inline void
 asm_rep_and_nop (void)
 {
@@ -131,6 +133,10 @@ asm_store_barrier (void)
 {
 	asm volatile ("sfence" : : : "memory");
 }
+
+#else
+#error "Unsupported architecture"
+#endif
 
 #define cpu_relax            asm_pause
 
