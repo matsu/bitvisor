@@ -1,0 +1,65 @@
+# BitVisor .clang-format file
+# Intended for clang-format >= 15.
+
+# Based on FreeBSD's .clang-format file.
+# Unnecessary parameters are removed.
+---
+BasedOnStyle: WebKit
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignOperands: false
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterReturnType: TopLevelDefinitions
+AlwaysBreakBeforeMultilineStrings: false
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: None
+BreakBeforeBraces: WebKit
+BreakBeforeTernaryOperators: false
+BreakStringLiterals: false
+DerivePointerAlignment: false
+IndentCaseLabels: false
+IndentPPDirectives: AfterHash
+PointerAlignment: Right
+SpaceAfterCStyleCast: false
+KeepEmptyLinesAtTheStartOfBlocks: true
+
+# Additional rules for BitVisor
+SpaceBeforeParens: Always
+AlignAfterOpenBracket: Align
+AlignTrailingComments: false
+AlignConsecutiveMacros: Consecutive
+IndentWidth: 8
+ContinuationIndentWidth: 8
+UseTab: Always
+TabWidth: 8
+ColumnLimit: 79
+AlignEscapedNewlines: DontAlign
+AllowShortEnumsOnASingleLine: false
+SortIncludes: false
+# Prefer:
+# some_long_function(arg1, arg2
+#     arg3)
+# over:
+# some_var = some_long_function(arg1,
+#                               arg2,
+#                               arg3);
+PenaltyBreakAssignment: 1000
+PenaltyBreakBeforeFirstCallParameter: 1200
+ForEachMacros:
+  - LIST_FOREACH
+  - LIST1_FOREACH
+  - LIST2_FOREACH_DELETABLE
+  - LIST2_FOREACH
+  - LIST2_FOREACH_DELETABLE
+  - LIST3_FOREACH
+  - LIST3_FOREACH_DELETABLE
+  - LIST4_FOREACH
+  - LIST4_FOREACH_DELETABLE
+  - ARRAYLIST_FOREACH
