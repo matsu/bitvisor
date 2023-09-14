@@ -1181,6 +1181,7 @@ opcode_iret (struct op *op)
 		if (rflags & RFLAGS_IF_BIT) {
 			cpu_emul_sti ();
 		}
+		current->vmctl.unblock_nmis ();
 		return VMMERR_SUCCESS;
 	}
 	DEBUG_UNIMPLEMENTED ();

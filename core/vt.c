@@ -91,6 +91,7 @@ static struct vmctl_func func = {
 	vt_resume,
 	vt_paging_map_1mb,
 	vt_msrpass,
+	vt_unblock_nmis,
 };
 
 void

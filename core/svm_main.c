@@ -823,6 +823,16 @@ svm_init_signal (void)
 }
 
 void
+svm_unblock_nmis (void)
+{
+	struct vmcb *vmcb = current->u.svm.vi.vmcb;
+	if (vmcb->intercept_iret) {
+		vmcb->intercept_iret = 0;
+		svm_nmi ();
+	}
+}
+
+void
 svm_start_vm (void)
 {
 	svm_paging_start ();

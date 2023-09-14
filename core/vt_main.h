@@ -30,6 +30,7 @@
 #ifndef _CORE_VT_MAIN_H
 #define _CORE_VT_MAIN_H
 
+void vt_unblock_nmis (void);
 void vt_init_signal (void);
 void vt_start_vm (void);
 void vt_update_exception_bmp (void);

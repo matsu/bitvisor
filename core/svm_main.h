@@ -31,6 +31,7 @@
 #define _CORE_SVM_MAIN_H
 
 void svm_init_signal (void);
+void svm_unblock_nmis (void);
 void svm_start_vm (void);
 
 #endif

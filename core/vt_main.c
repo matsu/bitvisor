@@ -62,6 +62,7 @@
 #include "vt_vmcs.h"
 
 #define EPT_VIOLATION_EXIT_QUAL_WRITE_BIT 0x2
+#define EPT_VIOLATION_EXIT_QUAL_NMI_UNBLOCKING_DUE_TO_IRET_BIT 0x1000
 #define STAT_EXIT_REASON_MAX EXIT_REASON_XSETBV
 
 enum vt__status {
@@ -247,6 +248,16 @@ vt_nmi_has_come (void)
 }
 
 static void
+set_blocking_by_nmi (void)
+{
+	ulong is;
+
+	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
+	is |= VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT;
+	asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, is);
+}
+
+static void
 do_exception (void)
 {
 	union {
@@ -265,6 +276,8 @@ do_exception (void)
 			if (vii.s.vector == EXCEPTION_DB &&
 			    current->u.vt.vr.sw.enable)
 				break;
+			if (vii.s.nmi)
+				set_blocking_by_nmi ();
 			if (vii.s.vector == EXCEPTION_PF) {
 				ulong err, cr2;
 
@@ -511,6 +524,12 @@ clear_blocking_by_nmi (void)
 	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
 	is &= ~VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT;
 	asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, is);
+}
+
+void
+vt_unblock_nmis (void)
+{
+	clear_blocking_by_nmi ();
 }
 
 static void
@@ -939,6 +958,8 @@ do_ept_violation (void)
 
 	asm_vmread (VMCS_EXIT_QUALIFICATION, &eqe);
 	asm_vmread64 (VMCS_GUEST_PHYSICAL_ADDRESS, &gp);
+	if (eqe & EPT_VIOLATION_EXIT_QUAL_NMI_UNBLOCKING_DUE_TO_IRET_BIT)
+		set_blocking_by_nmi ();
 	vt_paging_npf (!!(eqe & EPT_VIOLATION_EXIT_QUAL_WRITE_BIT), gp);
 }
 
