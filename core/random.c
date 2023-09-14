@@ -221,4 +221,4 @@ end:
 }
 INITFUNC ("bsp0", random_init_global);
 INITFUNC ("config00", random_init_config0);
-INITFUNC ("pcpu5", random_init_general);
+INITFUNC ("pcpu6", random_init_general);

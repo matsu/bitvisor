@@ -204,6 +204,6 @@ epochtime_init_msg (void)
 }
 
 INITFUNC ("global3", time_init_global);
-INITFUNC ("pcpu4", time_init_pcpu);
+INITFUNC ("pcpu5", time_init_pcpu);
 INITFUNC ("msg0", time_init_msg);
 INITFUNC ("msg1", epochtime_init_msg);
