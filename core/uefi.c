@@ -31,6 +31,7 @@
 #include <Protocol/SimpleFileSystem.h>
 #include <Guid/Acpi.h>
 #undef NULL
+#include <section.h>
 #include "asm.h"
 #include "entry.h"
 #include "linker.h"
@@ -38,8 +39,6 @@
 #include "uefi.h"
 #include <share/uefi_boot.h>
 
-#define SECTION_ENTRY_TEXT __attribute__ ((section (".entry.text")))
-#define SECTION_ENTRY_DATA __attribute__ ((section (".entry.data")))
 #define _PRINT(s) do { \
 	static char SECTION_ENTRY_DATA _p[] = \
 		(s); \

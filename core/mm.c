@@ -29,6 +29,7 @@
 
 #include <arch/mm.h>
 #include <arch/vmm_mem.h>
+#include <section.h>
 #include "assert.h"
 #include "calluefi.h"
 #include "constants.h"
@@ -111,7 +112,7 @@ static LIST1_DEFINE_HEAD (struct tiny_allocdata,
 static struct page pagestruct[NUM_OF_PAGES];
 static int panicmem_start_page;
 
-void __attribute__ ((section (".entry.text")))
+void SECTION_ENTRY_TEXT
 uefi_init_get_vmmsize (u32 *vmmsize, u32 *align)
 {
 	*vmmsize = VMMSIZE_ALL;
