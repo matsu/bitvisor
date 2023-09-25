@@ -87,6 +87,7 @@ struct ro_segments {
 	struct ro_segments *next;
 	u32 vaddr;
 	u8 veccnt;
+	bool exec;
 	struct ro_segment_vec vec[];
 } __attribute__ ((packed));
 
@@ -251,7 +252,7 @@ get_vec_size (signed char size1)
 
 static void
 add_segment_ro (virt_t destvirt, uint destlen, void *src, uint srclen,
-		struct ro_segments ***next)
+		bool exec, struct ro_segments ***next)
 {
 	if (srclen > destlen)
 		srclen = destlen;
@@ -283,6 +284,7 @@ add_segment_ro (virt_t destvirt, uint destlen, void *src, uint srclen,
 		destvirt += len;
 	}
 	p->veccnt = veccnt;
+	p->exec = exec;
 	**next = p;
 	*next = &p->next;
 }
@@ -365,7 +367,7 @@ processbin_add (char *name, void *bin, ulong len, int stacksize)
 		else
 			add_segment_ro (phdr->p_vaddr, phdr->p_memsz,
 					b + phdr->p_offset, phdr->p_filesz,
-					&ro_next);
+					!!(phdr->p_flags & PF_X), &ro_next);
 	}
 	int namelen = strlen (name) + 1;
 	pb = alloc (sizeof *pb + namelen);
@@ -461,10 +463,11 @@ processbin_load (struct processbin *bin,
 			phys_t phys = p->vec[i].phys;
 			unsigned int len = get_vec_size (p->vec[i].size1);
 			u32 size = len / PAGESIZE;
+			bool exec = p->exec;
 			for (u32 i = 0; i < size; i++) {
 				mm_process_map_shared_physpage (mm_proc_desc,
 								vaddr, phys,
-								false);
+								false, exec);
 				vaddr += PAGESIZE;
 				phys += PAGESIZE;
 			}
@@ -541,23 +544,23 @@ found:
 #ifdef USE_SYSCALL64
 	mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
 					sym_to_phys (processuser_syscall),
-					false);
+					false, true);
 #else
 	mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
 					sym_to_phys (processuser_callgate64),
-					false);
+					false, true);
 #endif
 #else
 	if (sysenter_available ())
 		mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
 						sym_to_phys
 						(processuser_sysenter),
-						false);
+						false, true);
 	else
 		mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
 						sym_to_phys
 						(processuser_no_sysenter),
-						false);
+						false, true);
 #endif
 	process[pid].msgdsc[0].func = (void *)rip;
 	mm_process_switch (old_mm_proc_desc);

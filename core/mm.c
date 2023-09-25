@@ -1218,7 +1218,7 @@ mm_process_arch_shared_mem_absent (struct mm_arch_proc_desc *mm_proc_desc,
 
 int
 mm_process_map_shared_physpage (struct mm_arch_proc_desc *mm_proc_desc,
-				virt_t virt, phys_t phys, bool rw)
+				virt_t virt, phys_t phys, bool rw, bool exec)
 {
 	virt &= ~PAGESIZE_MASK;
 	if (virt >= vmm_mem_proc_end_virt ())
@@ -1226,6 +1226,7 @@ mm_process_map_shared_physpage (struct mm_arch_proc_desc *mm_proc_desc,
 	mm_process_unmap (mm_proc_desc, virt, PAGESIZE);
 	mm_process_arch_mappage (mm_proc_desc, virt, phys,
 				 (rw ? MM_PROCESS_MAP_WRITE : 0) |
+				 (exec ? MM_PROCESS_MAP_EXEC : 0) |
 				 MM_PROCESS_MAP_SHARE);
 	return 0;
 }
@@ -1317,7 +1318,8 @@ retry:
 			return NULL;
 		}
 		mm_process_map_shared_physpage (mm_proc_desc_callee,
-						uservirt + off, phys, rw);
+						uservirt + off, phys, rw,
+						false);
 	}
 	return (void *)(uservirt + (virt_s & 0xFFF));
 }

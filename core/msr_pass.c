@@ -212,7 +212,7 @@ ia32_bios_updt (virt_t addr)
 		hphys = current->gmm.gp2hp (gphys, NULL);
 		ASSERT (!(hphys & PAGESIZE_MASK));
 		if (mm_process_map_shared_physpage (mm_proc_desc, cr2, hphys,
-						    false))
+						    false, true))
 			panic ("%s: mm_process_map_shared_physpage failed"
 			       " cr2=0x%lX guest=0x%lX ent=0x%llX",
 			       __func__, cr2, guest_addr, entries[0]);

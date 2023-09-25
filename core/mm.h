@@ -40,6 +40,7 @@
 
 #define MM_PROCESS_MAP_WRITE		(1 << 0)
 #define MM_PROCESS_MAP_SHARE		(1 << 1)
+#define MM_PROCESS_MAP_EXEC		(1 << 2)
 
 struct mm_arch_proc_desc;
 
@@ -64,7 +65,8 @@ virt_t mm_process_map_stack (struct mm_arch_proc_desc *mm_proc_desc, uint len,
 int mm_process_unmap_stack (struct mm_arch_proc_desc *mm_proc_desc,
 			    virt_t virt, uint len);
 int mm_process_map_shared_physpage (struct mm_arch_proc_desc *mm_proc_desc,
-				    virt_t virt, phys_t phys, bool rw);
+				    virt_t virt, phys_t phys, bool rw,
+				    bool exec);
 void *mm_process_map_shared (struct mm_arch_proc_desc *mm_proc_desc_callee,
 			     struct mm_arch_proc_desc *mm_proc_desc_caller,
 			     void *buf, uint len, bool rw, bool pre);
