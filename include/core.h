@@ -34,6 +34,7 @@
  */
 #ifndef _CORE_H
 #define _CORE_H
+#include <bits.h>
 #include <common.h>
 #include <core/config.h>
 
@@ -41,8 +42,6 @@
 #define MB (1024*KB)
 #define GB (u64)(1024*MB)
 #define PAGESIZE 4096
-
-#define BIT(n) (1ULL << n)
 
 /** I/O handler functions */
 #include <core/io.h>
