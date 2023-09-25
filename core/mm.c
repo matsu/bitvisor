@@ -1073,7 +1073,8 @@ process_create_initial_map (void *virt, phys_t phys)
 }
 
 int
-mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out)
+mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,
+		       int space_id)
 {
 	void *virt;
 	phys_t phys;
@@ -1088,9 +1089,10 @@ mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out)
 }
 
 int
-mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out)
+mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,
+		  int space_id)
 {
-	return mm_process_arch_alloc (mm_proc_desc_out);
+	return mm_process_arch_alloc (mm_proc_desc_out, space_id);
 }
 
 void

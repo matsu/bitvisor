@@ -163,7 +163,7 @@ ia32_bios_updt (virt_t addr)
 
 	/* Allocate an empty page directory for address 0-0x3FFFFFFF
 	 * and switch to it. */
-	if (mm_process_alloc (&mm_proc_desc) < 0)
+	if (mm_process_alloc (&mm_proc_desc, 0) < 0)
 		panic ("%s: mm_process_alloc failed", __func__);
 	old_mm_proc_desc = mm_process_switch (mm_proc_desc);
 	for (;;) {

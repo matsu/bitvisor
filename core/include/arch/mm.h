@@ -34,7 +34,8 @@
 
 struct mm_arch_proc_desc;
 
-int mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out);
+int mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,
+			   int space_id);
 void mm_process_arch_free (struct mm_arch_proc_desc *mm_proc_desc);
 void mm_process_arch_mappage (struct mm_arch_proc_desc *mm_proc_desc,
 			      virt_t virt, phys_t phys, u64 flags);

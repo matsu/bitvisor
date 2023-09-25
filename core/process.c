@@ -520,7 +520,7 @@ err:
 	return -1;
 found:
 	/* alloc page directories and init */
-	if (mm_process_alloc (&mm_proc_desc) < 0)
+	if (mm_process_alloc (&mm_proc_desc, pid) < 0)
 		goto err;
 	process[pid].mm_proc_desc = mm_proc_desc;
 	process[pid].running = 0;

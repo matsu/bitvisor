@@ -53,7 +53,8 @@ void *mm_get_panicmem (int *len);
 void mm_free_panicmem (void);
 
 /* process */
-int mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out);
+int mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,
+		      int space_id);
 void mm_process_free (struct mm_arch_proc_desc *mm_proc_desc);
 int mm_process_map_alloc (struct mm_arch_proc_desc *mm_proc_desc, virt_t virt,
 			  uint len);
