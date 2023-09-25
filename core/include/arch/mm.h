@@ -32,16 +32,26 @@
 
 #include <core/types.h>
 
-int mm_process_arch_alloc (phys_t *phys);
-void mm_process_arch_free (phys_t phys);
-void mm_process_arch_mappage (virt_t virt, phys_t phys, u64 flags);
-int mm_process_arch_mapstack (virt_t virt, bool noalloc);
-bool mm_process_arch_shared_mem_absent (virt_t virt);
-int mm_process_arch_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys);
-bool mm_process_arch_stack_absent (virt_t virt);
-int mm_process_arch_unmap (virt_t aligned_virt, uint npages);
-int mm_process_arch_unmap_stack (virt_t aligned_virt, uint npages);
-void mm_process_arch_unmapall (void);
-phys_t mm_process_arch_switch (phys_t switchto);
+struct mm_arch_proc_desc;
+
+int mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out);
+void mm_process_arch_free (struct mm_arch_proc_desc *mm_proc_desc);
+void mm_process_arch_mappage (struct mm_arch_proc_desc *mm_proc_desc,
+			      virt_t virt, phys_t phys, u64 flags);
+int mm_process_arch_mapstack (struct mm_arch_proc_desc *mm_proc_desc,
+			      virt_t virt, bool noalloc);
+bool mm_process_arch_shared_mem_absent (struct mm_arch_proc_desc *mm_proc_desc,
+					virt_t virt);
+int mm_process_arch_virt_to_phys (struct mm_arch_proc_desc *mm_proc_desc,
+				  virt_t virt, phys_t *phys);
+bool mm_process_arch_stack_absent (struct mm_arch_proc_desc *mm_proc_desc,
+				   virt_t virt);
+int mm_process_arch_unmap (struct mm_arch_proc_desc *mm_proc_desc,
+			   virt_t aligned_virt, uint npages);
+int mm_process_arch_unmap_stack (struct mm_arch_proc_desc *mm_proc_desc,
+				 virt_t aligned_virt, uint npages);
+void mm_process_arch_unmapall (struct mm_arch_proc_desc *mm_proc_desc);
+struct mm_arch_proc_desc *mm_process_arch_switch
+			  (struct mm_arch_proc_desc *switchto);
 
 #endif

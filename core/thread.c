@@ -79,7 +79,7 @@ struct thread_data {
 	void *stack;
 	int pid;
 	ulong syscallstack;
-	phys_t process_switch;
+	struct mm_arch_proc_desc *process_switch;
 };
 
 static struct thread_data td[MAXNUM_OF_THREADS];
@@ -99,7 +99,7 @@ thread_data_init (struct thread_data *d, struct thread_context *c, void *stack,
 	d->stack = stack;
 	d->pid = 0;
 	d->syscallstack = 0;
-	d->process_switch = 1;
+	d->process_switch = NULL;
 	d->state = THREAD_RUN;
 }
 

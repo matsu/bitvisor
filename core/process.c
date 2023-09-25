@@ -69,7 +69,7 @@ struct msgdsc_data {
 
 struct process_data {
 	bool valid;
-	phys_t mm_phys;
+	struct mm_arch_proc_desc *mm_proc_desc;
 	int gen;
 	int running;
 	struct msgdsc_data msgdsc[NUM_OF_MSGDSC];
@@ -443,11 +443,12 @@ process_wakeup (void)
 }
 
 static ulong
-processbin_load (struct processbin *bin)
+processbin_load (struct processbin *bin,
+		 struct mm_arch_proc_desc *mm_proc_desc)
 {
 	for (struct rw_segments *p = bin->rw; p; p = p->next) {
 		ulong vaddr = p->vaddr;
-		mm_process_map_alloc (vaddr, p->vsize);
+		mm_process_map_alloc (mm_proc_desc, vaddr, p->vsize);
 		for (u32 i = 0; i < p->veccnt; i++) {
 			unsigned int len = get_vec_size (p->vec[i].size1);
 			memcpy ((void *)vaddr, p->vec[i].buf, len);
@@ -461,7 +462,8 @@ processbin_load (struct processbin *bin)
 			unsigned int len = get_vec_size (p->vec[i].size1);
 			u32 size = len / PAGESIZE;
 			for (u32 i = 0; i < size; i++) {
-				mm_process_map_shared_physpage (vaddr, phys,
+				mm_process_map_shared_physpage (mm_proc_desc,
+								vaddr, phys,
 								false);
 				vaddr += PAGESIZE;
 				phys += PAGESIZE;
@@ -501,9 +503,8 @@ static int
 process_new (int frompid, struct processbin *bin)
 {
 	int pid, gen;
-	u64 phys;
 	ulong rip;
-	phys_t mm_phys;
+	struct mm_arch_proc_desc *mm_proc_desc, *old_mm_proc_desc;
 	int stacksize = bin->stacksize;
 
 	spinlock_lock (&process_lock);
@@ -515,9 +516,10 @@ err:
 	spinlock_unlock (&process_lock);
 	return -1;
 found:
-	if (mm_process_alloc (&phys) < 0) /* alloc page directories and init */
+	/* alloc page directories and init */
+	if (mm_process_alloc (&mm_proc_desc) < 0)
 		goto err;
-	process[pid].mm_phys = phys;
+	process[pid].mm_proc_desc = mm_proc_desc;
 	process[pid].running = 0;
 	process[pid].exitflag = false;
 	process[pid].setlimit = false;
@@ -527,8 +529,9 @@ found:
 	gen = ++process[pid].gen;
 	process[pid].valid = true;
 	clearmsgdsc (process[pid].msgdsc);
-	mm_phys = mm_process_switch (phys);
-	if (!(rip = processbin_load (bin))) { /* load a program */
+	old_mm_proc_desc = mm_process_switch (mm_proc_desc);
+	/* load a program */
+	if (!(rip = processbin_load (bin, mm_proc_desc))) {
 		printf ("processbin_load failed.\n");
 		process[pid].valid = false;
 		pid = 0;
@@ -536,28 +539,28 @@ found:
 	/* for system calls */
 #ifdef __x86_64__
 #ifdef USE_SYSCALL64
-	mm_process_map_shared_physpage (0x3FFFF000,
+	mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
 					sym_to_phys (processuser_syscall),
 					false);
 #else
-	mm_process_map_shared_physpage (0x3FFFF000,
+	mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
 					sym_to_phys (processuser_callgate64),
 					false);
 #endif
 #else
 	if (sysenter_available ())
-		mm_process_map_shared_physpage (0x3FFFF000,
+		mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
 						sym_to_phys
 						(processuser_sysenter),
 						false);
 	else
-		mm_process_map_shared_physpage (0x3FFFF000,
+		mm_process_map_shared_physpage (mm_proc_desc, 0x3FFFF000,
 						sym_to_phys
 						(processuser_no_sysenter),
 						false);
 #endif
 	process[pid].msgdsc[0].func = (void *)rip;
-	mm_process_switch (mm_phys);
+	mm_process_switch (old_mm_proc_desc);
 	spinlock_unlock (&process_lock);
 	return _msgopen_2 (frompid, pid, gen, 0);
 }
@@ -582,19 +585,21 @@ process_kill (bool (*func) (void *data), void *data)
 }
 
 /* free any resources of a process */
-/* CR3 must be the process's one */
+/* Page table must be the process's one */
 /* process_lock must be locked */
 static void
-cleanup (int pid, phys_t mm_phys)
+cleanup (int pid, struct mm_arch_proc_desc *mm_proc_desc_callee,
+	 struct mm_arch_proc_desc *mm_proc_desc_caller)
 {
 	ASSERT (process[pid].valid);
 	ASSERT (process[pid].running == 0);
 	process[pid].gen++;
 	msg_unregisterall (pid);
-	mm_process_unmapall ();
-	mm_process_switch (mm_phys);
-	mm_process_free (process[pid].mm_phys);
+	mm_process_unmapall (mm_proc_desc_callee);
+	mm_process_switch (mm_proc_desc_caller);
+	mm_process_free (mm_proc_desc_callee);
 	process[pid].valid = false;
+	process[pid].mm_proc_desc = NULL;
 }
 
 static void
@@ -697,7 +702,7 @@ static int
 call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 	       struct msgbuf *buf, int bufcnt)
 {
-	phys_t mm_phys;
+	struct mm_arch_proc_desc *mm_proc_desc_callee, *mm_proc_desc_caller;
 	ulong sp, sp2, buf_sp;
 	int r = -1;
 	struct msgbuf buf_user[MAXNUM_OF_MSGBUF];
@@ -733,17 +738,17 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 	}
 	if (bufcnt > MAXNUM_OF_MSGBUF)
 		goto ret;
-	mm_phys = mm_process_switch (process[pid].mm_phys);
+	mm_proc_desc_callee = process[pid].mm_proc_desc;
+	mm_proc_desc_caller = mm_process_switch (mm_proc_desc_callee);
 	for (i = 0; i < bufcnt; i++) {
 		if (buf[i].premap_handle) {
 			tmp = (long)buf[i].base - buf[i].premap_handle;
 			buf_user[i].base = (void *)tmp;
 		} else {
-			buf_user[i].base = mm_process_map_shared (mm_phys,
-								  buf[i].base,
-								  buf[i].len,
-								  !!buf[i].rw,
-								  false);
+			buf_user[i].base = mm_process_map_shared
+					   (mm_proc_desc_callee,
+					    mm_proc_desc_caller, buf[i].base,
+					    buf[i].len, !!buf[i].rw, false);
 		}
 		if (!buf_user[i].base) {
 			bufcnt = i;
@@ -754,7 +759,8 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 		buf_user[i].premap_handle = 0;
 	}
 	stacksize = process[pid].stacksize;
-	sp2 = mm_process_map_stack (stacksize, process[pid].setlimit, true);
+	sp2 = mm_process_map_stack (mm_proc_desc_callee, stacksize,
+				    process[pid].setlimit, true);
 	if (!sp2) {
 		printf ("cannot allocate stack for process\n");
 		goto mapfail;
@@ -781,16 +787,17 @@ call_msgfunc1 (int pid, int gen, int desc, void *arg, int len,
 	sp -= sizeof (ulong);
 	*(ulong *)sp = 0x3FFFF100;
 	r = call_msgfunc0 (pid, process[pid].msgdsc[desc].func, sp);
-	mm_process_unmap_stack (sp2, stacksize);
+	mm_process_unmap_stack (mm_proc_desc_callee, sp2, stacksize);
 mapfail:
 	for (i = 0; i < bufcnt; i++) {
 		if (buf[i].premap_handle)
 			continue;
-		mm_process_unmap ((virt_t)buf_user[i].base, buf_user[i].len);
+		mm_process_unmap (mm_proc_desc_callee,
+				  (virt_t)buf_user[i].base, buf_user[i].len);
 	}
 	if (process[pid].running == 0 && process[pid].exitflag)
-		cleanup (pid, mm_phys);
-	mm_process_switch (mm_phys);
+		cleanup (pid, mm_proc_desc_callee, mm_proc_desc_caller);
+	mm_process_switch (mm_proc_desc_caller);
 ret:
 	spinlock_unlock (&process_lock);
 	return r;
@@ -1213,6 +1220,7 @@ sys_setlimit (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 {
 	int r = -1;
 	virt_t tmp;
+	struct mm_arch_proc_desc *mm_proc_desc;
 
 	spinlock_lock (&process_lock);
 	if (process[currentcpu->pid].setlimit)
@@ -1221,10 +1229,11 @@ sys_setlimit (ulong ip, ulong sp, ulong num, ulong si, ulong di)
 		si = PAGESIZE;
 	if (di < PAGESIZE)
 		di = PAGESIZE;
-	tmp = mm_process_map_stack (di, false, false);
+	mm_proc_desc = process[currentcpu->pid].mm_proc_desc;
+	tmp = mm_process_map_stack (mm_proc_desc, di, false, false);
 	if (!tmp)
 		goto ret;
-	r = mm_process_unmap_stack (tmp, di);
+	r = mm_process_unmap_stack (mm_proc_desc, tmp, di);
 	if (r) {
 		spinlock_unlock (&process_lock);
 		panic ("unmap stack failed");
@@ -1239,7 +1248,7 @@ ret:
 long
 msgpremapbuf (int desc, struct msgbuf *buf)
 {
-	phys_t mm_phys;
+	struct mm_arch_proc_desc *mm_proc_desc_callee, *mm_proc_desc_caller;
 	int topid, togen;
 	void *base_user = NULL;
 
@@ -1256,10 +1265,12 @@ msgpremapbuf (int desc, struct msgbuf *buf)
 		goto ret;
 	if (process[topid].gen != togen)	
 		goto ret;
-	mm_phys = mm_process_switch (process[topid].mm_phys);
-	base_user = mm_process_map_shared (mm_phys, buf->base, buf->len,
-					   !!buf->rw, true);
-	mm_process_switch (mm_phys);
+	mm_proc_desc_callee = process[topid].mm_proc_desc;
+	mm_proc_desc_caller = mm_process_switch (mm_proc_desc_callee);
+	base_user = mm_process_map_shared (mm_proc_desc_callee,
+					   mm_proc_desc_caller, buf->base,
+					   buf->len, !!buf->rw, false);
+	mm_process_switch (mm_proc_desc_caller);
 ret:
 	spinlock_unlock (&process_lock);
 	if (base_user)

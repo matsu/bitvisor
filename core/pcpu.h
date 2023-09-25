@@ -60,6 +60,8 @@ enum apic_mode {
 struct pcpu_func {
 };
 
+struct mm_arch_proc_desc;
+
 struct pcpu {
 	struct pcpu *next;
 	struct pcpu_func func;
@@ -83,6 +85,7 @@ struct pcpu {
 	bool use_invariant_tsc;
 	void (*release_process64_msrs) (void *release_process64_msrs_data);
 	void *release_process64_msrs_data;
+	struct mm_arch_proc_desc *cur_mm_proc_desc;
 	unsigned int rnd_context;
 	bool support_rdrand;
 };

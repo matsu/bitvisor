@@ -41,6 +41,8 @@
 #define MM_PROCESS_MAP_WRITE		(1 << 0)
 #define MM_PROCESS_MAP_SHARE		(1 << 1)
 
+struct mm_arch_proc_desc;
+
 int num_of_available_pages (void);
 void mm_flush_wb_cache (void);
 void mm_force_unlock (void);
@@ -50,16 +52,23 @@ void *mm_get_panicmem (int *len);
 void mm_free_panicmem (void);
 
 /* process */
-int mm_process_alloc (phys_t *phys);
-void mm_process_free (phys_t phys);
-int mm_process_map_alloc (virt_t virt, uint len);
-int mm_process_unmap (virt_t virt, uint len);
-void mm_process_unmapall (void);
-virt_t mm_process_map_stack (uint len, bool noalloc, bool align);
-int mm_process_unmap_stack (virt_t virt, uint len);
-int mm_process_map_shared_physpage (virt_t virt, phys_t phys, bool rw);
-void *mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw,
-			     bool pre);
-phys_t mm_process_switch (phys_t switchto);
+int mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out);
+void mm_process_free (struct mm_arch_proc_desc *mm_proc_desc);
+int mm_process_map_alloc (struct mm_arch_proc_desc *mm_proc_desc, virt_t virt,
+			  uint len);
+int mm_process_unmap (struct mm_arch_proc_desc *mm_proc_desc, virt_t virt,
+		      uint len);
+void mm_process_unmapall (struct mm_arch_proc_desc *mm_proc_desc);
+virt_t mm_process_map_stack (struct mm_arch_proc_desc *mm_proc_desc, uint len,
+			     bool noalloc, bool align);
+int mm_process_unmap_stack (struct mm_arch_proc_desc *mm_proc_desc,
+			    virt_t virt, uint len);
+int mm_process_map_shared_physpage (struct mm_arch_proc_desc *mm_proc_desc,
+				    virt_t virt, phys_t phys, bool rw);
+void *mm_process_map_shared (struct mm_arch_proc_desc *mm_proc_desc_callee,
+			     struct mm_arch_proc_desc *mm_proc_desc_caller,
+			     void *buf, uint len, bool rw, bool pre);
+struct mm_arch_proc_desc *mm_process_switch
+			   (struct mm_arch_proc_desc *switchto);
 
 #endif

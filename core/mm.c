@@ -42,6 +42,7 @@
 #include "list.h"
 #include "mm.h"
 #include "panic.h"
+#include "pcpu.h"
 #include "phys.h"
 #include "pmap.h"
 #include "printf.h"
@@ -115,6 +116,10 @@ struct mempool {
 	bool clear;
 	int keep;
 	spinlock_t lock;
+};
+
+struct mm_arch_proc_desc {
+	phys_t pd_addr;
 };
 
 extern u8 end[];
@@ -1068,37 +1073,43 @@ process_create_initial_map (void *virt, phys_t phys)
 }
 
 int
-mm_process_arch_alloc (phys_t *phys2)
+mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out)
 {
 	void *virt;
 	phys_t phys;
+	struct mm_arch_proc_desc *out;
 
 	alloc_page (&virt, &phys);
 	process_create_initial_map (virt, phys);
-	*phys2 = phys;
+	out = alloc (sizeof *out);
+	out->pd_addr = phys;
+	*mm_proc_desc_out = out;
 	return 0;
 }
 
 int
-mm_process_alloc (phys_t *phys)
+mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out)
 {
-	return mm_process_arch_alloc (phys);
+	return mm_process_arch_alloc (mm_proc_desc_out);
 }
 
 void
-mm_process_arch_free (phys_t phys)
+mm_process_arch_free (struct mm_arch_proc_desc *mm_proc_desc)
 {
-	free_page_phys (phys);
+	ASSERT (mm_proc_desc);
+	free_page_phys (mm_proc_desc->pd_addr);
+	free (mm_proc_desc);
 }
 
 void
-mm_process_free (phys_t phys)
+mm_process_free (struct mm_arch_proc_desc *mm_proc_desc)
 {
-	mm_process_arch_free (phys);
+	mm_process_arch_free (mm_proc_desc);
 }
 
 void
-mm_process_arch_mappage (virt_t virt, phys_t phys, u64 flags)
+mm_process_arch_mappage (struct mm_arch_proc_desc *mm_proc_desc, virt_t virt,
+			 phys_t phys, u64 flags)
 {
 	ulong cr3;
 	pmap_t m;
@@ -1121,7 +1132,8 @@ mm_process_arch_mappage (virt_t virt, phys_t phys, u64 flags)
 }
 
 int
-mm_process_arch_mapstack (virt_t virt, bool noalloc)
+mm_process_arch_mapstack (struct mm_arch_proc_desc *mm_proc_desc, virt_t virt,
+			  bool noalloc)
 {
 	ulong cr3;
 	pmap_t m;
@@ -1159,7 +1171,8 @@ mm_process_arch_mapstack (virt_t virt, bool noalloc)
 }
 
 int
-mm_process_map_alloc (virt_t virt, uint len)
+mm_process_map_alloc (struct mm_arch_proc_desc *mm_proc_desc, virt_t virt,
+		      uint len)
 {
 	void *tmp;
 	phys_t phys;
@@ -1175,17 +1188,19 @@ mm_process_map_alloc (virt_t virt, uint len)
 	len += virt & PAGESIZE_MASK;
 	virt -= virt & PAGESIZE_MASK;
 	npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
-	mm_process_unmap (virt, len);
+	mm_process_unmap (mm_proc_desc, virt, len);
 	for (v = virt; npages > 0; v += PAGESIZE, npages--) {
 		alloc_page (&tmp, &phys);
 		memset (tmp, 0, PAGESIZE);
-		mm_process_arch_mappage (v, phys, MM_PROCESS_MAP_WRITE);
+		mm_process_arch_mappage (mm_proc_desc, v, phys,
+					 MM_PROCESS_MAP_WRITE);
 	}
 	return 0;
 }
 
 bool
-mm_process_arch_shared_mem_absent (virt_t virt)
+mm_process_arch_shared_mem_absent (struct mm_arch_proc_desc *mm_proc_desc,
+				   virt_t virt)
 {
 	pmap_t m;
 	ulong cr3;
@@ -1202,14 +1217,16 @@ mm_process_arch_shared_mem_absent (virt_t virt)
 }
 
 int
-mm_process_map_shared_physpage (virt_t virt, phys_t phys, bool rw)
+mm_process_map_shared_physpage (struct mm_arch_proc_desc *mm_proc_desc,
+				virt_t virt, phys_t phys, bool rw)
 {
 	virt &= ~PAGESIZE_MASK;
 	if (virt >= vmm_mem_proc_end_virt ())
 		return -1;
-	mm_process_unmap (virt, PAGESIZE);
-	mm_process_arch_mappage (virt, phys, (rw ? MM_PROCESS_MAP_WRITE : 0) |
-					     MM_PROCESS_MAP_SHARE);
+	mm_process_unmap (mm_proc_desc, virt, PAGESIZE);
+	mm_process_arch_mappage (mm_proc_desc, virt, phys,
+				 (rw ? MM_PROCESS_MAP_WRITE : 0) |
+				 MM_PROCESS_MAP_SHARE);
 	return 0;
 }
 
@@ -1224,7 +1241,8 @@ process_virt_to_phys_prepare (void)
 }
 
 int
-mm_process_arch_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
+mm_process_arch_virt_to_phys (struct mm_arch_proc_desc *mm_proc_desc,
+			      virt_t virt, phys_t *phys)
 {
 	u64 pte;
 	int r = -1;
@@ -1232,7 +1250,7 @@ mm_process_arch_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
 
 	spinlock_lock (&mm_lock_process_virt_to_phys);
 	if (virt < 0x40000000) {
-		*process_virt_to_phys_pdp = procphys | PDE_P_BIT;
+		*process_virt_to_phys_pdp = mm_proc_desc->pd_addr | PDE_P_BIT;
 		pmap_open_vmm (&m, process_virt_to_phys_pdp_phys, 3);
 	} else {
 		ulong cr3;
@@ -1252,7 +1270,9 @@ mm_process_arch_virt_to_phys (phys_t procphys, virt_t virt, phys_t *phys)
 }
 
 void *
-mm_process_map_shared (phys_t procphys, void *buf, uint len, bool rw, bool pre)
+mm_process_map_shared (struct mm_arch_proc_desc *mm_proc_desc_callee,
+		       struct mm_arch_proc_desc *mm_proc_desc_caller,
+		       void *buf, uint len, bool rw, bool pre)
 {
 	virt_t uservirt = 0x30000000;
 	virt_t virt, virt_s, virt_e, off;
@@ -1272,7 +1292,7 @@ retry:
 			uservirt += PAGESIZE;
 			ASSERT (uservirt < 0x30000000);
 			if (!mm_process_arch_shared_mem_absent
-			     (uservirt - PAGESIZE))
+			     (mm_proc_desc_callee, uservirt - PAGESIZE))
 				goto retry;
 			off += PAGESIZE;
 		}
@@ -1281,25 +1301,30 @@ retry:
 		for (virt = virt_s & ~0xFFF; virt < virt_e; virt += PAGESIZE) {
 			uservirt -= PAGESIZE;
 			ASSERT (uservirt > 0x20000000);
-			if (!mm_process_arch_shared_mem_absent (uservirt))
+			if (!mm_process_arch_shared_mem_absent
+			     (mm_proc_desc_callee, uservirt))
 				goto retry;
 		}
 	}
 	for (virt = virt_s & ~0xFFF, off = 0; virt < virt_e;
 	     virt += PAGESIZE, off += PAGESIZE) {
-		if (mm_process_arch_virt_to_phys (procphys, virt, &phys)) {
-			mm_process_unmap ((virt_t)(uservirt + (virt_s &
+		if (mm_process_arch_virt_to_phys (mm_proc_desc_caller, virt,
+						  &phys)) {
+			mm_process_unmap (mm_proc_desc_callee,
+					  (virt_t)(uservirt + (virt_s &
 							       0xFFF)),
 					  len);
 			return NULL;
 		}
-		mm_process_map_shared_physpage (uservirt + off, phys, rw);
+		mm_process_map_shared_physpage (mm_proc_desc_callee,
+						uservirt + off, phys, rw);
 	}
 	return (void *)(uservirt + (virt_s & 0xFFF));
 }
 
 bool
-mm_process_arch_stack_absent (virt_t virt)
+mm_process_arch_stack_absent (struct mm_arch_proc_desc *mm_proc_desc,
+			      virt_t virt)
 {
 	pmap_t m;
 	ulong cr3;
@@ -1318,7 +1343,8 @@ mm_process_arch_stack_absent (virt_t virt)
 }
 
 virt_t
-mm_process_map_stack (uint len, bool noalloc, bool align)
+mm_process_map_stack (struct mm_arch_proc_desc *mm_proc_desc, uint len,
+		      bool noalloc, bool align)
 {
 	uint i;
 	virt_t virt;
@@ -1334,7 +1360,8 @@ retry:
 	for (i = 0; i < npages; i++) {
 		if (virt - i * PAGESIZE <= 0x20000000)
 			return 0;
-		if (!mm_process_arch_stack_absent (virt - i * PAGESIZE)) {
+		if (!mm_process_arch_stack_absent (mm_proc_desc,
+						   virt - i * PAGESIZE)) {
 			if (align)
 				virt = virt - PAGESIZE * npages;
 			else
@@ -1343,8 +1370,10 @@ retry:
 		}
 	}
 	for (i = 0; i < npages; i++) {
-		if (mm_process_arch_mapstack (virt - i * PAGESIZE, noalloc)) {
-			mm_process_unmap_stack (virt + PAGESIZE, i * PAGESIZE);
+		if (mm_process_arch_mapstack (mm_proc_desc,
+					      virt - i * PAGESIZE, noalloc)) {
+			mm_process_unmap_stack (mm_proc_desc, virt + PAGESIZE,
+						i * PAGESIZE);
 			return 0;
 		}
 	}
@@ -1352,7 +1381,8 @@ retry:
 }
 
 int
-mm_process_arch_unmap (virt_t aligned_virt, uint npages)
+mm_process_arch_unmap (struct mm_arch_proc_desc *mm_proc_desc,
+		       virt_t aligned_virt, uint npages)
 {
 	virt_t v;
 	u64 pte;
@@ -1376,7 +1406,8 @@ mm_process_arch_unmap (virt_t aligned_virt, uint npages)
 }
 
 int
-mm_process_unmap (virt_t virt, uint len)
+mm_process_unmap (struct mm_arch_proc_desc *mm_proc_desc, virt_t virt,
+		  uint len)
 {
 	uint npages;
 
@@ -1389,11 +1420,12 @@ mm_process_unmap (virt_t virt, uint len)
 	len += virt & PAGESIZE_MASK;
 	virt -= virt & PAGESIZE_MASK;
 	npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
-	return mm_process_arch_unmap (virt, npages);
+	return mm_process_arch_unmap (mm_proc_desc, virt, npages);
 }
 
 int
-mm_process_arch_unmap_stack (virt_t aligned_virt, uint npages)
+mm_process_arch_unmap_stack (struct mm_arch_proc_desc *mm_proc_desc,
+			     virt_t aligned_virt, uint npages)
 {
 	virt_t v;
 	u64 pte;
@@ -1450,7 +1482,8 @@ mm_process_arch_unmap_stack (virt_t aligned_virt, uint npages)
 }
 
 int
-mm_process_unmap_stack (virt_t virt, uint len)
+mm_process_unmap_stack (struct mm_arch_proc_desc *mm_proc_desc, virt_t virt,
+			uint len)
 {
 	uint npages;
 
@@ -1464,11 +1497,11 @@ mm_process_unmap_stack (virt_t virt, uint len)
 	len += virt & PAGESIZE_MASK;
 	virt -= virt & PAGESIZE_MASK;
 	npages = (len + PAGESIZE - 1) >> PAGESIZE_SHIFT;
-	return mm_process_arch_unmap_stack (virt, npages);
+	return mm_process_arch_unmap_stack (mm_proc_desc, virt, npages);
 }
 
 void
-mm_process_arch_unmapall (void)
+mm_process_arch_unmapall (struct mm_arch_proc_desc *mm_proc_desc)
 {
 	virt_t v;
 	u64 pde;
@@ -1490,17 +1523,19 @@ mm_process_arch_unmapall (void)
 }
 
 void
-mm_process_unmapall (void)
+mm_process_unmapall (struct mm_arch_proc_desc *mm_proc_desc)
 {
-	ASSERT (!mm_process_unmap (0, vmm_mem_proc_end_virt () - 1));
-	mm_process_arch_unmapall ();
+	ASSERT (!mm_process_unmap (mm_proc_desc, 0,
+				   vmm_mem_proc_end_virt () - 1));
+	mm_process_arch_unmapall (mm_proc_desc);
 }
 
-phys_t
-mm_process_arch_switch (phys_t switchto)
+struct mm_arch_proc_desc *
+mm_process_arch_switch (struct mm_arch_proc_desc *switchto)
 {
 	u64 old, new;
-	phys_t ret;
+	struct mm_arch_proc_desc *ret;
+	phys_t old_phys, new_phys;
 	ulong cr3;
 	pmap_t m;
 
@@ -1510,23 +1545,26 @@ mm_process_arch_switch (phys_t switchto)
 	old = pmap_read (&m);
 	/* 1 is a special value for P=0 */
 	if (!(old & PDE_P_BIT))
-		ret = 1;
+		old_phys = 1;
 	else
-		ret = old & ~PDE_ATTR_MASK;
-	if (switchto != ret) {
-		if (switchto == 1)
+		old_phys = old & ~PDE_ATTR_MASK;
+	new_phys = switchto ? switchto->pd_addr : 1;
+	if (new_phys != old_phys) {
+		if (new_phys == 1)
 			new = 0;
 		else
-			new = switchto | PDE_P_BIT;
+			new = new_phys | PDE_P_BIT;
 		pmap_write (&m, new, PDE_P_BIT);
 		asm_wrcr3 (cr3);
 	}
 	pmap_close (&m);
+	ret = currentcpu->cur_mm_proc_desc;
+	currentcpu->cur_mm_proc_desc = switchto;
 	return ret;
 }
 
-phys_t
-mm_process_switch (phys_t switchto)
+struct mm_arch_proc_desc *
+mm_process_switch (struct mm_arch_proc_desc *switchto)
 {
 	return mm_process_arch_switch (switchto);
 }

@@ -140,7 +140,7 @@ static bool
 ia32_bios_updt (virt_t addr)
 {
 	u64 vmm_addr = PAGESIZE | (addr & PAGESIZE_MASK);
-	phys_t phys, mm_phys;
+	struct mm_arch_proc_desc *old_mm_proc_desc, *mm_proc_desc;
 	int num;
 	ulong cr2, lastcr2 = 0, guest_addr;
 	int levels;
@@ -163,9 +163,9 @@ ia32_bios_updt (virt_t addr)
 
 	/* Allocate an empty page directory for address 0-0x3FFFFFFF
 	 * and switch to it. */
-	if (mm_process_alloc (&phys) < 0)
+	if (mm_process_alloc (&mm_proc_desc) < 0)
 		panic ("%s: mm_process_alloc failed", __func__);
-	mm_phys = mm_process_switch (phys);
+	old_mm_proc_desc = mm_process_switch (mm_proc_desc);
 	for (;;) {
 		/* Do update! */
 		num = callfunc_and_getint (do_bios_updt, &vmm_addr);
@@ -211,7 +211,8 @@ ia32_bios_updt (virt_t addr)
 		/* FIXME: Handle cache flags in the PTE. */
 		hphys = current->gmm.gp2hp (gphys, NULL);
 		ASSERT (!(hphys & PAGESIZE_MASK));
-		if (mm_process_map_shared_physpage (cr2, hphys, false))
+		if (mm_process_map_shared_physpage (mm_proc_desc, cr2, hphys,
+						    false))
 			panic ("%s: mm_process_map_shared_physpage failed"
 			       " cr2=0x%lX guest=0x%lX ent=0x%llX",
 			       __func__, cr2, guest_addr, entries[0]);
@@ -232,9 +233,9 @@ ia32_bios_updt (virt_t addr)
 		asm_wrcr0 (hcr0);
 	/* Free page tables, switch to previous address space and free
 	 * the page directory. */
-	mm_process_unmapall ();
-	mm_process_switch (mm_phys);
-	mm_process_free (phys);
+	mm_process_unmapall (mm_proc_desc);
+	mm_process_switch (old_mm_proc_desc);
+	mm_process_free (mm_proc_desc);
 	if (0)
 		printf ("CPU%d: new IA32_BIOS_SIGN_ID %016llX\n",
 			get_cpu_id (), get_ia32_bios_sign_id ());
