@@ -47,6 +47,7 @@ build-all : $(CONFIG) defconfig
 .PHONY : clean-all
 clean-all :
 	$(MAKE) $(V-makeopt-$(V)) -f Makefile.clean clean-dir DIR=$(DIR) V=$(V)
+	$(RM) compile_commands.json
 
 .PHONY : config
 config : $(CONFIG)
@@ -60,3 +61,8 @@ defconfig :
 	cp defconfig.tmpl defconfig
 
 $(dir)process/$(outp_p) : $(process-depends-1)
+
+compile_commands.json :
+	bear -- $(MAKE)
+	compdb list > $@.tmp
+	mv $@.tmp $@

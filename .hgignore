@@ -27,4 +27,5 @@ boot/login-simple/readdata
 *.bin
 *.bin.debug
 *.bin.s
+compile_commands.json
 syntax: regexp
