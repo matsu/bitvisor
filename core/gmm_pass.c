@@ -35,7 +35,6 @@
 #include "convert.h"
 #include "cpu_seg.h"
 #include "current.h"
-#include "gmm_pass.h"
 #include "guest_bioshook.h"
 #include "initfunc.h"
 #include "io_io.h"
@@ -45,7 +44,8 @@
 #include "string.h"
 #include "uefi.h"
 
-u64 gmm_pass_gp2hp_2m (u64 gp);
+static u64 gmm_pass_gp2hp (u64 gp, bool *fakerom);
+static u64 gmm_pass_gp2hp_2m (u64 gp);
 
 static struct gmm_func func = {
 	gmm_pass_gp2hp,
@@ -58,7 +58,7 @@ static struct gmm_func func = {
 /* return value: Host-physical address */
 /*   fakerom=true:  the page is part of the VMM. treat as write protected */
 /*   fakerom=false: writable */
-u64
+static u64
 gmm_pass_gp2hp (u64 gp, bool *fakerom)
 {
 	u64 e = mm_as_translate (as_passvm, NULL, gp);
@@ -71,7 +71,7 @@ gmm_pass_gp2hp (u64 gp, bool *fakerom)
 	return (e & ~PAGESIZE_MASK) | (gp & PAGESIZE_MASK);
 }
 
-u64
+static u64
 gmm_pass_gp2hp_2m (u64 gp)
 {
 	u64 e;

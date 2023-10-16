@@ -35,7 +35,6 @@
 #include "cpu_mmu.h"
 #include "current.h"
 #include "exint_pass.h"
-#include "gmm_pass.h"
 #include "initfunc.h"
 #include "initipi.h"
 #include "int.h"
