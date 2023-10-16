@@ -53,7 +53,6 @@
 
 struct vt_ept {
 	int cnt;
-	int cleared;
 	void *ncr3tbl;
 	phys_t ncr3tbl_phys;
 	void *tbl[MAXNUM_OF_EPTBL];
@@ -96,7 +95,6 @@ vt_ept_init (void)
 	ept = alloc (sizeof *ept);
 	alloc_page (&ept->ncr3tbl, &ept->ncr3tbl_phys);
 	memset (ept->ncr3tbl, 0, PAGESIZE);
-	ept->cleared = 1;
 	for (i = 0; i < MAXNUM_OF_EPTBL; i++)
 		ept->tbl[i] = NULL;
 	for (i = 0; i < DEFNUM_OF_EPTBL; i++)
@@ -161,7 +159,6 @@ cur_fill (struct vt_ept *ept, u64 gphys, int level)
 
 	if (ept->cnt + ept->cur.level - level > MAXNUM_OF_EPTBL) {
 		memset (ept->ncr3tbl, 0, PAGESIZE);
-		ept->cleared = 1;
 		ept->cnt = 0;
 		invept (ept);
 		ept->cur.level = EPT_LEVELS - 1;
@@ -178,7 +175,7 @@ cur_fill (struct vt_ept *ept, u64 gphys, int level)
 }
 
 static void
-vt_ept_map_page_sub (struct vt_ept *ept, bool write, u64 gphys)
+vt_ept_map_page (struct vt_ept *ept, bool write, u64 gphys)
 {
 	bool fakerom;
 	u64 hphys;
@@ -225,52 +222,6 @@ vt_ept_level (struct vt_ept *ept, u64 gphys)
 {
 	cur_move (ept, gphys);
 	return ept->cur.level;
-}
-
-static void
-vt_ept_map_page_clear_cleared (struct vt_ept *ept)
-{
-	u32 n, nn;
-	u64 base, len, size;
-	phys_t next_phys;
-
-	ept->cleared = 0;
-	n = 0;
-	for (nn = 1; nn; n = nn) {
-		nn = current->gmm.getforcemap (n, &base, &len);
-		if (!len)
-			continue;
-		len += base & PAGESIZE_MASK;
-		base &= ~PAGESIZE_MASK;
-		while (len > 0) {
-			size = PAGESIZE;
-			if (vt_ept_level (ept, base) > 0 &&
-			    !mmio_range (base & ~PAGESIZE2M_MASK, PAGESIZE2M)
-			    && !vt_ept_map_2mpage (ept, base))
-				size = (base | PAGESIZE2M_MASK) + 1 - base;
-			else if (!(next_phys = mmio_range (base, PAGESIZE)))
-				vt_ept_map_page_sub (ept, true, base);
-			else
-				size = (next_phys - base + PAGESIZE - 1) &
-					~PAGESIZE_MASK;
-			if (size > len)
-				size = len;
-			base += size;
-			len -= size;
-		}
-	}
-	if (ept->cleared)
-		panic ("%s: error", __func__);
-}
-
-static void
-vt_ept_map_page (struct vt_ept *ept, bool write, u64 gphys)
-{
-	if (ept->cleared)
-		vt_ept_map_page_clear_cleared (ept);
-	vt_ept_map_page_sub (ept, write, gphys);
-	if (ept->cleared)
-		vt_ept_map_page_clear_cleared (ept);
 }
 
 void
@@ -325,7 +276,6 @@ vt_ept_clear_all (void)
 
 	ept = current->u.vt.ept;
 	memset (ept->ncr3tbl, 0, PAGESIZE);
-	ept->cleared = 1;
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
 	invept (ept);
