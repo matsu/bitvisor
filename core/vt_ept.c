@@ -151,6 +151,8 @@ ept_tbl_alloc (struct vt_ept *ept, int i)
 		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
 }
 
+/* Note: You need to use "cur_move()" before using this function to move
+ * "cur" to "gphys". */
 static u64 *
 cur_fill (struct vt_ept *ept, u64 gphys, int level)
 {
@@ -174,6 +176,8 @@ cur_fill (struct vt_ept *ept, u64 gphys, int level)
 	return p;
 }
 
+/* Note: You need to use "cur_move()" before using this function to move
+ * "cur" to "gphys". */
 static void
 vt_ept_map_page (struct vt_ept *ept, bool write, u64 gphys)
 {
@@ -182,7 +186,6 @@ vt_ept_map_page (struct vt_ept *ept, bool write, u64 gphys)
 	u32 hattr;
 	u64 *p;
 
-	cur_move (ept, gphys);
 	p = cur_fill (ept, gphys, 0);
 	hphys = current->gmm.gp2hp (gphys, &fakerom) & ~PAGESIZE_MASK;
 	if (fakerom && write)
@@ -194,6 +197,8 @@ vt_ept_map_page (struct vt_ept *ept, bool write, u64 gphys)
 	*p = hphys | hattr;
 }
 
+/* Note: You need to use "cur_move()" before using this function to move
+ * "cur" to "gphys". */
 static bool
 vt_ept_map_2mpage (struct vt_ept *ept, u64 gphys)
 {
@@ -201,7 +206,6 @@ vt_ept_map_2mpage (struct vt_ept *ept, u64 gphys)
 	u32 hattr;
 	u64 *p;
 
-	cur_move (ept, gphys);
 	if (!ept->cur.level)
 		return true;
 	hphys = current->gmm.gp2hp_2m (gphys & ~PAGESIZE2M_MASK);
@@ -217,21 +221,15 @@ vt_ept_map_2mpage (struct vt_ept *ept, u64 gphys)
 	return false;
 }
 
-static int
-vt_ept_level (struct vt_ept *ept, u64 gphys)
-{
-	cur_move (ept, gphys);
-	return ept->cur.level;
-}
-
 void
 vt_ept_violation (bool write, u64 gphys)
 {
 	struct vt_ept *ept;
 
 	ept = current->u.vt.ept;
+	cur_move (ept, gphys);
 	mmio_lock ();
-	if (vt_ept_level (ept, gphys) > 0 &&
+	if (ept->cur.level > 0 &&
 	    !mmio_range (gphys & ~PAGESIZE2M_MASK, PAGESIZE2M) &&
 	    !vt_ept_map_2mpage (ept, gphys))
 		;
@@ -326,8 +324,10 @@ vt_ept_map_1mb (void)
 	vt_ept_clear_all ();
 	for (gphys = 0; gphys < 0x100000; gphys += PAGESIZE) {
 		mmio_lock ();
-		if (!mmio_access_page (gphys, false))
+		if (!mmio_access_page (gphys, false)) {
+			cur_move (ept, gphys);
 			vt_ept_map_page (ept, false, gphys);
+		}
 		mmio_unlock ();
 	}
 }

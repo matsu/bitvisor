@@ -126,6 +126,8 @@ np_tbl_alloc (struct svm_np *np, int i)
 		alloc_page (&np->tbl[i], &np->tbl_phys[i]);
 }
 
+/* Note: You need to use "cur_move()" before using this function to move
+ * "cur" to "gphys". */
 static u64 *
 cur_fill (struct svm_np *np, u64 gphys, int level)
 {
@@ -152,6 +154,8 @@ cur_fill (struct svm_np *np, u64 gphys, int level)
 	return p;
 }
 
+/* Note: You need to use "cur_move()" before using this function to move
+ * "cur" to "gphys". */
 static void
 svm_np_map_page (struct svm_np *np, bool write, u64 gphys)
 {
@@ -160,7 +164,6 @@ svm_np_map_page (struct svm_np *np, bool write, u64 gphys)
 	u32 hattr;
 	u64 *p;
 
-	cur_move (np, gphys);
 	p = cur_fill (np, gphys, 0);
 	hphys = current->gmm.gp2hp (gphys, &fakerom) & ~PAGESIZE_MASK;
 	if (fakerom && write)
@@ -172,6 +175,8 @@ svm_np_map_page (struct svm_np *np, bool write, u64 gphys)
 	*p = hphys | hattr;
 }
 
+/* Note: You need to use "cur_move()" before using this function to move
+ * "cur" to "gphys". */
 static bool
 svm_np_map_2mpage (struct svm_np *np, u64 gphys)
 {
@@ -179,7 +184,6 @@ svm_np_map_2mpage (struct svm_np *np, u64 gphys)
 	u32 hattr;
 	u64 *p;
 
-	cur_move (np, gphys);
 	if (!np->cur.level)
 		return true;
 	hphys = current->gmm.gp2hp_2m (gphys & ~PAGESIZE2M_MASK);
@@ -196,21 +200,15 @@ svm_np_map_2mpage (struct svm_np *np, u64 gphys)
 	return false;
 }
 
-static int
-svm_np_level (struct svm_np *np, u64 gphys)
-{
-	cur_move (np, gphys);
-	return np->cur.level;
-}
-
 void
 svm_np_pagefault (bool write, u64 gphys)
 {
 	struct svm_np *np;
 
 	np = current->u.svm.np;
+	cur_move (np, gphys);
 	mmio_lock ();
-	if (svm_np_level (np, gphys) > 0 &&
+	if (np->cur.level > 0 &&
 	    !mmio_range (gphys & ~PAGESIZE2M_MASK, PAGESIZE2M) &&
 	    !svm_np_map_2mpage (np, gphys))
 		;
@@ -282,8 +280,10 @@ svm_np_map_1mb (void)
 	svm_np_clear_all ();
 	for (gphys = 0; gphys < 0x100000; gphys += PAGESIZE) {
 		mmio_lock ();
-		if (!mmio_access_page (gphys, false))
+		if (!mmio_access_page (gphys, false)) {
+			cur_move (np, gphys);
 			svm_np_map_page (np, false, gphys);
+		}
 		mmio_unlock ();
 	}
 }
