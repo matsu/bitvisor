@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,60 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <core/qsort.h>
-#include "initfunc.h"
-#include "printf.h"
-#include "string.h"
-#include "types.h"
+#ifndef __CORE_QSORT_H
+#define __CORE_QSORT_H
 
-extern struct initfunc_data __initfunc_start[], __initfunc_end[];
+#include <core/types.h>
 
-static void
-debug_print1 (struct initfunc_data *p)
-{
-	printf ("initfunc_data@%p: %s %s:%p\n", p, p->id, p->filename,
-		p->func);
-}
+void qsort (void *base, size_t nmemb, size_t size,
+	    int (*cmp) (const void *, const void *));
 
-static void
-debug_print (void)
-{
-	struct initfunc_data *p;
-
-	for (p = __initfunc_start; p != __initfunc_end; p++)
-		debug_print1 (p);
-}
-
-void
-call_initfunc (char *id)
-{
-	int l;
-	struct initfunc_data *p;
-
-	l = strlen (id);
-	for (p = __initfunc_start; p != __initfunc_end; p++)
-		if (memcmp (p->id, id, l) == 0)
-			p->func ();
-}
-
-static int
-initfunc_sort_cmp (const void *x, const void *y)
-{
-	int diff;
-	const struct initfunc_data *p = x, *q = y;
-
-	diff = strcmp (p->id, q->id);
-	if (diff)
-		return diff;
-	return strcmp (p->filename, q->filename);
-}
-
-void
-initfunc_init (void)
-{
-	size_t n = __initfunc_end - __initfunc_start;
-	qsort (__initfunc_start, n, sizeof (struct initfunc_data),
-	       initfunc_sort_cmp);
-	if (false)
-		debug_print ();
-}
+#endif

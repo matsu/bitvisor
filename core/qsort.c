@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,60 +27,62 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/string.h>
 #include <core/qsort.h>
-#include "initfunc.h"
-#include "printf.h"
-#include "string.h"
-#include "types.h"
-
-extern struct initfunc_data __initfunc_start[], __initfunc_end[];
 
 static void
-debug_print1 (struct initfunc_data *p)
+swap (void *x, void *y, size_t size)
 {
-	printf ("initfunc_data@%p: %s %s:%p\n", p, p->id, p->filename,
-		p->func);
+	char t[size];
+	memcpy (t, x, size);
+	memcpy (x, y, size);
+	memcpy (y, t, size);
 }
 
-static void
-debug_print (void)
-{
-	struct initfunc_data *p;
-
-	for (p = __initfunc_start; p != __initfunc_end; p++)
-		debug_print1 (p);
-}
-
+/* Quick sort algorithm.
+ * "cmp(a, b)" is a compare function:
+ * returns negative if a < b,
+ * returns zero     if a == b,
+ * returns positive if a > b.
+ * This function is based on below article, see:
+ * https://en.wikipedia.org/wiki/Quicksort
+ */
 void
-call_initfunc (char *id)
+qsort (void *base, size_t nmemb, size_t size,
+       int (*cmp) (const void *, const void *))
 {
-	int l;
-	struct initfunc_data *p;
+	char (*p)[size], (*q)[size];
+	size_t lo, hi, m, np, nq;
 
-	l = strlen (id);
-	for (p = __initfunc_start; p != __initfunc_end; p++)
-		if (memcmp (p->id, id, l) == 0)
-			p->func ();
-}
-
-static int
-initfunc_sort_cmp (const void *x, const void *y)
-{
-	int diff;
-	const struct initfunc_data *p = x, *q = y;
-
-	diff = strcmp (p->id, q->id);
-	if (diff)
-		return diff;
-	return strcmp (p->filename, q->filename);
-}
-
-void
-initfunc_init (void)
-{
-	size_t n = __initfunc_end - __initfunc_start;
-	qsort (__initfunc_start, n, sizeof (struct initfunc_data),
-	       initfunc_sort_cmp);
-	if (false)
-		debug_print ();
+	if (nmemb <= 1)
+		return;
+	p = base;
+	if (nmemb == 2) {
+		if (cmp (&p[0], &p[1]) > 0)
+			swap (&p[0], &p[1], size);
+		return;
+	}
+	lo = 0;
+	hi = nmemb - 1;
+	m = (nmemb - 1) / 2;
+	for (;; lo++, hi--) {
+		while (hi != m && cmp (&p[hi], &p[m]) > 0)
+			hi--;
+		while (lo < hi && lo != m && cmp (&p[lo], &p[m]) < 0)
+			lo++;
+		if (lo >= hi) {
+			q = &p[hi + 1];
+			break;
+		}
+		swap (&p[lo], &p[hi], size);
+		/* if m is swapped, update m to point to the swap dest. */
+		if (lo == m)
+			m = hi;
+		else if (hi == m)
+			m = lo;
+	}
+	np = q - p;
+	nq = &p[nmemb] - q;
+	qsort (p, np, size, cmp);
+	qsort (q, nq, size, cmp);
 }
