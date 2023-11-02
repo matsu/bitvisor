@@ -101,6 +101,7 @@ echo_client_connected (void *arg, struct tcp_pcb *pcb, err_t err)
 {
 	if (err == ERR_OK) {
 		printf ("Connection established!\n");
+		echo_client_pcb = pcb;
 		tcp_arg (pcb, NULL);
 		tcp_sent (pcb, echo_client_sent);
 		tcp_recv (pcb, echo_client_recv);
@@ -141,7 +142,6 @@ echo_client_init (int *ipaddr, int port, char *netif_name)
 				 echo_client_connected);
 		if (e == ERR_OK) {
 			printf ("Connecting...\n");
-			echo_client_pcb = pcb;
 		} else {
 			printf ("Connect failed!\n");
 		}
