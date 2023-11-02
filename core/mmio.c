@@ -402,6 +402,63 @@ mmio_range (phys_t gphysaddr, uint len)
 	return 0;
 }
 
+/* "pagesizes" must be sorted in ascending order.
+ * Return the length up to the element in the array that does not overlap with
+ * the MMIO region. */
+int
+mmio_range_each_page_size (phys_t gphys, const u64 *pagesizes, int array_len)
+{
+	struct mmio_list *p;
+	struct mmio_handle *h;
+	int i, j;
+	phys_t gphys_aligned, gphys_aligned_end;
+
+	gphys_aligned = gphys & ~(pagesizes[array_len - 1] - 1);
+	gphys_aligned_end = gphys_aligned + pagesizes[array_len - 1];
+	if (gphys_aligned <= 0xFFFFFFFFULL)
+		i = gphys_aligned >> 28;
+	else
+		i = 16;
+	if (gphys_aligned_end - 1 <= 0xFFFFFFFFULL)
+		j = (gphys_aligned_end - 1) >> 28;
+	else
+		j = 16;
+	for (; i <= j; i++) {
+	mmio_search_again:
+		LIST1_FOREACH (current->vcpu0->mmio.mmio[i], p) {
+			h = p->handle;
+			if (h->gphys >= gphys_aligned_end)
+				return array_len;
+			for (int k = 0; k < array_len; k++) {
+				gphys_aligned = gphys & ~(pagesizes[k] - 1);
+				if (!rangecheck (h, gphys_aligned,
+						 pagesizes[k], NULL, NULL))
+					continue;
+				array_len = k;
+				if (!k)
+					return array_len;
+				gphys_aligned = gphys &
+					~(pagesizes[k - 1] - 1);
+				gphys_aligned_end = gphys_aligned +
+					pagesizes[k - 1];
+				int new_i = gphys_aligned <= 0xFFFFFFFFULL ?
+					gphys_aligned >> 28 : 16;
+				j = gphys_aligned_end - 1 <= 0xFFFFFFFFULL ?
+					(gphys_aligned_end - 1) >> 28 : 16;
+				if (i < new_i) {
+					i = new_i;
+					goto mmio_search_again;
+				}
+				if (j < i)
+					return array_len;
+				else
+					break;
+			}
+		}
+	}
+	return array_len;
+}
+
 static int
 mmio_debug_vram (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f)
 {

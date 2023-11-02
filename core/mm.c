@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/qsort.h>
 #include "ap.h"
 #include "asm.h"
 #include "assert.h"
@@ -259,7 +260,13 @@ getallsysmemmap_uefi (void)
 		sysmemmap[i].m.base = p[1];
 		sysmemmap[i].m.len = p[3] << 12;
 		switch (p[0] & 0xFFFFFFFF) {
-		case 7:
+		case 1: /* EfiLoaderCode */
+		case 2: /* EfiLoaderData */
+		case 3: /* EfiBootServicesCode */
+		case 4: /* EfiBootServicesData */
+		case 5: /* EfiRuntineServicesCode */
+		case 6: /* EfiRuntineServicesData */
+		case 7: /* EfiConventionalMemory */
 			sysmemmap[i].m.type = SYSMEMMAP_TYPE_AVAILABLE;
 			break;
 		default:
@@ -302,6 +309,69 @@ debug_sysmemmap_print (void)
 			break;
 	}
 	printf ("Done.\n");
+}
+
+static int
+cmp_sysmemmap_by_base (const void *x, const void *y)
+{
+	const struct sysmemmapdata *a = x, *b = y;
+	if (a->m.base > b->m.base)
+		return 1;
+	else if (a->m.base < b->m.base)
+		return -1;
+	else
+		return 0;
+}
+
+static void
+sort_sysmemmap (void)
+{
+	qsort (sysmemmap, sysmemmaplen, sizeof (struct sysmemmapdata),
+	       cmp_sysmemmap_by_base);
+}
+
+/*
+ * Get a continuous single-type sysmemmap region contained "phys" address
+ * or a next upper-address region.
+ * Inputs physical address into "phys".
+ * Returns start address of region to "start", length to "len",
+ * and type to "sysmem_type".
+ * Return value is whether the region is found or not.
+ */
+bool
+continuous_sysmem_type_region (phys_t phys, phys_t *start, u64 *len,
+			       u32 *sysmem_type)
+{
+	int i;
+	phys_t region_start = 0, region_end = 0;
+	u32 region_type;
+
+	ASSERT (start);
+	ASSERT (len);
+	ASSERT (sysmem_type);
+	for (i = 0; i < sysmemmaplen; i++) {
+		u64 mbase = sysmemmap[i].m.base;
+		u64 mlen = sysmemmap[i].m.len;
+		if (phys < mbase + mlen) {
+			region_start = mbase;
+			region_end = mbase + mlen;
+			region_type = sysmemmap[i].m.type;
+			goto found;
+		}
+	}
+	return false;
+found:
+	*start = region_start;
+	*sysmem_type = region_type;
+	for (i++; i < sysmemmaplen; i++) {
+		if (sysmemmap[i].m.type == region_type &&
+		    sysmemmap[i].m.base == region_end)
+			region_end += sysmemmap[i].m.len;
+		else
+			break;
+	}
+	*len = region_end - region_start;
+	return true;
 }
 
 static void
@@ -791,7 +861,7 @@ move_vmm (void)
 	asm_wrcr4 (cr4);
 }
 
-static bool
+bool
 page1gb_available (void)
 {
 	u32 a, b, c, d;
@@ -919,11 +989,11 @@ mm_init_global (void)
 	spinlock_init (&mm_tiny_lock);
 	spinlock_init (&mm_lock_process_virt_to_phys);
 	spinlock_init (&mapmem_lock);
+	getallsysmemmap ();
 	if (uefi_booted) {
 		create_vmm_pd ();
 		asm_wrcr3 (vmm_base_cr3);
 	} else {
-		getallsysmemmap ();
 		find_realmodemem ();
 		vmm_start_phys = find_vmm_phys ();
 		if (vmm_start_phys == 0) {
@@ -965,6 +1035,7 @@ mm_init_global (void)
 	map_hphys ();
 	unmap_user_area ();	/* for detecting null pointer */
 	process_virt_to_phys_prepare ();
+	sort_sysmemmap ();
 }
 
 /* panicmem is reserved memory for panic */
@@ -1543,6 +1614,13 @@ bool
 phys_in_vmm (u64 phys)
 {
 	return phys >= vmm_start_phys && phys < vmm_start_phys + VMMSIZE_ALL;
+}
+
+static bool
+is_overlapped_with_vmm (phys_t phys, size_t len)
+{
+	return phys < vmm_start_phys + VMMSIZE_ALL &&
+		phys + len > vmm_start_phys;
 }
 
 void
@@ -2453,13 +2531,21 @@ as_translate_passvm (void *data, unsigned int *npages, u64 address)
 	u64 ret;
 	unsigned int max_npages;
 
+	/* Return dummy page if "phys" in VMM region. Dummy page is
+	 * read-only, zero-filled page. See "mm_init_global()". */
 	if (phys_in_vmm (address)) {
 		ret = phys_blank | PTE_P_BIT | PTE_US_BIT;
 		*npages = 1;
 		return ret;
 	}
+
+	/* (address, *npages * PAGESIZE) region may be overlapped
+	 * when 1GiB mapping. */
+	if (is_overlapped_with_vmm (address, *npages * PAGESIZE))
+		*npages = (vmm_start_phys - address) / PAGESIZE;
+
 	ret = mm_as_translate (as_hphys, npages, address);
-	max_npages = (PAGESIZE2M - (address & PAGESIZE2M_MASK)) / PAGESIZE;
+	max_npages = (PAGESIZE1G - (address & PAGESIZE1G_MASK)) / PAGESIZE;
 	if (*npages > max_npages)
 		*npages = max_npages;
 	return ret;

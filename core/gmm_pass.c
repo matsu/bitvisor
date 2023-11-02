@@ -44,12 +44,17 @@
 #include "string.h"
 #include "uefi.h"
 
+static phys_t map1g_region_base, map1g_region_end;
+static phys_t map1g_region_base_over4g, map1g_region_end_over4g;
+
 static u64 gmm_pass_gp2hp (u64 gp, bool *fakerom);
 static u64 gmm_pass_gp2hp_2m (u64 gp);
+static u64 gmm_pass_gp2hp_1g (u64 gp);
 
 static struct gmm_func func = {
 	gmm_pass_gp2hp,
 	gmm_pass_gp2hp_2m,
+	gmm_pass_gp2hp_1g,
 };
 
 /* translate a guest-physical address to a host-physical address */
@@ -78,15 +83,71 @@ gmm_pass_gp2hp_2m (u64 gp)
 	unsigned int n = PAGESIZE2M / PAGESIZE;
 
 	if (gp & PAGESIZE2M_MASK)
-		return GMM_GP2HP_2M_FAIL;
+		return GMM_GP2HP_2M_1G_FAIL;
 	e = mm_as_translate (as_passvm, &n, gp);
 	ASSERT (e & PTE_P_BIT);
 	if (!(e & PTE_RW_BIT))
-		return GMM_GP2HP_2M_FAIL;
+		return GMM_GP2HP_2M_1G_FAIL;
 	e &= ~PAGESIZE_MASK;
 	ASSERT (!(e & PAGESIZE2M_MASK));
 	ASSERT (n == PAGESIZE2M / PAGESIZE);
 	return e;
+}
+
+static u64
+gmm_pass_gp2hp_1g (u64 gp)
+{
+	bool is_in_map1g_region;
+	u64 e, gp_end = gp + PAGESIZE1G;
+	unsigned int n = PAGESIZE1G / PAGESIZE;
+
+	if (gp & PAGESIZE1G_MASK)
+		return GMM_GP2HP_2M_1G_FAIL;
+	is_in_map1g_region = gp <= 0xFFFFFFFFULL ?
+		(map1g_region_base <= gp && gp_end <= map1g_region_end) :
+		(map1g_region_base_over4g <= gp &&
+		 gp_end <= map1g_region_end_over4g);
+	if (!is_in_map1g_region)
+		return GMM_GP2HP_2M_1G_FAIL;
+	e = mm_as_translate (as_passvm, &n, gp);
+	ASSERT (e & PTE_P_BIT);
+	if (!(e & PTE_RW_BIT))
+		return GMM_GP2HP_2M_1G_FAIL;
+	e &= ~PAGESIZE_MASK;
+	ASSERT (!(e & PAGESIZE1G_MASK));
+	if (n != PAGESIZE1G / PAGESIZE)
+		return GMM_GP2HP_2M_1G_FAIL;
+	return e;
+}
+
+static void
+search_available_region (phys_t search_base, phys_t *avl_base, phys_t *avl_end)
+{
+	phys_t map_base;
+	u64 len;
+	u32 sysmem_type;
+
+	ASSERT (avl_base);
+	ASSERT (avl_end);
+	while (continuous_sysmem_type_region (search_base, &map_base, &len,
+					      &sysmem_type)) {
+		if (sysmem_type != SYSMEMMAP_TYPE_AVAILABLE) {
+			search_base += len;
+			continue;
+		}
+		*avl_base = map_base < search_base ? search_base : map_base;
+		*avl_end = map_base + len;
+		break;
+	}
+}
+
+static void
+get_map1g_regions (void)
+{
+	search_available_region (0x40000000ULL, &map1g_region_base,
+				 &map1g_region_end);
+	search_available_region (0x100000000ULL, &map1g_region_base_over4g,
+				 &map1g_region_end_over4g);
 }
 
 static void
@@ -192,4 +253,5 @@ gmm_pass_init (void)
 }
 
 INITFUNC ("bsp0", install_int0x15_hook);
+INITFUNC ("bsp0", get_map1g_regions);
 INITFUNC ("pass0", gmm_pass_init);

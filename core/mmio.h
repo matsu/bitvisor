@@ -62,5 +62,7 @@ int mmio_access_page (phys_t gphysaddr, bool emulation);
 void mmio_lock (void);
 void mmio_unlock (void);
 phys_t mmio_range (phys_t gphysaddr, uint len);
+int mmio_range_each_page_size (phys_t gphys, const u64 *pagesizes,
+			       int array_len);
 
 #endif

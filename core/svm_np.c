@@ -37,12 +37,16 @@
 #include "string.h"
 #include "svm_np.h"
 #include "svm_paging.h"
+#include "vmmerr.h"
 
 #define MAXNUM_OF_NPTBL 256
 #define DEFNUM_OF_NPTBL 16
 
+static const u64 pagesizes[3] = { PAGESIZE, PAGESIZE2M, PAGESIZE1G };
+
 struct svm_np {
 	int cnt;
+	int avl_pagesizes_len;
 	void *ncr3tbl;
 	phys_t ncr3tbl_phys;
 	void *tbl[MAXNUM_OF_NPTBL];
@@ -78,6 +82,7 @@ svm_np_init (void)
 		alloc_page (&np->tbl[i], &np->tbl_phys[i]);
 	np->cnt = 0;
 	np->cur.level = PMAP_LEVELS;
+	np->avl_pagesizes_len = page1gb_available () ? 3 : 2;
 	current->u.svm.np = np;
 	current->u.svm.vi.vmcb->n_cr3 = np->ncr3tbl_phys;
 	mmioclr_register (current, svm_np_mmioclr_callback);
@@ -184,10 +189,10 @@ svm_np_map_2mpage (struct svm_np *np, u64 gphys)
 	u32 hattr;
 	u64 *p;
 
-	if (!np->cur.level)
+	if (np->cur.level < 1)
 		return true;
 	hphys = current->gmm.gp2hp_2m (gphys & ~PAGESIZE2M_MASK);
-	if (hphys == GMM_GP2HP_2M_FAIL)
+	if (hphys == GMM_GP2HP_2M_1G_FAIL)
 		return true;
 	if (!cache_gmtrr_type_equal (gphys & ~PAGESIZE2M_MASK,
 				     PAGESIZE2M_MASK))
@@ -200,20 +205,64 @@ svm_np_map_2mpage (struct svm_np *np, u64 gphys)
 	return false;
 }
 
+/* Note: You need to use "cur_move()" before using this function to move
+ * "cur" to "gphys". */
+static bool
+svm_np_map_1gpage (struct svm_np *np, u64 gphys)
+{
+	u64 hphys;
+	u32 hattr;
+	u64 *p;
+
+	if (np->avl_pagesizes_len < 3)
+		return true;
+	if (np->cur.level < 2)
+		return true;
+	hphys = current->gmm.gp2hp_1g (gphys & ~PAGESIZE1G_MASK);
+	if (hphys == GMM_GP2HP_2M_1G_FAIL)
+		return true;
+	if (!cache_gmtrr_type_equal (gphys & ~PAGESIZE1G_MASK,
+				     PAGESIZE1G_MASK))
+		return true;
+	hattr = cache_get_gmtrr_attr (gphys & ~PAGESIZE1G_MASK) | PDE_P_BIT |
+		PDE_RW_BIT | PDE_US_BIT | PDE_A_BIT | PDE_D_BIT | PDE_PS_BIT |
+		PDE_AVAILABLE2_BIT;
+	p = cur_fill (np, gphys, 2);
+	*p = hphys | hattr;
+	return false;
+}
+
 void
 svm_np_pagefault (bool write, u64 gphys)
 {
+	enum vmmerr e;
 	struct svm_np *np;
+	int ps_array_len;
 
 	np = current->u.svm.np;
 	cur_move (np, gphys);
+	ps_array_len = np->cur.level + 1 < np->avl_pagesizes_len ?
+		np->cur.level + 1 : np->avl_pagesizes_len;
 	mmio_lock ();
-	if (np->cur.level > 0 &&
-	    !mmio_range (gphys & ~PAGESIZE2M_MASK, PAGESIZE2M) &&
-	    !svm_np_map_2mpage (np, gphys))
-		;
-	else if (!mmio_access_page (gphys, true))
+	ps_array_len = mmio_range_each_page_size (gphys, pagesizes,
+						  ps_array_len);
+	switch (ps_array_len) {
+	case 3:
+		if (!svm_np_map_1gpage (np, gphys))
+			break;
+		/* Fall through */
+	case 2:
+		if (!svm_np_map_2mpage (np, gphys))
+			break;
+		/* Fall through */
+	case 1:
 		svm_np_map_page (np, write, gphys);
+		break;
+	default:
+		e = cpu_interpreter ();
+		if (e != VMMERR_SUCCESS)
+			panic ("Fatal error: MMIO access error %d", e);
+	}
 	mmio_unlock ();
 }
 
@@ -256,7 +305,10 @@ svm_np_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 				continue;
 			tmp1 = e[j] & mask;
 			tmp2 = tmp1 | 07777;
-			if (e[j] & PDE_AVAILABLE1_BIT) {
+			if (e[j] & PDE_AVAILABLE2_BIT) {
+				tmp1 &= ~07777777777ULL;
+				tmp2 |= 07777777777ULL;
+			} else if (e[j] & PDE_AVAILABLE1_BIT) {
 				tmp1 &= ~07777777;
 				tmp2 |= 07777777;
 			}

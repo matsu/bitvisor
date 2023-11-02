@@ -68,11 +68,14 @@ extern u64 memorysize, vmmsize;
 
 phys_t sym_to_phys (void *sym);
 bool phys_in_vmm (u64 phys);
+bool continuous_sysmem_type_region (phys_t phys, phys_t *start, u64 *len,
+				    u32 *sysmem_type);
 u32 alloc_uppermem (uint len);
 virt_t phys_to_virt (phys_t phys);
 u32 vmm_start_inf (void);
 u32 vmm_term_inf (void);
 int num_of_available_pages (void);
+bool page1gb_available (void);
 u32 getsysmemmap (u32 n, u64 *base, u64 *len, u32 *type);
 u32 getfakesysmemmap (u32 n, u64 *base, u64 *len, u32 *type);
 void mm_flush_wb_cache (void);

@@ -40,6 +40,7 @@
 #include "vt_main.h"
 #include "vt_paging.h"
 #include "vt_regs.h"
+#include "vmmerr.h"
 
 #define MAXNUM_OF_EPTBL	256
 #define DEFNUM_OF_EPTBL	16
@@ -47,12 +48,16 @@
 #define EPTE_READEXEC	0x5
 #define EPTE_WRITE	0x2
 #define EPTE_LARGE	0x80
+#define EPTE_IGN_BIT11	0x800
 #define EPTE_ATTR_MASK	0xFFF
 #define EPTE_MT_SHIFT	3
 #define EPT_LEVELS	4
 
+static const u64 pagesizes[3] = { PAGESIZE, PAGESIZE2M, PAGESIZE1G };
+
 struct vt_ept {
 	int cnt;
+	int avl_pagesizes_len;
 	void *ncr3tbl;
 	phys_t ncr3tbl_phys;
 	void *tbl[MAXNUM_OF_EPTBL];
@@ -86,6 +91,14 @@ invept (struct vt_ept *ept)
 	}
 }
 
+static bool
+ept1gb_available (void)
+{
+	u64 ept_vpid_cap;
+	asm_rdmsr64 (MSR_IA32_VMX_EPT_VPID_CAP, &ept_vpid_cap);
+	return !!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_1GPAGE_BIT);
+}
+
 void
 vt_ept_init (void)
 {
@@ -101,6 +114,7 @@ vt_ept_init (void)
 		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
+	ept->avl_pagesizes_len = ept1gb_available () ? 3 : 2;
 	current->u.vt.ept = ept;
 	asm_vmwrite64 (VMCS_EPT_POINTER, ept->ncr3tbl_phys |
 		       VMCS_EPT_POINTER_EPT_WB | VMCS_EPT_PAGEWALK_LENGTH_4);
@@ -206,10 +220,10 @@ vt_ept_map_2mpage (struct vt_ept *ept, u64 gphys)
 	u32 hattr;
 	u64 *p;
 
-	if (!ept->cur.level)
+	if (ept->cur.level < 1)
 		return true;
 	hphys = current->gmm.gp2hp_2m (gphys & ~PAGESIZE2M_MASK);
-	if (hphys == GMM_GP2HP_2M_FAIL)
+	if (hphys == GMM_GP2HP_2M_1G_FAIL)
 		return true;
 	if (!cache_gmtrr_type_equal (gphys & ~PAGESIZE2M_MASK,
 				     PAGESIZE2M_MASK))
@@ -221,20 +235,64 @@ vt_ept_map_2mpage (struct vt_ept *ept, u64 gphys)
 	return false;
 }
 
+/* Note: You need to use "cur_move()" before using this function to move
+ * "cur" to "gphys". */
+static bool
+vt_ept_map_1gpage (struct vt_ept *ept, u64 gphys)
+{
+	u64 hphys;
+	u32 hattr;
+	u64 *p;
+
+	if (ept->avl_pagesizes_len < 3)
+		return true;
+	if (ept->cur.level < 2)
+		return true;
+	hphys = current->gmm.gp2hp_1g (gphys & ~PAGESIZE1G_MASK);
+	if (hphys == GMM_GP2HP_2M_1G_FAIL)
+		return true;
+	if (!cache_gmtrr_type_equal (gphys & ~PAGESIZE1G_MASK,
+				     PAGESIZE1G_MASK))
+		return true;
+	hattr = (cache_get_gmtrr_type (gphys & ~PAGESIZE1G_MASK) <<
+		 EPTE_MT_SHIFT) | EPTE_READEXEC | EPTE_WRITE | EPTE_LARGE |
+		 EPTE_IGN_BIT11;
+	p = cur_fill (ept, gphys, 2);
+	*p = hphys | hattr;
+	return false;
+}
+
 void
 vt_ept_violation (bool write, u64 gphys)
 {
+	enum vmmerr e;
 	struct vt_ept *ept;
+	int ps_array_len;
 
 	ept = current->u.vt.ept;
 	cur_move (ept, gphys);
+	ps_array_len = ept->cur.level + 1 < ept->avl_pagesizes_len ?
+		ept->cur.level + 1 : ept->avl_pagesizes_len;
 	mmio_lock ();
-	if (ept->cur.level > 0 &&
-	    !mmio_range (gphys & ~PAGESIZE2M_MASK, PAGESIZE2M) &&
-	    !vt_ept_map_2mpage (ept, gphys))
-		;
-	else if (!mmio_access_page (gphys, true))
+	ps_array_len = mmio_range_each_page_size (gphys, pagesizes,
+						  ps_array_len);
+	switch (ps_array_len) {
+	case 3:
+		if (!vt_ept_map_1gpage (ept, gphys))
+			break;
+		/* Fall through */
+	case 2:
+		if (!vt_ept_map_2mpage (ept, gphys))
+			break;
+		/* Fall through */
+	case 1:
 		vt_ept_map_page (ept, write, gphys);
+		break;
+	default:
+		e = cpu_interpreter ();
+		if (e != VMMERR_SUCCESS)
+			panic ("Fatal error: MMIO access error %d", e);
+	}
 	mmio_unlock ();
 }
 
@@ -295,7 +353,10 @@ vt_ept_extern_mapsearch (struct vcpu *p, phys_t start, phys_t end)
 				continue;
 			tmp1 = e[j] & mask;
 			tmp2 = tmp1 | 07777;
-			if (e[j] & EPTE_LARGE) {
+			if (e[j] & EPTE_IGN_BIT11) {
+				tmp1 &= ~07777777777ULL;
+				tmp2 |= 07777777777ULL;
+			} else if (e[j] & EPTE_LARGE) {
 				tmp1 &= ~07777777;
 				tmp2 |= 07777777;
 			}
