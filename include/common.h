@@ -38,5 +38,7 @@
 
 #define offsetof(s,m) (size_t)&(((s *)0)->m)
 #define lengthof(s)   (size_t)sizeof(s)/sizeof(s[0])
+#define MAX(a, b)	((a) > (b) ? (a) : (b))
+#define MIN(a, b)	((a) < (b) ? (a) : (b))
 
 #endif

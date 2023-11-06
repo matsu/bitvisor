@@ -38,8 +38,6 @@
 #define strchr(s, c)		__builtin_strchr(s, c)
 #define strstr(s1, s2)		__builtin_strstr(s1, s2)
 
-static inline int min (int a, int b) { return a < b ? a : b; }
-
 static inline void *regcpy(void *dst, void *src, int n)
 {
 	if (n == 8)

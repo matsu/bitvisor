@@ -30,6 +30,7 @@
 #include <core.h>
 #include <core/config.h>
 #include <core/process.h>
+#include <common.h>
 #include <storage.h>
 #include <token.h>
 #include "storage_msg.h"
@@ -176,11 +177,8 @@ storage_handle_sectors (struct storage_device *storage,
 		// if lba < low then memcpy
 		while (count > 0 && storage->keys[i].lba_low > lba) {
 			sub_count2 = storage->keys[i].lba_low - lba;
-			if (sub_count2 > 65535)
-				sub_count = 65535;
-			else
-				sub_count = sub_count2;
-			sub_count = min(count, sub_count);
+			sub_count = MIN (65535, sub_count2);
+			sub_count = MIN (count, sub_count);
 			count -= sub_count;
 			size = sub_count * sector_size;
 			if (dst != src)
@@ -200,7 +198,7 @@ storage_handle_sectors (struct storage_device *storage,
 			keyctx = storage->keys[i].keyctx;
 			crypto = storage->keys[i].crypto;
 			crypt = (access->rw == STORAGE_READ) ? crypto->decrypt : crypto->encrypt;
-			sub_count = min(count, sub_count);
+			sub_count = MIN (count, sub_count);
 			count -= sub_count;
 			while (sub_count-- > 0) {
 				crypt(dst, src, keyctx, lba++, sector_size);
