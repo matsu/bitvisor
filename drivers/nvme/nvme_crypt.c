@@ -45,6 +45,7 @@ struct nvme_crypt_meta {
 	struct storage_device **devices;
 	uint id;
 	uint n_intercepted_reqs;
+	spinlock_t lock;
 };
 
 struct req_meta {
@@ -190,8 +191,10 @@ req_callback (struct nvme_host *host,
 
 	free_req_meta (req_meta);
 
+	spinlock_lock (&crypt_meta->lock);
 	ASSERT (crypt_meta->n_intercepted_reqs > 0);
 	crypt_meta->n_intercepted_reqs--;
+	spinlock_unlock (&crypt_meta->lock);
 }
 
 static void
@@ -203,8 +206,6 @@ intercept_rw (struct nvme_crypt_meta *crypt_meta,
 	      int write)
 {
 	nvme_io_error_t error;
-
-	crypt_meta->n_intercepted_reqs++;
 
 	u32 lba_nbytes;
 	error = nvme_io_get_lba_nbytes (crypt_meta->host, nsid, &lba_nbytes);
@@ -240,6 +241,10 @@ intercept_rw (struct nvme_crypt_meta *crypt_meta,
 
 	error = nvme_io_set_g_req_callback (g_req, req_callback, cb_data);
 	ASSERT (!error);
+
+	spinlock_lock (&crypt_meta->lock);
+	crypt_meta->n_intercepted_reqs++;
+	spinlock_unlock (&crypt_meta->lock);
 }
 
 static void
@@ -342,6 +347,7 @@ install_nvme_crypt (struct nvme_host *host)
 	crypt_meta->devices = NULL;
 	crypt_meta->id = storage_id++;
 	crypt_meta->n_intercepted_reqs = 0;
+	spinlock_init (&crypt_meta->lock);
 
 	struct nvme_io_interceptor *io_interceptor;
 	io_interceptor = alloc (sizeof (*io_interceptor));
