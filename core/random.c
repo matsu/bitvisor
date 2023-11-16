@@ -27,12 +27,16 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "asm.h"
 #include "config.h"
+#include "constants.h"
 #include "convert.h"
 #include "initfunc.h"
 #include "mm.h"
+#include "pcpu.h"
 #include "printf.h"
 #include "string.h"
+#include "time.h"
 #include <tcg.h>
 
 static char *random_buf;
@@ -164,5 +168,57 @@ random_init_global (void)
 	}
 }
 
+static bool
+support_rdrand_check (void)
+{
+	u32 eax, ebx, ecx, edx;
+
+	asm_cpuid (CPUID_1, 0, &eax, &ebx, &ecx, &edx);
+	return !!(ecx & CPUID_1_ECX_RDRAND_BIT);
+}
+
+static void
+random_init_general (void)
+{
+	long long second = 0;
+	int microsecond;
+
+	currentcpu->support_rdrand = support_rdrand_check ();
+	get_epoch_time (&second, &microsecond);
+	if (second == 0)
+		panic ("get_epoch_time failure, second == 0");
+	currentcpu->rnd_context = (int)second;
+}
+
+unsigned int
+random_num_sw (void)
+{
+	currentcpu->rnd_context = (1103515245 * currentcpu->rnd_context +
+				   12345) % 2147483648;
+	return currentcpu->rnd_context;
+}
+
+unsigned int
+random_num_hw (unsigned int retry_times, unsigned int *out_num)
+{
+	unsigned int r, i;
+	u8 cf_value = 0;
+
+	if (!currentcpu->support_rdrand)
+		goto end;
+
+	for (i = 0; i < retry_times; i++) {
+		asm volatile ("rdrand %0\n\t"
+			      "setc %1" : "=r" (r), "=qm" (cf_value) : : "cc");
+		if (cf_value) {
+			if (out_num)
+				*out_num = r;
+			break;
+		}
+	}
+end:
+	return cf_value;
+}
 INITFUNC ("bsp0", random_init_global);
 INITFUNC ("config00", random_init_config0);
+INITFUNC ("pcpu5", random_init_general);

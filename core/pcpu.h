@@ -83,6 +83,8 @@ struct pcpu {
 	bool use_invariant_tsc;
 	void (*release_process64_msrs) (void *release_process64_msrs_data);
 	void *release_process64_msrs_data;
+	unsigned int rnd_context;
+	bool support_rdrand;
 };
 
 struct pcpu_gs {

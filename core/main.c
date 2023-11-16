@@ -530,7 +530,7 @@ vmm_main (struct multiboot_info *mi_arg)
 }
 
 INITFUNC ("pcpu2", virtualization_init_pcpu);
-INITFUNC ("pcpu5", create_pass_vm);
+INITFUNC ("pcpu9", create_pass_vm);
 INITFUNC ("dbsp5", wait_for_create_pass_vm);
 INITFUNC ("bsp0", debug_on_shift_key);
 INITFUNC ("global1", print_boot_msg);
