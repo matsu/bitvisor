@@ -82,6 +82,7 @@ ehci_new(struct pci_device *pci_device)
 	extern void usbhub_init_handle(struct usb_host *host);
 #endif
 
+	pci_system_disconnect (pci_device);
 	dprintft(2, "A EHCI found.\n");
 	host = alloc_ehci_host();
 	memset(host, 0, sizeof(*host));

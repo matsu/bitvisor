@@ -1528,6 +1528,7 @@ static struct usb_init_dev_operations xhci_init_dev_op = {
 static void
 xhci_new (struct pci_device *pci_device)
 {
+	pci_system_disconnect (pci_device);
 	usb_set_debug (DEBUG_LEVEL);
 
 	struct xhci_host *host = zalloc (XHCI_HOST_NBYTES);

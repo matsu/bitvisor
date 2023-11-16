@@ -101,6 +101,7 @@ uhci_new(struct pci_device *pci_device)
 	extern void usbhub_init_handle(struct usb_host *host);
 #endif
 
+	pci_system_disconnect (pci_device);
 #ifdef VTD_TRANS
 	if (iommu_detected) {
 		add_remap(pci_device->address.bus_no ,pci_device->address.device_no ,pci_device->address.func_no,
