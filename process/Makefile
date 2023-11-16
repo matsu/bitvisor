@@ -27,6 +27,7 @@ storage-libs = storage/lib/$(outa) crypto/$(outa)
 vpn-objs = vpn.o
 vpn-libs = vpn/lib/$(outa) crypto/$(outa)
 echoctl-objs = echoctl.o
+echoctl-objs += echoctl_common.o
 monitor-objs = monitor.o
 
 $(dir)sqlite/$(outp_p) : $(dir)lib/$(outa_p)

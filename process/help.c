@@ -43,6 +43,7 @@ char *help[][2] = {
 	{ "serialtest", "serial I/O test", },
 	{ "shell", "shell", },
 	{ "reboot", "reboot", },
+	{ "echoctl", "TCP/IP based client/server", },
 	{ "exit", "exit shell", },
 	{ 0, 0 }
 };

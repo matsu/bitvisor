@@ -5,6 +5,10 @@
 #include "tcpip.h"
 #include "string.h"
 
+enum protocol {
+	PURE_TCP,
+};
+
 enum echo_command {
 	ECHO_CMD_CLIENT_CONNECT = 0,
 	ECHO_CMD_CLIENT_SEND = 1,
@@ -15,6 +19,12 @@ struct arg {
 	int ipaddr_a[4];
 	int port;
 	char netif_name[10];
+};
+
+struct tcp_callbacks {
+	void (*client_connect) (void *arg);
+	void (*client_send) (void *arg);
+	void (*server_start) (void *arg);
 };
 
 static void
@@ -41,13 +51,23 @@ echoctl_echo_server_start (void *arg)
 	free (a);
 }
 
+static const struct tcp_callbacks protocols[] = {
+	/* Create protocol indexes for future extension */
+	[PURE_TCP] = {
+		.client_connect = echoctl_echo_client_connect,
+		.client_send = echoctl_echo_client_send,
+		.server_start = echoctl_echo_server_start,
+	},
+};
+
 static int
-echoctl_sub (unsigned long (*array)[3], int len, char *netif_name,
+echoctl_sub (unsigned long (*array)[4], int len, char *netif_name,
 	     int netif_len)
 {
 	int ret;
 	ulong cmd;
 	ulong ipaddr, port;
+	ulong proto;
 	struct arg *a;
 
 	if (len != sizeof *array)
@@ -55,6 +75,9 @@ echoctl_sub (unsigned long (*array)[3], int len, char *netif_name,
 	cmd = (*array)[0];
 	ipaddr = (*array)[1];
 	port = (*array)[2];
+	proto = (*array)[3];
+	if (proto >= sizeof protocols / sizeof protocols[0])
+		return -1;
 	switch (cmd) {
 	case ECHO_CMD_CLIENT_CONNECT:
 		/* Connect to echo server. */
@@ -70,7 +93,7 @@ echoctl_sub (unsigned long (*array)[3], int len, char *netif_name,
 				return -1;
 			memcpy (a->netif_name, netif_name, netif_len);
 			a->netif_name[netif_len - 1] = '\0';
-			tcpip_begin (echoctl_echo_client_connect, a);
+			tcpip_begin (protocols[proto].client_connect, a);
 			ret = 0;
 		} else {
 			ret = -1;
@@ -78,7 +101,7 @@ echoctl_sub (unsigned long (*array)[3], int len, char *netif_name,
 		break;
 	case ECHO_CMD_CLIENT_SEND:
 		/* Send a message to echo server. */
-		tcpip_begin (echoctl_echo_client_send, NULL);
+		tcpip_begin (protocols[proto].client_send, NULL);
 		ret = 0;
 		break;
 	case ECHO_CMD_SERVER_START:
@@ -91,7 +114,7 @@ echoctl_sub (unsigned long (*array)[3], int len, char *netif_name,
 				return -1;
 			memcpy (a->netif_name, netif_name, netif_len);
 			a->netif_name[netif_len - 1] = '\0';
-			tcpip_begin (echoctl_echo_server_start, a);
+			tcpip_begin (protocols[proto].server_start, a);
 			ret = 0;
 		} else {
 			ret = -1;
