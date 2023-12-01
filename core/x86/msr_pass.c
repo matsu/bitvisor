@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -100,6 +101,28 @@ msr_pass_read_msr (u32 msrindex, u64 *msrdata)
 		if (current->cpuid.hw_feedback)
 			goto pass;
 		return true;
+	case MSR_IA32_VMX_PROCBASED_CTLS2:
+		m.msrindex = msrindex;
+		m.msrdata = msrdata;
+		num = callfunc_and_getint (do_read_msr_sub, &m);
+		switch (num) {
+		case -1:
+			break;
+		case EXCEPTION_GP:
+			return true;
+		default:
+			panic ("msr_pass_read_msr: exception %d", num);
+		}
+		if (config.vmm.unsafe_nested_virtualization == 2) {
+			u64 clearbit = 0x100000000ULL *
+				VMCS_PROC_BASED_VMEXEC_CTL2_NESTED_OFF_BITS;
+			*msrdata &= ~clearbit;
+		}
+		break;
+	case MSR_IA32_VMX_EPT_VPID_CAP:
+		if (config.vmm.unsafe_nested_virtualization == 2)
+			return true;
+		goto pass;
 	default:
 	pass:
 		m.msrindex = msrindex;
@@ -475,6 +498,10 @@ msr_pass_init (void)
 		current->vmctl.msrpass (MSR_IA32_HW_FEEDBACK_CONFIG, true,
 					current->cpuid.hw_feedback);
 		current->vmctl.msrpass (MSR_IA32_XSS, true, false);
+		current->vmctl.msrpass (MSR_IA32_VMX_PROCBASED_CTLS2, false,
+					false);
+		current->vmctl.msrpass (MSR_IA32_VMX_EPT_VPID_CAP, false,
+					false);
 	}
 }
 

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,7 +41,7 @@ void svm_paging_init (void);
 void svm_paging_pagefault (ulong err, ulong cr2);
 void svm_paging_tlbflush (void);
 void svm_paging_invalidate (ulong addr);
-void svm_paging_npf (bool write, u64 gphys);
+bool svm_paging_npf (bool write, u64 gphys, bool emulation);
 void svm_paging_updatecr3 (void);
 void svm_paging_spt_setcr3 (ulong cr3);
 void svm_paging_clear_all (void);

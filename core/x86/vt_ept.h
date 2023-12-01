@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,7 +36,7 @@
 struct vcpu;
 
 void vt_ept_init (void);
-void vt_ept_violation (bool write, u64 gphys);
+bool vt_ept_violation (bool write, u64 gphys, bool emulation);
 void vt_ept_tlbflush (void);
 void vt_ept_updatecr3 (void);
 void vt_ept_clear_all (void);

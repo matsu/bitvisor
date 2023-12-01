@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -236,12 +237,13 @@ svm_np_map_1gpage (struct svm_np *np, u64 gphys)
 	return false;
 }
 
-void
-svm_np_pagefault (bool write, u64 gphys)
+bool
+svm_np_pagefault (bool write, u64 gphys, bool emulation)
 {
 	enum vmmerr e;
 	struct svm_np *np;
 	int ps_array_len;
+	bool ret = false;
 
 	np = current->u.svm.np;
 	cur_move (np, gphys);
@@ -263,11 +265,15 @@ svm_np_pagefault (bool write, u64 gphys)
 		svm_np_map_page (np, write, gphys);
 		break;
 	default:
+		ret = true;
+		if (!emulation)
+			break;
 		e = cpu_interpreter ();
 		if (e != VMMERR_SUCCESS)
 			panic ("Fatal error: MMIO access error %d", e);
 	}
 	mmio_unlock ();
+	return ret;
 }
 
 void

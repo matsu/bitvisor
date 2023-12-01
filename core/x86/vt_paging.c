@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -143,15 +144,15 @@ vt_paging_invalidate (ulong addr)
 		cpu_mmu_spt_invalidate (addr);
 }
 
-void
-vt_paging_npf (bool write, u64 gphys)
+bool
+vt_paging_npf (bool write, u64 gphys, bool emulation)
 {
 #ifdef CPU_MMU_SPT_DISABLE
 	if (current->u.vt.vr.pg)
 		panic ("EPT violation while spt disabled");
 #endif
 	if (ept_enabled ())
-		vt_ept_violation (write, gphys);
+		return vt_ept_violation (write, gphys, emulation);
 	else
 		panic ("EPT violation while ept disabled");
 }

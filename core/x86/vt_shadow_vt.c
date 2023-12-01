@@ -28,6 +28,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/currentcpu.h>
 #include <core/mm.h>
 #include <core/panic.h>
@@ -40,6 +41,7 @@
 #include "pcpu.h"
 #include "vt_addip.h"
 #include "vt_exitreason.h"
+#include "vt_paging.h"
 #include "vt_regs.h"
 #include "vt_shadow_vt.h"
 
@@ -1270,6 +1272,78 @@ handle_acked_exint_pass (struct shadow_vt *shadow_vt)
 	set_exint_hack (shadow_vt, vii.v);
 }
 
+static bool
+handle_ept (void)
+{
+	/* While a guest does not activate EPT, EPT violation and EPT
+	 * misconfig must not be delivered to the guest as a VM
+	 * exit. */
+	ulong exit_reason;
+	asm_vmread (VMCS_EXIT_REASON, &exit_reason);
+	if (exit_reason & EXIT_REASON_VMENTRY_FAILURE_BIT)
+		return false;
+	switch (exit_reason & EXIT_REASON_MASK) {
+	case EXIT_REASON_EPT_MISCONFIG:
+		panic ("Unexpected EPT misconfig"
+		       " during nested virtualization");
+	case EXIT_REASON_EPT_VIOLATION:
+		break;
+	default:
+		return false;
+	}
+
+	ulong eqe;
+	u64 gp;
+	asm_vmread (VMCS_EXIT_QUALIFICATION, &eqe);
+	asm_vmread64 (VMCS_GUEST_PHYSICAL_ADDRESS, &gp);
+	if (eqe & EPT_VIOLATION_EXIT_QUAL_NMI_UNBLOCKING_DUE_TO_IRET_BIT) {
+		ulong is;
+		asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
+		is |= VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT;
+		asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, is);
+	}
+	if (vt_paging_npf (!!(eqe & EPT_VIOLATION_EXIT_QUAL_WRITE_BIT), gp,
+			   false))
+		panic ("Instruction emulation for nested virtualization"
+		       " not supported");
+	return true;
+}
+
+/* If EPT violation occurs during event delivery, the event will be
+ * injected on the next VM entry.  Note that the guest hypervisor will
+ * not know about the EPT violation and the event injection in this
+ * case. */
+static void
+handle_ept_violation_event_delivery (void)
+{
+	union {
+		struct intr_info s;
+		ulong v;
+	} ivif;
+	asm_vmread (VMCS_IDT_VECTORING_INFO_FIELD, &ivif.v);
+	/* The valid bit in VMCS_VMENTRY_INTR_INFO_FIELD is always
+	 * cleared on VM exit.  If the VMCS_IDT_VECTORING_INFO_FIELD
+	 * is not valid, do nothing. */
+	if (ivif.s.valid != INTR_INFO_VALID_VALID)
+		return;
+	/* Copy fields for event injection. */
+	asm_vmwrite (VMCS_VMENTRY_INTR_INFO_FIELD, ivif.v);
+	ulong tmp;
+	if (ivif.s.err == INTR_INFO_ERR_VALID) {
+		asm_vmread (VMCS_VMEXIT_INTR_ERRCODE, &tmp);
+		asm_vmwrite (VMCS_VMENTRY_EXCEPTION_ERRCODE, tmp);
+	}
+	asm_vmread (VMCS_VMEXIT_INSTRUCTION_LEN, &tmp);
+	asm_vmwrite (VMCS_VMENTRY_INSTRUCTION_LEN, tmp);
+	/* Unblock NMI if the event is NMI. */
+	if (ivif.s.type == INTR_INFO_TYPE_NMI) {
+		ulong is;
+		asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
+		is &= ~VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT;
+		asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, is);
+	}
+}
+
 static void
 run_l2vm (bool vmlaunched)
 {
@@ -1277,6 +1351,7 @@ run_l2vm (bool vmlaunched)
 	u64 orig_vmcs_addr_phys;
 	u64 efer_l1, efer_l2, saved_host_efer;
 	ulong is, procbased_ctls, procbased_ctls2;
+	ulong orig_procbased_ctls, orig_procbased_ctls2;
 	ulong guest_rflags;
 	ulong exit_ctl01, exit_ctl02;
 	struct vmcs_host_states hsl01, hsl02;
@@ -1290,6 +1365,15 @@ run_l2vm (bool vmlaunched)
 		panic ("Reading EFER failed"); /* Never happen */
 	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
 	asm_vmread (VMCS_VMEXIT_CTL, &exit_ctl01);
+	u64 host_eptp = 0;
+	if (config.vmm.unsafe_nested_virtualization == 2) {
+		/* Unrestricted guest must be activated to ensure that
+		 * EPT is used and VPID bit will not be modified
+		 * below. */
+		if (!current->u.vt.unrestricted_guest)
+			panic ("Unrestricted guest not supported");
+		asm_vmread64 (VMCS_EPT_POINTER, &host_eptp);
+	}
 	asm_vmptrst (&orig_vmcs_addr_phys); /* Save original VMCS addr */
 	if (is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT) {
 		asm_vmptrld (&shadow_vt->current_vmcs_hphys);
@@ -1329,10 +1413,52 @@ run_l2vm (bool vmlaunched)
 		asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL2, &procbased_ctls2);
 	else
 		procbased_ctls2 = 0;
+	orig_procbased_ctls = procbased_ctls;
+	orig_procbased_ctls2 = procbased_ctls2;
 	if ((procbased_ctls2 & VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT) &&
 	    !current->u.vt.unrestricted_guest)
-		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, procbased_ctls2 &
-			     ~VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT);
+		procbased_ctls2 &=
+			~VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT;
+
+	/* Set enable EPT bit and EPT pointer.  Because the EPT is
+	 * concealed for the guest, the previous EPT pointer is not
+	 * saved. */
+	if (host_eptp) {
+		if (procbased_ctls2 &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_NESTED_OFF_BITS)
+			panic ("Nested invalid procbased_ctls2 0x%lX",
+			       procbased_ctls2);
+		procbased_ctls2 |=
+			VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_EPT_BIT;
+		asm_vmwrite64 (VMCS_EPT_POINTER, host_eptp);
+		ulong ctl;
+		asm_vmread (VMCS_VMENTRY_CTL, &ctl);
+		if (!(ctl & VMCS_VMENTRY_CTL_64_GUEST_BIT)) {
+			ulong cr4;
+			asm_vmread (VMCS_GUEST_CR4, &cr4);
+			if (cr4 & CR4_PAE_BIT) {
+				/* Need to read PDPTE here! */
+				ulong cr3;
+				asm_vmread (VMCS_GUEST_CR3, &cr3);
+				cr3 &= 0xFFFFFFE0;
+				u64 *p = mapmem_as (current->as, cr3,
+						    sizeof *p * 4, 0);
+				asm_vmwrite64 (VMCS_GUEST_PDPTE0, p[0]);
+				asm_vmwrite64 (VMCS_GUEST_PDPTE1, p[1]);
+				asm_vmwrite64 (VMCS_GUEST_PDPTE2, p[2]);
+				asm_vmwrite64 (VMCS_GUEST_PDPTE3, p[3]);
+				unmapmem (p, sizeof *p * 4);
+			}
+		}
+	}
+
+	/* Apply processor-based VM-execution controls */
+	if (procbased_ctls2)
+		procbased_ctls |= VMCS_PROC_BASED_VMEXEC_CTL_ACTIVATECTLS2_BIT;
+	if (orig_procbased_ctls != procbased_ctls)
+		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, procbased_ctls);
+	if (orig_procbased_ctls2 != procbased_ctls2)
+		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, procbased_ctls2);
 
 	/* Run */
 #ifdef __x86_64__
@@ -1349,10 +1475,45 @@ run_l2vm (bool vmlaunched)
 	asm_rdmsr64 (MSR_IA32_EFER, &efer_l2);
 	asm_wrmsr64 (MSR_IA32_EFER, saved_host_efer);
 
-	/* Restore enable VPID bit */
-	if ((procbased_ctls2 & VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT) &&
-	    !current->u.vt.unrestricted_guest)
-		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, procbased_ctls2);
+	/* Handle EPT violation */
+	if (!entry_err && host_eptp && handle_ept ()) {
+		do {
+			handle_ept_violation_event_delivery ();
+			efer_l1 = efer_l2;
+			asm_wrmsr64 (MSR_IA32_EFER, efer_l1);
+			entry_err = asm_vmresume_regs (&current->u.vt.vr);
+			asm_rdmsr64 (MSR_IA32_EFER, &efer_l2);
+			asm_wrmsr64 (MSR_IA32_EFER, saved_host_efer);
+		} while (!entry_err && host_eptp && handle_ept ());
+		/* If NMI occurs after the EPT violation VM exit, the
+		 * NMI should be notified as a VM exit.  It is not
+		 * implemented yet.  The following handles it like NMI
+		 * before a VM entry for simplicity, but in this case,
+		 * the VM state might have been changed.  The guest
+		 * might detect the unexpected VM state change.*/
+		switch (entry_err) {
+		case 1:
+			if (!vmlaunched) {
+				/* VMCLEAR is needed since VMLAUNCH
+				 * will be executed again. */
+				asm_vmclear (&shadow_vt->current_vmcs_hphys);
+				asm_vmptrld (&shadow_vt->current_vmcs_hphys);
+			}
+			/* Fall through */
+		case 0:
+			break;
+		default:
+			/* Unexpected VM entry failure */
+			panic ("Nested VM entry failure %d", entry_err);
+		}
+	}
+
+	/* Restore processor-based VM-execution controls */
+	if (orig_procbased_ctls2 != procbased_ctls2)
+		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2,
+			     orig_procbased_ctls2);
+	if (orig_procbased_ctls != procbased_ctls)
+		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, orig_procbased_ctls);
 
 	/* Restore VMCS_VMEXIT_CTL */
 	asm_vmwrite (VMCS_VMEXIT_CTL, exit_ctl02);

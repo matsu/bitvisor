@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,6 +28,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <core/config.h>
 #include <core/initfunc.h>
 #include "asm.h"
 #include "constants.h"
@@ -108,6 +110,8 @@ do_cpuid_pass (u32 ia, u32 ic, u32 *oa, u32 *ob, u32 *oc, u32 *od)
 		if (*ob > 2)	/* NASID */
 			--*ob;
 		*od &= ~CPUID_EXT_A_EDX_SVM_LOCK_BIT;
+		if (config.vmm.unsafe_nested_virtualization == 2)
+			*od &= ~CPUID_EXT_A_EDX_NP_BIT;
 	} else if (ia >= 0x40000000 && ia <= 0x4FFFFFFF) {
 		/*
 		 * 0x40000000 - 0x4FFFFFFF range is currently not used by

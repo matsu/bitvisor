@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,6 +36,13 @@
 #include "vt_io.h"
 #include "vt_msr.h"
 #include "vt_vmcs.h"
+
+#define VMCS_PROC_BASED_VMEXEC_CTL2_NESTED_OFF_BITS \
+	(VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_EPT_BIT | \
+	 VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT | \
+	 VMCS_PROC_BASED_VMEXEC_CTL2_UNRESTRICTED_GUEST_BIT | \
+	 VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_INVPCID_BIT | \
+	 VMCS_PROC_BASED_VMEXEC_CTL2_PT_USES_GPHYS_BIT)
 
 struct vt_realmode_data {
 	struct descreg idtr;

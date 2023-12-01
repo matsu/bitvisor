@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,7 +36,7 @@
 struct vcpu;
 
 void svm_np_init (void);
-void svm_np_pagefault (bool write, u64 gphys);
+bool svm_np_pagefault (bool write, u64 gphys, bool emulation);
 void svm_np_tlbflush (void);
 void svm_np_updatecr3 (void);
 void svm_np_clear_all (void);

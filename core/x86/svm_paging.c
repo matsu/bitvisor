@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -147,15 +148,15 @@ svm_paging_invalidate (ulong addr)
 		panic ("invlpg while np enabled");
 }
 
-void
-svm_paging_npf (bool write, u64 gphys)
+bool
+svm_paging_npf (bool write, u64 gphys, bool emulation)
 {
 #ifdef CPU_MMU_SPT_DISABLE
 	panic ("npf while spt disabled");
 #endif
 	if (!current->u.svm.np)
 		panic ("nested page fault while np disabled");
-	svm_np_pagefault (write, gphys);
+	return svm_np_pagefault (write, gphys, emulation);
 }
 
 void

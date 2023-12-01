@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -264,12 +265,13 @@ vt_ept_map_1gpage (struct vt_ept *ept, u64 gphys)
 	return false;
 }
 
-void
-vt_ept_violation (bool write, u64 gphys)
+bool
+vt_ept_violation (bool write, u64 gphys, bool emulation)
 {
 	enum vmmerr e;
 	struct vt_ept *ept;
 	int ps_array_len;
+	bool ret = false;
 
 	ept = current->u.vt.ept;
 	cur_move (ept, gphys);
@@ -291,11 +293,15 @@ vt_ept_violation (bool write, u64 gphys)
 		vt_ept_map_page (ept, write, gphys);
 		break;
 	default:
+		ret = true;
+		if (!emulation)
+			break;
 		e = cpu_interpreter ();
 		if (e != VMMERR_SUCCESS)
 			panic ("Fatal error: MMIO access error %d", e);
 	}
 	mmio_unlock ();
+	return ret;
 }
 
 void

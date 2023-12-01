@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -542,7 +543,7 @@ do_npf (void)
 
 	vmcb = current->u.svm.vi.vmcb;
 	write = !!(vmcb->exitinfo1 & PAGEFAULT_ERR_WR_BIT);
-	svm_paging_npf (write, vmcb->exitinfo2);
+	svm_paging_npf (write, vmcb->exitinfo2, true);
 }
 
 static void
@@ -605,10 +606,36 @@ do_vmrun (void)
 		if (vmcb->tlb_control != VMCB_TLB_CONTROL_FLUSH_TLB)
 			vmcb->tlb_control = svm->vi.vmcb->tlb_control;
 	}
+	u64 host_ncr3 = 0;
+	if (config.vmm.unsafe_nested_virtualization == 2) {
+		if (!current->u.svm.vi.vmcb->np_enable)
+			panic ("Nested paging not enabled");
+		host_ncr3 = current->u.svm.vi.vmcb->n_cr3;
+	}
+	if (host_ncr3) {
+		/* FIXME: This is not safe.  While the VMCB is checked
+		 * and modified, the guest can access the VMCB from
+		 * other processors. */
+		if (vmcb->np_enable)
+			panic ("Nested paging for nested virtualization"
+			       "not supported");
+		vmcb->n_cr3 = host_ncr3;
+		vmcb->np_enable = 1;
+	}
+again:
 	nmi_or_init = asm_vmrun_regs_nested (&svm->vr, svm->vi.vmcb_phys,
 					     currentcpu->svm.vmcbhost_phys,
 					     vmcb_phys, svm->vi.vmcb->rflags &
 					     RFLAGS_IF_BIT);
+	if (!nmi_or_init && host_ncr3 && vmcb->exitcode == VMEXIT_NPF) {
+		bool write = !!(vmcb->exitinfo1 & PAGEFAULT_ERR_WR_BIT);
+		if (svm_paging_npf (write, vmcb->exitinfo2, false))
+			panic ("Instruction emulation for nested"
+			       " virtualization not supported");
+		goto again;
+	}
+	if (host_ncr3)
+		vmcb->np_enable = 0;
 	vmcb->tlb_control = orig_tlb_control;
 	unmapmem (vmcb, sizeof *vmcb);
 	if (nmi_or_init)

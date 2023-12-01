@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -60,8 +61,6 @@
 #include "vt_shadow_vt.h"
 #include "vt_vmcs.h"
 
-#define EPT_VIOLATION_EXIT_QUAL_WRITE_BIT 0x2
-#define EPT_VIOLATION_EXIT_QUAL_NMI_UNBLOCKING_DUE_TO_IRET_BIT 0x1000
 #define STAT_EXIT_REASON_MAX EXIT_REASON_XSETBV
 
 enum vt__status {
@@ -973,7 +972,7 @@ do_ept_violation (void)
 	asm_vmread64 (VMCS_GUEST_PHYSICAL_ADDRESS, &gp);
 	if (eqe & EPT_VIOLATION_EXIT_QUAL_NMI_UNBLOCKING_DUE_TO_IRET_BIT)
 		set_blocking_by_nmi ();
-	vt_paging_npf (!!(eqe & EPT_VIOLATION_EXIT_QUAL_WRITE_BIT), gp);
+	vt_paging_npf (!!(eqe & EPT_VIOLATION_EXIT_QUAL_WRITE_BIT), gp, true);
 }
 
 static void
