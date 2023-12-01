@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -1350,11 +1351,8 @@ run_l2vm (bool vmlaunched)
 
 	/* Restore enable VPID bit */
 	if ((procbased_ctls2 & VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT) &&
-	    !current->u.vt.unrestricted_guest) {
-		asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL2, &procbased_ctls2);
-		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, procbased_ctls2 |
-			     VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT);
-	}
+	    !current->u.vt.unrestricted_guest)
+		asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL2, procbased_ctls2);
 
 	/* Restore VMCS_VMEXIT_CTL */
 	asm_vmwrite (VMCS_VMEXIT_CTL, exit_ctl02);
