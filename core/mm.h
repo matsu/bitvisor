@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -44,6 +45,7 @@ void __attribute__ ((section (".entry.text")))
 uefi_init_get_vmmsize (u32 *vmmsize, u32 *align);
 void *mm_get_panicmem (int *len);
 void mm_free_panicmem (void);
+u32 *mm_get_page_storage (void *virt);
 
 /* process */
 int mm_process_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,

@@ -32,6 +32,8 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
+#include <stdint.h>
+#include "../mm.h"
 #include "../phys.h"
 #include "asm.h"
 #include "constants.h"
@@ -118,10 +120,13 @@ vt_ept_new (int maxnumtbl)
 	ept = alloc (sizeof *ept);
 	alloc_page (&ept->ncr3tbl, &ept->ncr3tbl_phys);
 	memset (ept->ncr3tbl, 0, PAGESIZE);
+	*mm_get_page_storage (ept->ncr3tbl) = 0;
 	for (i = 0; i < MAXNUM_OF_EPTBL; i++)
 		ept->tbl[i] = NULL;
-	for (i = 0; i < DEFNUM_OF_EPTBL && i < maxnumtbl; i++)
+	for (i = 0; i < DEFNUM_OF_EPTBL && i < maxnumtbl; i++) {
 		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
+		*mm_get_page_storage (ept->tbl[i]) = ~0;
+	}
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
 	ept->avl_pagesizes_len = ept1gb_available () ? 3 : 2;
@@ -194,8 +199,59 @@ cur_move (struct vt_ept *ept, u64 gphys)
 static void
 ept_tbl_alloc (struct vt_ept *ept, int i)
 {
-	if (!ept->tbl[i])
+	if (!ept->tbl[i]) {
 		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
+		*mm_get_page_storage (ept->tbl[i]) = ~0;
+	}
+}
+
+/* Store information which part is used. */
+static void
+set_bitmap_for_ept_entry (u64 *p)
+{
+	*mm_get_page_storage (p) |= 1 << (((intptr_t)p & PAGESIZE_MASK) >> 7);
+}
+
+static void
+clear_ept_based_on_bitmap (void *p)
+{
+	u32 *s = mm_get_page_storage (p);
+	u32 off = 0;
+	u32 bitmap = *s;
+	for (;;) {
+		int bits0 = __builtin_ffs (bitmap) - 1;
+		if (bits0 < 0)
+			break;
+		bitmap >>= bits0;
+		off += bits0;
+		int bits1 = __builtin_ffs (~bitmap) - 1;
+		u32 len = bits1 < 0 ? 32 : bits1;
+		memset (p + off * 128, 0, len * 128);
+		if (bits1 < 0)
+			break;
+		bitmap >>= len;
+		off += len;
+	}
+	*s = 0;
+}
+
+static void
+update_ept_pml4e_used (u64 *p)
+{
+	u32 off = ((intptr_t)p & PAGESIZE_MASK) | 7;
+	u32 *s = mm_get_page_storage (p);
+	if (*s < off)
+		*s = off;
+}
+
+static void
+clear_ncr3tbl (struct vt_ept *ept)
+{
+	u32 *s = mm_get_page_storage (ept->ncr3tbl);
+	u32 off = *s;
+	if (off)
+		memset (ept->ncr3tbl, 0, off + 1);
+	*s = 0;
 }
 
 /* Note: You need to use "cur_move()" before using this function to move
@@ -207,7 +263,7 @@ cur_fill (struct vt_ept *ept, u64 gphys, int level)
 	u64 *p;
 
 	if (ept->cnt + ept->cur.level - level > MAXNUM_OF_EPTBL) {
-		memset (ept->ncr3tbl, 0, PAGESIZE);
+		clear_ncr3tbl (ept);
 		ept->cnt = 0;
 		invept (ept);
 		ept->cur.level = EPT_LEVELS - 1;
@@ -215,11 +271,19 @@ cur_fill (struct vt_ept *ept, u64 gphys, int level)
 	l = ept->cur.level;
 	for (p = ept->cur.entry[l]; l > level; l--) {
 		ept_tbl_alloc (ept, ept->cnt);
+		if (l < EPT_LEVELS - 1)
+			set_bitmap_for_ept_entry (p);
+		else
+			update_ept_pml4e_used (p);
 		*p = ept->tbl_phys[ept->cnt] | EPTE_READEXEC | EPTE_WRITE;
 		p = ept->tbl[ept->cnt++];
-		memset (p, 0, PAGESIZE);
+		clear_ept_based_on_bitmap (p);
 		p += (gphys >> (9 * l + 3)) & 0x1FF;
 	}
+	if (level < EPT_LEVELS - 1)
+		set_bitmap_for_ept_entry (p);
+	else
+		update_ept_pml4e_used (p);
 	return p;
 }
 
@@ -463,7 +527,7 @@ vt_ept_updatecr3 (void)
 void
 vt_ept_clear (struct vt_ept *ept)
 {
-	memset (ept->ncr3tbl, 0, PAGESIZE);
+	clear_ncr3tbl (ept);
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
 	invept (ept);

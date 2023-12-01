@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -67,7 +68,7 @@ enum page_type {
 struct page {
 	LIST1_DEFINE (struct page);
 	phys_t phys;
-	u32 small_bitmap;
+	u32 small_bitmap;	/* Used for u32 storage for not small pages */
 	enum page_type type : 8;
 	unsigned int allocsize : 8;
 	unsigned int small_allocsize : 8;
@@ -786,6 +787,17 @@ free_pages_range (void *start, void *end)
 			mm_page_free (p);
 		c += PAGESIZE;
 	}
+}
+
+/* Returns a pointer to u32 storage associated with pages allocated by
+ * alloc_page.  The storage is valid while the pages are allocated. */
+u32 *
+mm_get_page_storage (void *virt)
+{
+	struct page *p = virt_to_page ((virt_t)virt);
+	ASSERT (p->type == PAGE_TYPE_ALLOCATED ||
+		p->type == PAGE_TYPE_ALLOCATED_CONT);
+	return &p->small_bitmap;
 }
 
 /* mempool functions */
