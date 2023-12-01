@@ -484,6 +484,10 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "wg.peer_endpoint_port");
 	ss (uintnum, &name, &src, &len, "wg.wg_listen_port",
 	    "wg.wg_listen_port");
+	/* Mbed-TLS */
+	ss (file, &name, &src, &len, "tls.ca_certFile", "tls.ca_cert");
+	ss (file, &name, &src, &len, "tls.srv_certFile", "tls.srv_cert");
+	ss (file, &name, &src, &len, "tls.srv_keyFile", "tls.srv_key");
 	/* idman */
 	CONF (idman.crl01);
 	CONF (idman.crl02);
@@ -655,6 +659,10 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (wg.wg_listen_port);
 	CONF (wg.wg_private_key);
 	CONF (wg.peer_public_key);
+	/* Mbed-TLS */
+	CONF (tls.ca_cert);
+	CONF (tls.srv_cert);
+	CONF (tls.srv_key);
 	if (!dst) {
 		fprintf (stderr, "unknown config \"%s\"\n", name);
 		exit (EXIT_FAILURE);

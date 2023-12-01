@@ -3,10 +3,12 @@
 #include <core/initfunc.h>
 #include "echo.h"
 #include "tcpip.h"
+#include "tls-echo.h"
 #include "string.h"
 
 enum protocol {
 	PURE_TCP,
+	TLS_TCP,
 };
 
 enum echo_command {
@@ -51,12 +53,41 @@ echoctl_echo_server_start (void *arg)
 	free (a);
 }
 
+static void
+tls_echoctl_echo_client_connect (void *arg)
+{
+	struct arg *a = arg;
+
+	tls_echo_client_init (a->ipaddr_a, a->port);
+	free (a);
+}
+
+static void
+tls_echoctl_echo_client_send (void *arg)
+{
+	tls_echo_client_send ();
+}
+
+static void
+tls_echoctl_echo_server_start (void *arg)
+{
+	struct arg *a = arg;
+
+	tls_echo_server_init (a->port);
+	free (a);
+}
+
 static const struct tcp_callbacks protocols[] = {
 	/* Create protocol indexes for future extension */
 	[PURE_TCP] = {
 		.client_connect = echoctl_echo_client_connect,
 		.client_send = echoctl_echo_client_send,
 		.server_start = echoctl_echo_server_start,
+	},
+	[TLS_TCP] = {
+		.client_connect = tls_echoctl_echo_client_connect,
+		.client_send = tls_echoctl_echo_client_send,
+		.server_start = tls_echoctl_echo_server_start,
 	},
 };
 

@@ -259,11 +259,18 @@ struct config_data_wireguard {
 	char peer_public_key[45];
 };
 
+struct config_data_tls {
+	char ca_cert[4096];
+	char srv_cert[4096];
+	char srv_key[4096];
+};
+
 struct config_data {
 	int len;
 	struct config_data_idman idman;
 	struct config_data_vpn vpn;
 	struct config_data_ip ip;
+	struct config_data_tls tls;
 	struct config_data_storage storage;
 	struct config_data_vmm vmm;
 	struct config_data_wireguard wg;

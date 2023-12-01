@@ -44,6 +44,9 @@ char *help[][2] = {
 	{ "shell", "shell", },
 	{ "reboot", "reboot", },
 	{ "echoctl", "TCP/IP based client/server", },
+#ifdef MBEDTLS_VMM
+	{ "echoctl_tls", "TCP/IP based client/server with TLS", },
+#endif
 	{ "exit", "exit shell", },
 	{ 0, 0 }
 };

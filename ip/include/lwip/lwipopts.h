@@ -46,6 +46,14 @@
 #ifdef WIREGUARD_VMM
 #define MEMP_NUM_SYS_TIMEOUT		(LWIP_NUM_SYS_TIMEOUT_INTERNAL + 1)
 #endif
+#ifdef MBEDTLS_VMM
+#define LWIP_ALTCP_TLS				1
+#define LWIP_ALTCP_TLS_MBEDTLS			1
+#define LWIP_ALTCP				1
+#define MEMP_NUM_ALTCP_PCB			10
+#define ALTCP_MBEDTLS_USE_SESSION_TICKETS	1
+#define ALTCP_MBEDTLS_USE_SESSION_CACHE		1
+#endif
 
 /* --- DHCP --- */
 #define DHCP_DOES_ARP_CHECK             0 /* Don't Check Binded Addr */
