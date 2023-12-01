@@ -30,6 +30,7 @@
 
 #include <core/mm.h>
 #include <core/panic.h>
+#include <core/printf.h>
 #include <core/string.h>
 #include "../phys.h"
 #include "asm.h"
@@ -50,6 +51,7 @@
 #define EPTE_READ	0x1
 #define EPTE_READEXEC	0x5
 #define EPTE_WRITE	0x2
+#define EPTE_PRESENT_MASK	0x7
 #define EPTE_LARGE	0x80
 #define EPTE_IGN_BIT11	0x800
 #define EPTE_ATTR_MASK	0xFFF
@@ -102,8 +104,8 @@ ept1gb_available (void)
 	return !!(ept_vpid_cap & MSR_IA32_VMX_EPT_VPID_CAP_1GPAGE_BIT);
 }
 
-void
-vt_ept_init (void)
+struct vt_ept *
+vt_ept_new (void)
 {
 	struct vt_ept *ept;
 	int i;
@@ -118,11 +120,33 @@ vt_ept_init (void)
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
 	ept->avl_pagesizes_len = ept1gb_available () ? 3 : 2;
-	current->u.vt.ept = ept;
-	asm_vmwrite64 (VMCS_EPT_POINTER, ept->ncr3tbl_phys |
-		       VMCS_EPT_POINTER_EPT_WB | VMCS_EPT_PAGEWALK_LENGTH_4);
-	mmioclr_register (current, vt_ept_mmioclr_callback);
 	invept (ept);
+	return ept;
+}
+
+u64
+vt_ept_get_eptp (struct vt_ept *ept)
+{
+	return ept->ncr3tbl_phys | VMCS_EPT_POINTER_EPT_WB |
+		VMCS_EPT_PAGEWALK_LENGTH_4;
+}
+
+void
+vt_ept_init (void)
+{
+	struct vt_ept *ept = vt_ept_new ();
+	asm_vmwrite64 (VMCS_EPT_POINTER, vt_ept_get_eptp (ept));
+	current->u.vt.ept = ept;
+	mmioclr_register (current, vt_ept_mmioclr_callback);
+}
+
+void
+vt_ept_delete (struct vt_ept *ept)
+{
+	for (int i = 0; i < MAXNUM_OF_EPTBL && ept->tbl[i]; i++)
+		free (ept->tbl[i]);
+	free (ept->ncr3tbl);
+	free (ept);
 }
 
 static void
@@ -151,7 +175,7 @@ cur_move (struct vt_ept *ept, u64 gphys)
 	}
 	while (ept->cur.level > 0) {
 		e = *p;
-		if (!(e & EPTE_READ) || (e & EPTE_LARGE))
+		if (!(e & EPTE_PRESENT_MASK) || (e & EPTE_LARGE))
 			break;
 		e &= ~PAGESIZE_MASK;
 		e |= (gphys >> (9 * ept->cur.level)) & 0xFF8;
@@ -304,6 +328,103 @@ vt_ept_violation (bool write, u64 gphys, bool emulation)
 	return ret;
 }
 
+/* Reads EPTE in host or guest depending on its address space (as).
+ * amask is address mask, usually current->pte_addr_mask.  Returns the
+ * entry and its level (0:4KiB page, 1:2MiB page, ...).  Note: MMIO
+ * range is not tested. */
+int
+vt_ept_read_epte (const struct mm_as *as, u64 amask, u64 eptp, u64 phys,
+		  u64 *entry)
+{
+	u64 e = eptp;
+	u16 attr = EPTE_ATTR_MASK;
+	int level = 4;
+	while (level > 0) {
+		level--;
+		/* Note: This routine does not support access/dirty
+		 * bit. */
+		u64 *p = mapmem_as (as, (e & amask) |
+				    ((phys >> (12 + 9 * level)) & 511) << 3,
+				    sizeof *p, 0);
+		e = *p;
+		unmapmem (p, sizeof *p);
+		attr &= e;
+		if (!(e & EPTE_PRESENT_MASK))
+			break;
+		if (e & EPTE_LARGE)
+			break;
+	}
+	*entry = (e & ~EPTE_PRESENT_MASK) | (attr & EPTE_PRESENT_MASK);
+	return level;
+}
+
+void
+vt_ept_shadow_invalidate (struct vt_ept *ept, u64 gphys)
+{
+	cur_move (ept, gphys);
+	u64 old = *ept->cur.entry[ept->cur.level];
+	if (old & EPTE_PRESENT_MASK) {
+		/* Clear the entry and do invept. */
+		*ept->cur.entry[ept->cur.level] = 0;
+		invept (ept);
+	}
+}
+
+u64
+vt_ept_shadow_write (struct vt_ept *ept, u64 amask, u64 gphys, int level,
+		     u64 entry)
+{
+	/* Prepare for Updating the shadow entry.  It must not be
+	 * present before this call since this routine does not do
+	 * invept. */
+	cur_move (ept, gphys);
+	mmio_lock ();
+	while (ept->cur.level < level || level > 1) {
+		/* Modifying bigger page level than current or bigger
+		 * than supported page size.  Update the level to the
+		 * current level. */
+	force_next_level:
+		level--;
+		u64 mask = 0x1FF000ULL << (9 * level);
+		if (entry & mask) {
+			printf ("%s: incorrect entry 0x%llX level %d\n",
+				__func__, entry, level);
+			entry &= ~mask;
+		}
+		entry |= gphys & mask;
+	}
+
+	/* Convert the guest entry to a shadow entry. */
+	u64 gphys_pointed_by_entry = entry & amask;
+	u64 hphys_pointed_by_entry;
+	if (level == 1) {
+		if (mmio_range (gphys_pointed_by_entry & ~PAGESIZE2M_MASK,
+				PAGESIZE2M))
+			goto force_next_level;
+		hphys_pointed_by_entry =
+			current->gmm.gp2hp_2m (gphys_pointed_by_entry &
+					       ~PAGESIZE2M_MASK);
+		if (hphys_pointed_by_entry == GMM_GP2HP_2M_1G_FAIL)
+			goto force_next_level;
+	} else {
+		if (mmio_access_page (gphys_pointed_by_entry, false))
+			panic ("%s: MMIO access is not supported", __func__);
+		bool fakerom;
+		hphys_pointed_by_entry =
+			current->gmm.gp2hp (gphys_pointed_by_entry, &fakerom);
+		if (fakerom)
+			entry &= ~EPTE_WRITE;
+	}
+	u64 converted_entry = (hphys_pointed_by_entry & amask) |
+		(entry & ~amask);
+
+	/* Write. */
+	u64 *p = cur_fill (ept, gphys, level);
+	*p = converted_entry;
+	mmio_unlock ();
+	return converted_entry;
+}
+
 void
 vt_ept_tlbflush (void)
 {
@@ -334,15 +455,18 @@ vt_ept_updatecr3 (void)
 }
 
 void
-vt_ept_clear_all (void)
+vt_ept_clear (struct vt_ept *ept)
 {
-	struct vt_ept *ept;
-
-	ept = current->u.vt.ept;
 	memset (ept->ncr3tbl, 0, PAGESIZE);
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
 	invept (ept);
+}
+
+void
+vt_ept_clear_all (void)
+{
+	vt_ept_clear (current->u.vt.ept);
 }
 
 static bool

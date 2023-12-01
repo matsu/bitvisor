@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -89,6 +90,7 @@ struct shadow_vt {
 		EXINT_HACK_MODE_READ,
 	} exint_hack_mode;
 	ulong exint_hack_val;
+	struct vt_ept *shadow_ept;
 };
 
 #define VMCS_POINTER_INVALID 0xFFFFFFFFFFFFFFFFULL

@@ -34,6 +34,18 @@
 #include <core/types.h>
 
 struct vcpu;
+struct vt_ept;
+
+/* Functions for nested virtualization */
+struct vt_ept *vt_ept_new (void);
+u64 vt_ept_get_eptp (struct vt_ept *ept);
+void vt_ept_delete (struct vt_ept *ept);
+int vt_ept_read_epte (const struct mm_as *as, u64 amask, u64 eptp, u64 phys,
+		      u64 *entry);
+void vt_ept_shadow_invalidate (struct vt_ept *ept, u64 gphys);
+u64 vt_ept_shadow_write (struct vt_ept *ept, u64 amask, u64 gphys, int level,
+			 u64 entry);
+void vt_ept_clear (struct vt_ept *ept);
 
 void vt_ept_init (void);
 bool vt_ept_violation (bool write, u64 gphys, bool emulation);

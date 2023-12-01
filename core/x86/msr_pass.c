@@ -120,8 +120,25 @@ msr_pass_read_msr (u32 msrindex, u64 *msrdata)
 		}
 		break;
 	case MSR_IA32_VMX_EPT_VPID_CAP:
-		if (config.vmm.unsafe_nested_virtualization == 2)
-			return true;
+		if (config.vmm.unsafe_nested_virtualization == 2) {
+			m.msrindex = msrindex;
+			m.msrdata = msrdata;
+			num = callfunc_and_getint (do_read_msr_sub, &m);
+			switch (num) {
+			case -1:
+				break;
+			case EXCEPTION_GP:
+				return true;
+			default:
+				panic ("msr_pass_read_msr: exception %d", num);
+			}
+			*msrdata &= ~(1 << 8); /* UC */
+			*msrdata &= ~(1 << 21); /* Accessed/dirty */
+			*msrdata &= ~(1 << 22); /* Advanced VM-exit
+						 * information for EPT
+						 * violations */
+			return false;
+		}
 		goto pass;
 	default:
 	pass:

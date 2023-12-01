@@ -40,6 +40,7 @@
 #include "current.h"
 #include "pcpu.h"
 #include "vt_addip.h"
+#include "vt_ept.h"
 #include "vt_exitreason.h"
 #include "vt_paging.h"
 #include "vt_regs.h"
@@ -472,6 +473,7 @@ init_shadow_vt (void)
 		asm_vmwrite (VMCS_VMREAD_BMP_ADDR,  vm_rw_bmp->bmp_pass_phys);
 		asm_vmwrite (VMCS_VMWRITE_BMP_ADDR, vm_rw_bmp->bmp_pass_phys);
 	}
+	ret->shadow_ept = NULL;
 	return ret;
 }
 
@@ -1273,7 +1275,100 @@ handle_acked_exint_pass (struct shadow_vt *shadow_vt)
 }
 
 static bool
-handle_ept (void)
+handle_ept_shadow (struct vt_ept *sept, u64 guest_eptp)
+{
+	ulong exit_reason;
+	asm_vmread (VMCS_EXIT_REASON, &exit_reason);
+	if (exit_reason & EXIT_REASON_VMENTRY_FAILURE_BIT)
+		return false;
+	u64 gp;
+	switch (exit_reason & EXIT_REASON_MASK) {
+	case EXIT_REASON_EPT_MISCONFIG:
+		/* Misconfigured entries must not be cached. */
+		asm_vmread64 (VMCS_GUEST_PHYSICAL_ADDRESS, &gp);
+		vt_ept_shadow_invalidate (sept, gp);
+		/* Fall through */
+	default:
+		return false;
+	case EXIT_REASON_EPT_VIOLATION:
+		break;
+	}
+
+	ulong eqe;
+	asm_vmread (VMCS_EXIT_QUALIFICATION, &eqe);
+	asm_vmread64 (VMCS_GUEST_PHYSICAL_ADDRESS, &gp);
+
+	/* If the page is already mapped, invalidate the page and
+	 * return EPT violation for read access.  Since write access
+	 * possibly hits VMM address protection, it will be checked
+	 * later. */
+	bool write_check = false;
+	if (eqe & (EPT_VIOLATION_EXIT_QUAL_E_READ_BIT |
+		   EPT_VIOLATION_EXIT_QUAL_E_WRITE_BIT |
+		   EPT_VIOLATION_EXIT_QUAL_E_EXEC_BIT)) {
+		vt_ept_shadow_invalidate (sept, gp);
+		if (!(eqe & EPT_VIOLATION_EXIT_QUAL_WRITE_BIT))
+			return false;
+		write_check = true;
+	}
+
+	/* Read guest EPT. */
+	u64 mask = current->pte_addr_mask;
+	u64 ge;
+	int gl = vt_ept_read_epte (current->as, mask, guest_eptp, gp, &ge);
+
+	if (write_check) {
+		/* If the exit qualification matches the entry, return
+		 * EFI violation. */
+		if (!!(ge & 1) ==
+		    !!(eqe & EPT_VIOLATION_EXIT_QUAL_E_READ_BIT) &&
+		    !!(ge & 2) ==
+		    !!(eqe & EPT_VIOLATION_EXIT_QUAL_E_WRITE_BIT) &&
+		    !!(ge & 4) ==
+		    !!(eqe & EPT_VIOLATION_EXIT_QUAL_E_EXEC_BIT))
+			return false;
+		/* If the entry is not present and the exit
+		 * qualification is different, the entry has already
+		 * been cleared above.  In this case, the next VM exit
+		 * may have a proper exit qualification. */
+		if (!(ge & 7))
+			goto ret_true;
+	} else {
+		/* If nothing has mapped and cached, simply return EPT
+		 * violation. */
+		if (!(ge & 7))
+			return false;
+		/* Fast path for a simple misconfigured case on a
+		 * processor that can vmwrite to exit reason field.
+		 * Reserved bits are treated by CPU - mapped once,
+		 * then EPT misconfiguration VM exit will occur. */
+		if ((ge & 3) == 2 && currentcpu->vt.vmcs_writable_readonly) {
+			asm_vmwrite (VMCS_EXIT_REASON,
+				     EXIT_REASON_EPT_MISCONFIG);
+			return false;
+		}
+	}
+
+	/* Write shadow EPT. */
+	u64 hentry = vt_ept_shadow_write (sept, mask, gp, gl, ge);
+	if (write_check) {
+		if (!(hentry & 2) && (ge & 2))
+			panic ("%s: Writing to VMM memory.", __func__);
+	}
+
+ret_true:
+	/* NMI unblocking workaround before the next VM entry. */
+	if (eqe & EPT_VIOLATION_EXIT_QUAL_NMI_UNBLOCKING_DUE_TO_IRET_BIT) {
+		ulong is;
+		asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
+		is |= VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT;
+		asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, is);
+	}
+	return true;
+}
+
+static bool
+handle_ept_host (void)
 {
 	/* While a guest does not activate EPT, EPT violation and EPT
 	 * misconfig must not be delivered to the guest as a VM
@@ -1307,6 +1402,13 @@ handle_ept (void)
 		panic ("Instruction emulation for nested virtualization"
 		       " not supported");
 	return true;
+}
+
+static bool
+handle_ept (struct vt_ept *sept, u64 guest_eptp)
+{
+	return sept ? handle_ept_shadow (sept, guest_eptp) :
+		handle_ept_host ();
 }
 
 /* If EPT violation occurs during event delivery, the event will be
@@ -1420,14 +1522,39 @@ run_l2vm (bool vmlaunched)
 		procbased_ctls2 &=
 			~VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT;
 
-	/* Set enable EPT bit and EPT pointer.  Because the EPT is
+	/* Set enable EPT bit and EPT pointer.  If the EPT is
 	 * concealed for the guest, the previous EPT pointer is not
 	 * saved. */
-	if (host_eptp) {
+	u64 guest_eptp = guest_eptp; /* Avoid compiler warning */
+	struct vt_ept *sept = NULL;
+	if ((procbased_ctls2 &
+	     VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_EPT_BIT) && host_eptp) {
+		/* Disable VPID for now.  Currently shadow EPT pointer
+		 * is always same, but guest might use same VPID for
+		 * different EPT pointer virtual machines, so
+		 * invalidating VPID may be needed to enable VPID. */
+		procbased_ctls2 &=
+			~VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT;
+		/* Using shadow EPT. */
+		asm_vmread64 (VMCS_EPT_POINTER, &guest_eptp);
+		if (!(guest_eptp & VMCS_EPT_POINTER_EPT_WB) ||
+		    !(guest_eptp & VMCS_EPT_PAGEWALK_LENGTH_4))
+			panic ("Nested invalid EPT pointer 0x%llX",
+			       guest_eptp);
+		sept = shadow_vt->shadow_ept;
+		if (!sept)
+			sept = shadow_vt->shadow_ept = vt_ept_new ();
+		else
+			vt_ept_clear (sept);
+		asm_vmwrite64 (VMCS_EPT_POINTER, vt_ept_get_eptp (sept));
+	} else if (host_eptp) {
+		/* Apply host EPTP to the guest. */
 		if (procbased_ctls2 &
 		    VMCS_PROC_BASED_VMEXEC_CTL2_NESTED_OFF_BITS)
 			panic ("Nested invalid procbased_ctls2 0x%lX",
 			       procbased_ctls2);
+		procbased_ctls2 &=
+			~VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT;
 		procbased_ctls2 |=
 			VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_EPT_BIT;
 		asm_vmwrite64 (VMCS_EPT_POINTER, host_eptp);
@@ -1476,7 +1603,7 @@ run_l2vm (bool vmlaunched)
 	asm_wrmsr64 (MSR_IA32_EFER, saved_host_efer);
 
 	/* Handle EPT violation */
-	if (!entry_err && host_eptp && handle_ept ()) {
+	if (host_eptp && !entry_err && handle_ept (sept, guest_eptp)) {
 		do {
 			handle_ept_violation_event_delivery ();
 			efer_l1 = efer_l2;
@@ -1484,7 +1611,7 @@ run_l2vm (bool vmlaunched)
 			entry_err = asm_vmresume_regs (&current->u.vt.vr);
 			asm_rdmsr64 (MSR_IA32_EFER, &efer_l2);
 			asm_wrmsr64 (MSR_IA32_EFER, saved_host_efer);
-		} while (!entry_err && host_eptp && handle_ept ());
+		} while (!entry_err && handle_ept (sept, guest_eptp));
 		/* If NMI occurs after the EPT violation VM exit, the
 		 * NMI should be notified as a VM exit.  It is not
 		 * implemented yet.  The following handles it like NMI
@@ -1507,6 +1634,10 @@ run_l2vm (bool vmlaunched)
 			panic ("Nested VM entry failure %d", entry_err);
 		}
 	}
+
+	/* Restore EPT pointer if needed. */
+	if (sept)
+		asm_vmwrite64 (VMCS_EPT_POINTER, guest_eptp);
 
 	/* Restore processor-based VM-execution controls */
 	if (orig_procbased_ctls2 != procbased_ctls2)
