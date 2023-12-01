@@ -474,6 +474,7 @@ init_shadow_vt (void)
 		asm_vmwrite (VMCS_VMWRITE_BMP_ADDR, vm_rw_bmp->bmp_pass_phys);
 	}
 	ret->shadow_ept = NULL;
+	ret->guest_eptp = 0;
 	return ret;
 }
 
@@ -950,9 +951,14 @@ vt_emul_invept (void)
 	ulong guest_rflags, host_rflags;
 	struct invept_desc desc;
 	ulong type;
+	struct shadow_vt *shadow_vt = current->u.vt.shadow_vt;
 
 	read_operand1 (&desc, sizeof desc, false);
 	read_operand2 (&type);
+	if (type != INVEPT_TYPE_SINGLE_CONTEXT ||
+	    (desc.eptp & 0xFFFFFFFFFF000ULL) ==
+	    (shadow_vt->guest_eptp & 0xFFFFFFFFFF000ULL))
+		shadow_vt->guest_eptp = 0;
 
 	asm_vmptrst (&orig_vmcs_addr_phys); /* Save original VMCS addr */
 	asm_vmptrld (&current->u.vt.shadow_vt->current_vmcs_hphys);
@@ -1542,10 +1548,14 @@ run_l2vm (bool vmlaunched)
 			panic ("Nested invalid EPT pointer 0x%llX",
 			       guest_eptp);
 		sept = shadow_vt->shadow_ept;
-		if (!sept)
+		if (!sept) {
 			sept = shadow_vt->shadow_ept = vt_ept_new ();
-		else
-			vt_ept_clear (sept);
+			shadow_vt->guest_eptp = guest_eptp;
+		} else {
+			if (shadow_vt->guest_eptp != guest_eptp)
+				vt_ept_clear (sept);
+			shadow_vt->guest_eptp = guest_eptp;
+		}
 		asm_vmwrite64 (VMCS_EPT_POINTER, vt_ept_get_eptp (sept));
 	} else if (host_eptp) {
 		/* Apply host EPTP to the guest. */

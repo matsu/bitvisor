@@ -91,6 +91,7 @@ struct shadow_vt {
 	} exint_hack_mode;
 	ulong exint_hack_val;
 	struct vt_ept *shadow_ept;
+	u64 guest_eptp;
 };
 
 #define VMCS_POINTER_INVALID 0xFFFFFFFFFFFFFFFFULL
