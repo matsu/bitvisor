@@ -37,7 +37,7 @@ struct vcpu;
 struct vt_ept;
 
 /* Functions for nested virtualization */
-struct vt_ept *vt_ept_new (void);
+struct vt_ept *vt_ept_new (int maxnumtbl);
 u64 vt_ept_get_eptp (struct vt_ept *ept);
 void vt_ept_delete (struct vt_ept *ept);
 int vt_ept_read_epte (const struct mm_as *as, u64 amask, u64 eptp, u64 phys,

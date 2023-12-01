@@ -63,6 +63,7 @@ static const u64 pagesizes[3] = { PAGESIZE, PAGESIZE2M, PAGESIZE1G };
 struct vt_ept {
 	int cnt;
 	int avl_pagesizes_len;
+	int maxnumtbl;
 	void *ncr3tbl;
 	phys_t ncr3tbl_phys;
 	void *tbl[MAXNUM_OF_EPTBL];
@@ -105,21 +106,26 @@ ept1gb_available (void)
 }
 
 struct vt_ept *
-vt_ept_new (void)
+vt_ept_new (int maxnumtbl)
 {
 	struct vt_ept *ept;
 	int i;
 
+	if (maxnumtbl < 8)
+		maxnumtbl = 8;
+	if (maxnumtbl > MAXNUM_OF_EPTBL)
+		maxnumtbl = MAXNUM_OF_EPTBL;
 	ept = alloc (sizeof *ept);
 	alloc_page (&ept->ncr3tbl, &ept->ncr3tbl_phys);
 	memset (ept->ncr3tbl, 0, PAGESIZE);
 	for (i = 0; i < MAXNUM_OF_EPTBL; i++)
 		ept->tbl[i] = NULL;
-	for (i = 0; i < DEFNUM_OF_EPTBL; i++)
+	for (i = 0; i < DEFNUM_OF_EPTBL && i < maxnumtbl; i++)
 		alloc_page (&ept->tbl[i], &ept->tbl_phys[i]);
 	ept->cnt = 0;
 	ept->cur.level = EPT_LEVELS;
 	ept->avl_pagesizes_len = ept1gb_available () ? 3 : 2;
+	ept->maxnumtbl = maxnumtbl;
 	invept (ept);
 	return ept;
 }
@@ -134,7 +140,7 @@ vt_ept_get_eptp (struct vt_ept *ept)
 void
 vt_ept_init (void)
 {
-	struct vt_ept *ept = vt_ept_new ();
+	struct vt_ept *ept = vt_ept_new (MAXNUM_OF_EPTBL);
 	asm_vmwrite64 (VMCS_EPT_POINTER, vt_ept_get_eptp (ept));
 	current->u.vt.ept = ept;
 	mmioclr_register (current, vt_ept_mmioclr_callback);

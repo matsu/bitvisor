@@ -1549,7 +1549,7 @@ run_l2vm (bool vmlaunched)
 			       guest_eptp);
 		sept = shadow_vt->shadow_ept;
 		if (!sept) {
-			sept = shadow_vt->shadow_ept = vt_ept_new ();
+			sept = shadow_vt->shadow_ept = vt_ept_new (16);
 			shadow_vt->guest_eptp = guest_eptp;
 		} else {
 			if (shadow_vt->guest_eptp != guest_eptp)
