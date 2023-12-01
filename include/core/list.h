@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2023-2024 The University of Tokyo
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -217,6 +218,7 @@
 	for (var = (head).next; var && ((varn = var->sx##next ? \
 					 (var + var->sx##next) : NULL), 1); \
 	     var = varn)
+#define LIST3_HEAD(head, sx) (head).next
 
 /* bidirectional list */
 #define LIST4_DEFINE(type, sx) \

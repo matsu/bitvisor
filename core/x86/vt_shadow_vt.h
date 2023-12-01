@@ -79,6 +79,8 @@ struct vmcs_exit_states {
 	u32 intr_err;
 };
 
+struct shadow_ept_data;
+
 struct shadow_vt {
 	u64 vmxon_region_phys;
 	u64 current_vmcs_hphys;
@@ -90,8 +92,7 @@ struct shadow_vt {
 		EXINT_HACK_MODE_READ,
 	} exint_hack_mode;
 	ulong exint_hack_val;
-	struct vt_ept *shadow_ept;
-	u64 guest_eptp;
+	struct shadow_ept_data *shadow_ept;
 };
 
 #define VMCS_POINTER_INVALID 0xFFFFFFFFFFFFFFFFULL

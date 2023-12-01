@@ -83,6 +83,29 @@ union instruction_info {
 	} s;
 };
 
+#define NUM_OF_SHADOW_EPT 2
+#define NUM_OF_SHADOW_VPID 16
+
+struct shadow_ept_ept_info {
+	struct vt_ept *shadow_ept;
+	u64 ep4ta;
+	u8 active;
+	LIST3_DEFINE (struct shadow_ept_ept_info, list, i8);
+};
+
+struct shadow_ept_vpid_info {
+	u64 ep4ta;
+	u16 vpid;
+	LIST3_DEFINE (struct shadow_ept_vpid_info, list, i8);
+};
+
+struct shadow_ept_data {
+	struct shadow_ept_ept_info ept[NUM_OF_SHADOW_EPT];
+	struct shadow_ept_vpid_info vpid[NUM_OF_SHADOW_VPID];
+	LIST3_DEFINE_HEAD (list_ept, struct shadow_ept_ept_info, list);
+	LIST3_DEFINE_HEAD (list_vpid, struct shadow_ept_vpid_info, list);
+};
+
 #define VMCS_DEFARRAY(name, array) ulong name[sizeof array / sizeof array[0]]
 #define VMCS_SAVEARRAY(name, array) \
 	save_vmcs (name, array, sizeof array / sizeof array[0])
@@ -474,7 +497,6 @@ init_shadow_vt (void)
 		asm_vmwrite (VMCS_VMWRITE_BMP_ADDR, vm_rw_bmp->bmp_pass_phys);
 	}
 	ret->shadow_ept = NULL;
-	ret->guest_eptp = 0;
 	return ret;
 }
 
@@ -868,6 +890,176 @@ choose_vmcs_mode (u64 shadow_vmcs_addr_hphys)
 	return MODE_SHADOWING;
 }
 
+static struct shadow_ept_data *
+shadow_ept_init (void)
+{
+	struct shadow_ept_data *d = alloc (sizeof *d);
+	LIST3_HEAD_INIT (d->list_ept, list);
+	for (int i = 0; i < NUM_OF_SHADOW_EPT; i++) {
+		d->ept[i].shadow_ept = NULL;
+		d->ept[i].ep4ta = 0;
+		d->ept[i].active = 0;
+		LIST3_ADD (d->list_ept, list, &d->ept[i]);
+	}
+	LIST3_HEAD_INIT (d->list_vpid, list);
+	for (int i = 0; i < NUM_OF_SHADOW_VPID; i++) {
+		d->vpid[i].ep4ta = 0;
+		d->vpid[i].vpid = 0;
+		LIST3_ADD (d->list_vpid, list, &d->vpid[i]);
+	}
+	return d;
+}
+
+static void
+shadow_ept_clear_ept (struct shadow_vt *shadow_vt, u64 guest_eptp)
+{
+	struct shadow_ept_data *d = shadow_vt->shadow_ept;
+	if (!d)
+		return;
+	if (guest_eptp) {
+		guest_eptp &= 0xFFFFFFFFFF000ULL;
+		guest_eptp |= 1; /* Internal flag */
+	}
+	struct shadow_ept_ept_info *p;
+	LIST3_FOREACH (d->list_ept, list, p) {
+		if (!guest_eptp || p->ep4ta == guest_eptp) {
+			if (p->shadow_ept && p->active) {
+				vt_ept_clear (p->shadow_ept);
+				p->active = 0;
+			}
+			if (guest_eptp)
+				break;
+		}
+	}
+}
+
+static struct shadow_ept_ept_info *
+shadow_ept_get_ept_info (struct shadow_vt *shadow_vt, u64 guest_eptp)
+{
+	struct shadow_ept_data *d = shadow_vt->shadow_ept;
+	if (!d)
+		shadow_vt->shadow_ept = d = shadow_ept_init ();
+	guest_eptp &= 0xFFFFFFFFFF000ULL;
+	guest_eptp |= 1;	/* Internal flag */
+	struct shadow_ept_ept_info *p;
+	struct shadow_ept_ept_info *last = NULL;
+	LIST3_FOREACH (d->list_ept, list, p) {
+		if (p->ep4ta == guest_eptp)
+			goto found;
+		last = p;
+	}
+	p = last;
+	if (p->shadow_ept) {
+		if (p->active) {
+			vt_ept_clear (p->shadow_ept);
+			p->active = 0;
+		}
+	} else {
+		p->shadow_ept = vt_ept_new (16);
+	}
+	p->ep4ta = guest_eptp;
+found:
+	if (LIST3_HEAD (d->list_ept, list) != p) {
+		LIST3_DEL (d->list_ept, list, p);
+		LIST3_PUSH (d->list_ept, list, p);
+	}
+	return p;
+}
+
+static u16
+shadow_ept_real_vpid (struct shadow_ept_data *d,
+		      struct shadow_ept_vpid_info *p)
+{
+	/* Use a different VPID from one in current->vpid to avoid
+	 * unnecessary invalidation. */
+	return (p - d->vpid) + 0x10;
+}
+
+static void
+shadow_ept_invalidate_vpid (struct shadow_ept_data *d,
+			    struct shadow_ept_vpid_info *p)
+{
+	struct invvpid_desc desc = {
+		.vpid = shadow_ept_real_vpid (d, p),
+	};
+	asm_invvpid (INVVPID_TYPE_SINGLE_CONTEXT, &desc);
+}
+
+/* The guest might use invvpid for multiple virtual machines that
+ * share same VPID with different EP4TA.  The shadow EPT may use same
+ * real EP4TA for such different EP4TA, so real VPID is assigned
+ * differently from the guest VPID.  This function searches a VPID
+ * list for the invvpid descriptor VPID.  If one entry found, replaces
+ * desc->vpid to a real one.  If multiple entries found, replaces
+ * desc->vpid to one of the real VPIDs, and does invvpid for others.
+ * When this function does invvpid, no errors are checked. */
+static void
+shadow_ept_invvpid (struct shadow_vt *shadow_vt, enum invvpid_type type,
+		    struct invvpid_desc *desc)
+{
+	struct shadow_ept_data *d = shadow_vt->shadow_ept;
+	if (!d)
+		return;
+	u16 guest_vpid = desc->vpid;
+	int first = 1;
+	struct shadow_ept_vpid_info *p;
+	LIST3_FOREACH (d->list_vpid, list, p) {
+		if (p->vpid == guest_vpid) {
+			if (!first)
+				asm_invvpid (type, desc);
+			first = 0;
+			desc->vpid = shadow_ept_real_vpid (d, p);
+		}
+	}
+}
+
+static struct shadow_ept_vpid_info *
+shadow_ept_get_vpid_info (struct shadow_vt *shadow_vt, u64 guest_eptp,
+			  u16 guest_vpid)
+{
+	struct shadow_ept_data *d = shadow_vt->shadow_ept;
+	if (!d)
+		shadow_vt->shadow_ept = d = shadow_ept_init ();
+	guest_eptp &= 0xFFFFFFFFFF000ULL;
+	guest_eptp |= 1;	/* Internal flag */
+	struct shadow_ept_vpid_info *p;
+	struct shadow_ept_vpid_info *last = NULL;
+	LIST3_FOREACH (d->list_vpid, list, p) {
+		if (p->ep4ta == guest_eptp && p->vpid == guest_vpid)
+			goto found;
+		last = p;
+	}
+	p = last;
+	shadow_ept_invalidate_vpid (d, p);
+	p->ep4ta = guest_eptp;
+	p->vpid = guest_vpid;
+found:
+	if (LIST3_HEAD (d->list_vpid, list) != p) {
+		LIST3_DEL (d->list_vpid, list, p);
+		LIST3_PUSH (d->list_vpid, list, p);
+	}
+	return p;
+}
+
+static void
+shadow_ept_activate_and_vmwrite (struct shadow_vt *shadow_vt,
+				 struct shadow_ept_ept_info *ept,
+				 struct shadow_ept_vpid_info *vpid)
+{
+	struct shadow_ept_data *d = shadow_vt->shadow_ept;
+	ept->active = 1;
+	asm_vmwrite64 (VMCS_EPT_POINTER, vt_ept_get_eptp (ept->shadow_ept));
+	if (vpid)
+		asm_vmwrite (VMCS_VPID, shadow_ept_real_vpid (d, vpid));
+}
+
+static struct vt_ept *
+shadow_ept_get_sept (struct shadow_vt *shadow_vt,
+		     struct shadow_ept_ept_info *ept)
+{
+	return ept->shadow_ept;
+}
+
 /* load_shadow_vmcs_ptr (void) */
 void
 vt_emul_vmptrld (void)
@@ -955,13 +1147,13 @@ vt_emul_invept (void)
 
 	read_operand1 (&desc, sizeof desc, false);
 	read_operand2 (&type);
-	if (type != INVEPT_TYPE_SINGLE_CONTEXT ||
-	    (desc.eptp & 0xFFFFFFFFFF000ULL) ==
-	    (shadow_vt->guest_eptp & 0xFFFFFFFFFF000ULL))
-		shadow_vt->guest_eptp = 0;
+	if (type != INVEPT_TYPE_SINGLE_CONTEXT)
+		shadow_ept_clear_ept (shadow_vt, 0);
+	else
+		shadow_ept_clear_ept (shadow_vt, desc.eptp);
 
 	asm_vmptrst (&orig_vmcs_addr_phys); /* Save original VMCS addr */
-	asm_vmptrld (&current->u.vt.shadow_vt->current_vmcs_hphys);
+	asm_vmptrld (&shadow_vt->current_vmcs_hphys);
 	asm_invept_and_rdrflags (type, &desc, &host_rflags);
 	asm_vmptrld (&orig_vmcs_addr_phys);
 	asm_vmread (VMCS_GUEST_RFLAGS, &guest_rflags);
@@ -979,12 +1171,15 @@ vt_emul_invvpid (void)
 	ulong guest_rflags, host_rflags;
 	struct invvpid_desc desc;
 	ulong type;
+	struct shadow_vt *shadow_vt = current->u.vt.shadow_vt;
 
 	read_operand1 (&desc, sizeof desc, false);
 	read_operand2 (&type);
+	if (type != INVVPID_TYPE_ALL_CONTEXTS)
+		shadow_ept_invvpid (shadow_vt, type, &desc);
 
 	asm_vmptrst (&orig_vmcs_addr_phys); /* Save original VMCS addr */
-	asm_vmptrld (&current->u.vt.shadow_vt->current_vmcs_hphys);
+	asm_vmptrld (&shadow_vt->current_vmcs_hphys);
 	asm_invvpid_and_rdrflags (type, &desc, &host_rflags);
 	asm_vmptrld (&orig_vmcs_addr_phys);
 	asm_vmread (VMCS_GUEST_RFLAGS, &guest_rflags);
@@ -1411,10 +1606,15 @@ handle_ept_host (void)
 }
 
 static bool
-handle_ept (struct vt_ept *sept, u64 guest_eptp)
+handle_ept (struct shadow_vt *shadow_vt, struct shadow_ept_ept_info *ept,
+	    u64 guest_eptp)
 {
-	return sept ? handle_ept_shadow (sept, guest_eptp) :
-		handle_ept_host ();
+	if (!ept) {
+		return handle_ept_host ();
+	} else {
+		struct vt_ept *sept = shadow_ept_get_sept (shadow_vt, ept);
+		return handle_ept_shadow (sept, guest_eptp);
+	}
 }
 
 /* If EPT violation occurs during event delivery, the event will be
@@ -1532,31 +1732,29 @@ run_l2vm (bool vmlaunched)
 	 * concealed for the guest, the previous EPT pointer is not
 	 * saved. */
 	u64 guest_eptp = guest_eptp; /* Avoid compiler warning */
-	struct vt_ept *sept = NULL;
+	ulong guest_vpid = guest_vpid;
+	struct shadow_ept_ept_info *ept_info = NULL;
+	struct shadow_ept_vpid_info *vpid_info = NULL;
 	if ((procbased_ctls2 &
 	     VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_EPT_BIT) && host_eptp) {
-		/* Disable VPID for now.  Currently shadow EPT pointer
-		 * is always same, but guest might use same VPID for
-		 * different EPT pointer virtual machines, so
-		 * invalidating VPID may be needed to enable VPID. */
-		procbased_ctls2 &=
-			~VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT;
 		/* Using shadow EPT. */
 		asm_vmread64 (VMCS_EPT_POINTER, &guest_eptp);
 		if (!(guest_eptp & VMCS_EPT_POINTER_EPT_WB) ||
 		    !(guest_eptp & VMCS_EPT_PAGEWALK_LENGTH_4))
 			panic ("Nested invalid EPT pointer 0x%llX",
 			       guest_eptp);
-		sept = shadow_vt->shadow_ept;
-		if (!sept) {
-			sept = shadow_vt->shadow_ept = vt_ept_new (16);
-			shadow_vt->guest_eptp = guest_eptp;
-		} else {
-			if (shadow_vt->guest_eptp != guest_eptp)
-				vt_ept_clear (sept);
-			shadow_vt->guest_eptp = guest_eptp;
-		}
-		asm_vmwrite64 (VMCS_EPT_POINTER, vt_ept_get_eptp (sept));
+		ept_info = shadow_ept_get_ept_info (shadow_vt, guest_eptp);
+		if (procbased_ctls2 &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VPID_BIT)
+			asm_vmread (VMCS_VPID, &guest_vpid);
+		else
+			guest_vpid = 0;
+		if (guest_vpid)
+			vpid_info = shadow_ept_get_vpid_info (shadow_vt,
+							      guest_eptp,
+							      guest_vpid);
+		shadow_ept_activate_and_vmwrite (shadow_vt, ept_info,
+						 vpid_info);
 	} else if (host_eptp) {
 		/* Apply host EPTP to the guest. */
 		if (procbased_ctls2 &
@@ -1613,7 +1811,8 @@ run_l2vm (bool vmlaunched)
 	asm_wrmsr64 (MSR_IA32_EFER, saved_host_efer);
 
 	/* Handle EPT violation */
-	if (host_eptp && !entry_err && handle_ept (sept, guest_eptp)) {
+	if (host_eptp && !entry_err && handle_ept (shadow_vt, ept_info,
+						   guest_eptp)) {
 		do {
 			handle_ept_violation_event_delivery ();
 			efer_l1 = efer_l2;
@@ -1621,7 +1820,8 @@ run_l2vm (bool vmlaunched)
 			entry_err = asm_vmresume_regs (&current->u.vt.vr);
 			asm_rdmsr64 (MSR_IA32_EFER, &efer_l2);
 			asm_wrmsr64 (MSR_IA32_EFER, saved_host_efer);
-		} while (!entry_err && handle_ept (sept, guest_eptp));
+		} while (!entry_err && handle_ept (shadow_vt, ept_info,
+						   guest_eptp));
 		/* If NMI occurs after the EPT violation VM exit, the
 		 * NMI should be notified as a VM exit.  It is not
 		 * implemented yet.  The following handles it like NMI
@@ -1645,9 +1845,11 @@ run_l2vm (bool vmlaunched)
 		}
 	}
 
-	/* Restore EPT pointer if needed. */
-	if (sept)
+	/* Restore EPT pointer and VPID if needed. */
+	if (ept_info)
 		asm_vmwrite64 (VMCS_EPT_POINTER, guest_eptp);
+	if (vpid_info)
+		asm_vmwrite (VMCS_VPID, guest_vpid);
 
 	/* Restore processor-based VM-execution controls */
 	if (orig_procbased_ctls2 != procbased_ctls2)
