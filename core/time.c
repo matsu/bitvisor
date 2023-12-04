@@ -317,9 +317,39 @@ get_epoch_time (long long *second, int *microsecond)
 	*second = boot_init_time + sec[0];
 }
 
+static int
+epochtime_msghandler (int m, int c, struct msgbuf *buf, int bufcnt)
+{
+	int microsecond_value;
+	int *microsecond_ptr;
+	long long *second_ptr;
+
+	if (m != MSG_BUF || (bufcnt != 1 && bufcnt != 2))
+		return -1;
+	if (buf[0].len != sizeof (long long))
+		return -1;
+	second_ptr = buf[0].base;
+	if (bufcnt == 2) {
+		if (buf[1].len != sizeof (int))
+			return -1;
+		microsecond_ptr = buf[1].base;
+	} else {
+		microsecond_ptr = &microsecond_value;
+	}
+	get_epoch_time (second_ptr, microsecond_ptr);
+	return 0;
+}
+
+static void
+epochtime_init_msg (void)
+{
+	msgregister ("epochtime", epochtime_msghandler);
+}
+
 INITFUNC ("global3", time_init_global);
 INITFUNC ("paral01", time_init_global_status);
 INITFUNC ("pcpu4", time_init_pcpu);
 INITFUNC ("dbsp4", time_init_dbsp);
 INITFUNC ("msg0", time_init_msg);
 INITFUNC ("wakeup0", time_wakeup);
+INITFUNC ("msg1", epochtime_init_msg);
