@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <lib_syscalls.h>
 #include "string.h"
 #include "sqlite3.h"
 #include "vvfs.h"
@@ -583,9 +584,26 @@ vSleep (sqlite3_vfs *pVfs, int nMicro)
 }
 
 static int
-vCurrentTime (sqlite3_vfs *pVfs, sqlite3_int64 *pTime)
+vCurrentTimeInt64 (sqlite3_vfs *pVfs, sqlite3_int64 *pTime)
 {
-	*pTime = 2459108;
+	int d;
+	struct msgbuf mbuf[2];
+	long long epoch_second = 0;
+	int epoch_microsecond = 0;
+	static const sqlite3_int64 unixEpoch = 24405875 * 8640000LL;
+
+	setmsgbuf (&mbuf[0], &epoch_second, sizeof epoch_second, 1);
+	setmsgbuf (&mbuf[1], &epoch_microsecond, sizeof epoch_microsecond, 1);
+	d = msgopen ("epochtime");
+	if (d >= 0) {
+		msgsendbuf (d, 0, mbuf, 2);
+		msgclose (d);
+	}
+	if (epoch_second)
+		*pTime = epoch_second * 1000LL + epoch_microsecond / 1000LL +
+			unixEpoch;
+	else
+		*pTime = 212466931200000; /* 2020-09-05 12:00:00 */
 	return SQLITE_OK;
 }
 
@@ -593,7 +611,7 @@ sqlite3_vfs *
 v_vfs (void)
 {
 	static sqlite3_vfs vvfs = {
-		1,		       /* iVersion */
+		2,		       /* iVersion */
 		sizeof (struct vFile), /* szOsFile */
 		16,		       /* mxPathname */
 		0,		       /* pNext */
@@ -609,7 +627,9 @@ v_vfs (void)
 		vDlClose,	       /* xDlClose */
 		vRandomness,	       /* xRandomness */
 		vSleep,		       /* xSleep */
-		vCurrentTime,	       /* xCurrentTime */
+		0,		       /* xCurrentTime */
+		0,		       /* xGetLastError */
+		vCurrentTimeInt64,     /* xCurrentTimeInt64 */
 	};
 
 	return &vvfs;
