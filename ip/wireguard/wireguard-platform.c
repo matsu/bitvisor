@@ -1,6 +1,9 @@
+#include <core/random.h>
 #include <ip_sys.h>
 #include "wireguard-lwip/src/crypto.h"
 #include "wireguard-lwip/src/wireguard-platform.h"
+
+#define RAND_RETRY 20
 
 static unsigned long next = 1;
 
@@ -9,6 +12,9 @@ static unsigned long next = 1;
 static int
 myrand (void)
 {
+	unsigned int num;
+	if (random_num_hw (RAND_RETRY, &num))
+		return num % 32768;
 	next = next * 1103515245 + 12345;
 	/* RAND_MAX assumed to be 32767 */
 	return ((unsigned)(next / 65536) % 32768);
