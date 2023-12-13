@@ -128,7 +128,7 @@ echo_client_init (int *ipaddr, int port, char *netif_name)
 
 	printd ("New Connection.\n");
 	pcb = tcp_new ();
-	if (netif_name[0] != '\0' && pcb) {
+	if (netif_name[0] != '\0' && pcb && strlen (netif_name) >= 2) {
 		netif = netif_find (netif_name);
 		if (netif == NULL) {
 			printf ("Can not access netif %s\n", netif_name);

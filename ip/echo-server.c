@@ -80,7 +80,7 @@ echo_server_init (int port, char *netif_name)
   struct netif *netif;
 
   echo_pcb = tcp_new();
-  if (netif_name[0] != '\0' && echo_pcb)
+  if (netif_name[0] != '\0' && echo_pcb && strlen (netif_name) >= 2)
   {
     netif = netif_find (netif_name);
     if (netif == NULL)

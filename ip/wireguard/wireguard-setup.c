@@ -57,7 +57,7 @@ wireguard_setup (struct wireguard_setup_arg *arg)
 	struct wireguardif_init_data wg;
 	struct wireguardif_peer peer;
 	struct wireguard_setup_data wg_config;
-	char lwip_netif_name[3] = "vm0";
+	char lwip_netif_name[] = "vm0";
 	int ret;
 
 	/* Setup the WireGuard device structure */
