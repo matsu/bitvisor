@@ -36,4 +36,6 @@ struct thread_pcpu_data {
 	tid_t tid;
 };
 
+void thread_set_cpu0only (bool enable);
+
 #endif

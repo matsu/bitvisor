@@ -75,6 +75,7 @@ vmmcall_boot_thread (void *arg)
 
 	data = arg;
 	data->func (data->arg);
+	thread_set_cpu0only (false);
 	continue_flag = true;
 	enable = false;
 	free (data);
@@ -192,6 +193,7 @@ vmmcall_boot_enable (void (*func) (void *), void *arg)
 	data = alloc (sizeof *data);
 	data->func = func;
 	data->arg = arg;
+	thread_set_cpu0only (true);
 	thread_new (vmmcall_boot_thread, data, VMM_STACKSIZE);
 	wait_for_boot_continue ();
 }

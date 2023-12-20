@@ -87,6 +87,7 @@ static LIST1_DEFINE_HEAD (struct thread_data, td_free);
 static LIST1_DEFINE_HEAD (struct thread_data, td_runnable);
 static LOCK_DEFINE (thread_lock);
 static void *old_stack;
+static bool thread_cpu0only;
 
 static void
 thread_data_init (struct thread_data *d, struct thread_context *c, void *stack,
@@ -149,17 +150,21 @@ schedule (void)
 {
 	struct thread_data *d;
 	tid_t oldtid, newtid;
+	int cpuany = CPUNUM_ANY;
+	int cpucur;
 
 	if (schedule_skip (true))
 		return;
+	cpucur = get_cpu_id ();
 	LOCK_LOCK (&thread_lock);
 	if (old_stack) {
 		free (old_stack);
 		old_stack = NULL;
 	}
+	if (thread_cpu0only && cpucur)
+		cpuany = cpucur;
 	LIST1_FOREACH (td_runnable, d) {
-		if (d->cpunum == CPUNUM_ANY ||
-		    d->cpunum == currentcpu->cpunum)
+		if (d->cpunum == cpuany || d->cpunum == cpucur)
 			goto found;
 	}
 	LOCK_UNLOCK (&thread_lock);
@@ -308,6 +313,14 @@ thread_exit (void)
 		       td[currentcpu->thread.tid].state);
 	}
 	schedule ();
+}
+
+void
+thread_set_cpu0only (bool enable)
+{
+	LOCK_LOCK (&thread_lock);
+	thread_cpu0only = enable;
+	LOCK_UNLOCK (&thread_lock);
 }
 
 static int
