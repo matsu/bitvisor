@@ -1054,8 +1054,8 @@ phys_in_vmm (u64 phys)
 	return phys >= vmm_start_phys && phys < vmm_start_phys + VMMSIZE_ALL;
 }
 
-static bool
-is_overlapped_with_vmm (phys_t phys, size_t len)
+bool
+phys_overlapping_with_vmm (phys_t phys, size_t len)
 {
 	phys_t vmm_start_phys = vmm_mem_start_phys ();
 	return phys < vmm_start_phys + VMMSIZE_ALL &&
@@ -1956,7 +1956,7 @@ as_translate_passvm (void *data, unsigned int *npages, u64 address)
 
 	/* (address, *npages * PAGESIZE) region may be overlapped
 	 * when 1GiB mapping. */
-	if (is_overlapped_with_vmm (address, *npages * PAGESIZE))
+	if (phys_overlapping_with_vmm (address, *npages * PAGESIZE))
 		*npages = (vmm_mem_start_phys () - address) / PAGESIZE;
 
 	ret = mm_as_translate (as_hphys, npages, address);
