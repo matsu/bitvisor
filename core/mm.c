@@ -335,8 +335,8 @@ sort_sysmemmap (void)
  * Return value is whether the region is found or not.
  */
 bool
-continuous_sysmem_type_region (phys_t phys, phys_t *start, u64 *len,
-			       u32 *sysmem_type)
+vmm_mem_continuous_sysmem_type_region (phys_t phys, phys_t *start, u64 *len,
+				       u32 *sysmem_type)
 {
 	int i;
 	phys_t region_start = 0, region_end = 0;
@@ -810,7 +810,7 @@ move_vmm (void)
 }
 
 bool
-page1gb_available (void)
+vmm_mem_page1gb_available (void)
 {
 	u32 a, b, c, d;
 
@@ -862,7 +862,7 @@ map_hphys (void)
 		PDE_PS_PAT_BIT;
 	size = PAGESIZE2M;
 	level = 2;
-	if (page1gb_available ()) {
+	if (vmm_mem_page1gb_available ()) {
 #ifdef __x86_64__
 		hphys_len = PAGE1GB_HPHYS_LEN;
 		size = PAGESIZE1G;

@@ -129,8 +129,8 @@ search_available_region (phys_t search_base, phys_t *avl_base, phys_t *avl_end)
 
 	ASSERT (avl_base);
 	ASSERT (avl_end);
-	while (continuous_sysmem_type_region (search_base, &map_base, &len,
-					      &sysmem_type)) {
+	while (vmm_mem_continuous_sysmem_type_region (search_base, &map_base,
+						      &len, &sysmem_type)) {
 		if (sysmem_type != SYSMEMMAP_TYPE_AVAILABLE) {
 			search_base += len;
 			continue;

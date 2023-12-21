@@ -82,7 +82,7 @@ svm_np_init (void)
 		alloc_page (&np->tbl[i], &np->tbl_phys[i]);
 	np->cnt = 0;
 	np->cur.level = PMAP_LEVELS;
-	np->avl_pagesizes_len = page1gb_available () ? 3 : 2;
+	np->avl_pagesizes_len = vmm_mem_page1gb_available () ? 3 : 2;
 	current->u.svm.np = np;
 	current->u.svm.vi.vmcb->n_cr3 = np->ncr3tbl_phys;
 	mmioclr_register (current, svm_np_mmioclr_callback);
