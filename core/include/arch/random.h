@@ -27,41 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <arch/currentcpu.h>
-#include <arch/random.h>
-#include <core/panic.h>
-#include "initfunc.h"
-#include "time.h"
+#ifndef __CORE_INCLUDE_ARCH_RANDOM_H
+#define __CORE_INCLUDE_ARCH_RANDOM_H
 
-static void
-random_init_general (void)
-{
-	long long second = 0;
-	int microsecond;
+void random_arch_init (void);
+unsigned int random_arch_num_hw (unsigned int retry_times,
+				 unsigned int *out_num);
 
-	random_arch_init ();
-	get_epoch_time (&second, &microsecond);
-	if (second == 0)
-		panic ("get_epoch_time failure, second == 0");
-	currentcpu_set_rnd_context (second);
-}
-
-unsigned int
-random_num_sw (void)
-{
-	unsigned int rand;
-
-	rand = (1103515245 * currentcpu_get_rnd_context () + 12345) %
-		2147483648;
-	currentcpu_set_rnd_context (rand);
-
-	return rand;
-}
-
-unsigned int
-random_num_hw (unsigned int retry_times, unsigned int *out_num)
-{
-	return random_arch_num_hw (retry_times, out_num);
-}
-
-INITFUNC ("pcpu6", random_init_general);
+#endif

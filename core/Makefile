@@ -83,6 +83,7 @@ objs-1 += panic_x86.o
 objs-1 += phys.o
 objs-1 += pmap.o
 objs-1 += process_x86.o
+objs-1 += random_x86.o
 objs-1 += reboot_x86.o
 objs-1 += sym.o
 objs-1 += thread_x86.o

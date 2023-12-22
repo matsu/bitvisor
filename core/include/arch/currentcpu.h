@@ -42,5 +42,7 @@ void currentcpu_set_stackaddr (void *stackaddr);
 tid_t currentcpu_get_tid (void);
 void currentcpu_set_tid (tid_t tid);
 bool currentcpu_vmm_stack_full (void);
+unsigned int currentcpu_get_rnd_context (void);
+void currentcpu_set_rnd_context (unsigned int context);
 
 #endif

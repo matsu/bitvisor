@@ -109,3 +109,15 @@ currentcpu_vmm_stack_full (void)
 	asm_rdrsp (&curstk);
 	return curstk - (ulong)currentcpu->stackaddr < VMM_MINSTACKSIZE;
 }
+
+unsigned int
+currentcpu_get_rnd_context (void)
+{
+	return currentcpu->rnd_context;
+}
+
+void
+currentcpu_set_rnd_context (unsigned int context)
+{
+	currentcpu->rnd_context = context;
+}
