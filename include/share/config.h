@@ -259,6 +259,12 @@ struct config_data_wireguard {
 	char peer_public_key[45];
 };
 
+struct config_data_wg_guest_os {
+	u8 ipaddr[4];
+	u8 dns[4];
+	char mac_gateway[6];
+};
+
 struct config_data_tls {
 	char ca_cert[4096];
 	char srv_cert[4096];
@@ -274,6 +280,7 @@ struct config_data {
 	struct config_data_storage storage;
 	struct config_data_vmm vmm;
 	struct config_data_wireguard wg;
+	struct config_data_wg_guest_os wg_gos;
 } __attribute__ ((packed));
 
 #endif

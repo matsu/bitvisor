@@ -38,20 +38,13 @@
 #include <core/thread.h>
 #include <net/netapi.h>
 #include "ip_main.h"
+#include "net_main_wg.h"
+#include "net_main_internal.h"
 
 struct net_task {
 	LIST1_DEFINE (struct net_task);
 	void (*func) (void *arg);
 	void *arg;
-};
-
-struct net_ip_data {
-	int pass;
-	void *phys_handle, *virt_handle;
-	struct nicfunc *phys_func, *virt_func;
-	bool input_ok;
-	u8 filter_count;
-	void *input_arg;
 };
 
 struct net_ip_input_data {
@@ -123,11 +116,15 @@ net_ip_new_nic (char *arg, void *param)
 		       " interfaces");
 	flag = 1;
 	p = alloc (sizeof *p);
+	p->wg_gos = 0;
 	p->pass = !!param;
 	p->input_ok = false;
 	if (param && param_str[0] == 'f') {
 		p->pass = -1;
 		p->filter_count = param_str[1] == 'f' ? 1 : 0;
+	} else if (param && param_str[0] == 'w') {
+		p->pass = 0;
+		p->wg_gos = 1;
 	}
 	return p;
 }
@@ -156,6 +153,8 @@ net_ip_virt_recv (void *handle, unsigned int num_packets, void **packets,
 	if (p->pass)
 		p->phys_func->send (p->phys_handle, num_packets, packets,
 				    packet_sizes, true);
+	else if (p->wg_gos)
+		wg_gos_routing (num_packets, packets, packet_sizes, param);
 }
 
 static void
@@ -185,6 +184,14 @@ net_main_input_queue (void *arg, void *packet, unsigned int packet_size)
 	net_main_task_add (net_main_input_direct, data);
 }
 
+void
+net_main_send_virt (struct net_ip_data *handle, unsigned int num_packets,
+		    void **packets, unsigned int *packet_sizes, bool print_ok)
+{
+	handle->virt_func->send (handle->virt_handle, num_packets, packets,
+				 packet_sizes, print_ok);
+}
+
 static void
 net_ip_phys_recv (void *handle, unsigned int num_packets, void **packets,
 		  unsigned int *packet_sizes, void *param, long *premap)
@@ -196,8 +203,8 @@ net_ip_phys_recv (void *handle, unsigned int num_packets, void **packets,
 	unsigned int size;
 
 	if (p->pass)
-		p->virt_func->send (p->virt_handle, num_packets, packets,
-				    packet_sizes, true);
+		net_main_send_virt (p, num_packets, packets, packet_sizes,
+				    true);
 	if (p->input_ok) {
 		for (i = 0; i < num_packets; i++) {
 			packet = packets[i];
@@ -318,6 +325,11 @@ net_ip_start (void *handle)
 	if (p->virt_func)
 		p->virt_func->set_recv_callback (p->virt_handle,
 						 net_ip_virt_recv, p);
+	if (p->wg_gos) {
+		unsigned char guest_mac[6];
+		net_main_get_mac_address (p, guest_mac);
+		p->wg_gos_data = wg_gos_new (guest_mac);
+	}
 	thread_new (net_thread, p, VMM_STACKSIZE);
 }
 
@@ -336,6 +348,7 @@ net_main_init (void)
 	net_register ("ippass", &net_ip_func, "");
 	net_register ("ippassfilter", &net_ip_func, "f");
 	net_register ("ippassfilter2", &net_ip_func, "ff");
+	net_register ("ipwggos", &net_ip_func, "w");
 }
 
 INITFUNC ("driver1", net_main_init);

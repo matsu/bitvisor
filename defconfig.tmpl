@@ -172,6 +172,11 @@ struct config_data config = {
 		.wg_private_key = "",
 		.peer_public_key = "",
 	},
+	.wg_gos = {
+		.ipaddr = { 0, 0, 0, 0 },
+		.dns = { 0, 0, 0, 0 },
+		.mac_gateway = { 0x02, 0x48, 0x84, 0x76, 0x71, 0x00 },
+	},
 	.tls = {
 		.srv_cert = "",
 		.srv_key = "",

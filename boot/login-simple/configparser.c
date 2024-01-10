@@ -484,6 +484,10 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "wg.peer_endpoint_port");
 	ss (uintnum, &name, &src, &len, "wg.wg_listen_port",
 	    "wg.wg_listen_port");
+	ss (ipv4_addr, &name, &src, &len, "wg_gos.dns", "wg_gos.dns");
+	ss (ipv4_addr, &name, &src, &len, "wg_gos.ipaddr", "wg_gos.ipaddr");
+	ss (mac_addr, &name, &src, &len, "wg_gos.mac_gateway",
+	    "wg_gos.mac_gateway");
 	/* Mbed-TLS */
 	ss (file, &name, &src, &len, "tls.ca_certFile", "tls.ca_cert");
 	ss (file, &name, &src, &len, "tls.srv_certFile", "tls.srv_cert");
@@ -659,6 +663,10 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (wg.wg_listen_port);
 	CONF (wg.wg_private_key);
 	CONF (wg.peer_public_key);
+	/* WG guest OS */
+	CONF (wg_gos.dns);
+	CONF (wg_gos.ipaddr);
+	CONF (wg_gos.mac_gateway);
 	/* Mbed-TLS */
 	CONF (tls.ca_cert);
 	CONF (tls.srv_cert);

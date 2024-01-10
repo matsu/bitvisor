@@ -52,6 +52,7 @@ objs-1 += lwip-$(LWIP_VERSION)/src/api/tcpip.o
 
 objs-1 += ip_sys.o arch/sys_arch.o
 objs-1 += ip_main.o net_main.o
+objs-$(CONFIG_WIREGUARD) += net_main_wg.o
 objs-1 += echo-server.o echo-client.o echoctl.o
 objs-1 += telnet-server.o telnet-dbgsh.o
 objs-1 += string.o

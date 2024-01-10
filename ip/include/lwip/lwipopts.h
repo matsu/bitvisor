@@ -82,3 +82,9 @@
 #define LWIP_STATS                      0 /* Don't Use statistics. */
 
 #endif /* __LWIPOPTS_H__ */
+#ifdef WIREGUARD_VMM
+#define LWIP_HOOK_IP4_INPUT(p, inp) wg_ip4_input_hook (p, inp)
+struct pbuf;
+struct netif;
+int wg_ip4_input_hook (struct pbuf *p, struct netif *inp);
+#endif /* WIREGUARD_VMM */
