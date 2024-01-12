@@ -1358,7 +1358,7 @@ reghook (struct data *d, int i, struct pci_bar_info *bar)
 		d->mapaddr = bar->base;
 		d->maplen = bar->len;
 		d->map = mapmem_as (as_passvm, bar->base, bar->len,
-				    MAPMEM_WRITE);
+				    MAPMEM_WRITE | MAPMEM_UC);
 		if (!d->map)
 			panic ("mapmem failed");
 		d->io = 0;
@@ -1379,7 +1379,7 @@ pro1000_mmio_change (void *handle, struct pci_bar_info *bar_info)
 
 	old_map = d->map;
 	new_map = mapmem_as (as_passvm, bar_info->base, bar_info->len,
-			     MAPMEM_WRITE);
+			     MAPMEM_WRITE | MAPMEM_UC);
 	if (!new_map)
 		panic ("mapmem failed");
 
