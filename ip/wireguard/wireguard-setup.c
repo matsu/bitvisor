@@ -78,6 +78,8 @@ wireguard_setup (struct wireguard_setup_arg *arg)
 			      &wg_config.netmask,
 			      &wg_config.gateway, &wg,
 			      &wireguardif_init, &ip_input);
+	if (!wg_netif)
+		return ERR_IF;
 	/* Mark the interface as administratively up, link up flag is set */
 	/* automatically when peer connects */
 	netif_set_up (wg_netif);
