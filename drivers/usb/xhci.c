@@ -463,9 +463,8 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 
 	if (cmd & USBCMD_RUN) {
 		if (!host->run) {
-			take_control_erst (xhci_data);
-
 			host->run = 1;
+			take_control_erst (xhci_data);
 		}
 	} else {
 		if (host->run) {
