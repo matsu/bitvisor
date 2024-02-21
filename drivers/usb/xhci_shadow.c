@@ -903,7 +903,7 @@ xhci_sync_state (void *data, int num)
 		goto end;
 	}
 
-	u32 status = *(u32 *)(xhci_regs->opr_reg + OPR_USBSTS_OFFSET);
+	u32 status = *(volatile u32 *)(xhci_regs->opr_reg + OPR_USBSTS_OFFSET);
 
 	/* Check for Event Interrupt */
 	if (status & USBSTS_EINT) {

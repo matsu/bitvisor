@@ -214,7 +214,8 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 	struct xhci_db_reg req = {0};
 	req.db_target = endpoint + 1; /* endpoint starts from 0 */
 
-	struct xhci_db_reg *db_reg = (struct xhci_db_reg *)host->regs->db_reg;
+	volatile struct xhci_db_reg *db_reg =
+		(struct xhci_db_reg *)host->regs->db_reg;
 
 	db_reg[slot_id] = req;
 
