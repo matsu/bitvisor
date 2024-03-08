@@ -143,7 +143,9 @@ time_init_pcpu (void)
 		/* Using UEFI runtime syscall to store
 		 * the boot time in EPOCH format */
 		time_record_boot_time_uefi ();
-
+	if (!uefi_booted && !currentcpu_get_id ())
+		time_arch_record_boot_time (&boot_init_time,
+					    &boot_preposition_time);
 }
 
 static int

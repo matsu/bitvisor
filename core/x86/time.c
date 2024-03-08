@@ -206,6 +206,75 @@ time_arch_init_global (void)
 	rw_spinlock_init (&initsync);
 }
 
+void
+time_arch_record_boot_time (u64 *boot_init_time, u64 *boot_preposition_time)
+{
+	enum {
+		SECONDS,
+		MINUTES,
+		HOURS,
+		DAY,
+		MONTH,
+		YEAR,
+		CENTURY,
+	};
+	static const u8 rtcreg[] = {
+		0x00,
+		0x02,
+		0x04,
+		0x07,
+		0x08,
+		0x09,
+		0x32
+	};
+	u8 rtcdata[sizeof rtcreg];
+	for (int i = 0; i < sizeof rtcreg; i++) {
+		asm_outb (0x70, rtcreg[i]);
+		u8 tmp;
+		asm_inb (0x71, &tmp);
+		if (tmp > 0x99 || (tmp & 0xF) > 9)
+			tmp = 0;
+		rtcdata[i] = ((tmp >> 4) * 10) + (tmp & 0xF);
+	}
+	*boot_preposition_time = get_time ();
+	u16 year = rtcdata[YEAR];
+	if (rtcdata[CENTURY] >= 19 && rtcdata[CENTURY] <= 21)
+		year += rtcdata[CENTURY] * 100;
+	if (year < 100)
+		year += 1900;
+	if (year < 1980)
+		year += 100;
+	u8 month = rtcdata[MONTH];
+	u8 day = rtcdata[DAY];
+	u8 hour = rtcdata[HOURS];
+	u8 minute = rtcdata[MINUTES];
+	u8 second = rtcdata[SECONDS];
+	int y, m, y400r, y100r, y100q, y4r, y4q;
+	long long y400q, d;
+	y = year - 1900 - 100;
+	m = month - 1;
+	if (m >= 2) {
+		m -= 2;
+	} else {
+		m += 10;
+		y--;
+	}
+	y400r = y % 400;
+	if (y < 0) {
+		y400r += 400;
+		y -= 400;
+	}
+	y400q = y / 400;
+	y100r = y400r % 100;
+	y100q = y400r / 100;
+	y4r = y100r % 4;
+	y4q = y100r / 4;
+	d = (y400q * (365 * 400 + 97) + y100q * (365 * 100 + 24) +
+	     y4q * (365 * 4 + 1) + y4r * 365 + (m * 306 + 5) / 10 +
+	     day - 1 + 60 + 365 * 30 + 7);
+	*boot_init_time = d * 86400 + hour * 3600 + minute * 60 + second;
+}
+
 INITFUNC ("paral01", time_init_global_status);
 INITFUNC ("dbsp4", time_init_dbsp);
 INITFUNC ("wakeup0", time_wakeup);

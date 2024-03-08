@@ -36,5 +36,7 @@ u64 time_arch_get_cpu_time (void);
 bool time_arch_override_acpi_time (void);
 void time_arch_init_pcpu (void);
 void time_arch_init_global (void);
+void time_arch_record_boot_time (u64 *boot_init_time,
+				 u64 *boot_preposition_time);
 
 #endif
