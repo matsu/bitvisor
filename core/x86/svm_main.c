@@ -788,6 +788,11 @@ svm_wait_for_sipi (void)
 	svm_write_ip (0);
 	svm_write_flags (RFLAGS_ALWAYS1_BIT);
 	svm_write_idtr (0, 0x3FF);
+
+	/* Clear pending interrupts and NMIs arrived during
+	 * wait-for-SIPI state. */
+	current->u.svm.intr.vmcb_intr_info.v = 0;
+	current->nmi.get_nmi_count ();
 }
 
 static void

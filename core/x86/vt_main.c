@@ -577,11 +577,11 @@ vt_init_signal (void)
 	if (current->u.vt.wait_for_sipi_emulation) {
 		if (!config.vmm.localapic_intercept && currentcpu->cpunum == 1)
 			localapic_mmio_register ();
-		current->u.vt.init_signal = true;
 	} else {
 		asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
 			     VMCS_GUEST_ACTIVITY_STATE_WAIT_FOR_SIPI);
 	}
+	current->u.vt.init_signal = true;
 	current->halt = false;
 	current->u.vt.vr.sw.enable = 0;
 	vt_update_exception_bmp ();
@@ -620,50 +620,36 @@ do_startup_ipi (void)
 
 /* Wait-for-SIPI emulation */
 static void
-vt_wait_for_sipi (void)
+vt_wait_for_sipi_emulation (void)
 {
 	u32 sipi_vector;
 
 	sipi_vector = localapic_wait_for_sipi ();
-	current->initipi.get_init_count (); /* Clear init_counter here */
-	current->u.vt.init_signal = false;
 	do_startup_ipi_with_vector (sipi_vector);
 }
 
 static void
-do_init_signal (void)
+vt_wait_for_sipi_vmx (void)
 {
-	if (current->u.vt.wait_for_sipi_emulation) {
-		vt_init_signal ();
-		vt_wait_for_sipi ();
-		return;
-	}
-
-	/* On nested virtualization environment, VMX instructions may
-	 * consume longer time than a physical machine.  Change
-	 * activity state to wait-for-SIPI as soon as possible to
-	 * prevent SIPIs from being discarded.  Discard NMIs and
-	 * INITs. */
-	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
-		     VMCS_GUEST_ACTIVITY_STATE_WAIT_FOR_SIPI);
-	if (currentcpu->cpunum == 0)
-		handle_init_to_bsp ();
+	/* VM-entry interruption-information field is invalid after VM
+	 * exit.  If the field is valid, the following VM entry will
+	 * fail because of wait-for-SIPI state. */
 	enum vt__status status;
 	do {
 		/* Call vmlaunch/vmresume function directly to avoid
 		 * additional tasks like setting external interrupt
 		 * parameters which is not needed in this case. */
 		panic_test ();
-		if (current->u.vt.first)
+		if (current->u.vt.first) {
+			localapic_sipi_ready ();
 			status = call_vt__vmlaunch ();
-		else
+		} else {
 			status = call_vt__vmresume ();
+		}
 	} while (status == VT__NMI);
 	if (status != VT__VMEXIT)
 		panic ("%s: Fatal error: VM Entry failed.", __func__);
 	current->u.vt.first = false;
-	current->nmi.get_nmi_count ();
-	current->initipi.get_init_count ();
 
 	/* Exit reason must be start-up IPI. */
 	ulong exit_reason;
@@ -673,6 +659,34 @@ do_init_signal (void)
 	if ((exit_reason & EXIT_REASON_MASK) != EXIT_REASON_STARTUP_IPI)
 		panic ("%s: Fatal error: Unexpected exit reason", __func__);
 	do_startup_ipi ();
+}
+
+static void
+vt_wait_for_sipi (void)
+{
+	if (current->u.vt.wait_for_sipi_emulation)
+		vt_wait_for_sipi_emulation ();
+	else
+		vt_wait_for_sipi_vmx ();
+	current->initipi.get_init_count (); /* Clear init_counter here */
+	current->u.vt.init_signal = false;
+
+	/* Clear pending interrupts and NMIs arrived during
+	 * wait-for-SIPI state, especially in case of wait-for-SIPI
+	 * emulation. */
+	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
+	current->nmi.get_nmi_count ();
+}
+
+static void
+do_init_signal (void)
+{
+	/* On nested virtualization environment, VMX instructions may
+	 * consume longer time than a physical machine.  Change
+	 * activity state to wait-for-SIPI as soon as possible to
+	 * prevent SIPIs from being discarded. */
+	vt_init_signal ();
+	vt_wait_for_sipi ();
 }
 
 static void
