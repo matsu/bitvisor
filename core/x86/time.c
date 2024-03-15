@@ -47,6 +47,7 @@
 
 static u64 lastcputime;
 static rw_spinlock_t initsync;
+static bool tsc_probe_needed;
 
 static u64
 tsc_to_time (u64 tsc, u64 hz)
@@ -104,12 +105,31 @@ time_init_dbsp (void)
 {
 	rw_spinlock_lock_ex (&initsync);
 	sync_all_processors ();
-	usleep (1000000 >> 4);
+	if (tsc_probe_needed)
+		usleep (1000000 >> 4);
 	sync_all_processors ();
 	/* Update lastcputime */
 	u64 time = get_cpu_time ();
 	rw_spinlock_unlock_ex (&initsync);
 	printf ("Time: %llu\n", time);
+}
+
+static u64
+get_tsc_info (void)
+{
+	u32 a, b, c, d;
+	asm_cpuid (0, 0, &a, &b, &c, &d);
+	if (a < 0x15)
+		return 0;
+	/* 0x15: Time Stamp Counter and Nominal Core Crystal Clock
+	 * Information Leaf */
+	asm_cpuid (0x15, 0, &a, &b, &c, &d);
+	if (!a || !b || !c)
+		return 0;
+	u64 tmp[2];
+	mpumul_64_64 (b, c, tmp); /* tmp = b * c */
+	mpudiv_128_32 (tmp, a, tmp); /* tmp = tmp / a */
+	return tmp[0];
 }
 
 void
@@ -134,9 +154,12 @@ time_arch_init_pcpu (void)
 				currentcpu->use_invariant_tsc = true;
 		}
 	}
+	count = get_tsc_info ();
+	if (!count)
+		tsc_probe_needed = true;
 	sync_all_processors ();
 	asm_rdtsc (&tsc1_l, &tsc1_h);
-	if (cpu == 0)
+	if (tsc_probe_needed && cpu == 0)
 		usleep (1000000 >> 4);
 	sync_all_processors ();
 	asm_rdtsc (&tsc2_l, &tsc2_h);
@@ -151,7 +174,8 @@ time_arch_init_pcpu (void)
 	rw_spinlock_lock_sh (&initsync);
 	atomic_cmpxchg64 (&lastcputime, &lasttime, lasttime);
 	rw_spinlock_unlock_sh (&initsync);
-	count = (tsc2 - tsc1) << 4;
+	if (tsc_probe_needed)
+		count = (tsc2 - tsc1) << 4;
 	printf ("Processor %d %llu Hz%s\n", cpu, count,
 		currentcpu->use_invariant_tsc ? " (Invariant TSC)" : "");
 	currentcpu->tsc = tsc2;
