@@ -91,7 +91,7 @@ strchr (char *s, int c)
 			return s;
 		s++;
 	}
-	return 0;
+	return c == '\0' ? (char *)s : 0;
 }
 
 static inline int

@@ -500,14 +500,14 @@ char *chelp_strchr(const char *str, int c)
 {
 	while (1)
 	{
-		if (*str == 0)
-		{
-			return NULL;
-		}
-
 		if (*str == c)
 		{
 			return (char *)str;
+		}
+
+		if (*str == 0)
+		{
+			return NULL;
 		}
 
 		str++;

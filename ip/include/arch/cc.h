@@ -98,7 +98,7 @@ strchr (const char *s, int c)
 			return (char *)s;
 		s++;
 	}
-	return 0;
+	return c == '\0' ? (char *)s : 0;
 }
 
 #endif /* __ARCH_CC_H__ */
