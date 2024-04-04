@@ -9,8 +9,8 @@ memmove (void *dest, const void *src, size_t n)
 	const char *s = src;
 
 	if (s < d) {
-		for (i = n - 1; i >= 0; i--)
-			d[i] = s[i];
+		for (i = n; i > 0; i--)
+			d[i - 1] = s[i - 1];
 	} else {
 		for (i = 0; i < n; i++)
 			d[i] = s[i];
