@@ -350,9 +350,9 @@ strcmp64:
 
 	.align	4
 memcmp64:
-	test	%edx,%edx
+	test	%rdx,%rdx
 	je	3f
-	test	$3,%edx
+	test	$3,%rdx
 	jne	2f
 	.align	4
 1:
@@ -361,7 +361,7 @@ memcmp64:
 	jne	2f
 	add	$4,%rdi
 	add	$4,%rsi
-	sub	$4,%edx
+	sub	$4,%rdx
 	jne	1b
 	xor	%eax,%eax
 	ret
@@ -372,7 +372,7 @@ memcmp64:
 	jne	1f
 	inc	%rdi
 	inc	%rsi
-	dec	%edx
+	dec	%rdx
 	jne	2b
 3:
 	xor	%eax,%eax
@@ -443,7 +443,7 @@ strlen64:
 
 	.align	4
 strncmp64:
-	sub	$1,%edx
+	sub	$1,%rdx
 	jb	2f
 	mov	(%rsi),%al
 	cmp	(%rdi),%al

@@ -58,7 +58,7 @@ sendex (char *buf)
 		return;
 	}
 	memset (d, 0, 32);
-	printf ("sending buf %p len 0x%x recvbuf %p len 0x%lx\n",
+	printf ("sending buf %p len 0x%lx recvbuf %p len 0x%lx\n",
 		buf, strlen (buf), d, (unsigned long)sizeof d);
 	setmsgbuf (&mbuf[0], buf, strlen (buf), 0);
 	setmsgbuf (&mbuf[1], d, sizeof d, 1);

@@ -27,8 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+typedef unsigned long int size_t;
+
 static inline void *
-memset (void *addr, int val, int len)
+memset (void *addr, int val, size_t len)
 {
 	char *p;
 
@@ -38,7 +40,7 @@ memset (void *addr, int val, int len)
 }
 
 static inline void *
-memcpy (void *dest, const void *src, int len)
+memcpy (void *dest, const void *src, size_t len)
 {
 	char *p;
 	const char *q;
@@ -62,9 +64,10 @@ strcmp (const char *s1, const char *s2)
 }
 
 static inline int
-memcmp (const void *p1, const void *p2, int len)
+memcmp (const void *p1, const void *p2, size_t len)
 {
-	int r, i;
+	int r;
+	size_t i;
 	const char *q1, *q2;
 
 	q1 = p1;
@@ -74,10 +77,10 @@ memcmp (const void *p1, const void *p2, int len)
 	return r;
 }
 
-static inline int
+static inline size_t
 strlen (const char *p)
 {
-	int len = 0;
+	size_t len = 0;
 
 	while (*p++)
 		len++;
@@ -96,7 +99,7 @@ strchr (const char *s, int c)
 }
 
 static inline int
-strncmp (const char *s1, const char *s2, int len)
+strncmp (const char *s1, const char *s2, size_t len)
 {
 	int r, c1, c2;
 

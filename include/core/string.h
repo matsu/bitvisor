@@ -35,7 +35,7 @@
 #define USE_BUILTIN_STRING
 
 static inline void *
-memset_slow (void *addr, int val, int len)
+memset_slow (void *addr, int val, size_t len)
 {
 	char *p;
 
@@ -46,7 +46,7 @@ memset_slow (void *addr, int val, int len)
 }
 
 static inline void *
-memcpy_slow (void *dest, const void *src, int len)
+memcpy_slow (void *dest, const void *src, size_t len)
 {
 	char *p;
 	const char *q;
@@ -72,9 +72,10 @@ strcmp_slow (const char *s1, const char *s2)
 }
 
 static inline int
-memcmp_slow (const void *p1, const void *p2, int len)
+memcmp_slow (const void *p1, const void *p2, size_t len)
 {
-	int r, i;
+	int r;
+	size_t i;
 	const char *q1, *q2;
 
 	q1 = p1;
@@ -84,10 +85,10 @@ memcmp_slow (const void *p1, const void *p2, int len)
 	return r;
 }
 
-static inline int
+static inline size_t
 strlen_slow (const char *p)
 {
-	int len = 0;
+	size_t len = 0;
 
 	while (*p++)
 		len++;
@@ -95,7 +96,7 @@ strlen_slow (const char *p)
 }
 
 static inline int
-strncmp_slow (const char *s1, const char *s2, int len)
+strncmp_slow (const char *s1, const char *s2, size_t len)
 {
 	int r, c1, c2;
 
@@ -127,13 +128,13 @@ strncmp_slow (const char *s1, const char *s2, int len)
 
 #ifdef USE_BUILTIN_STRING
 static inline void *
-memset_builtin (void *addr, int val, int len)
+memset_builtin (void *addr, int val, size_t len)
 {
 	return __builtin_memset (addr, val, len);
 }
 
 static inline void *
-memcpy_builtin (void *dest, const void *src, int len)
+memcpy_builtin (void *dest, const void *src, size_t len)
 {
 	return __builtin_memcpy (dest, src, len);
 }
@@ -145,7 +146,7 @@ strcmp_builtin (const char *s1, const char *s2)
 }
 
 static inline int
-memcmp_builtin (const void *p1, const void *p2, int len)
+memcmp_builtin (const void *p1, const void *p2, size_t len)
 {
 	if (__builtin_constant_p (len) && len == 2) {
 		const u16 *q1 = p1, *q2 = p2;
@@ -165,7 +166,7 @@ strlen_builtin (const char *p)
 }
 
 static inline int
-strncmp_builtin (const char *s1, const char *s2, int len)
+strncmp_builtin (const char *s1, const char *s2, size_t len)
 {
 	return __builtin_strncmp (s1, s2, len);
 }
