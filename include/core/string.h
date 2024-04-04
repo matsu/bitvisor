@@ -61,7 +61,8 @@ memcpy_slow (void *dest, const void *src, size_t len)
 static inline int
 strcmp_slow (const char *s1, const char *s2)
 {
-	int r, c1, c2;
+	int r;
+	unsigned char c1, c2;
 
 	do {
 		c1 = *s1++;
@@ -76,7 +77,7 @@ memcmp_slow (const void *p1, const void *p2, size_t len)
 {
 	int r;
 	size_t i;
-	const char *q1, *q2;
+	const unsigned char *q1, *q2;
 
 	q1 = p1;
 	q2 = p2;
@@ -98,7 +99,8 @@ strlen_slow (const char *p)
 static inline int
 strncmp_slow (const char *s1, const char *s2, size_t len)
 {
-	int r, c1, c2;
+	int r;
+	unsigned char c1, c2;
 
 	if (len <= 0)
 		return 0;
