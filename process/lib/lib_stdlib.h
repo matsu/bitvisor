@@ -34,4 +34,4 @@
 
 #define NULL ((void *)0)
 
-long int strtol (char *s, char **e, int base);
+long int strtol (const char *s, char **e, int base);

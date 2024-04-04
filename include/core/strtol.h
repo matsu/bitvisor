@@ -30,6 +30,6 @@
 #ifndef __CORE_STRTOL_H
 #define __CORE_STRTOL_H
 
-long int strtol (char *s, char **e, int base);
+long int strtol (const char *s, char **e, int base);
 
 #endif

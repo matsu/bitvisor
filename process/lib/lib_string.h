@@ -38,9 +38,10 @@ memset (void *addr, int val, int len)
 }
 
 static inline void *
-memcpy (void *dest, void *src, int len)
+memcpy (void *dest, const void *src, int len)
 {
-	char *p, *q;
+	char *p;
+	const char *q;
 
 	for (p = dest, q = src; len; len--)
 		*p++ = *q++;
@@ -48,7 +49,7 @@ memcpy (void *dest, void *src, int len)
 }
 
 static inline int
-strcmp (char *s1, char *s2)
+strcmp (const char *s1, const char *s2)
 {
 	int r, c1, c2;
 
@@ -61,10 +62,10 @@ strcmp (char *s1, char *s2)
 }
 
 static inline int
-memcmp (void *p1, void *p2, int len)
+memcmp (const void *p1, const void *p2, int len)
 {
 	int r, i;
-	char *q1, *q2;
+	const char *q1, *q2;
 
 	q1 = p1;
 	q2 = p2;
@@ -74,7 +75,7 @@ memcmp (void *p1, void *p2, int len)
 }
 
 static inline int
-strlen (char *p)
+strlen (const char *p)
 {
 	int len = 0;
 
@@ -84,18 +85,18 @@ strlen (char *p)
 }
 
 static inline char *
-strchr (char *s, int c)
+strchr (const char *s, int c)
 {
 	while (*s) {
 		if (*s == c)
-			return s;
+			return (char *)s;
 		s++;
 	}
 	return c == '\0' ? (char *)s : 0;
 }
 
 static inline int
-strncmp (char *s1, char *s2, int len)
+strncmp (const char *s1, const char *s2, int len)
 {
 	int r, c1, c2;
 

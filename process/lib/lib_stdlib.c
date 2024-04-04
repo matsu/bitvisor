@@ -51,7 +51,7 @@ digit_to_num (char c, int base)
 }
 
 long int
-strtol (char *s, char **e, int base)
+strtol (const char *s, char **e, int base)
 {
 	int b;
 	enum { SIGN_NONE, SIGN_PLUS, SIGN_MINUS } sign;
@@ -85,7 +85,7 @@ strtol (char *s, char **e, int base)
 		s += 2;
 	for (;;) {
 		if (e)
-			*e = s;
+			*e = (char *)s;
 		c = digit_to_num (*s, base);
 		if (c == base)
 			break;
