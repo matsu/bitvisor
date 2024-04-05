@@ -42,6 +42,7 @@ objs-1 += putchar.o
 objs-1 += qsort.o
 objs-1 += random.o
 objs-1 += reboot.o
+objs-1 += string.o
 objs-1 += strtol.o
 objs-1 += sym.o
 objs-1 += thread.o

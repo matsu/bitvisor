@@ -27,12 +27,92 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-typedef unsigned long int size_t;
+#include "lib_string.h"
 
-void *memset (void *addr, int val, size_t len);
-void *memcpy (void *dest, const void *src, size_t len);
-int strcmp (const char *s1, const char *s2);
-int memcmp (const void *p1, const void *p2, size_t len);
-size_t strlen (const char *p);
-char *strchr (const char *s, int c);
-int strncmp (const char *s1, const char *s2, size_t len);
+#define WEAK __attribute__ ((weak))
+
+WEAK void *
+memset (void *addr, int val, size_t len)
+{
+	char *p;
+
+	for (p = addr; len; len--)
+		*p++ = val;
+	return addr;
+}
+
+WEAK void *
+memcpy (void *dest, const void *src, size_t len)
+{
+	char *p;
+	const char *q;
+
+	for (p = dest, q = src; len; len--)
+		*p++ = *q++;
+	return dest;
+}
+
+WEAK int
+strcmp (const char *s1, const char *s2)
+{
+	int r;
+	unsigned char c1, c2;
+
+	do {
+		c1 = *s1++;
+		c2 = *s2++;
+		r = c1 - c2;
+	} while (!r && c1);
+	return r;
+}
+
+WEAK int
+memcmp (const void *p1, const void *p2, size_t len)
+{
+	int r;
+	size_t i;
+	const unsigned char *q1, *q2;
+
+	q1 = p1;
+	q2 = p2;
+	for (r = 0, i = 0; !r && i < len; i++)
+		r = *q1++ - *q2++;
+	return r;
+}
+
+WEAK size_t
+strlen (const char *p)
+{
+	size_t len = 0;
+
+	while (*p++)
+		len++;
+	return len;
+}
+
+WEAK char *
+strchr (const char *s, int c)
+{
+	while (*s) {
+		if (*s == c)
+			return (char *)s;
+		s++;
+	}
+	return c == '\0' ? (char *)s : 0;
+}
+
+WEAK int
+strncmp (const char *s1, const char *s2, size_t len)
+{
+	int r;
+	unsigned char c1, c2;
+
+	if (len <= 0)
+		return 0;
+	do {
+		c1 = *s1++;
+		c2 = *s2++;
+		r = c1 - c2;
+	} while (!r && c1 && --len > 0);
+	return r;
+}

@@ -32,103 +32,13 @@
 
 #include <core/types.h>
 
-#define USE_BUILTIN_STRING
+#define memset(addr, val, len)	memset_builtin (addr, val, len)
+#define memcpy(dest, src, len)	memcpy_builtin (dest, src, len)
+#define strcmp(s1, s2)		strcmp_builtin (s1, s2)
+#define memcmp(p1, p2, len)	memcmp_builtin (p1, p2, len)
+#define strlen(p)		strlen_builtin (p)
+#define strncmp(s1, s2, len)	strncmp_builtin (s1, s2, len)
 
-static inline void *
-memset_slow (void *addr, int val, size_t len)
-{
-	char *p;
-
-	p = addr;
-	while (len--)
-		*p++ = val;
-	return addr;
-}
-
-static inline void *
-memcpy_slow (void *dest, const void *src, size_t len)
-{
-	char *p;
-	const char *q;
-
-	p = dest;
-	q = src;
-	while (len--)
-		*p++ = *q++;
-	return dest;
-}
-
-static inline int
-strcmp_slow (const char *s1, const char *s2)
-{
-	int r;
-	unsigned char c1, c2;
-
-	do {
-		c1 = *s1++;
-		c2 = *s2++;
-		r = c1 - c2;
-	} while (!r && c1);
-	return r;
-}
-
-static inline int
-memcmp_slow (const void *p1, const void *p2, size_t len)
-{
-	int r;
-	size_t i;
-	const unsigned char *q1, *q2;
-
-	q1 = p1;
-	q2 = p2;
-	for (r = 0, i = 0; !r && i < len; i++)
-		r = *q1++ - *q2++;
-	return r;
-}
-
-static inline size_t
-strlen_slow (const char *p)
-{
-	size_t len = 0;
-
-	while (*p++)
-		len++;
-	return len;
-}
-
-static inline int
-strncmp_slow (const char *s1, const char *s2, size_t len)
-{
-	int r;
-	unsigned char c1, c2;
-
-	if (len <= 0)
-		return 0;
-	do {
-		c1 = *s1++;
-		c2 = *s2++;
-		r = c1 - c2;
-	} while (!r && c1 && --len > 0);
-	return r;
-}
-
-#ifdef USE_BUILTIN_STRING
-#	define memset(addr, val, len)	memset_builtin (addr, val, len)
-#	define memcpy(dest, src, len)	memcpy_builtin (dest, src, len)
-#	define strcmp(s1, s2)		strcmp_builtin (s1, s2)
-#	define memcmp(p1, p2, len)	memcmp_builtin (p1, p2, len)
-#	define strlen(p)		strlen_builtin (p)
-#	define strncmp(s1, s2, len)	strncmp_builtin (s1, s2, len)
-#else  /* USE_BUILTIN_STRING */
-#	define memset(addr, val, len)	memset_slow (addr, val, len)
-#	define memcpy(dest, src, len)	memcpy_slow (dest, src, len)
-#	define strcmp(s1, s2)		strcmp_slow (s1, s2)
-#	define memcmp(p1, p2, len)	memcmp_slow (p1, p2, len)
-#	define strlen(p)		strlen_slow (p)
-#	define strncmp(s1, s2, len)	strncmp_slow (s1, s2, len)
-#endif /* USE_BUILTIN_STRING */
-
-#ifdef USE_BUILTIN_STRING
 static inline void *
 memset_builtin (void *addr, int val, size_t len)
 {
@@ -172,6 +82,5 @@ strncmp_builtin (const char *s1, const char *s2, size_t len)
 {
 	return __builtin_strncmp (s1, s2, len);
 }
-#endif /* USE_BUILTIN_STRING */
 
 #endif
