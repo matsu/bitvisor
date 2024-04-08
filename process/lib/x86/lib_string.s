@@ -54,6 +54,7 @@
 
 .if !longmode
 	.code32
+	.section .text.memset
 	.align	4
 memset32:
 	push	%edi
@@ -86,6 +87,7 @@ memset32:
 	pop	%edi
 	ret
 
+	.section .text.memcpy
 	.align	4
 memcpy32:
 	push	%esi
@@ -116,6 +118,7 @@ memcpy32:
 	pop	%esi
 	ret
 
+	.section .text.strcmp
 	.align	4
 strcmp32:
 	mov	4(%esp),%edx
@@ -136,6 +139,7 @@ strcmp32:
 	xor	$-2,%eax
 	ret
 
+	.section .text.memcmp
 	.align	4
 memcmp32:
 	push	%edi
@@ -176,6 +180,7 @@ memcmp32:
 	pop	%edi
 	ret
 
+	.section .text.strlen
 	.align	4
 strlen32:
 	xor	%eax,%eax
@@ -236,6 +241,7 @@ strlen32:
 	add	%edx,%eax
 	ret
 
+	.section .text.strncmp
 	.align	4
 strncmp32:
 	push	%edi
@@ -265,6 +271,7 @@ strncmp32:
 
 .else
 	.code64
+	.section .text.memset
 	.align	4
 memset64:
 	mov	%esi,%eax
@@ -306,6 +313,7 @@ memset64:
 	mov	%rdx,%rax
 	ret
 
+	.section .text.memcpy
 	.align	4
 memcpy64:
 	mov	%rdx,%rcx
@@ -332,6 +340,7 @@ memcpy64:
 	movsl
 	ret
 
+	.section .text.strcmp
 	.align	4
 strcmp64:
 	mov	(%rsi),%al
@@ -348,6 +357,7 @@ strcmp64:
 	xor	$-2,%eax
 	ret
 
+	.section .text.memcmp
 	.align	4
 memcmp64:
 	test	%rdx,%rdx
@@ -381,6 +391,7 @@ memcmp64:
 	movsbl	%al,%eax
 	ret
 
+	.section .text.strlen
 	.align	4
 strlen64:
 	xor	%eax,%eax
@@ -441,6 +452,7 @@ strlen64:
 	add	%rdi,%rax
 	ret
 
+	.section .text.strncmp
 	.align	4
 strncmp64:
 	sub	$1,%rdx

@@ -37,8 +37,8 @@ process-depends-$(CONFIG_VPN) += $(dir)vpn/$(outo_p)
 
 $(dir)$(elf) : $(defouto) $(dir)$(lds)
 	$(V-info) LD $(dir)$(elf)
-	$(CC) $(LDFLAGS) $(LDFLAGS_ELF) -Wl,-T,$(dir)$(lds) -Wl,--cref \
-		-Wl,-Map,$(dir)$(map) -o $(dir)$(elf) $(defouto)
+	$(CC) $(LDFLAGS) $(LDFLAGS_ELF) -Wl,--gc-sections -Wl,-T,$(dir)$(lds) \
+		-Wl,--cref -Wl,-Map,$(dir)$(map) -o $(dir)$(elf) $(defouto)
 	$(OBJCOPY) --output-format $(FORMAT) $(dir)$(elf)
 
 .PHONY : pre-build-all

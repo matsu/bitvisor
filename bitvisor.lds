@@ -12,28 +12,33 @@ SECTIONS {
 		code = .;
 		*(.entry)
 		*(.entry.text)
+		*(.entry.text.*)
 		*(.entry.data)
+		*(.entry.data.*)
 	} :all
 	.text : AT (phys + (text - head)) {
 		text = .;
 		*(.text)
+		*(.text.*)
 		codeend = .;
 	}
 	.data : AT (phys + (data - head)) {
 		data = .;
 		*(.data)
+		*(.data.*)
 		. = ALIGN (8);
 		__initfunc_start = .;
-		*(.initfunc)
+		KEEP (*(.initfunc))
 		__initfunc_end = .;
 		__process_builtin = .;
-		*(.processes)
+		KEEP (*(.processes))
 		__process_builtin_end = .;
 		dataend = .;
 	}
 	.bss : AT (phys + (bss - head)) {
 		bss = .;
 		*(.bss)
+		*(.bss.*)
 		*(COMMON)
 		. = ALIGN (4096);
 	}
