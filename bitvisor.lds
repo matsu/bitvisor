@@ -23,9 +23,9 @@ SECTIONS {
 		data = .;
 		*(.data)
 		. = ALIGN (8);
-                __initfunc_start = .;
-                *(.initfunc)
-                __initfunc_end = .;
+		__initfunc_start = .;
+		*(.initfunc)
+		__initfunc_end = .;
 		__process_builtin = .;
 		*(.processes)
 		__process_builtin_end = .;
