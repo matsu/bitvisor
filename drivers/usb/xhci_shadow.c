@@ -899,9 +899,8 @@ xhci_sync_state (void *data, int num)
 
 	spinlock_lock (&host->sync_lock);
 
-	if (!host->run) {
+	if (xhci_hc_halted (host))
 		goto end;
-	}
 
 	u32 status = *(volatile u32 *)(xhci_regs->opr_reg + OPR_USBSTS_OFFSET);
 
@@ -1363,7 +1362,7 @@ patch_tr_dq_ptr (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 
 	if (i_seg == g_ep_tr->max_size) {
 		dprintft (0, "Error in patch_tr_dq_ptr().\n");
-		host->run = 0;
+		host->hc_state = XHCI_HC_STATE_HALTED;
 		return;
 	}
 
@@ -2804,13 +2803,13 @@ end:
 void
 xhci_hc_reset (struct xhci_host *host)
 {
-	if (!host->run) {
+	/* Return if host controller is halted or shutting down */
+	if (!xhci_hc_running (host))
 		return;
-	}
 
 	dprintft (0, "xHCI reset detected\n");
 
-	host->run = 0;
+	host->hc_state = XHCI_HC_STATE_HALTED;
 	host->state_saved = 0;
 
 	struct xhci_erst_data *g_erst_data;

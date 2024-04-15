@@ -158,6 +158,7 @@ zalloc (uint nbytes)
 #define USBCMD_CME    (0x1 << 14)
 
 /* USBSTS mask */
+#define USBSTS_HCH  (0x1 << 0)
 #define USBSTS_HSE  (0x1 << 2)
 #define USBSTS_EINT (0x1 << 3)
 #define USBSTS_SRE  (0x1 << 10)
@@ -634,10 +635,16 @@ struct xhci_regs {
 #define INTR_REG(xhci_regs, idx) \
 	((xhci_regs)->rts_reg + 0x20 + ((idx) * XHCI_INTR_REG_NBYTES))
 
+enum xhci_hc_state {
+	XHCI_HC_STATE_HALTED,
+	XHCI_HC_STATE_RUNNING,
+	XHCI_HC_STATE_SHUTTING_DOWN,
+};
+
 struct xhci_host {
 	struct xhci_regs *regs;
 
-	u8  run;
+	enum xhci_hc_state hc_state;
 
 	/* Parse All Events flag, necessary for URB completion check */
 	u8  pae;
@@ -1006,5 +1013,8 @@ int xhci_shadow_trbs (struct usb_host *usbhc,
 
 void xhci_hc_reset (struct xhci_host *host);
 struct xhci_trb *tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg);
+
+bool xhci_hc_halted (struct xhci_host *host);
+bool xhci_hc_running (struct xhci_host *host);
 
 #endif /* _XHCI_H */

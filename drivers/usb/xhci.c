@@ -131,6 +131,38 @@ end:
 /* Used in MMIO handler functions only */
 #define CHECK_LEN_VALID (valid = (len != 4) ? 0 : 1)
 
+static bool
+hc_halted (struct xhci_host *host)
+{
+	struct xhci_regs *regs;
+	u32 usbsts;
+
+	regs = host->regs;
+	usbsts = *(volatile u32 *)(regs->opr_reg + OPR_USBSTS_OFFSET);
+	return !!(usbsts & USBSTS_HCH);
+}
+
+static void
+reflect_state_if_halted (struct xhci_host *host)
+{
+	if (host->hc_state == XHCI_HC_STATE_SHUTTING_DOWN && hc_halted (host))
+		host->hc_state = XHCI_HC_STATE_HALTED;
+}
+
+bool
+xhci_hc_halted (struct xhci_host *host)
+{
+	reflect_state_if_halted (host);
+	return host->hc_state == XHCI_HC_STATE_HALTED;
+}
+
+bool
+xhci_hc_running (struct xhci_host *host)
+{
+	reflect_state_if_halted (host);
+	return host->hc_state == XHCI_HC_STATE_RUNNING;
+}
+
 /* ---------- Start capability related functions ---------- */
 
 static void
@@ -462,15 +494,15 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 	}
 
 	if (cmd & USBCMD_RUN) {
-		if (!host->run) {
-			host->run = 1;
+		if (!xhci_hc_running (host)) {
+			host->hc_state = XHCI_HC_STATE_RUNNING;
 			take_control_erst (xhci_data);
 		}
 	} else {
-		if (host->run) {
+		if (xhci_hc_running (host)) {
 			spinlock_lock (&host->sync_lock);
 
-			host->run = 0;
+			host->hc_state = XHCI_HC_STATE_SHUTTING_DOWN;
 
 			xhci_update_er_and_dev_ctx (host);
 
@@ -709,7 +741,7 @@ get_host_erdp (struct xhci_host *host,
 
 	phys_t new_er_dq_ptr = g_erst_dq_ptr;
 
-	if (!host->run)
+	if (xhci_hc_halted (host))
 		return h_erst_data->erst_dq_ptr;
 
 	/* Calculate new dequeue pointer */
@@ -870,7 +902,7 @@ xhci_rts_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 
 	struct erst_data erst_data = {h_erst_data, g_erst_data};
 
-	if (host->run) {
+	if (!xhci_hc_halted (host)) {
 		if (field_offset != RTS_IMAN_OFFSET &&
 		    field_offset != RTS_IMOD_OFFSET &&
 		    field_offset != RTS_ERDP_OFFSET &&
@@ -1182,10 +1214,8 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 		 * If not, ignore the access which is likely from firmwares,
 		 * UEFI applications, or APIC programming from the guest OS.
 		 */
-		if (wr && len == 4 && xhci_data->host->run) {
+		if (wr && len == 4 && !xhci_hc_halted (xhci_data->host))
 			xhci_db_reg_write (data, gphys, buf, len, flags);
-		}
-
 
 	} else if (acc_start >= regs->iobase + regs->ext_offset) {
 
