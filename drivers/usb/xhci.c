@@ -370,9 +370,9 @@ create_h_dev_ctx (struct xhci_host *host, u64 g_dev_ctx, void *handler_data)
 	return host->dev_ctx_addr;
 }
 
-static phys_t patch_er_dq_ptr (struct xhci_host *host,
-			       phys_t g_erst_dq_ptr,
-			       void *handler_data);
+static phys_t get_host_erdp (struct xhci_host *host,
+			     phys_t g_erst_dq_ptr,
+			     void *handler_data);
 
 struct erst_data {
 	struct xhci_erst_data *h_erst_data;
@@ -408,8 +408,8 @@ take_control_erst (struct xhci_data *xhci_data)
 		erdp_reg = (u64 *)(INTR_REG (regs, i) + RTS_ERDP_OFFSET);
 		erst_reg = (u64 *)(INTR_REG (regs, i) + RTS_ERSTBA_OFFSET);
 
-		*erdp_reg = patch_er_dq_ptr (host, g_erst_data->erst_dq_ptr,
-					     &erst_data);
+		*erdp_reg = get_host_erdp (host, g_erst_data->erst_dq_ptr,
+					   &erst_data);
 		*erst_reg = h_erst_data->erst_addr;
 	}
 
@@ -698,9 +698,9 @@ xhci_opr_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 /* ---------- Start runtime related functions ---------- */
 
 static phys_t
-patch_er_dq_ptr (struct xhci_host *host,
-		 phys_t g_erst_dq_ptr,
-		 void *handler_data)
+get_host_erdp (struct xhci_host *host,
+	       phys_t g_erst_dq_ptr,
+	       void *handler_data)
 {
 	struct erst_data *er_dq_data = (struct erst_data *)handler_data;
 
@@ -709,9 +709,8 @@ patch_er_dq_ptr (struct xhci_host *host,
 
 	phys_t new_er_dq_ptr = g_erst_dq_ptr;
 
-	if (!host->run) {
-		goto end;
-	}
+	if (!host->run)
+		return h_erst_data->erst_dq_ptr;
 
 	/* Calculate new dequeue pointer */
 	struct xhci_erst *g_erst = g_erst_data->erst;
@@ -738,11 +737,9 @@ patch_er_dq_ptr (struct xhci_host *host,
 		}
 	}
 
-	if (!found) {
-		dprintft (0, "Fatal error in patch_er_dq_ptr()\n");
-	}
+	if (!found)
+		dprintft (0, "Fatal error in %s()\n", __func__);
 
-end:
 	return new_er_dq_ptr;
 }
 
@@ -934,7 +931,7 @@ xhci_rts_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 		fill_write_info (&wr_info, buf64, len,
 				 &g_erst_data->erst_dq_ptr,
 				 &g_erst_data->erst_dq_ptr_written,
-				 patch_er_dq_ptr, &erst_data);
+				 get_host_erdp, &erst_data);
 
 		break;
 	default:
