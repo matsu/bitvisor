@@ -1416,12 +1416,10 @@ xhci_construct_blacklist_ext_cap (struct xhci_regs *regs)
 }
 
 static void
-xhci_set_reg_offsets (struct xhci_regs *regs)
+xhci_set_reg_offsets (struct xhci_regs *regs, struct xhci_cap_reg *cap_reg)
 {
 	/* Capability registers offset is zero */
 	regs->cap_offset = 0;
-
-	struct xhci_cap_reg *cap_reg = (struct xhci_cap_reg *)regs->reg_map;
 
 	/* Read Operational registers offset */
 	regs->opr_offset = cap_reg->cap_length;
@@ -1551,6 +1549,20 @@ static struct usb_init_dev_operations xhci_init_dev_op = {
 	.add_hc_specific_data = xhci_add_hc_data
 };
 
+/* Read all capability registers using 32-bit aligned access.  This is
+ * to avoid unaligned access which might not work properly on emulated
+ * xHCI.  In addition, we can avoid reading hc_sparams1 register
+ * multiple times later by reading the copy of static read-only
+ * capability registers instead. */
+static void
+read_cap_reg (void *copy_to, size_t len, void *copy_from)
+{
+	u32 *dest = copy_to;
+	volatile u32 *src = copy_from;
+	for (size_t i = 0; i < len; i += sizeof (u32))
+		*dest++ = *src++;
+}
+
 static void
 xhci_new (struct pci_device *pci_device)
 {
@@ -1577,11 +1589,13 @@ xhci_new (struct pci_device *pci_device)
 
 	pci_device->host = xhci_data;
 
-	xhci_set_reg_offsets (regs);
+	struct xhci_cap_reg cap_reg_copy;
+	read_cap_reg (&cap_reg_copy, sizeof cap_reg_copy, regs->reg_map);
+	xhci_set_reg_offsets (regs, &cap_reg_copy);
 
 	xhci_construct_blacklist_ext_cap (regs);
 
-	struct xhci_cap_reg *cap_reg = (struct xhci_cap_reg *)regs->cap_reg;
+	struct xhci_cap_reg *cap_reg = &cap_reg_copy;
 
 	/* Read max device slots */
 	host->max_slots = CAP_SPARAM1_GET_MAX_SLOTS (cap_reg->hc_sparams1);
