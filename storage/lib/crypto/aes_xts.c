@@ -32,17 +32,6 @@
 
 #define AES_BLK_BYTES   16
 
-#ifdef AES_GLADMAN
-#define COPYRIGHT "Copyright (c) 1998-2008, Brian Gladman, Worcester, UK. All rights reserved."
-#define AES_VERSION "gladman"
-#include "aes-gladman/aes.h"
-#define AES_ENC_KEYTYPE		aes_encrypt_ctx
-#define AES_ENC_SETKEY		aes_encrypt_key
-#define AES_ENC_FUNC		aes_encrypt
-#define AES_DEC_KEYTYPE		aes_decrypt_ctx
-#define AES_DEC_SETKEY		aes_decrypt_key
-#define AES_DEC_FUNC		aes_decrypt
-#else
 #define COPYRIGHT "Copyright (c) 1998-2002 The OpenSSL Project.  All rights reserved."
 #define AES_VERSION "openssl"
 #include <openssl/aes.h>
@@ -52,7 +41,6 @@
 #define AES_DEC_KEYTYPE		AES_KEY
 #define AES_DEC_SETKEY		AES_set_decrypt_key
 #define AES_DEC_FUNC		AES_decrypt
-#endif
 
 struct aes_xts_encrypt_keys {
 	AES_ENC_KEYTYPE		tweak_key;
