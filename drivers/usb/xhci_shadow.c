@@ -1361,9 +1361,7 @@ patch_tr_dq_ptr (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 	}
 
 	if (i_seg == g_ep_tr->max_size) {
-		dprintft (0, "Error in patch_tr_dq_ptr().\n");
-		host->hc_state = XHCI_HC_STATE_HALTED;
-		return;
+		panic ("Error in patch_tr_dq_ptr().");
 	}
 
 	g_ep_tr->current_seg = i_seg;
