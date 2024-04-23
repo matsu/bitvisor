@@ -1014,6 +1014,7 @@ int xhci_shadow_trbs (struct usb_host *usbhc,
 void xhci_hc_reset (struct xhci_host *host);
 struct xhci_trb *tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg);
 
+void xhci_update_vmm_hc_state (struct xhci_host *host);
 bool xhci_hc_halted (struct xhci_host *host);
 bool xhci_hc_running (struct xhci_host *host);
 

@@ -2801,13 +2801,14 @@ end:
 void
 xhci_hc_reset (struct xhci_host *host)
 {
+	xhci_update_vmm_hc_state (host);
+
 	/* Return if host controller is halted or shutting down */
 	if (!xhci_hc_running (host))
 		return;
 
 	dprintft (0, "xHCI reset detected\n");
 
-	host->hc_state = XHCI_HC_STATE_HALTED;
 	host->state_saved = 0;
 
 	struct xhci_erst_data *g_erst_data;

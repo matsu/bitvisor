@@ -132,6 +132,17 @@ end:
 #define CHECK_LEN_VALID (valid = (len != 4) ? 0 : 1)
 
 static bool
+hc_running (struct xhci_host *host)
+{
+	struct xhci_regs *regs;
+	u32 usbcmd;
+
+	regs = host->regs;
+	usbcmd = *(volatile u32 *)(regs->opr_reg + OPR_USBCMD_OFFSET);
+	return !!(usbcmd & USBCMD_RUN);
+}
+
+static bool
 hc_halted (struct xhci_host *host)
 {
 	struct xhci_regs *regs;
@@ -147,6 +158,25 @@ reflect_state_if_halted (struct xhci_host *host)
 {
 	if (host->hc_state == XHCI_HC_STATE_SHUTTING_DOWN && hc_halted (host))
 		host->hc_state = XHCI_HC_STATE_HALTED;
+}
+
+void
+xhci_update_vmm_hc_state (struct xhci_host *host)
+{
+	switch (host->hc_state) {
+	case XHCI_HC_STATE_RUNNING:
+		if (hc_running (host))
+			break;
+		host->hc_state = XHCI_HC_STATE_SHUTTING_DOWN;
+		/* Fallthrough */
+	case XHCI_HC_STATE_SHUTTING_DOWN:
+		if (!hc_halted (host))
+			break;
+		host->hc_state = XHCI_HC_STATE_HALTED;
+		/* Fallthrough */
+	case XHCI_HC_STATE_HALTED:
+		break;
+	}
 }
 
 bool
