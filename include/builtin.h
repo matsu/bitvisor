@@ -41,6 +41,7 @@ builtin_bswap32 (u32 val)
 static inline int
 builtin_ffs (int val)
 {
+	/* return val ? 1 + first least significant '1' 0-base index : 0 */
 	return __builtin_ffs (val);
 }
 

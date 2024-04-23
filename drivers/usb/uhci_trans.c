@@ -346,7 +346,18 @@ uhci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *urb)
  */
 static inline u32 __ffs(u32 word)
 {
-	return builtin_ffs (word);
+	/*
+	 * The original implementation of this inline function uses a single
+	 * 'bsf' x86 instruction. The result value is 0-base index if '1' bit
+	 * exists or undefined otherwise. This is different from the compiler
+	 * builtin behavior which returns 1-base index if '1' bit exists or 0
+	 * otherwise. To reserve the original behavior of this builtin
+	 * function, we need to subtract the result of builtin_ffs() by 1.
+	 * There is no need to check for the return value before subtraction
+	 * because The previous __ffs() implementation expected the caller to
+	 * check the input value before calling the function.
+	 */
+	return builtin_ffs (word) - 1;
 }
 
 /**
