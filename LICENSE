@@ -1,7 +1,7 @@
 Copyrights and Licences
 ---------------------------------------------------------------------------
 
-1) BitVisor
+BitVisor
 
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
@@ -64,7 +64,7 @@ Copyrights and Licences
 
 ---------------------------------------------------------------------------
 
-2) VPN module
+VPN module
 
 /*
  * Copyright (c) 2007, 2008 University of Tsukuba
@@ -99,7 +99,7 @@ Copyrights and Licences
 
 ---------------------------------------------------------------------------
 
-3) OpenSSL
+OpenSSL
 
   OpenSSL License
   ---------------
@@ -220,7 +220,7 @@ Copyrights and Licences
 
 ---------------------------------------------------------------------------
 
-4) AES
+AES
 
  Copyright (c) 1998-2008, Brian Gladman, Worcester, UK. All rights reserved.
 
@@ -246,7 +246,7 @@ Copyrights and Licences
 
 ---------------------------------------------------------------------------
 
-5) PCSC
+PCSC
 
 Copyright (c) 1999-2003 David Corcoran <corcoran@linuxnet.com>
 All rights reserved.
@@ -279,7 +279,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---------------------------------------------------------------------------
 
-6) ELF
+ELF
 
  * Copyright (c) 1996-1998 John D. Polstra.
  * All rights reserved.
@@ -308,7 +308,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---------------------------------------------------------------------------
 
-7) pkcs11.h
+pkcs11.h
 
 /* pkcs11.h
    Copyright 2006, 2007 g10 Code GmbH
@@ -325,7 +325,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---------------------------------------------------------------------------
 
-8) EFI Development Kit (EDK)
+EFI Development Kit (EDK)
 
 Copyright (c) 2004, Intel Corporation
 All rights reserved.
@@ -359,7 +359,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---------------------------------------------------------------------------
 
-9) lwIP
+lwIP
 
 /*
  * Copyright (c) 2001, 2002 Swedish Institute of Computer Science.
@@ -395,7 +395,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---------------------------------------------------------------------------
 
-10) Realtek NIC Driver
+Realtek NIC Driver
 
 /*
  * Copyright (c) 1997, 1998
@@ -530,7 +530,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---------------------------------------------------------------------------
 
-11) Aquantia NIC Driver
+Aquantia NIC Driver
 
 /*-
  * SPDX-License-Identifier: BSD-2-Clause
@@ -562,7 +562,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---------------------------------------------------------------------------
 
-12) WireGuard Implementation for lwIP
+WireGuard Implementation for lwIP
 
 Copyright (c) 2021 Daniel Hope (www.floorsense.nz)
 All rights reserved.
@@ -617,7 +617,7 @@ THE SOFTWARE.
 
 ---------------------------------------------------------------------------
 
-13) Mbed-TLS
+Mbed-TLS
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -822,7 +822,7 @@ THE SOFTWARE.
 
 ---------------------------------------------------------------------------
 
-14) EFI Development Kit 2 (EDK2)
+EFI Development Kit 2 (EDK2)
 
 Copyright (c) 2019, TianoCore and contributors.  All rights reserved.
 
