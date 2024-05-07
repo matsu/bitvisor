@@ -57,21 +57,6 @@ kbdio_monitor (enum iotype type, u32 port, void *data)
 }
 #endif
 
-#ifdef DEBUG_IO0x20_MONITOR
-#include "vramwrite.h"
-static enum ioact
-io0x20_monitor (enum iotype type, u32 port, void *data)
-{
-	do_io_default (type, port, data);
-	if (type == IOTYPE_OUTB) {
-		vramwrite_save_and_move_cursor (56, 23);
-		printf ("OUT0x20,0x%02X", *(u8 *)data);
-		vramwrite_restore_cursor ();
-	}
-	return IOACT_CONT;
-}
-#endif
-
 #if defined (F11PANIC) || defined (F12MSG)
 #include "keyboard.h"
 static enum ioact
@@ -191,9 +176,6 @@ setiohooks (void)
 		return;
 #ifdef DEBUG_IO_MONITOR
 	set_iofunc (0x60, kbdio_monitor);
-#endif
-#ifdef DEBUG_IO0x20_MONITOR
-	set_iofunc (0x20, io0x20_monitor);
 #endif
 #if defined (F11PANIC) || defined (F12MSG)
 	if (config.vmm.f11panic || config.vmm.f12msg)
