@@ -135,7 +135,7 @@ net_ip_init (void *handle, void *phys_handle, struct nicfunc *phys_func,
 {
 	struct net_ip_data *p = handle;
 
-	if (!virt_func && p->pass)
+	if (!virt_func && (p->pass || p->wg_gos))
 		return false;
 	p->phys_handle = phys_handle;
 	p->phys_func = phys_func;
