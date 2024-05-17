@@ -780,11 +780,13 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 }
 
 static void
-checksum (void *buff, uint len, uint css, uint cso, uint cse, u16 addval)
+checksum (void *buff, uint len, uint css, uint cso, uint cse, u16 addval,
+	  bool udp)
 {
 	u16 ipchecksum (void *buf, u32 len);
 	u8 *p = buff;
 	u32 tmp;
+	u16 sum;
 
 	if (!cso)
 		return;
@@ -803,7 +805,11 @@ checksum (void *buff, uint len, uint css, uint cso, uint cse, u16 addval)
 			tmp -= 0xFFFF;
 		*(u16 *)(void *)&p[cso] = tmp;
 	}
-	*(u16 *)(void *)&p[cso] = ipchecksum (p + css, cse - css + 1);
+	sum = ipchecksum (p + css, cse - css + 1);
+	if (udp && !sum)	/* 0 means no checksum in case of UDP
+				 * header */
+		sum = ~0;
+	*(u16 *)(void *)&p[cso] = sum;
 }
 
 static u16
@@ -975,7 +981,7 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 							  d2->dext0_ipcss,
 							  d2->dext0_ipcso,
 							  d2->dext0_ipcse,
-							  0);
+							  0, false);
 					if (d2->dext1_txsm)
 						checksum (d2->buf,
 							  packet_sizes[0],
@@ -986,7 +992,7 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 							  bswap16
 							  (dextsize -
 							   d2->dext0_tucss) :
-							  0);
+							  0, !d2->dext0_tcp);
 					d2->recvvirt_func (d2, 1, packet_data,
 							   packet_sizes,
 							   d2->recvvirt_param,

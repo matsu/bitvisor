@@ -117,9 +117,7 @@ ipchecksum:
 	shr	$16,%eax
 	add	%dx,%ax
 	adc	$0,%ax
-1:
 	xor	$~0,%ax
-	je	1b
 	ret
 .else
 	.code32
@@ -224,9 +222,7 @@ ipchecksum:
 	shr	$16,%eax
 	add	%dx,%ax
 	adc	$0,%ax
-1:
 	xor	$~0,%ax
-	je	1b
 	pop	%esi
 	pop	%edi
 	ret

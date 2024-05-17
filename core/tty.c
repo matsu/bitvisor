@@ -133,10 +133,14 @@ mkudp (char *buf, char *src, int sport, char *dst, int dport,
 	wshort (buf + 24, datalen + 8);
 	memcpy (buf + 26, "\x00\x11", 2);
 	memcpy (buf + 28, data, datalen);
+	/* UDP header checksum */
 	sum = ~ipchecksum (buf + 12, datalen + 16);
 	memcpy (buf + 26, &sum, 2);
 	sum = ipchecksum (buf + 24, 4);
+	if (!sum)		/* 0 means no checksum */
+		sum = ~0;
 	memcpy (buf + 26, &sum, 2);
+	/* IP header checksum */
 	sum = ipchecksum (buf, 20);
 	memcpy (buf + 10, &sum, 2);
 	return datalen + 8 + 20;

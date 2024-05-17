@@ -1189,6 +1189,8 @@ udpcs (u8 *buf, unsigned int len)
 	datalen = (buf[17] | buf[16] << 8) - iplen - udplen;
 	cs = (u16 *)&buf[14 + iplen + 6];
 	*cs = ipchecksum (&buf[14 + iplen], udplen + datalen);
+	if (!*cs)		/* 0 means no checksum */
+		*cs = ~0;
 }
 
 static void
