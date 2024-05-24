@@ -525,6 +525,23 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 
 	if (cmd & USBCMD_RUN) {
 		if (!xhci_hc_running (host)) {
+			spinlock_lock (&host->sync_lock);
+
+			/*
+			 * We unmap guest's ERST here because it might be
+			 * possible that the guest will change its ERST while
+			 * the VMM state is SHUTTING_DOWN or HALTED.
+			 */
+			struct xhci_erst_data *g_erst_data;
+			uint i;
+			for (i = 0; i < host->usable_intrs; i++) {
+				g_erst_data = &(host->g_data.erst_data[i]);
+				if (g_erst_data->erst_size)
+					xhci_unmap_guest_erst (g_erst_data);
+			}
+
+			spinlock_unlock (&host->sync_lock);
+
 			host->hc_state = XHCI_HC_STATE_RUNNING;
 			take_control_erst (xhci_data);
 		}
@@ -533,22 +550,7 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 			spinlock_lock (&host->sync_lock);
 
 			host->hc_state = XHCI_HC_STATE_SHUTTING_DOWN;
-
 			xhci_update_er_and_dev_ctx (host);
-
-			/*
-			 * We unmap guest's ERST here because it might be
-			 * possible that the guest will change its ERST after
-			 * it starts the xHC again.
-			 */
-			struct xhci_erst_data *g_erst_data;
-			uint i;
-			for (i = 0; i < host->usable_intrs; i++) {
-				g_erst_data = &(host->g_data.erst_data[i]);
-				if (g_erst_data->erst_size) {
-					xhci_unmap_guest_erst (g_erst_data);
-				}
-			}
 
 			spinlock_unlock (&host->sync_lock);
 		}
