@@ -531,8 +531,6 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 
 	if (cmd & USBCMD_RUN) {
 		if (!xhci_hc_running (host)) {
-			spinlock_lock (&host->sync_lock);
-
 			/*
 			 * We unmap guest's ERST here because it might be
 			 * possible that the guest will change its ERST while
@@ -546,19 +544,13 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 					xhci_unmap_guest_erst (g_erst_data);
 			}
 
-			spinlock_unlock (&host->sync_lock);
-
 			host->hc_state = XHCI_HC_STATE_RUNNING;
 			take_control_erst (xhci_data);
 		}
 	} else {
 		if (xhci_hc_running (host)) {
-			spinlock_lock (&host->sync_lock);
-
 			host->hc_state = XHCI_HC_STATE_SHUTTING_DOWN;
 			xhci_update_er_and_dev_ctx (host);
-
-			spinlock_unlock (&host->sync_lock);
 		}
 	}
 
@@ -584,9 +576,7 @@ check_for_error_status (struct xhci_host *host, u32 status)
 			dprintf (0, "Host Controller Error occurs\n");
 		}
 
-		spinlock_lock (&host->sync_lock);
 		xhci_hc_reset (host);
-		spinlock_unlock (&host->sync_lock);
 	}
 }
 
@@ -660,11 +650,9 @@ xhci_opr_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 			}
 
 			usb_sc_lock (host->usb_host);
-			spinlock_lock (&host->sync_lock);
 			host->portsc[portno] = status;
 			handle_connect_status (host->usb_host,
 					       portno, status);
-			spinlock_unlock (&host->sync_lock);
 			usb_sc_unlock (host->usb_host);
 		}
 
@@ -1164,7 +1152,6 @@ xhci_db_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 
 	u8 *reg = regs->db_reg + field_offset;
 
-	spinlock_lock (&host->sync_lock);
 	switch (slot_id) {
 	case 0:
 		handle_cmd_write (host);
@@ -1181,7 +1168,6 @@ xhci_db_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 		handle_slot_write (host, slot_id, ep_no);
 		break;
 	}
-	spinlock_unlock (&host->sync_lock);
 
 	memcpy (reg, buf, len);
 }
@@ -1214,7 +1200,10 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 		  uint len, u32 flags)
 {
 	struct xhci_data *xhci_data = (struct xhci_data *)data;
-	struct xhci_regs *regs = xhci_data->host->regs;
+	struct xhci_host *host = xhci_data->host;
+	struct xhci_regs *regs = host->regs;
+
+	spinlock_lock (&host->sync_lock);
 
 	phys_t acc_start = gphys;
 	phys_t acc_end	 = acc_start + len;
@@ -1293,6 +1282,7 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 		}
 	}
 end:
+	spinlock_unlock (&host->sync_lock);
 	return 1;
 }
 
