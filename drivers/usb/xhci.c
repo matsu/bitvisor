@@ -982,7 +982,7 @@ xhci_rts_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 	case RTS_ERSTBA_OFFSET + 4:
 		write64 = 1;
 		reg_offset = field_offset - RTS_ERSTBA_OFFSET;
-
+		xhci_reset_erst_current (g_erst_data);
 		fill_write_info (&wr_info, buf64, len,
 				 &g_erst_data->erst_addr,
 				 &g_erst_data->erst_addr_written,
@@ -1522,6 +1522,7 @@ xhci_set_erst_data (struct xhci_host *host)
 	for (i = 0; i < host->max_intrs; i++) {
 		/* Set current toggle to 1 (Default start) for all erst_data */
 		host->erst_data[i].current_toggle = 1;
+		host->g_data.erst_data[i].current_toggle = 1;
 	}
 
 	/* Set up data for the last interrupt register set */

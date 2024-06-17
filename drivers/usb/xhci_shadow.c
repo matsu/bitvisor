@@ -167,11 +167,8 @@ xhci_create_shadow_erst (const struct mm_as *as,
 		xhci_initialize_event_ring (h_erst_data);
 
 		phys_t offset = g_erst_data->erst_dq_ptr - g_erst[i].trb_addr;
-		if (offset < trb_nbytes) {
+		if (offset < trb_nbytes)
 			found = 1;
-			h_erst_data->current_seg = i;
-			h_erst_data->current_idx = offset / XHCI_TRB_NBYTES;
-		}
 	}
 
 	if (!found) {
@@ -199,7 +196,7 @@ set_erst_current (struct xhci_erst_data *erst_data, uint seg, uint idx,
 	erst_data->current_toggle = toggle;
 }
 
-static void
+void
 xhci_reset_erst_current (struct xhci_erst_data *erst_data)
 {
 	set_erst_current (erst_data, 0, 0, 1);
