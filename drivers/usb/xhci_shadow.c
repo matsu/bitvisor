@@ -135,6 +135,7 @@ xhci_create_shadow_erst (const struct mm_as *as,
 							   0);
 
 	struct xhci_erst *g_erst = g_erst_data->erst;
+	struct xhci_erst *h_erst = h_erst_data->erst;
 
 	size_t trb_nbytes;
 	struct xhci_trb *g_trbs, *h_trbs;
@@ -149,16 +150,18 @@ xhci_create_shadow_erst (const struct mm_as *as,
 						       MAPMEM_WRITE);
 		g_erst_data->trb_array[i] = g_trbs;
 
-		if (!h_erst_data->trb_array[i]) {
+		h_trbs = h_erst_data->trb_array[i];
+
+		if (h_trbs && h_erst[i].n_trbs != g_erst[i].n_trbs) {
+			free (h_trbs);
+			h_trbs = NULL;
+		}
+		if (!h_trbs) {
 			h_trbs = zalloc2_align (trb_nbytes,
 						&h_erst_data->erst[i].trb_addr,
 						XHCI_ALIGN_64);
-
 			h_erst_data->trb_array[i]   = h_trbs;
-
 			h_erst_data->erst[i].n_trbs = g_erst[i].n_trbs;
-		} else {
-			h_trbs = h_erst_data->trb_array[i];
 		}
 
 		memcpy (h_trbs, g_trbs, trb_nbytes);
