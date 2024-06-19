@@ -629,6 +629,8 @@ struct xhci_regs {
 	u8 *db_reg;
 
 	struct xhci_ext_cap *blacklist_ext_cap;
+
+	u8 *cap_reg_copy;
 };
 #define XHCI_REGS_NBYTES (sizeof (struct xhci_regs))
 

@@ -195,21 +195,13 @@ xhci_hc_running (struct xhci_host *host)
 
 /* ---------- Start capability related functions ---------- */
 
-static void
-xhci_cap_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
+static u32
+initial_cap_reg_read (struct xhci_host *host, phys_t offset)
 {
-	struct xhci_data *xhci_data = (struct xhci_data *)data;
-	struct xhci_host *host	    = xhci_data->host;
-	struct xhci_regs *regs	    = host->regs;
+	struct xhci_regs *regs = host->regs;
+	u32 buf32 = *(volatile u32 *)(regs->cap_reg + offset);
 
-	phys_t field_offset = gphys - regs->cap_start;
-
-	u32 buf32 = *(u32 *)(regs->cap_reg + field_offset);
-
-	dprintft (REG_DEBUG_LEVEL, "Cap Offset: 0x%04llX, len: %u\n---> ",
-		  field_offset, len);
-
-	switch (field_offset) {
+	switch (offset) {
 	case CAP_CAPLENGTH_OFFSET: /* CAPLENGTH and HCIVERSION */
 		dprintft (REG_DEBUG_LEVEL, "CAPLENGTH & HCIVERSION = %08X\n",
 			  buf32);
@@ -251,7 +243,19 @@ xhci_cap_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 		break;
 	}
 
-	memcpy (buf, &buf32, sizeof (u32));
+	return buf32;
+}
+
+static void
+xhci_cap_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
+{
+	struct xhci_data *xhci_data = data;
+	struct xhci_host *host = xhci_data->host;
+	struct xhci_regs *regs = host->regs;
+	phys_t offset = gphys - regs->cap_start;
+	dprintft (REG_DEBUG_LEVEL,
+		  "Read Cap Reg, offset: 0x%x, size: %d\n", offset, len);
+	memcpy (buf, &regs->cap_reg_copy[offset], len);
 }
 
 /* ---------- End capability related functions ---------- */
@@ -1209,15 +1213,16 @@ static int
 xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 		  uint len, u32 flags)
 {
-	if (len != 4 && len != 8) {
-		goto end;
-	}
-
 	struct xhci_data *xhci_data = (struct xhci_data *)data;
 	struct xhci_regs *regs = xhci_data->host->regs;
 
 	phys_t acc_start = gphys;
 	phys_t acc_end	 = acc_start + len;
+
+	if (len != 4 && len != 8) {
+		if (!RANGE_CHECK_CAP)
+			goto end;
+	}
 
 	if (RANGE_CHECK_CAP) {
 
@@ -1652,6 +1657,14 @@ xhci_new (struct pci_device *pci_device)
 	/* Read max ports */
 	host->max_ports = CAP_SPARAM1_GET_MAX_PORTS (cap_reg->hc_sparams1);
 	dprintft (REG_DEBUG_LEVEL, "Max ports: 0x%X\n", host->max_ports);
+
+	/* Construct capability registers for showing to the guest. */
+	/* Alloc "cap_length + 8" to deal with the out-of-bounds read. */
+	regs->cap_reg_copy = zalloc (cap_reg->cap_length + 8);
+	for (uint off = 0; off < cap_reg->cap_length; off += sizeof (u32)) {
+		u32 *cap_reg_copy_off = (u32 *)&regs->cap_reg_copy[off];
+		*cap_reg_copy_off = initial_cap_reg_read (host, off);
+	}
 
 	/* Port number starts from 1 */
 	u64 last_port_number = host->max_ports + 1;
