@@ -164,7 +164,7 @@ xhci_create_shadow_erst (const struct mm_as *as,
 			h_erst_data->erst[i].n_trbs = g_erst[i].n_trbs;
 		}
 
-		memcpy (h_trbs, g_trbs, trb_nbytes);
+		xhci_initialize_event_ring (h_erst_data);
 
 		phys_t offset = g_erst_data->erst_dq_ptr - g_erst[i].trb_addr;
 		if (offset < trb_nbytes) {
@@ -177,6 +177,39 @@ xhci_create_shadow_erst (const struct mm_as *as,
 	if (!found) {
 		panic ("Error in create_shadow_erst().");
 	}
+}
+
+static void
+clear_event_ring (struct xhci_erst_data *erst_data)
+{
+	for (uint i_seg = 0; i_seg < erst_data->erst_size; i_seg++) {
+		if (erst_data->trb_array[i_seg])
+			memset (erst_data->trb_array[i_seg], 0,
+				erst_data->erst[i_seg].n_trbs *
+					XHCI_TRB_NBYTES);
+	}
+}
+
+static void
+set_erst_current (struct xhci_erst_data *erst_data, uint seg, uint idx,
+		  uint toggle)
+{
+	erst_data->current_seg = seg;
+	erst_data->current_idx = idx;
+	erst_data->current_toggle = toggle;
+}
+
+static void
+xhci_reset_erst_current (struct xhci_erst_data *erst_data)
+{
+	set_erst_current (erst_data, 0, 0, 1);
+}
+
+void
+xhci_initialize_event_ring (struct xhci_erst_data *erst_data)
+{
+	clear_event_ring (erst_data);
+	xhci_reset_erst_current (erst_data);
 }
 
 /* ---------- End ERST shadowing related functions ---------- */

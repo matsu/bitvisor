@@ -479,6 +479,8 @@ take_control_erst (struct xhci_data *xhci_data)
 	i = host->max_intrs - 1;
 	h_erst_data = &host->erst_data[i];
 
+	xhci_initialize_event_ring (h_erst_data);
+
 	u32 *erstsz_reg;
 
 	erstsz_reg = (u32 *)(INTR_REG (regs, i) + RTS_ERSTSZ_OFFSET);

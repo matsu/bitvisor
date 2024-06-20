@@ -950,6 +950,8 @@ void xhci_create_shadow_erst (const struct mm_as *as,
 			      struct xhci_erst_data *h_erst_data,
 			      struct xhci_erst_data *g_erst_data);
 
+void xhci_initialize_event_ring (struct xhci_erst_data *erst_data);
+
 u8 xhci_process_cmd_trb (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 			 uint idx);
 
