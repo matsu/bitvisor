@@ -660,6 +660,8 @@ struct xhci_host {
 
 	u16 usable_intrs; /* Usable interrupters for the guest */
 
+	bool intr_enable;
+
 	u16 opr_pagesize; /* Need for faking pagesize if necessary */
 
 	u16 max_scratchpad;
@@ -1020,5 +1022,6 @@ struct xhci_trb *tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg);
 void xhci_update_vmm_hc_state (struct xhci_host *host);
 bool xhci_hc_halted (struct xhci_host *host);
 bool xhci_hc_running (struct xhci_host *host);
+void xhci_update_er_dev_ctx_eint (struct xhci_host *host, bool eint);
 
 #endif /* _XHCI_H */

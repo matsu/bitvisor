@@ -926,23 +926,12 @@ int
 xhci_sync_state (void *data, int num)
 {
 	struct xhci_data *xhci_data = (struct xhci_data *)data;
-	struct xhci_regs *xhci_regs = xhci_data->host->regs;
-
 	struct xhci_host *host = xhci_data->host;
 
 	spinlock_lock (&host->sync_lock);
 
-	if (xhci_hc_halted (host))
-		goto end;
+	xhci_update_er_dev_ctx_eint (host, true);
 
-	u32 status = *(volatile u32 *)(xhci_regs->opr_reg + OPR_USBSTS_OFFSET);
-
-	/* Check for Event Interrupt */
-	if (status & USBSTS_EINT) {
-		xhci_update_er_and_dev_ctx (xhci_data->host);
-	}
-
-end:
 	spinlock_unlock (&host->sync_lock);
 	return num;
 }

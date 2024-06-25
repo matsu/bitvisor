@@ -193,6 +193,36 @@ xhci_hc_running (struct xhci_host *host)
 	return host->hc_state == XHCI_HC_STATE_RUNNING;
 }
 
+/* Update event ring and dev ctx if below situations:
+ * - Just after the controller is halted.
+ * - The controller is not halted and:
+ *   if eint is true:
+ *     - Event Interrupt occurs, or
+ *     - Interrupt is not enabled.(for UEFI driver)
+ *   else:
+ *     - Interrupt is not enabled.(for UEFI driver) */
+void
+xhci_update_er_dev_ctx_eint (struct xhci_host *host, bool eint)
+{
+	u32 usbsts;
+	switch (host->hc_state) {
+	case XHCI_HC_STATE_RUNNING:
+	case XHCI_HC_STATE_SHUTTING_DOWN:
+		usbsts = *(volatile u32 *)(host->regs->opr_reg +
+					   OPR_USBSTS_OFFSET);
+		if (usbsts & USBSTS_HCH) {
+			xhci_update_er_and_dev_ctx (host);
+			host->hc_state = XHCI_HC_STATE_HALTED;
+			break;
+		}
+		if ((eint && (usbsts & USBSTS_EINT)) || !host->intr_enable)
+			xhci_update_er_and_dev_ctx (host);
+		break;
+	case XHCI_HC_STATE_HALTED:
+		break;
+	}
+}
+
 /* ---------- Start capability related functions ---------- */
 
 static u32
@@ -536,6 +566,8 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 			xhci_update_er_and_dev_ctx (host);
 		}
 	}
+
+	host->intr_enable = !!(cmd & USBCMD_INTE);
 
 	return 1;
 }
@@ -1185,6 +1217,8 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 	struct xhci_regs *regs = host->regs;
 
 	spinlock_lock (&host->sync_lock);
+
+	xhci_update_er_dev_ctx_eint (host, false);
 
 	phys_t acc_start = gphys;
 	phys_t acc_end	 = acc_start + len;
