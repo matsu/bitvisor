@@ -2832,16 +2832,8 @@ end:
 /* ---------- Start HC reset related functions ---------- */
 
 void
-xhci_hc_reset (struct xhci_host *host)
+xhci_release_data (struct xhci_host *host)
 {
-	xhci_update_vmm_hc_state (host);
-
-	/* Return if host controller is halted or shutting down */
-	if (!xhci_hc_running (host))
-		return;
-
-	dprintft (0, "xHCI reset detected\n");
-
 	struct xhci_erst_data *g_erst_data;
 	uint i;
 	for (i = 0; i < host->usable_intrs; i++) {

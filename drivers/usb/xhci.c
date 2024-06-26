@@ -525,18 +525,7 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 
 	if (cmd & USBCMD_RUN) {
 		if (!xhci_hc_running (host)) {
-			/*
-			 * We unmap guest's ERST here because it might be
-			 * possible that the guest will change its ERST while
-			 * the VMM state is SHUTTING_DOWN or HALTED.
-			 */
-			struct xhci_erst_data *g_erst_data;
-			uint i;
-			for (i = 0; i < host->usable_intrs; i++) {
-				g_erst_data = &(host->g_data.erst_data[i]);
-				if (g_erst_data->erst_size)
-					xhci_unmap_guest_erst (g_erst_data);
-			}
+			xhci_release_data (host);
 
 			host->hc_state = XHCI_HC_STATE_RUNNING;
 			take_control_erst (xhci_data);
@@ -569,8 +558,6 @@ check_for_error_status (struct xhci_host *host, u32 status)
 		if (status & USBSTS_HCE) {
 			dprintf (0, "Host Controller Error occurs\n");
 		}
-
-		xhci_hc_reset (host);
 	}
 }
 
