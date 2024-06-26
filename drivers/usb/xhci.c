@@ -516,17 +516,11 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 		erdp_reg = (u64 *)(INTR_REG (regs, i) + RTS_ERDP_OFFSET);
 
 		h_erst_data->erst_dq_ptr = *erdp_reg;
-
-		host->state_saved = 1;
 	}
 
 	/* The guest wants xHC to restore its state */
 	if (cmd & USBCMD_CRS) {
-		if (!host->state_saved) {
-			return 0;
-		}
-
-		host->state_saved = 0;
+		panic ("CRS handling is not implemented yet.");
 	}
 
 	if (cmd & USBCMD_RUN) {

@@ -651,8 +651,6 @@ struct xhci_host {
 	/* Parse All Events flag, necessary for URB completion check */
 	u8  pae;
 
-	u8  state_saved;
-
 	u8  max_slots;	       /* Number of max device slots */
 	u8  max_slots_enabled; /* Max device slots enabled by CONFIG */
 

@@ -2842,8 +2842,6 @@ xhci_hc_reset (struct xhci_host *host)
 
 	dprintft (0, "xHCI reset detected\n");
 
-	host->state_saved = 0;
-
 	struct xhci_erst_data *g_erst_data;
 	uint i;
 	for (i = 0; i < host->usable_intrs; i++) {
