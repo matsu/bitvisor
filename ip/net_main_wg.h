@@ -33,13 +33,13 @@
 #include <core/types.h>
 
 #ifdef WIREGUARD_VMM
-void wg_gos_routing (u32 num_packets, void **packets, u32 *packet_sizes,
-		     void *param);
+void wg_gos_task_add (u32 num_packets, void **packets, u32 *packet_sizes,
+		      void *param);
 struct wg_gos_data *wg_gos_new (u8 guest_mac[6]);
 #else
 static inline void
-wg_gos_routing (u32 num_packets, void **packets, u32 *packet_sizes,
-		void *param)
+wg_gos_task_add (u32 num_packets, void **packets, u32 *packet_sizes,
+		 void *param)
 {
 }
 

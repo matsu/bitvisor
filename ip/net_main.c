@@ -154,7 +154,7 @@ net_ip_virt_recv (void *handle, unsigned int num_packets, void **packets,
 		p->phys_func->send (p->phys_handle, num_packets, packets,
 				    packet_sizes, true);
 	else if (p->wg_gos)
-		wg_gos_routing (num_packets, packets, packet_sizes, param);
+		wg_gos_task_add (num_packets, packets, packet_sizes, param);
 }
 
 static void

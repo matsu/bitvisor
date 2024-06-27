@@ -27,9 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <core/mm.h>
 #include <core/arith.h>
 #include <core/config.h>
+#include <core/mm.h>
 #include <net/netapi.h>
 #include "lwip/etharp.h"
 #include "lwip/prot/iana.h"
@@ -38,12 +38,20 @@
 #include "lwip/prot/ip.h"
 #include "net_main_internal.h"
 #include "net_main_wg.h"
+#include "tcpip.h"
 
 #define ARP_ASK_GATEWAY 1
 #define ARP_ASK_OTHERS	2
 #define PACK_IP_ADDR(ip) \
 	(((u32)(ip)[3] << 24) | ((u32)(ip)[2] << 16) | ((u32)(ip)[1] << 8) | \
 	 (u32)(ip)[0])
+
+struct wg_gos_task {
+	u32 num_packets;
+	void **packets;
+	u32 *packet_sizes;
+	void *param;
+};
 
 struct arp_data {
 	struct eth_hdr ethhdr;
@@ -396,17 +404,17 @@ reply_dhcp (void *packet, struct wg_gos_data *wg_gos_data, int size,
 	return true;
 }
 
-void
-wg_gos_routing (u32 num_packets, void **packets, u32 *packet_sizes,
-		void *param)
+static void
+wg_gos_routing (void *arg)
 {
-	struct net_ip_data *p = param;
+	struct wg_gos_task *task = arg;
+	struct net_ip_data *p = task->param;
 	int size;
 	void *packet;
 
-	for (u32 i = 0; i < num_packets; i++) {
-		packet = packets[i];
-		size = packet_sizes[i];
+	for (u32 i = 0; i < task->num_packets; i++) {
+		packet = task->packets[i];
+		size = task->packet_sizes[i];
 		struct eth_hdr *ethhdr = packet;
 		if (size < sizeof *ethhdr)
 			continue;
@@ -422,4 +430,29 @@ wg_gos_routing (u32 num_packets, void **packets, u32 *packet_sizes,
 			break;
 		}
 	}
+	for (u32 i = 0; i < task->num_packets; i++)
+		free (task->packets[i]);
+	free (task->packets);
+	free (task->packet_sizes);
+	free (task);
+}
+
+void
+wg_gos_task_add (u32 num_packets, void **packets, u32 *packet_sizes,
+		 void *param)
+{
+	struct wg_gos_task *task;
+
+	task = alloc (sizeof *task);
+	task->num_packets = num_packets;
+	task->packets = alloc (sizeof (void *) * num_packets);
+	task->packet_sizes = alloc (sizeof (u32) * num_packets);
+
+	for (u32 i = 0; i < num_packets; i++) {
+		task->packet_sizes[i] = packet_sizes[i];
+		task->packets[i] = alloc (packet_sizes[i]);
+		memcpy (task->packets[i], packets[i], packet_sizes[i]);
+	}
+	task->param = param;
+	tcpip_begin (wg_gos_routing, task);
 }
