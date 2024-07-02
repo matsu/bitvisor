@@ -31,6 +31,7 @@ objs-1 += debug.o
 objs-1 += exint_pass.o
 objs-1 += iccard.o
 objs-1 += initfunc.o
+objs-1 += keyboard.o
 objs-1 += mm.o
 objs-1 += msg.o
 objs-1 += panic.o
