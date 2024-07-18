@@ -35,7 +35,8 @@
  */
 #include <arch/io.h>
 #include <core.h>
-#include <core_io.h>
+
+#define WEAK __attribute__ ((weak))
 
 static bool
 iotype_is_out (enum iotype iotype)
@@ -93,7 +94,7 @@ alloc_handler_descriptor (void)
 	return alloc (sizeof (struct handler_descriptor));
 }
 
-enum ioact
+static enum ioact
 core_iofunc (enum iotype iotype, u32 port, void *data)
 {
 	int i, hd, ret = CORE_IO_RET_DEFAULT;
@@ -315,6 +316,30 @@ core_io_handle_default (core_io_t io, void *data)
 	default:
 		panic ("core_io_handle_default: unknown iotype");
 	}
+}
+
+WEAK bool
+core_io_arch_iospace_exist (void)
+{
+	return false; /* core_io is not relevant on non-x86 machine */
+}
+
+WEAK void
+core_io_arch_set_pass_default (u32 port)
+{
+	panic ("%s(): unsupported operation", __func__);
+}
+
+WEAK void
+core_io_arch_set_iofunc (u32 port, iofunc_t func)
+{
+	panic ("%s(): unsupported operation", __func__);
+}
+
+WEAK void
+core_io_arch_init (void)
+{
+	/* Do nothing */
 }
 
 static void

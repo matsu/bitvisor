@@ -153,20 +153,89 @@ outs32 (ioport_t port, u32 *buf, u32 count)
 	asm volatile ("cld; rep outsl" : "=c" (count), "=S" (buf)
 		      : "c" (count), "d" (port), "S" (buf));
 }
-#endif
+#else
 
-void in8 (ioport_t port, u8 *data);
-void in16 (ioport_t port, u16 *data);
-void in32 (ioport_t port, u32 *data);
-void ins8 (ioport_t port, u8 *buf, u32 count);
-void ins16 (ioport_t port, u16 *buf, u32 count);
-void ins32 (ioport_t port, u32 *buf, u32 count);
-void out8 (ioport_t port, u8 data);
-void out16 (ioport_t port, u16 data);
-void out32 (ioport_t port, u32 data);
-void outs8 (ioport_t port, u8 *buf, u32 count);
-void outs16 (ioport_t port, u16 *buf, u32 count);
-void outs32 (ioport_t port, u32 *buf, u32 count);
+#include <core/panic.h>
+
+static inline void
+inout_unsupported (void)
+{
+	panic ("core_io: no support for in/out instructions");
+}
+
+static inline void
+in8 (ioport_t port, u8 *data)
+{
+	inout_unsupported ();
+}
+
+static inline void
+in16 (ioport_t port, u16 *data)
+{
+	inout_unsupported ();
+}
+
+static inline void
+in32 (ioport_t port, u32 *data)
+{
+	inout_unsupported ();
+}
+
+static inline void
+ins8 (ioport_t port, u8 *buf, u32 count)
+{
+	inout_unsupported ();
+}
+
+static inline void
+ins16 (ioport_t port, u16 *buf, u32 count)
+{
+	inout_unsupported ();
+}
+
+static inline void
+ins32 (ioport_t port, u32 *buf, u32 count)
+{
+	inout_unsupported ();
+}
+
+static inline void
+out8 (ioport_t port, u8 data)
+{
+	inout_unsupported ();
+}
+
+static inline void
+out16 (ioport_t port, u16 data)
+{
+	inout_unsupported ();
+}
+
+static inline void
+out32 (ioport_t port, u32 data)
+{
+	inout_unsupported ();
+}
+
+static inline void
+outs8 (ioport_t port, u8 *buf, u32 count)
+{
+	inout_unsupported ();
+}
+
+static inline void
+outs16 (ioport_t port, u16 *buf, u32 count)
+{
+	inout_unsupported ();
+}
+
+static inline void
+outs32 (ioport_t port, u32 *buf, u32 count)
+{
+	inout_unsupported ();
+}
+
+#endif
 
 static inline void
 insn (ioport_t port, void *buf, int unit_size, u32 total_size)
