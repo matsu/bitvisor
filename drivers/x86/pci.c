@@ -97,3 +97,9 @@ pci_iommu_arch_force_map (struct pci_device *dev)
 	acpi_dmar_force_map (dev->dmar_info, dev->initial_bus_no,
 			     dev->address.device_no, dev->address.func_no);
 }
+
+bool
+pci_arch_pmio_exist (void)
+{
+	return true;
+}

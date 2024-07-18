@@ -87,7 +87,7 @@ struct pci_config_mmio_data *pci_config_mmio_data_head;
 void
 pci_save_config_addr (void)
 {
-	if (pci_arch_iospace_exist ()) {
+	if (pci_arch_pmio_exist ()) {
 		pci_config_pmio_addrlock (ADDR_LOCK);
 		in32 (PCI_CONFIG_ADDR_PORT, &current_config_addr.value);
 		pci_config_pmio_addrlock (ADDR_UNLOCK);
@@ -901,7 +901,7 @@ pci_config_pmio_count (int add)
 	static spinlock_t pmio_count_lock = SPINLOCK_INITIALIZER;
 	static int count;
 
-	if (!pci_arch_iospace_exist ())
+	if (!pci_arch_pmio_exist ())
 		return;
 
 	spinlock_lock (&pmio_count_lock);
@@ -935,7 +935,7 @@ pci_readwrite_config_pmio (bool wr, uint bus_no, uint device_no, uint func_no,
 {
 	pci_config_address_t addr;
 
-	if (!pci_arch_iospace_exist ())
+	if (!pci_arch_pmio_exist ())
 		panic ("%s(): no IO bus to access PCI config space", __func__);
 	if (bus_no > 0xFF || device_no > 0x1F || func_no > 0x7 ||
 	    offset > 0xFF || !(iosize == 1 || iosize == 2 || iosize == 4))
@@ -1370,4 +1370,11 @@ void
 pci_disable_msi_callback (struct pci_msi_callback *p)
 {
 	p->enable = false;
+}
+
+/* This is currently only relevant on x86 */
+__attribute__ ((weak)) bool
+pci_arch_pmio_exist (void)
+{
+	return false;
 }

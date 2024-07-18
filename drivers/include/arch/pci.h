@@ -37,12 +37,7 @@
 struct mm_as;
 struct pci_device;
 
-static inline bool
-pci_arch_iospace_exist (void)
-{
-	return core_io_arch_iospace_exist ();
-}
-
+bool pci_arch_pmio_exist (void);
 void pci_arch_find_devices_end (void);
 void pci_arch_msi_to_ipi (pci_config_address_t pci_config_addr,
 			  const struct mm_as *as, u32 maddr, u32 mupper,
