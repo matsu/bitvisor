@@ -29,14 +29,14 @@
 
 #include <common.h>
 #include <core.h>
+#include <core/list.h>
 #include <passthrough/dmar.h>
 #include <passthrough/intel-iommu.h>
 #include <passthrough/iodom.h>
 #include <passthrough/vtd.h>
 #include <pci.h>
 #include "../core/include/arch/vmm_mem.h"
-
-extern struct list pci_device_list_head;
+#include "../pci_internal.h"
 
 static inline void asm_wbinvd (void)
 {
@@ -536,9 +536,11 @@ static void setup_bitvisor_devs(void)
 	struct acpi_drhd_u *drhd;
 	int ret=0;
 	u8 bus, devfn ;
+	struct pci_segment *s;
 	
+	s = pci_get_segment (0);
 	struct pci_device *devs;
-	LIST_FOREACH(pci_device_list, devs) {
+	LIST1_FOREACH (s->pci_device_list, devs) {
 		if (search_remap(devs->address.bus_no, devs->address.device_no, devs->address.func_no)==0) {
 			bus = devs->address.bus_no ;
 			devfn = (devs->address.device_no << 3) | devs->address.func_no ;

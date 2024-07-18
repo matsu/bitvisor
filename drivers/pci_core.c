@@ -37,6 +37,7 @@
 #include <common.h>
 #include <core.h>
 #include <core/exint_pass.h>
+#include <core/list.h>
 #include <core/process.h>
 #include <core/strtol.h>
 #include <pci.h>
@@ -78,11 +79,9 @@ static spinlock_t pci_msi_callback_lock = SPINLOCK_INITIALIZER;
  * PCI internal interfaces
  *****************************************************************************/
 
-LIST_DEFINE_HEAD (pci_device_list);
 LIST_DEFINE_HEAD (pci_driver_list);
-static struct pci_virtual_device **pci_virtual_devices[32];
 LIST_DEFINE_HEAD (pci_virtual_driver_list);
-struct pci_config_mmio_data *pci_config_mmio_data_head;
+struct pci_segment_list pci_segment_list;
 
 void
 pci_pmio_save_config_addr (void)
@@ -94,10 +93,23 @@ pci_pmio_save_config_addr (void)
 	}
 }
 
-void
-pci_append_device (struct pci_device *dev)
+struct pci_segment *
+pci_get_segment (u16 seg_no)
 {
-	LIST_APPEND (pci_device_list, dev);
+	struct pci_segment *s;
+
+	LIST1_FOREACH (pci_segment_list.head, s) {
+		if (s->seg_no == seg_no)
+			return s;
+	}
+
+	return NULL;
+}
+
+void
+pci_append_device (struct pci_segment *s, struct pci_device *dev)
+{
+	LIST1_ADD (s->pci_device_list, dev);
 	/* pci_print_device (addr, &dev->config_space); */
 }
 
@@ -136,7 +148,7 @@ pci_config_emulate_base_address_mask (struct pci_device *dev,
 }
 
 void
-pci_dump_pci_dev_list (void)
+pci_dump_pci_dev_list (struct pci_segment *s)
 {
 #ifdef DUMP_PCI_DEV_LIST
 	struct pci_device *device;
@@ -150,7 +162,7 @@ begin:
 		"  SPC:next page  CR:next line";
 	printf ("\nDUMP_PCI_DEV_LIST:\n");
 	n = 1;
-	LIST_FOREACH (pci_device_list, device) {
+	LIST1_FOREACH (s->pci_device_list, device) {
 		if (!--n && d >= 0) {
 		wait:
 			printf ("%s", msg);
@@ -193,7 +205,8 @@ begin:
 			if (!n)
 				goto begin;
 		}
-		printf ("[%02X:%02X.%X] %06X: %04X:%04X",
+		printf ("[%04X:%02X:%02X.%X] %06X: %04X:%04X",
+			s->seg_no,
 			device->address.bus_no,
 			device->address.device_no,
 			device->address.func_no,
@@ -258,7 +271,8 @@ pci_find_virtual_driver_by_token (struct token *name)
 }
 
 void
-pci_assign_virtual_device (struct pci_virtual_device *device, u32 bus0_devs,
+pci_assign_virtual_device (struct pci_segment *s,
+			   struct pci_virtual_device *device, u32 bus0_devs,
 			   int *dev, int *fn)
 {
 	int i, j;
@@ -266,21 +280,21 @@ pci_assign_virtual_device (struct pci_virtual_device *device, u32 bus0_devs,
 	for (i = 0; i < 32; i++) {
 		if (bus0_devs & (1 << i))
 			continue;
-		if (!pci_virtual_devices[i]) {
-			pci_virtual_devices[i] =
-				alloc (sizeof *pci_virtual_devices[i] * 8);
+		if (!s->pci_virtual_devices[i]) {
+			s->pci_virtual_devices[i] =
+				alloc (sizeof *s->pci_virtual_devices[i] * 8);
 			for (j = 0; j < 8; j++)
-				pci_virtual_devices[i][j] = NULL;
+				s->pci_virtual_devices[i][j] = NULL;
 			j = 0;
 			goto found;
 		}
 		for (j = 0; j < 8; j++)
-			if (!pci_virtual_devices[i][j])
+			if (!s->pci_virtual_devices[i][j])
 				goto found;
 	}
 	panic ("%s: failed 0x%X", __func__, bus0_devs);
 found:
-	pci_virtual_devices[i][j] = device;
+	s->pci_virtual_devices[i][j] = device;
 	*dev = i;
 	*fn = j;
 }
@@ -288,6 +302,7 @@ found:
 static void
 device_disconnect (struct pci_device *dev)
 {
+	struct pci_segment *s;
 	struct pci_device *bridge;
 
 	if (!dev->disconnect) {
@@ -305,7 +320,8 @@ device_disconnect (struct pci_device *dev)
 	if (!dev->bridge.yes)
 		return;
 	bridge = dev;
-	LIST_FOREACH (pci_device_list, dev) {
+	s = bridge->segment;
+	LIST1_FOREACH (s->pci_device_list, dev) {
 		if (dev->parent_bridge != bridge)
 			continue;
 		device_disconnect (dev);
@@ -365,6 +381,7 @@ pci_handle_bridge_config_write (struct pci_device *bridge, u8 iosize,
 				u16 offset, union mem *data)
 {
 	struct pci_device *dev;
+	struct pci_segment *s = bridge->segment;
 	u8 old_secondary_bus_no = bridge->bridge.secondary_bus_no;
 	u8 old_subordinate_bus_no = bridge->bridge.subordinate_bus_no;
 	u8 new_secondary_bus_no = old_secondary_bus_no;
@@ -383,7 +400,7 @@ pci_handle_bridge_config_write (struct pci_device *bridge, u8 iosize,
 		bridge->address.func_no,
 		old_secondary_bus_no, old_subordinate_bus_no,
 		new_secondary_bus_no, new_subordinate_bus_no);
-	LIST_FOREACH (pci_device_list, dev) {
+	LIST1_FOREACH (s->pci_device_list, dev) {
 		if (dev->parent_bridge == bridge &&
 		    new_secondary_bus_no != old_secondary_bus_no) {
 			if (!dev->disconnect &&
@@ -414,13 +431,13 @@ pci_handle_bridge_config_write (struct pci_device *bridge, u8 iosize,
 			device_disconnect (dev);
 		}
 	}
-	pci_set_bridge_from_bus_no (new_secondary_bus_no, bridge);
+	pci_set_bridge_from_bus_no (s, new_secondary_bus_no, bridge);
 	bridge->bridge.secondary_bus_no = new_secondary_bus_no;
 	bridge->bridge.subordinate_bus_no = new_subordinate_bus_no;
 }
 
 static void
-pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
+pci_config_io_handler (struct pci_segment *s, bool wr,
 		       uint bus_no, uint device_no, uint func_no,
 		       uint offset, uint len, void *buf)
 {
@@ -434,6 +451,7 @@ pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
 	struct pci_virtual_device *virtual_dev;
 	void (*virtual_func) (struct pci_virtual_device *dev, u8 iosize,
 			      u16 offset, union mem *data);
+	struct pci_config_mmio_data *d = s->mmio;
 
 	spinlock_lock (&pci_config_io_lock);
 	if (last_bus_no == bus_no && last_device_no == device_no &&
@@ -445,8 +463,8 @@ pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
 		dev = last_dev;
 		goto dev_found;
 	}
-	if (!bus_no && pci_virtual_devices[device_no]) {
-		virtual_dev = pci_virtual_devices[device_no][func_no];
+	if (!bus_no && s->pci_virtual_devices[device_no]) {
+		virtual_dev = s->pci_virtual_devices[device_no][func_no];
 		virtual_func = NULL;
 		if (virtual_dev && virtual_dev->driver)
 			virtual_func = wr ? virtual_dev->driver->config_write :
@@ -455,7 +473,7 @@ pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
 			virtual_func (virtual_dev, len, offset, buf);
 		else if (!wr)
 			memset (buf, 0xFF, len);
-		if (!wr && !func_no && pci_virtual_devices[device_no][1] &&
+		if (!wr && !func_no && s->pci_virtual_devices[device_no][1] &&
 		    offset <= PCI_CONFIG_SPACE_GET_OFFSET (header_type) &&
 		    offset + len > PCI_CONFIG_SPACE_GET_OFFSET (header_type)) {
 			u8 *p = PCI_CONFIG_SPACE_GET_OFFSET (header_type) -
@@ -464,7 +482,7 @@ pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
 		}
 		goto ret;
 	}
-	LIST_FOREACH (pci_device_list, dev) {
+	LIST1_FOREACH (s->pci_device_list, dev) {
 		if (dev->address.bus_no == bus_no &&
 		    dev->address.device_no == device_no &&
 		    dev->address.func_no == func_no) {
@@ -492,7 +510,7 @@ pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
 	new_dev_addr.bus_no = bus_no;
 	new_dev_addr.device_no = device_no;
 	new_dev_addr.func_no = func_no;
-	dev = pci_possible_new_device (new_dev_addr, d);
+	dev = pci_possible_new_device (s, new_dev_addr);
 new_device:
 	if (dev) {
 		struct pci_driver *driver;
@@ -562,6 +580,7 @@ ret:
 int
 pci_config_data_handler (core_io_t io, union mem *data, void *arg)
 {
+	struct pci_segment *s = arg;
 	pci_config_address_t caddr;
 	u8 offset;
 
@@ -576,7 +595,7 @@ pci_config_data_handler (core_io_t io, union mem *data, void *arg)
 	}
 	offset = caddr.reg_no * sizeof (u32) +
 		 (io.port - PCI_CONFIG_DATA_PORT);
-	pci_config_io_handler (NULL, io.dir != CORE_IO_DIR_IN, caddr.bus_no,
+	pci_config_io_handler (s, io.dir != CORE_IO_DIR_IN, caddr.bus_no,
 			       caddr.device_no, caddr.func_no, offset, io.size,
 			       data);
 leave:
@@ -623,6 +642,7 @@ pci_set_bridge_io (struct pci_device *pci_device)
 	u16 port_list = 3;
 	struct pci_bar_info bar_info;
 	struct pci_device *dev, *bridge = NULL;
+	struct pci_segment *s;
 	u8 bus_no_start, bus_no_end, port_start, port_end;
 
 	if (!pci_device->address.bus_no)
@@ -632,7 +652,8 @@ pci_set_bridge_io (struct pci_device *pci_device)
 		return;		/* Hot-plug devices should be
 				 * configured by the guest operating
 				 * system. */
-	LIST_FOREACH (pci_device_list, dev) {
+	s = pci_device->segment;
+	LIST1_FOREACH (s->pci_device_list, dev) {
 		if ((dev->config_space.class_code & 0xFFFF00) == 0x060400) {
 			/* The dev is a PCI bridge. */
 			tmp = dev->config_space.base_address[2];
@@ -1048,7 +1069,8 @@ int
 pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 			 uint len, u32 flags)
 {
-	struct pci_config_mmio_data *d = data;
+	struct pci_segment *s = data;
+	struct pci_config_mmio_data *d = s->mmio;
 	union {
 		struct {
 			unsigned int reg_offset : 12;
@@ -1060,7 +1082,7 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 	} addr;
 
 	addr.offset = gphys - d->base;
-	pci_config_io_handler (d, wr, addr.s.bus_no, addr.s.dev_no,
+	pci_config_io_handler (s, wr, addr.s.bus_no, addr.s.dev_no,
 			       addr.s.func_no, addr.s.reg_offset, len, buf);
 	return 1;
 }
@@ -1263,6 +1285,15 @@ pci_enable_device (struct pci_device *pci_device, u32 pci_cmd_en_flags)
 	if (cmd != orig_cmd)
 		pci_config_write (pci_device, &cmd, sizeof cmd,
 				  PCI_CONFIG_COMMAND);
+}
+
+struct pci_device *
+pci_devices_on_segment (u16 seg_no)
+{
+	struct pci_segment *s;
+
+	s = pci_get_segment (seg_no);
+	return s ? s->pci_device_list.next : NULL;
 }
 
 struct pci_msi *

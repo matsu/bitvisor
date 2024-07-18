@@ -30,13 +30,14 @@
 #ifndef _PCI_INTERNAL_H
 #define _PCI_INTERNAL_H
 
-#include <io.h>
+#include <core/list.h>
 #include <core/types.h>
+#include <io.h>
+#include "pci_init.h"
 
 struct pci_device;
 
 struct pci_config_mmio_data {
-	struct pci_config_mmio_data *next;
 	u64 base;
 	u16 seg_group;
 	u8 bus_start;
@@ -44,6 +45,19 @@ struct pci_config_mmio_data {
 	phys_t phys;
 	uint len;
 	void *map;
+};
+
+struct pci_segment {
+	LIST1_DEFINE (struct pci_segment);
+	LIST1_DEFINE_HEAD (struct pci_device, pci_device_list);
+	struct pci_config_mmio_data *mmio;
+	struct pci_virtual_device **pci_virtual_devices[32];
+	struct pci_device *bridge_from_bus_no[PCI_MAX_BUSES];
+	u16 seg_no; /* Store segment number separatedly as mmio can be NULL */
+};
+
+struct pci_segment_list {
+	LIST1_DEFINE_HEAD (struct pci_segment, head);
 };
 
 struct pci_msi_callback {
@@ -65,15 +79,15 @@ struct pci_msi_callback {
 
 extern int pci_config_data_handler (core_io_t io, union mem *data, void *arg);
 extern int pci_config_addr_handler (core_io_t io, union mem *data, void *arg);
-extern void pci_append_device (struct pci_device *dev);
+struct pci_segment *pci_get_segment (u16 seg_no);
 void pci_pmio_save_config_addr (void);
+void pci_append_device (struct pci_segment *s, struct pci_device *dev);
 int pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 			     uint len, u32 flags);
 void pci_config_pmio_enter (void);
 void pci_config_pmio_leave (void);
 
-extern struct pci_config_mmio_data *pci_config_mmio_data_head;
-extern struct list pci_device_list_head;
+extern struct pci_segment_list pci_segment_list;
 extern struct pci_msi_callback *pci_msi_callback_list;
 
 #endif

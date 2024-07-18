@@ -123,12 +123,15 @@ pci_read_config_space (struct pci_device *dev)
 static struct pci_config_mmio_data *
 pci_search_config_mmio (u16 seg_group, u8 bus_no)
 {
+	struct pci_segment *s;
 	struct pci_config_mmio_data *p;
 
-	for (p = pci_config_mmio_data_head; p; p = p->next)
-		if (p->seg_group == seg_group &&
-		    p->bus_start <= bus_no && bus_no <= p->bus_end)
+	s = pci_get_segment (seg_group);
+	if (s) {
+		p = s->mmio;
+		if (p && p->bus_start <= bus_no && bus_no <= p->bus_end)
 			return p;
+	}
 	return NULL;
 }
 
@@ -150,19 +153,15 @@ pci_save_bridge_info (struct pci_device *dev)
 }
 
 static struct pci_device **
-pci_bridge_from_bus_no (u8 bus_no)
+pci_bridge_from_bus_no (struct pci_segment *s, u8 bus_no)
 {
-	static struct pci_device *bridge_from_bus_no[PCI_MAX_BUSES];
-
-	if (bus_no)
-		return &bridge_from_bus_no[bus_no];
-	return NULL;
+	return bus_no ? &s->bridge_from_bus_no[bus_no] : NULL;
 }
 
 struct pci_device *
-pci_get_bridge_from_bus_no (u8 bus_no)
+pci_get_bridge_from_bus_no (struct pci_segment *s, u8 bus_no)
 {
-	struct pci_device **p = pci_bridge_from_bus_no (bus_no);
+	struct pci_device **p = pci_bridge_from_bus_no (s, bus_no);
 	struct pci_device *ret;
 
 	if (!p)
@@ -174,9 +173,10 @@ pci_get_bridge_from_bus_no (u8 bus_no)
 }
 
 void
-pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge)
+pci_set_bridge_from_bus_no (struct pci_segment *s, u8 bus_no,
+			    struct pci_device *bridge)
 {
-	struct pci_device **p = pci_bridge_from_bus_no (bus_no);
+	struct pci_device **p = pci_bridge_from_bus_no (s, bus_no);
 
 	if (p)
 		*p = bridge;
@@ -205,7 +205,8 @@ pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 		pci_read_config_pmio (addr.bus_no, addr.device_no,
 				      addr.func_no, 8, sizeof data8, &data8);
 	}
-	dev->config_mmio = pci_search_config_mmio (0, dev->address.bus_no);
+	dev->config_mmio = pci_search_config_mmio (dev->segment->seg_no,
+						   dev->address.bus_no);
 	/* Compare the read data with data stored in the dev
 	 * structure. */
 	if (dev->config_space.regs32[0] == data0 &&
@@ -253,7 +254,7 @@ pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 }
 
 static struct pci_device *
-pci_new_device (pci_config_address_t addr)
+pci_new_device (struct pci_segment *s, pci_config_address_t addr)
 {
 	struct pci_device *dev;
 
@@ -266,24 +267,26 @@ pci_new_device (pci_config_address_t addr)
 			dev->initial_bus_no = -1;
 		else
 			dev->initial_bus_no = 0;
-		dev->config_mmio = pci_search_config_mmio (0, addr.bus_no);
+		dev->config_mmio = pci_search_config_mmio (s->seg_no,
+							   addr.bus_no);
+		dev->segment = s;
 		dev->as_dma = as_passvm;
 		pci_config_pmio_enter ();
 		pci_read_config_space (dev);
 		pci_save_base_address_masks (dev);
 		pci_save_bridge_info (dev);
 		pci_config_pmio_leave ();
-		pci_append_device (dev);
+		pci_append_device (s, dev);
 	}
 	return dev;
 }
 
 struct pci_device *
-pci_possible_new_device (pci_config_address_t addr,
-			 struct pci_config_mmio_data *mmio)
+pci_possible_new_device (struct pci_segment *s, pci_config_address_t addr)
 {
 	u16 data;
 	struct pci_device *ret = NULL;
+	struct pci_config_mmio_data *mmio = s->mmio;
 
 	if (mmio)
 		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
@@ -292,11 +295,11 @@ pci_possible_new_device (pci_config_address_t addr,
 		pci_read_config_pmio (addr.bus_no, addr.device_no,
 				      addr.func_no, 0, sizeof data, &data);
 	if (data != 0xFFFF)
-		ret = pci_new_device (addr);
+		ret = pci_new_device (s, addr);
 	if (ret) {
 		ret->hotplug = 1;
 		ret->parent_bridge =
-			pci_get_bridge_from_bus_no (ret->address.bus_no);
+			pci_get_bridge_from_bus_no (s, ret->address.bus_no);
 		if (ret->parent_bridge)
 			ret->initial_bus_no = ret->parent_bridge->bridge.
 				initial_secondary_bus_no;
@@ -306,12 +309,12 @@ pci_possible_new_device (pci_config_address_t addr,
 }
 
 static struct pci_device *
-pci_try_add_device (pci_config_address_t addr,
-		    struct pci_config_mmio_data *mmio,
+pci_try_add_device (struct pci_segment *s, pci_config_address_t addr,
 		    u32 *bus0_devs)
 {
 	u16 data;
 	struct pci_device *dev;
+	struct pci_config_mmio_data *mmio = s->mmio;
 
 	if (mmio)
 		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
@@ -322,7 +325,7 @@ pci_try_add_device (pci_config_address_t addr,
 	if (data == 0xFFFF) /* not exist */
 		return NULL;
 
-	dev = pci_new_device (addr);
+	dev = pci_new_device (s, addr);
 	if (!dev)
 		panic ("Out of memory");
 	if (addr.bus_no == 0)
@@ -332,37 +335,32 @@ pci_try_add_device (pci_config_address_t addr,
 	if (dev->bridge.yes) {
 		dev->bridge.initial_secondary_bus_no =
 			dev->bridge.secondary_bus_no;
-		pci_set_bridge_from_bus_no (dev->bridge.secondary_bus_no, dev);
+		pci_set_bridge_from_bus_no (s, dev->bridge.secondary_bus_no,
+					    dev);
 	}
 
 	return dev;
 }
 
 static void
-pci_find_devices (void)
+pci_find_devices_on_segment (struct pci_segment *s)
 {
 	int bn, dn, fn, num = 0;
 	struct pci_device *dev;
 	pci_config_address_t addr;
-	struct pci_config_mmio_data *mmio;
 	struct pci_driver *driver;
 	u32 bus0_devs = 0;
 	int vnum = 0;
 	char *pci_virtual;
 	struct pci_virtual_device *virtual_device;
 
-	printf ("PCI: finding devices...\n");
-	pci_pmio_save_config_addr ();
-	pci_config_pmio_enter ();
 	for (bn = 0; bn < PCI_MAX_BUSES; bn++)
-		pci_set_bridge_from_bus_no (bn, NULL);
+		pci_set_bridge_from_bus_no (s, bn, NULL);
 	for (bn = 0; bn < PCI_MAX_BUSES; bn++) {
-		mmio = pci_search_config_mmio (0, bn);
 		for (dn = 0; dn < PCI_MAX_DEVICES; dn++) {
 			for (fn = 0; fn < PCI_MAX_FUNCS; fn++) {
 				addr = pci_make_config_address (bn, dn, fn, 0);
-				dev = pci_try_add_device (addr, mmio,
-							  &bus0_devs);
+				dev = pci_try_add_device (s, addr, &bus0_devs);
 				if (!dev)
 					continue;
 				num++;
@@ -372,12 +370,12 @@ pci_find_devices (void)
 			}
 		}
 	}
-	LIST_FOREACH (pci_device_list, dev)
+	LIST1_FOREACH (s->pci_device_list, dev)
 		dev->parent_bridge =
-			pci_get_bridge_from_bus_no (dev->address.bus_no);
-	LIST_FOREACH (pci_device_list, dev)
+			pci_get_bridge_from_bus_no (s, dev->address.bus_no);
+	LIST1_FOREACH (s->pci_device_list, dev)
 		dev->as_dma = pci_init_arch_as_dma (dev, dev);
-	LIST_FOREACH (pci_device_list, dev) {
+	LIST1_FOREACH (s->pci_device_list, dev) {
 		driver = pci_find_driver_for_device (dev);
 		if (driver) {
 			dev->driver = driver;
@@ -389,7 +387,7 @@ pci_find_devices (void)
 		virtual_device = pci_match_get_virtual_device (&pci_virtual);
 		if (!virtual_device)
 			break;
-		pci_assign_virtual_device (virtual_device, bus0_devs,
+		pci_assign_virtual_device (s, virtual_device, bus0_devs,
 					   &dn, &fn);
 		virtual_device->address =
 			pci_make_config_address (0, dn, fn, 0);
@@ -398,47 +396,103 @@ pci_find_devices (void)
 		virtual_device->driver->new (virtual_device);
 		vnum++;
 	}
-	pci_arch_find_devices_end ();
-	pci_config_pmio_leave ();
-	printf ("PCI: %d devices found\n", num);
+	printf ("PCI: %d devices found on PCI segment %u\n", num, s->seg_no);
 	if (vnum)
-		printf ("PCI: %d virtual devices created\n", vnum);
-	pci_dump_pci_dev_list ();
+		printf ("PCI: %d virtual devices created on PCI segment %u\n",
+			vnum, s->seg_no);
+	pci_dump_pci_dev_list (s);
 }
 
 static void
-pci_read_mcfg (void)
+pci_find_devices (void)
+{
+	struct pci_segment *s;
+
+	printf ("PCI: finding devices...\n");
+	pci_pmio_save_config_addr ();
+	pci_config_pmio_enter ();
+	LIST1_FOREACH (pci_segment_list.head, s)
+		pci_find_devices_on_segment (s);
+	pci_arch_find_devices_end ();
+	pci_config_pmio_leave ();
+}
+
+static struct pci_segment *
+pci_segment_alloc (struct pci_config_mmio_data *d_to_clone)
+{
+	struct pci_segment *s;
+	uint i;
+
+	s = alloc (sizeof *s);
+	LIST1_HEAD_INIT (s->pci_device_list);
+	if (d_to_clone) {
+		s->mmio = alloc (sizeof *s->mmio);
+		memcpy (s->mmio, d_to_clone, sizeof *s->mmio);
+		s->seg_no = d_to_clone->seg_group;
+	} else {
+		s->mmio = NULL;
+		s->seg_no = 0; /* Default number from PCI Firmware spec */
+	}
+	for (i = 0; i < 32; i++)
+		s->pci_virtual_devices[i] = NULL;
+	for (i = 0; i < PCI_MAX_BUSES; i++)
+		s->bridge_from_bus_no[i] = NULL;
+
+	return s;
+}
+
+static bool
+pci_find_segment (void)
 {
 	uint n;
-	struct pci_config_mmio_data d, *tmp, **pnext;
+	struct pci_segment *s;
+	struct pci_config_mmio_data d;
 
-	pnext = &pci_config_mmio_data_head;
-	*pnext = NULL;
+	/*
+	 * According to PCI Firmware specification, it allows only one entry
+	 * per segment only. So, PCI segment and its MMIO is 1-to-1.
+	 */
 	for (n = 0; acpi_read_mcfg (n, &d.base, &d.seg_group, &d.bus_start,
 				    &d.bus_end); n++) {
-		d.next = NULL;
 		d.phys = d.base + (d.bus_start << 20);
 		d.len = ((u32)(d.bus_end - d.bus_start) + 1) << 20;
 		d.map = mapmem_hphys (d.phys, d.len, MAPMEM_WRITE | MAPMEM_UC);
-		tmp = alloc (sizeof *tmp);
-		memcpy (tmp, &d, sizeof *tmp);
-		*pnext = tmp;
-		pnext = &tmp->next;
+		s = pci_segment_alloc (&d);
+		LIST1_ADD (pci_segment_list.head, s);
 	}
+
+	/*
+	 * If there is no MMIO configuration found and PMIO exists, it means
+	 * the machine has one PCI segment for legacy PCI bus.
+	 */
+	if (n == 0 && pci_arch_pmio_exist ()) {
+		s = pci_segment_alloc (NULL);
+		LIST1_ADD (pci_segment_list.head, s);
+		n++;
+	}
+
+	if (n == 0)
+		printf ("%s(): no PCI segment found\n", __func__);
+
+	return n > 0;
 }
 
 static void
-pci_mcfg_register_handler (void)
+pci_mcfg_register_mmio_handler (void)
 {
-	uint n;
-	struct pci_config_mmio_data *p;
+	uint n = 0;
+	struct pci_segment *s;
 
-	for (n = 0, p = pci_config_mmio_data_head; p; n++, p = p->next) {
-		printf ("MCFG [%u] %04X:%02X-%02X (%llX,%X)\n",
-			n, p->seg_group, p->bus_start, p->bus_end, p->phys,
-			p->len);
-		mmio_register_unlocked (p->phys, p->len,
-					pci_config_mmio_handler, p);
+	LIST1_FOREACH (pci_segment_list.head, s) {
+		struct pci_config_mmio_data *p = s->mmio;
+		if (p) {
+			printf ("MCFG [%u] %04X:%02X-%02X (%llX,%X)\n",
+				n, p->seg_group, p->bus_start, p->bus_end,
+				p->phys, p->len);
+			mmio_register_unlocked (p->phys, p->len,
+						pci_config_mmio_handler, s);
+			n++;
+		}
 	}
 }
 
@@ -446,7 +500,8 @@ pci_mcfg_register_handler (void)
 void
 pci_system_disconnect (struct pci_device *pci_device)
 {
-	uefiutil_disconnect_pcidev_driver (0, pci_device->address.bus_no,
+	uefiutil_disconnect_pcidev_driver (pci_device->segment->seg_no,
+					   pci_device->address.bus_no,
 					   pci_device->address.device_no,
 					   pci_device->address.func_no);
 }
@@ -454,17 +509,22 @@ pci_system_disconnect (struct pci_device *pci_device)
 static void
 pci_init (void)
 {
+	LIST1_HEAD_INIT (pci_segment_list.head);
+	if (!pci_find_segment ())
+		return;
 	alloc2 (4, &pci_msi_dummyaddr);
-	pci_read_mcfg ();
 	pci_find_devices ();
-	core_io_register_handler (PCI_CONFIG_ADDR_PORT, 1,
-				  pci_config_addr_handler, NULL,
-				  CORE_IO_PRIO_HIGH, driver_name);
-	core_io_register_handler (PCI_CONFIG_DATA_PORT, 4,
-				  pci_config_data_handler, NULL,
-				  CORE_IO_PRIO_HIGH, driver_name);
-	pci_mcfg_register_handler ();
-	return;
+	if (core_io_arch_iospace_exist ()) {
+		/* core_io involves with only segment 0 */
+		struct pci_segment *s = pci_get_segment (0);
+		core_io_register_handler (PCI_CONFIG_ADDR_PORT, 1,
+					  pci_config_addr_handler, s,
+					  CORE_IO_PRIO_HIGH, driver_name);
+		core_io_register_handler (PCI_CONFIG_DATA_PORT, 4,
+					  pci_config_data_handler, s,
+					  CORE_IO_PRIO_HIGH, driver_name);
+	}
+	pci_mcfg_register_mmio_handler ();
 }
 
 INITFUNC ("driver90", pci_init);

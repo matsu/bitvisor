@@ -119,8 +119,8 @@ do_init_as_dma (struct pci_device *dev, struct pci_device *pdev,
 	addr.next = next;
 	if (pdev->parent_bridge)
 		return do_init_as_dma (dev, pdev->parent_bridge, &addr);
-	dev->dmar_info = acpi_dmar_add_pci_device (0, &addr,
-						   !!dev->bridge.yes);
+	dev->dmar_info = acpi_dmar_add_pci_device (pdev->segment->seg_no,
+						   &addr, !!dev->bridge.yes);
 	if (dev->dmar_info) {
 		dev->as_dma_dmar.translate = dmar_translate;
 		dev->as_dma_dmar.msi_to_icr = dmar_msi_to_icr;
@@ -146,7 +146,8 @@ pci_init_arch_virtual_as_dma (struct pci_virtual_device *dev)
 	addr.dev = dev->address.device_no;
 	addr.func = dev->address.func_no;
 	addr.next = NULL;
-	dev->dmar_info = acpi_dmar_add_pci_device (0, &addr, false);
+	dev->dmar_info = acpi_dmar_add_pci_device (dev->segment->seg_no, &addr,
+						   false);
 	if (dev->dmar_info) {
 		dev->as_dma_dmar.translate = virtual_dmar_translate;
 		dev->as_dma_dmar.msi_to_icr = virtual_dmar_msi_to_icr;
