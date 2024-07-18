@@ -37,6 +37,9 @@
 #include <io.h>
 #include <pci.h>
 
+enum dres_reg_ret_t;
+struct dres_reg;
+
 //
 #define RTL8169_REGISTER_SIZE			256	// レジスタサイズ
 #define RTL8169_ARRY_MAX_NUM			256
@@ -205,12 +208,9 @@ typedef struct RTL8169_SUB_CTX{
 	int	i;
 	int	e;
 	int	io;
-	int	hd;
-	void	*h;
-	void	*map;
+	struct dres_reg *r;
 	uint	maplen;
-	phys_t	mapaddr;		// メモリマップドレジスタの物理アドレス
-	phys_t ioaddr;			// I/Oマップドレジスタの物理アドレス
+	phys_t addr;
 	struct	RTL8169_CTX *ctx;
 	bool   hwReset;
 }RTL8169_SUB_CTX;
@@ -226,8 +226,12 @@ static int  rtl8169_config_read (struct pci_device *pci_device, u8 iosize,
 				 u16 offset, union mem *data);
 static int  rtl8169_config_write (struct pci_device *pci_device, u8 iosize,
 				  u16 offset, union mem *data);
-static int  rtl8169_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags);
-static int  rtl8169_io_handler(core_io_t io, union mem *data, void *arg);
+static enum dres_reg_ret_t rtl8169_mm_handler (const struct dres_reg *r,
+					       void *handle, phys_t offset,
+					       bool wr, void *buf, uint len);
+static enum dres_reg_ret_t rtl8169_io_handler (const struct dres_reg *r,
+					       void *handle, phys_t offset,
+					       bool wr, void *buf, uint len);
 static bool rtl8169_init_vpn_client(RTL8169_CTX *ctx, RTL8169_SUB_CTX *sctx);
 static bool rtl8169_get_macaddr (struct RTL8169_SUB_CTX *sctx, void *buf);
 static void rtl8169_write(RTL8169_SUB_CTX *sctx, phys_t offset, UINT data, UINT size);

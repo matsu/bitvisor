@@ -31,7 +31,8 @@
  */
 
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
+#include <core/mm.h>
 #include <core/time.h>
 #include <net/netapi.h>
 #include <pci.h>
@@ -460,7 +461,6 @@ static bool
 rtl8169_get_macaddr (struct RTL8169_SUB_CTX *sctx, void *buf)
 {
 	bool bret        = false;
-	void *RegMacAddr = NULL;
 
 #ifdef _DEBUG
 	time = get_cpu_time(); 
@@ -479,23 +479,20 @@ rtl8169_get_macaddr (struct RTL8169_SUB_CTX *sctx, void *buf)
 	else
 	{
 		// レジスタの仮想アドレスをマップ
-		//RegMacAddr = mapmem_gphys (sctx->mapaddr, RTL8169_MAC_LEN, MAPMEM_WRITE | MAPMEM_PCD | MAPMEM_PWT | 0/*MAPMEM_PAT*/);
-		RegMacAddr = sctx->map;
-		if(RegMacAddr == NULL)
+		if (!sctx->r)
 		{
 #ifdef _DEBUG
 			time = get_cpu_time(); 
 			printf("(%llu) ", time);
-			printf("rtl8169_get_macaddr:Error Module mapmem_gphys!\n");
+			printf("rtl8169_get_macaddr:Error Modules!\n");
 #endif
 		}
 		else
 		{
 			// レジスタからMACアドレスをコピー
-			memcpy(buf, RegMacAddr, RTL8169_MAC_LEN);
+			for (uint i = 0; i < RTL8169_MAC_LEN; i++)
+				dres_reg_read8 (sctx->r, i, buf + i);
 			printf ("Mac Address is %02X:%02X:%02X:%02X:%02X:%02X\n", ((u8 *)buf)[0], ((u8 *)buf)[1], ((u8 *)buf)[2], ((u8 *)buf)[3], ((u8 *)buf)[4], ((u8 *)buf)[5]);
-			// レジスタの仮想アドレスのマップ解除
-			//unmapmem(RegMacAddr ,RTL8169_MAC_LEN);
 			bret = true;
 #ifdef _DEBUG
 			time = get_cpu_time(); 
@@ -529,15 +526,8 @@ unreghook (struct RTL8169_SUB_CTX *sctx)
 	{
 		if (sctx->e) 
 		{
-			if (sctx->io)
-			{
-				core_io_unregister_handler (sctx->hd);
-			}
-			else
-			{
-				mmio_unregister (sctx->h);
-				unmapmem (sctx->map, sctx->maplen);
-			}
+			dres_reg_unregister_handler (sctx->r);
+			dres_reg_free (sctx->r);
 			sctx->e = 0;
 #ifdef _DEBUG
 			time = get_cpu_time(); 
@@ -559,6 +549,10 @@ unreghook (struct RTL8169_SUB_CTX *sctx)
 static void
 reghook (struct RTL8169_SUB_CTX *sctx, int i, struct pci_bar_info *bar)
 {
+	dres_reg_handler_t handler;
+	enum dres_reg_t type;
+	enum dres_err_t err;
+
 	if (bar->type == PCI_BAR_INFO_TYPE_NONE)
 		return;
 
@@ -583,28 +577,28 @@ reghook (struct RTL8169_SUB_CTX *sctx, int i, struct pci_bar_info *bar)
 		sctx->e = 0;
 		if (bar->type == PCI_BAR_INFO_TYPE_IO) {
 			sctx->io = 1;
-			sctx->ioaddr = bar->base;
-			sctx->hd = core_io_register_handler
-				(bar->base, bar->len, rtl8169_io_handler,
-				 sctx, CORE_IO_PRIO_EXCLUSIVE, driver_name);
+			type = DRES_REG_TYPE_IO;
+			handler = rtl8169_io_handler;
 		}
 		else 
 		{
-			sctx->mapaddr = bar->base;
-			sctx->maplen = bar->len;
-			sctx->map = mapmem_as (as_passvm, bar->base, bar->len,
-					       MAPMEM_WRITE | MAPMEM_UC);
-			if (!sctx->map)
-				panic ("mapmem failed");
 			sctx->io = 0;
-			sctx->h = mmio_register (bar->base, bar->len,
-						 rtl8169_mm_handler, sctx);
-			if (!sctx->h)
-				panic ("mmio_register failed");
-			if (i == 1 || i == 2) {
-				sctx->ctx->sctx_mmio = sctx;
-				printf ("sctx[%d]=%p\n", i, sctx);
-			}
+			type = DRES_REG_TYPE_MM;
+			handler = rtl8169_mm_handler;
+		}
+		sctx->addr = bar->base;
+		sctx->maplen = bar->len;
+		sctx->r = dres_reg_alloc (bar->base, bar->len, type,
+					  pci_dres_reg_translate,
+					  sctx->ctx->dev, 0);
+		if (!sctx->r)
+			panic ("dres_reg_alloc failed");
+		err = dres_reg_register_handler (sctx->r, handler, sctx);
+		if (err != DRES_ERR_NONE)
+			panic ("dres_reg_register_handler fails");
+		if (i == 1 || i == 2) {
+			sctx->ctx->sctx_mmio = sctx;
+			printf ("sctx[%d]=%p\n", i, sctx);
 		}
 		sctx->e = 1;
 	}
@@ -683,7 +677,20 @@ rtl8169_read(RTL8169_SUB_CTX *sctx, phys_t offset, UINT size)
 	if (offset >= sctx->maplen)
 		panic ("rtl8169_read: offset %u >= sctx->maplen %u",
 		       (unsigned int)offset, (unsigned int)sctx->maplen);
-	memcpy (&data, (u8 *)sctx->map + offset, size);
+
+	switch (size) {
+	case 1:
+		dres_reg_read8 (sctx->r, offset, &data);
+		break;
+	case 2:
+		dres_reg_read16 (sctx->r, offset, &data);
+		break;
+	case 4:
+		dres_reg_read32 (sctx->r, offset, &data);
+		break;
+	default:
+		panic ("%s(): read len %u\n", __func__, size);
+	}
 
 #ifdef _DEBUG
 	time = get_cpu_time(); 
@@ -719,11 +726,23 @@ rtl8169_write(RTL8169_SUB_CTX *sctx, phys_t offset, UINT data, UINT size)
 	if (offset >= sctx->maplen)
 		panic ("rtl8169_write: offset %u >= sctx->maplen %u",
 		       (unsigned int)offset, (unsigned int)sctx->maplen);
-	if (sctx->map == NULL) {
-		panic ("sctx->map == NULL!! sctx=%p sctx->i=%d\n", sctx,
+	if (sctx->r == NULL) {
+		panic ("sctx->r == NULL!! sctx=%p sctx->i=%d\n", sctx,
 		       sctx->i);
 	}
-	memcpy ((u8 *)sctx->map + offset, &data, size);
+	switch (size) {
+	case 1:
+		dres_reg_write8 (sctx->r, offset, data);
+		break;
+	case 2:
+		dres_reg_write16 (sctx->r, offset, data);
+		break;
+	case 4:
+		dres_reg_write32 (sctx->r, offset, data);
+		break;
+	default:
+		panic ("%s(): read len %u\n", __func__, size);
+	}
 
 #ifdef _DEBUG
 	time = get_cpu_time(); 
@@ -1434,13 +1453,13 @@ rtl8169_init_vpn_client(RTL8169_CTX *ctx, RTL8169_SUB_CTX *sctx)
 //
 // メモリマップドレジスタ用フックハンドラ
 //
-static int
-rtl8169_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
+static enum dres_reg_ret_t
+rtl8169_mm_handler (const struct dres_reg *r, void *handle, phys_t offset,
+		    bool wr, void *buf, uint len)
 {
 	RTL8169_SUB_CTX *sctx;
 	RTL8169_CTX     *ctx;
 	int		  ret = 0;
-	phys_t		  offset;
 	UINT 		  ret_data = 0;
 	UINT		  in_data  = 0;
 
@@ -1450,7 +1469,7 @@ rtl8169_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f
 	printf("rtl8169_mm_handler:start!\n");
 #endif
 
-	if(data == NULL || buf == NULL)
+	if (handle == NULL || buf == NULL)
 	{
 #ifdef _DEBUG
 		time = get_cpu_time(); 
@@ -1460,13 +1479,12 @@ rtl8169_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f
 	}
 	else
 	{
-		sctx = (RTL8169_SUB_CTX *)data;
+		sctx = (RTL8169_SUB_CTX *)handle;
 		ctx  = sctx->ctx;
 		spinlock_lock (&ctx->lock);
 
-		if((u32)sctx->mapaddr <= (u32)gphys && (u32)gphys < (u32)sctx->mapaddr + RTL8169_REGISTER_SIZE)
+		if (offset < RTL8169_REGISTER_SIZE)
 		{
-			offset  = gphys - sctx->mapaddr;
 			if (len == 1 || len == 2 || len == 4)
 			{
 				if (wr == 0)
@@ -1492,7 +1510,7 @@ rtl8169_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f
 				}
 				else
 				{
-					data = 0;
+					handle = 0;
 					if (len == 1)
 					{
 						in_data = (UINT)(*((UCHAR *)buf));
@@ -1543,15 +1561,16 @@ rtl8169_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 f
 //
 // I/Oマップドレジスタ用フックハンドラ
 //
-static int
-rtl8169_io_handler(core_io_t io, union mem *data, void *arg)
+static enum dres_reg_ret_t
+rtl8169_io_handler (const struct dres_reg *r, void *handle, phys_t offset,
+		    bool wr, void *buf, uint len)
 {
 #ifdef _DEBUG
 	time = get_cpu_time(); 
 	printf("(%llu) ", time);
 	printf("rtl8169_io_handler:end!\n");
 #endif
-	return CORE_IO_RET_DEFAULT;
+	return DRES_REG_RET_PASSTHROUGH;
 }
 //
 // PCI コンフィグレーションレジスタの読み込み処理
@@ -1710,6 +1729,7 @@ rtl8169_new (struct pci_device *dev)
 	{
 		ctx  = alloc (sizeof *ctx);
 		memset (ctx, 0, sizeof *ctx);
+		ctx->dev = dev;
 		//TNPDSのシャドウ物理アドレスの仮想メモリ領域(4096KB = 送信ディスクリプタ256個分)を取得
 		alloc_pages (&ctx->TNPDSvirt, &ctx->TNPDSphys, 1);
 		alloc_pages (&ctx->THPDSvirt, &ctx->THPDSphys, 1);
