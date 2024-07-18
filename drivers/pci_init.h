@@ -40,4 +40,6 @@
 #define PCI_MAX_DEVICES		32
 #define PCI_MAX_FUNCS		8
 
+#define PCI_MAX_VIRT_DEVICES	32
+
 #endif

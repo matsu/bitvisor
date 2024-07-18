@@ -277,7 +277,7 @@ pci_assign_virtual_device (struct pci_segment *s,
 {
 	int i, j;
 
-	for (i = 0; i < 32; i++) {
+	for (i = 0; i < PCI_MAX_VIRT_DEVICES; i++) {
 		if (bus0_devs & (1 << i))
 			continue;
 		if (!s->pci_virtual_devices[i]) {

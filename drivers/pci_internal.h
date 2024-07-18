@@ -51,7 +51,7 @@ struct pci_segment {
 	LIST1_DEFINE (struct pci_segment);
 	LIST1_DEFINE_HEAD (struct pci_device, pci_device_list);
 	struct pci_config_mmio_data *mmio;
-	struct pci_virtual_device **pci_virtual_devices[32];
+	struct pci_virtual_device **pci_virtual_devices[PCI_MAX_VIRT_DEVICES];
 	struct pci_device *bridge_from_bus_no[PCI_MAX_BUSES];
 	u16 seg_no; /* Store segment number separatedly as mmio can be NULL */
 };

@@ -433,7 +433,7 @@ pci_segment_alloc (struct pci_config_mmio_data *d_to_clone)
 		s->mmio = NULL;
 		s->seg_no = 0; /* Default number from PCI Firmware spec */
 	}
-	for (i = 0; i < 32; i++)
+	for (i = 0; i < PCI_MAX_VIRT_DEVICES; i++)
 		s->pci_virtual_devices[i] = NULL;
 	for (i = 0; i < PCI_MAX_BUSES; i++)
 		s->bridge_from_bus_no[i] = NULL;
