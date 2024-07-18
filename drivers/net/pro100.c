@@ -30,7 +30,8 @@
  */
 
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
+#include <core/mm.h>
 #include <core/time.h>
 #include <net/netapi.h>
 #include <pci.h>
@@ -155,22 +156,6 @@ PRO100_CTX *pro100_get_ctx()
 	}
 
 	return pro100_ctx;
-}
-
-static void
-mmio_hphys_access (phys_t gphysaddr, bool wr, void *buf, uint len, u32 flags)
-{
-	void *p;
-
-	if (!len)
-		return;
-	p = mapmem_hphys (gphysaddr, len, (wr ? MAPMEM_WRITE : 0) | flags);
-	ASSERT (p);
-	if (wr)
-		memcpy (p, buf, len);
-	else
-		memcpy (buf, p, len);
-	unmapmem (p, len);
 }
 
 static void
@@ -1391,7 +1376,19 @@ void pro100_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size)
 		return;
 	}
 
-	mmio_hphys_access((phys_t)ctx->csr_mm_addr + (phys_t)offset, true, &data, size, MAPMEM_UC);
+	switch (size) {
+	case 1:
+		dres_reg_write8 (ctx->r_mm, offset, data);
+		break;
+	case 2:
+		dres_reg_write16 (ctx->r_mm, offset, data);
+		break;
+	case 4:
+		dres_reg_write32 (ctx->r_mm, offset, data);
+		break;
+	default:
+		panic ("%s(): read len %u\n", __func__, size);
+	}
 }
 
 // 読み取り
@@ -1404,8 +1401,19 @@ UINT pro100_read(PRO100_CTX *ctx, UINT offset, UINT size)
 		return 0;
 	}
 
-	mmio_hphys_access((phys_t)ctx->csr_mm_addr + (phys_t)offset, false,
-		&data, size, MAPMEM_UC);
+	switch (size) {
+	case 1:
+		dres_reg_read8 (ctx->r_mm, offset, &data);
+		break;
+	case 2:
+		dres_reg_read16 (ctx->r_mm, offset, &data);
+		break;
+	case 4:
+		dres_reg_read32 (ctx->r_mm, offset, &data);
+		break;
+	default:
+		panic ("%s(): read len %u\n", __func__, size);
+	}
 
 	return data;
 }
@@ -1433,19 +1441,18 @@ void pro100_generate_int(PRO100_CTX *ctx)
 }
 
 // CSR レジスタ用 MMIO ハンドラ
-int pro100_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
+static enum dres_reg_ret_t
+pro100_mm_handler (const struct dres_reg *r, void *handle, phys_t offset,
+		   bool wr, void *buf, uint len)
 {
 	int ret = 0;
-	PRO100_CTX *ctx = (PRO100_CTX *)data;
+	PRO100_CTX *ctx = (PRO100_CTX *)handle;
 
 	spinlock_lock (&ctx->lock);
 
 	// 範囲チェック
-	if (((UINT64)gphys >= (UINT64)ctx->csr_mm_addr) &&
-		((UINT64)gphys < ((UINT64)ctx->csr_mm_addr) + (UINT64)PRO100_CSR_SIZE))
+	if (offset < (UINT64)PRO100_CSR_SIZE)
 	{
-		UINT offset = (UINT)((UINT64)gphys - (UINT64)ctx->csr_mm_addr);
-
 		if (len == 1 || len == 2 || len == 4)
 		{
 			if (wr == 0)
@@ -1612,11 +1619,14 @@ char *pro100_get_ru_command_string(UINT ru)
 }
 
 // I/O ハンドラ: 未使用
-int pro100_io_handler(core_io_t io, union mem *data, void *arg)
+static enum dres_reg_ret_t
+pro100_io_handler (const struct dres_reg *r, void *handle, phys_t offset,
+		   bool wr, void *buf, uint len)
 {
-	debugprint("IO port=%u, size=%u, dir=%u\n", (UINT)io.port, (UINT)io.size, (UINT)io.dir);
+	debugprint ("IO offset=%u, size=%u, dir=%u\n", (UINT)offset,
+		    (UINT)len, (UINT)wr);
 
-	return CORE_IO_RET_DEFAULT;
+	return DRES_REG_RET_PASSTHROUGH;
 }
 
 // PCI コンフィグレーションレジスタの読み込み処理
@@ -1674,14 +1684,17 @@ pro100_config_write (struct pci_device *dev, u8 iosize, u16 offset,
 
 				if (old_mm_addr != 0)
 				{
-					if (ctx->csr_mm_handler != NULL)
+					if (ctx->r_mm != NULL)
 					{
 						// 古い MMIO ハンドラが登録されている場合は解除する
-						mmio_unregister(ctx->csr_mm_handler);
+						dres_reg_unregister_handler (ctx->r_mm);
+						dres_reg_free (ctx->r_mm);
 					}
 				}
 
-				ctx->csr_mm_handler = mmio_register((phys_t)ctx->csr_mm_addr, 64,
+				ctx->r_mm = dres_reg_alloc (addr, 64,
+					DRES_REG_TYPE_MM, pci_dres_reg_translate, ctx->dev, 0);
+				dres_reg_register_handler (ctx->r_mm,
 					pro100_mm_handler, ctx);
 
 				debugprint("vpn_pro100: mmio_register 0x%x\n", ctx->csr_mm_addr);
@@ -1699,17 +1712,16 @@ pro100_config_write (struct pci_device *dev, u8 iosize, u16 offset,
 				UINT old_io_addr = ctx->csr_io_addr;
 				ctx->csr_io_addr = addr;
 
-				if (old_io_addr == 0)
+				if (old_io_addr)
 				{
-					ctx->csr_io_handler = core_io_register_handler(ctx->csr_io_addr,
-						PRO100_CSR_SIZE, pro100_io_handler, ctx,
-						CORE_IO_PRIO_EXCLUSIVE, driver_name);
+					dres_reg_unregister_handler (ctx->r_io);
+					dres_reg_free (ctx->r_io);
 				}
-				else
-				{
-					ctx->csr_io_handler = core_io_modify_handler(ctx->csr_io_handler,
-						ctx->csr_io_addr, PRO100_CSR_SIZE);
-				}
+
+				ctx->r_io = dres_reg_alloc (addr,
+					PRO100_CSR_SIZE, DRES_REG_TYPE_IO, pci_dres_reg_translate, ctx->dev, 0);
+				dres_reg_register_handler (ctx->r_io,
+					pro100_io_handler, ctx);
 			}
 		}
 		break;

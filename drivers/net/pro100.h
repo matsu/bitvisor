@@ -39,6 +39,8 @@
 #define UINT	unsigned int
 #define DWORD	unsigned int
 
+struct dres_reg;
+
 /// 定数
 #define	PRO100_MAX_OP_BLOCK_SIZE				(PRO100_MAX_PACKET_SIZE + 16)
 #define	PRO100_MAX_PACKET_SIZE					1568
@@ -127,8 +129,8 @@ typedef struct
 	struct pci_device *dev;				// デバイス
 	DWORD csr_mm_addr;					// MMIO アドレス
 	DWORD csr_io_addr;					// IO ポートアドレス
-	int csr_io_handler;					// IO ハンドラ
-	void *csr_mm_handler;				// MMIO ハンドラ
+	struct dres_reg *r_io;				// IO ハンドラ
+	struct dres_reg *r_mm;				// MMIO ハンドラ
 	UINT int_mask_guest_set;			// ゲスト OS が設定した割り込みビット
 	bool guest_cu_started;				// ゲスト OS によって CU が開始されたかどうか
 	bool guest_cu_suspended;			// ゲスト OS によって CU がサスペンドされたかどうか
@@ -260,8 +262,6 @@ int pro100_config_read (struct pci_device *pci_device, u8 iosize, u16 offset,
 			union mem *data);
 int pro100_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 			 union mem *data);
-int pro100_io_handler(core_io_t io, union mem *data, void *arg);
-int pro100_mm_handler(void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags);
 bool pro100_hook_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size);
 bool pro100_hook_read(PRO100_CTX *ctx, UINT offset, UINT size, UINT *data);
 void pro100_write(PRO100_CTX *ctx, UINT offset, UINT data, UINT size);
