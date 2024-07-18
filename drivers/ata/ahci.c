@@ -28,7 +28,7 @@
  */
 
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
 #include <core/thread.h>
 #include <core/time.h>
 #include <pci.h>
@@ -60,7 +60,6 @@
    reserved, but 88SE91xx is different. */
 #define CTBA_MASK		0x3F /* for supporting 88SE91xx */
 
-static const char driver_name[] = "ahci_driver";
 static int ahci_host_id = 0;
 
 enum port_off {
@@ -172,12 +171,9 @@ struct ahci_hook {
 	int i;
 	int e;
 	int io;
-	int hd;
-	void *h;
-	void *map;
 	uint maplen;
-	phys_t mapaddr;
-	u32 iobase;
+	phys_t base;
+	struct dres_reg *r;
 	struct ahci_data *ad;
 };
 
@@ -308,38 +304,27 @@ static void ahci_ae_bit_changed (struct ahci_data *ad);
 static u32
 ahci_read (struct ahci_data *ad, u32 offset)
 {
-	u8 *p;
+	u32 data;
 
-	p = ad->ahci_mem.map;
-	p += offset;
-	asm ("" : : : "memory");
-	return *(u32 *)p;
+	dres_reg_read32 (ad->ahci_mem.r, offset, &data);
+	return data;
 }
 
 static void
 ahci_write (struct ahci_data *ad, u32 offset, u32 data)
 {
-	u8 *p;
-
-	p = ad->ahci_mem.map;
-	p += offset;
-	*(u32 *)p = data;
-	asm ("" : : : "memory");
+	dres_reg_write32 (ad->ahci_mem.r, offset, data);
 }
 
 static void
 ahci_readwrite (struct ahci_data *ad, u32 offset, bool wr, void *buf, uint len)
 {
-	u8 *p;
+	const struct dres_reg *r = ad->ahci_mem.r;
 
-	asm ("" : : : "memory");
-	p = ad->ahci_mem.map;
-	p += offset;
 	if (wr)
-		memcpy (p, buf, len);
+		dres_reg_write (r, offset, buf, len);
 	else
-		memcpy (buf, p, len);
-	asm ("" : : : "memory");
+		dres_reg_read (r, offset, buf, len);
 }
 
 static u32
@@ -1009,8 +994,7 @@ ahci_cmd_start (struct ahci_data *ad, struct ahci_port *pt, u32 pxci)
 /* I/O handlers */
 
 static void
-mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
-	    u32 flags)
+mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len)
 {
 	u32 pxsact, pxci, pxcmd;
 	struct ahci_port *port;
@@ -1024,7 +1008,7 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 	/* 64bit access support */
 	if (len == 8) {
 		len = 4;
-		mmhandler2 (ad, offset, wr, buf32, 4, flags);
+		mmhandler2 (ad, offset, wr, buf32, 4);
 		offset += 4;
 		buf32++;
 	}
@@ -1144,18 +1128,19 @@ mmhandler2 (struct ahci_data *ad, u32 offset, bool wr, u32 *buf32, uint len,
 	ahci_readwrite (ad, offset, wr, buf32, len);
 }
 
-static int
-mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
+static enum dres_reg_ret_t
+mmhandler (const struct dres_reg *r, void *handle, phys_t offset, bool wr,
+	   void *buf, uint len)
 {
 	struct ahci_hook *d;
 	struct ahci_data *ad;
 
-	d = data;
+	d = handle;
 	ad = d->ad;
 	ahci_lock (ad);
-	mmhandler2 (ad, gphys - ad->ahci_mem.mapaddr, wr, buf, len, flags);
+	mmhandler2 (ad, offset, wr, buf, len);
 	ahci_unlock (ad);
-	return 1;
+	return DRES_REG_RET_DONE;
 }
 
 static void
@@ -1175,7 +1160,7 @@ idphandler (struct ahci_data *ad, int off, bool wr, void *data, uint len)
 		ASSERT (ad->idp_index >= 0 &&
 			ad->idp_index < ad->ahci_mem.maplen);
 		ahci_lock (ad);
-		mmhandler2 (ad, ad->idp_index, wr, data, len, 0);
+		mmhandler2 (ad, ad->idp_index, wr, data, len);
 		ahci_unlock (ad);
 		break;
 	default:
@@ -1183,18 +1168,18 @@ idphandler (struct ahci_data *ad, int off, bool wr, void *data, uint len)
 	}
 }
 
-static int
-iohandler (core_io_t io, union mem *data, void *arg)
+static enum dres_reg_ret_t
+iohandler (const struct dres_reg *r, void *handle, phys_t offset, bool wr,
+	   void *buf, uint len)
 {
 	struct ahci_hook *d;
 	struct ahci_data *ad;
 
-	d = arg;
+	d = handle;
 	ad = d->ad;
-	ASSERT (io.size == 1 || io.size == 2 || io.size == 4);
-	idphandler (ad, io.port - d->iobase, io.dir == CORE_IO_DIR_OUT,
-		    &data->dword, io.size);
-	return CORE_IO_RET_DONE;
+	ASSERT (len == 1 || len == 2 || len == 4);
+	idphandler (ad, offset, wr, buf, len);
+	return DRES_REG_RET_DONE;
 }
 
 /************************************************************/
@@ -1641,12 +1626,8 @@ static void
 unreghook (struct ahci_hook *d)
 {
 	if (d->e) {
-		if (d->io) {
-			core_io_unregister_handler (d->hd);
-		} else {
-			mmio_unregister (d->h);
-			unmapmem (d->map, d->maplen);
-		}
+		dres_reg_unregister_handler (d->r);
+		dres_reg_free (d->r);
 		d->e = 0;
 	}
 }
@@ -1655,6 +1636,10 @@ static void
 reghook (struct ahci_hook *d, int i, int off, struct pci_bar_info *bar,
 	 enum hooktype ht)
 {
+	dres_reg_handler_t handler;
+	enum dres_reg_t type;
+	enum dres_err_t err;
+
 	if (bar->type == PCI_BAR_INFO_TYPE_NONE)
 		return;
 	unreghook (d);
@@ -1666,28 +1651,29 @@ reghook (struct ahci_hook *d, int i, int off, struct pci_bar_info *bar,
 		if (bar->len < off + 8)
 			return;
 		d->io = 1;
-		d->iobase = bar->base + off;
-		d->hd = core_io_register_handler (bar->base + off, 8,
-						  iohandler, d,
-						  CORE_IO_PRIO_EXCLUSIVE,
-						  driver_name);
+		d->base = bar->base + off;
+		d->maplen = 8;
+		type = DRES_REG_TYPE_IO;
+		handler = iohandler;
 	} else {
 		if (ht == HOOK_IOSPACE)
 			return;
 		if (bar->len < 0x180)
 			/* The memory space is too small for AHCI */
 			return;
-		d->mapaddr = bar->base;
-		d->maplen = bar->len;
-		d->map = mapmem_as (as_passvm, bar->base, bar->len,
-				    MAPMEM_WRITE);
-		if (!d->map)
-			panic ("mapmem failed");
 		d->io = 0;
-		d->h = mmio_register (bar->base, bar->len, mmhandler, d);
-		if (!d->h)
-			panic ("mmio_register failed");
+		d->base = bar->base;
+		d->maplen = bar->len;
+		type = DRES_REG_TYPE_MM;
+		handler = mmhandler;
 	}
+	d->r = dres_reg_alloc (d->base, d->maplen, type,
+			       pci_dres_reg_translate, d->ad->pci, 0);
+	if (!d->r)
+		panic ("dres_reg_alloc failed");
+	err = dres_reg_register_handler (d->r, handler, d);
+	if (err != DRES_ERR_NONE)
+		panic ("dres_reg_register_handler failed");
 	d->e = 1;
 }
 
