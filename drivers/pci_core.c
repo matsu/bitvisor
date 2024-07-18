@@ -825,10 +825,41 @@ pci_readwrite_config_mmio (struct pci_config_mmio_data *p, bool wr,
 		       p->base, p->seg_group, p->bus_start, p->bus_end,
 		       p->phys, p->len, bus_no, device_no, func_no, offset);
 	q += phys - p->phys;
-	if (wr)
-		memcpy (q, data, iosize);
-	else
-		memcpy (data, q, iosize);
+	if (wr) {
+		switch (iosize) {
+		case 1:
+			*(volatile u8 *)q = *(u8 *)data;
+			break;
+		case 2:
+			*(volatile u16 *)q = *(u16 *)data;
+			break;
+		case 4:
+			*(volatile u32 *)q = *(u32 *)data;
+			break;
+		case 8:
+			*(volatile u64 *)q = *(u64 *)data;
+			break;
+		default:
+			panic ("%s(): write iosize %u", __func__, iosize);
+		}
+	} else {
+		switch (iosize) {
+		case 1:
+			*(u8 *)data = *(volatile u8 *)q;
+			break;
+		case 2:
+			*(u16 *)data = *(volatile u16 *)q;
+			break;
+		case 4:
+			*(u32 *)data = *(volatile u32 *)q;
+			break;
+		case 8:
+			*(u64 *)data = *(volatile u64 *)q;
+			break;
+		default:
+			panic ("%s(): read iosize %u", __func__, iosize);
+		}
+	}
 }
 
 void
