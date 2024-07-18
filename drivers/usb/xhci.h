@@ -184,6 +184,9 @@ zalloc (uint nbytes)
 
 #define ERSTSZ_PRESERVE_MASK (0xFFFF0000U)
 
+struct dres_reg;
+struct pci_device;
+
 struct xhci_erst {
 	phys_t trb_addr;
 	u16 n_trbs;
@@ -229,12 +232,15 @@ struct xhci_intr_reg {
 } __attribute__ ((packed));
 #define XHCI_INTR_REG_NBYTES (sizeof (struct xhci_intr_reg))
 
-struct xhci_db_reg {
-	u8  db_target;
-	u8  padding;
-	u16 stream_id;
+union xhci_db_reg {
+	struct {
+		u8  db_target;
+		u8  padding;
+		u16 stream_id;
+	} reg;
+	u32 raw_val;
 } __attribute__ ((packed));
-#define XHCI_DB_REG_NBYTES (sizeof (struct xhci_db_reg))
+#define XHCI_DB_REG_NBYTES (sizeof (union xhci_db_reg))
 
 struct xhci_slot_ctx {
 	u32 field[8];
@@ -620,22 +626,17 @@ struct xhci_regs {
 	phys_t db_start;
 	phys_t db_end;
 
-	u8 *reg_map;
-	u32 map_len;
-
-	u8 *cap_reg;
-	u8 *opr_reg;
-	u8 *rts_reg;
-	u8 *db_reg;
+	struct dres_reg *r;
 
 	struct xhci_ext_cap *blacklist_ext_cap;
 
 	u8 *cap_reg_copy;
+	u32 map_len;
 };
 #define XHCI_REGS_NBYTES (sizeof (struct xhci_regs))
 
-#define INTR_REG(xhci_regs, idx) \
-	((xhci_regs)->rts_reg + 0x20 + ((idx) * XHCI_INTR_REG_NBYTES))
+#define INTR_REG_OFFSET(xhci_regs, idx) \
+	((xhci_regs)->rts_offset + 0x20 + ((idx) * XHCI_INTR_REG_NBYTES))
 
 enum xhci_hc_state {
 	XHCI_HC_STATE_HALTED,
@@ -644,6 +645,7 @@ enum xhci_hc_state {
 };
 
 struct xhci_host {
+	struct pci_device *dev;
 	struct xhci_regs *regs;
 
 	enum xhci_hc_state hc_state;
@@ -696,8 +698,6 @@ struct xhci_host {
 struct xhci_data {
 	u8 bar_idx;
 	u8 enabled;
-
-	void *handler;
 
 	struct xhci_host *host;
 };

@@ -33,7 +33,8 @@
  * @author	Ake Koomsin
  */
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
+#include <core/mm.h>
 #include <pci.h>
 #include <pci_conceal.h>
 #include "usb.h"
@@ -136,9 +137,11 @@ hc_running (struct xhci_host *host)
 {
 	struct xhci_regs *regs;
 	u32 usbcmd;
+	u64 offset;
 
 	regs = host->regs;
-	usbcmd = *(volatile u32 *)(regs->opr_reg + OPR_USBCMD_OFFSET);
+	offset = regs->opr_offset + OPR_USBCMD_OFFSET;
+	dres_reg_read32 (regs->r, offset, &usbcmd);
 	return !!(usbcmd & USBCMD_RUN);
 }
 
@@ -147,9 +150,11 @@ hc_halted (struct xhci_host *host)
 {
 	struct xhci_regs *regs;
 	u32 usbsts;
+	u64 offset;
 
 	regs = host->regs;
-	usbsts = *(volatile u32 *)(regs->opr_reg + OPR_USBSTS_OFFSET);
+	offset = regs->opr_offset + OPR_USBSTS_OFFSET;
+	dres_reg_read32 (regs->r, offset, &usbsts);
 	return !!(usbsts & USBSTS_HCH);
 }
 
@@ -204,12 +209,15 @@ xhci_hc_running (struct xhci_host *host)
 void
 xhci_update_er_dev_ctx_eint (struct xhci_host *host, bool eint)
 {
+	struct xhci_regs *regs;
+	u64 offset;
 	u32 usbsts;
 	switch (host->hc_state) {
 	case XHCI_HC_STATE_RUNNING:
 	case XHCI_HC_STATE_SHUTTING_DOWN:
-		usbsts = *(volatile u32 *)(host->regs->opr_reg +
-					   OPR_USBSTS_OFFSET);
+		regs = host->regs;
+		offset = regs->opr_offset + OPR_USBSTS_OFFSET;
+		dres_reg_read32 (regs->r, offset, &usbsts);
 		if (usbsts & USBSTS_HCH) {
 			xhci_update_er_and_dev_ctx (host);
 			host->hc_state = XHCI_HC_STATE_HALTED;
@@ -223,13 +231,32 @@ xhci_update_er_dev_ctx_eint (struct xhci_host *host, bool eint)
 	}
 }
 
+/* ---------- Start register access related helper functions ---------- */
+
+static void
+xhci_reg_read (const struct dres_reg *r, u64 offset, void *buf, uint len)
+{
+	dres_reg_read (r, offset, buf, len);
+}
+
+static void
+xhci_reg_write (const struct dres_reg *r, u64 offset, void *buf, uint len)
+{
+	dres_reg_write (r, offset, buf, len);
+}
+
+/* ---------- End register access related helper functions ---------- */
+
 /* ---------- Start capability related functions ---------- */
 
 static u32
-initial_cap_reg_read (struct xhci_host *host, phys_t field_offset)
+initial_cap_reg_read (struct xhci_host *host, const struct dres_reg *r,
+		      phys_t field_offset)
 {
 	struct xhci_regs *regs = host->regs;
-	u32 buf32 = *(volatile u32 *)(regs->cap_reg + field_offset);
+	u32 buf32;
+
+	dres_reg_read32 (r, regs->cap_offset + field_offset, &buf32);
 
 	switch (field_offset) {
 	case CAP_CAPLENGTH_OFFSET: /* CAPLENGTH and HCIVERSION */
@@ -277,12 +304,10 @@ initial_cap_reg_read (struct xhci_host *host, phys_t field_offset)
 }
 
 static void
-xhci_cap_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
+xhci_cap_reg_read (struct xhci_host *host, phys_t offset, void *buf, uint len)
 {
-	struct xhci_data *xhci_data = data;
-	struct xhci_host *host = xhci_data->host;
 	struct xhci_regs *regs = host->regs;
-	phys_t field_offset = gphys - regs->cap_start;
+	phys_t field_offset = offset - regs->cap_offset;
 	dprintft (REG_DEBUG_LEVEL,
 		  "Read Cap Reg, offset: 0x%x, size: %d\n", field_offset, len);
 	memcpy (buf, &regs->cap_reg_copy[field_offset], len);
@@ -476,16 +501,17 @@ struct erst_data {
 };
 
 static void
-take_control_erst (struct xhci_data *xhci_data)
+take_control_erst (struct xhci_host *host)
 {
-	struct xhci_host *host = xhci_data->host;
 	struct xhci_regs *regs = host->regs;
 	const struct mm_as *const as = host->usb_host->as_dma;
+	const struct dres_reg *r = regs->r;
 
 	struct erst_data erst_data;
 	struct xhci_erst_data *g_erst_data, *h_erst_data;
 
-	u64 *erdp_reg, *erst_reg;
+	phys_t erstsz_offset, erdp_offset, erst_offset;
+	u64 erdp;
 
 	uint i;
 	for (i = 0; i < host->usable_intrs; i++) {
@@ -501,12 +527,13 @@ take_control_erst (struct xhci_data *xhci_data)
 
 		xhci_create_shadow_erst (as, h_erst_data, g_erst_data);
 
-		erdp_reg = (u64 *)(INTR_REG (regs, i) + RTS_ERDP_OFFSET);
-		erst_reg = (u64 *)(INTR_REG (regs, i) + RTS_ERSTBA_OFFSET);
+		erdp_offset = INTR_REG_OFFSET (regs, i) + RTS_ERDP_OFFSET;
+		erst_offset = INTR_REG_OFFSET (regs, i) + RTS_ERSTBA_OFFSET;
 
-		*erdp_reg = get_host_erdp (host, g_erst_data->erst_dq_ptr,
-					   &erst_data);
-		*erst_reg = h_erst_data->erst_addr;
+		erdp = get_host_erdp (host, g_erst_data->erst_dq_ptr,
+				      &erst_data);
+		dres_reg_write64 (r, erdp_offset, erdp);
+		dres_reg_write64 (r, erst_offset, h_erst_data->erst_addr);
 	}
 
 	/* Now the last interrupt register set */
@@ -515,22 +542,22 @@ take_control_erst (struct xhci_data *xhci_data)
 
 	xhci_initialize_event_ring (h_erst_data);
 
-	u32 *erstsz_reg;
+	u32 erstsz;
 
-	erstsz_reg = (u32 *)(INTR_REG (regs, i) + RTS_ERSTSZ_OFFSET);
-	erdp_reg   = (u64 *)(INTR_REG (regs, i) + RTS_ERDP_OFFSET);
-	erst_reg   = (u64 *)(INTR_REG (regs, i) + RTS_ERSTBA_OFFSET);
+	erstsz_offset = INTR_REG_OFFSET (regs, i) + RTS_ERSTSZ_OFFSET;
+	erdp_offset = INTR_REG_OFFSET (regs, i) + RTS_ERDP_OFFSET;
+	erst_offset = INTR_REG_OFFSET (regs, i) + RTS_ERSTBA_OFFSET;
 
-	*erstsz_reg = (*erstsz_reg & ERSTSZ_PRESERVE_MASK) |
-		      h_erst_data->erst_size;
-	*erdp_reg   = h_erst_data->erst_dq_ptr;
-	*erst_reg   = h_erst_data->erst_addr;
+	dres_reg_read32 (r, erstsz_offset, &erstsz);
+	erstsz = (erstsz & ERSTSZ_PRESERVE_MASK) | h_erst_data->erst_size;
+	dres_reg_write32 (r, erstsz_offset, erstsz);
+	dres_reg_write64 (r, erdp_offset, h_erst_data->erst_dq_ptr);
+	dres_reg_write64 (r, erst_offset, h_erst_data->erst_addr);
 }
 
 static u8
-handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
+handle_usb_cmd_write (struct xhci_host *host, u64 cmd)
 {
-	struct xhci_host *host = xhci_data->host;
 	struct xhci_regs *regs = host->regs;
 
 	/* The guest wants xHC to save its state */
@@ -542,10 +569,9 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 		uint i = host->max_intrs - 1;
 		struct xhci_erst_data *h_erst_data = &host->erst_data[i];
 
-		u64 *erdp_reg;
-		erdp_reg = (u64 *)(INTR_REG (regs, i) + RTS_ERDP_OFFSET);
-
-		h_erst_data->erst_dq_ptr = *erdp_reg;
+		u64 erdp_offset = INTR_REG_OFFSET (regs, i) + RTS_ERDP_OFFSET;
+		dres_reg_read64 (regs->r, erdp_offset,
+				 &h_erst_data->erst_dq_ptr);
 	}
 
 	/* The guest wants xHC to restore its state */
@@ -558,7 +584,7 @@ handle_usb_cmd_write (struct xhci_data *xhci_data, u64 cmd)
 			xhci_release_data (host);
 
 			host->hc_state = XHCI_HC_STATE_RUNNING;
-			take_control_erst (xhci_data);
+			take_control_erst (host);
 		}
 	} else {
 		if (xhci_hc_running (host)) {
@@ -594,20 +620,15 @@ check_for_error_status (struct xhci_host *host, u32 status)
 }
 
 static void
-xhci_opr_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
+xhci_opr_reg_read (struct xhci_host *host, const struct dres_reg *r,
+		   phys_t offset, void *buf, uint len)
 {
-	struct xhci_data *xhci_data = (struct xhci_data *)data;
-	struct xhci_host *host	    = xhci_data->host;
-	struct xhci_regs *regs	    = host->regs;
-
-	phys_t field_offset = gphys - regs->opr_start;
-
-	u8 *reg = regs->opr_reg + field_offset;
+	phys_t field_offset = offset - host->regs->opr_offset;
 
 	u8 valid = 1;
 
 	u64 buf64 = 0;
-	memcpy (&buf64, reg, len);
+	xhci_reg_read (r, offset, &buf64, len);
 
 	switch (field_offset) {
 	case OPR_USBCMD_OFFSET: /* USB command */
@@ -678,15 +699,11 @@ xhci_opr_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 }
 
 static void
-xhci_opr_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
+xhci_opr_reg_write (struct xhci_host *host, const struct dres_reg *r,
+		    phys_t offset, void *buf, uint len)
 {
-	struct xhci_data *xhci_data = (struct xhci_data *)data;
-	struct xhci_host *host	    = xhci_data->host;
-	struct xhci_regs *regs	    = host->regs;
+	phys_t field_offset = offset - host->regs->opr_offset;
 
-	phys_t field_offset = gphys - regs->opr_start;
-
-	u8 *reg = regs->opr_reg + field_offset;
 	u8 reg_offset = 0;
 
 	u8 valid   = 1;
@@ -700,7 +717,7 @@ xhci_opr_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 	switch (field_offset) {
 	case OPR_USBCMD_OFFSET: /* USB command */
 		buf64 &= 0xFFFFFFFF;
-		valid = handle_usb_cmd_write (xhci_data, buf64);
+		valid = handle_usb_cmd_write (host, buf64);
 
 		break;
 	case OPR_USBSTS_OFFSET: /* USB status */
@@ -755,13 +772,12 @@ xhci_opr_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 	}
 
 	if (write64) {
-		reg   = reg - reg_offset;
+		offset -= reg_offset;
 		valid = handle_reg64 (host, reg_offset, &wr_info);
 	}
 
-	if (valid) {
-		memcpy (reg, &wr_info.data, wr_info.len);
-	}
+	if (valid)
+		xhci_reg_write (r, offset, &wr_info.data, wr_info.len);
 }
 
 /* ---------- End operation related functions ---------- */
@@ -815,29 +831,25 @@ get_host_erdp (struct xhci_host *host,
 }
 
 static void
-xhci_rts_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
+xhci_rts_reg_read (struct xhci_host *host, const struct dres_reg *r,
+		   phys_t offset, void *buf, uint len)
 {
-	struct xhci_data *xhci_data = (struct xhci_data *)data;
-	struct xhci_host *host	    = xhci_data->host;
-	struct xhci_regs *regs	    = host->regs;
-
-	phys_t offset = gphys - regs->rts_start;
-	u8 *reg = regs->reg_map + regs->rts_offset + offset;
-
 	u8 valid = 1;
 
 	u64 buf64 = 0;
-	memcpy (&buf64, reg, len);
+	xhci_reg_read (r, offset, &buf64, len);
 
-	if (offset < RTS_INTRS_OFFSET) {
+	/* From here, traverse to the target erst location */
+	phys_t o = offset - host->regs->rts_offset;
+
+	if (o < RTS_INTRS_OFFSET)
 		goto end;
-	}
 
 	/* Don't forget to subtract with RTS_INTRS_OFFSET */
-	offset -= RTS_INTRS_OFFSET;
+	o -= RTS_INTRS_OFFSET;
 
 	/* Get the index */
-	uint index = offset / XHCI_INTR_REG_NBYTES;
+	uint index = o / XHCI_INTR_REG_NBYTES;
 
 	/* The last interrupt register set belongs to BitVisor */
 	if (index == host->max_intrs - 1) {
@@ -846,7 +858,7 @@ xhci_rts_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 	}
 
 	/* Get field offset */
-	phys_t field_offset = offset - (index * XHCI_INTR_REG_NBYTES);
+	phys_t field_offset = o - (index * XHCI_INTR_REG_NBYTES);
 
 	struct xhci_erst_data *g_erst_data = &host->g_data.erst_data[index];
 
@@ -899,14 +911,9 @@ end:
 }
 
 static void
-xhci_rts_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
+xhci_rts_reg_write (struct xhci_host *host, const struct dres_reg *r,
+		    phys_t offset, void *buf, uint len)
 {
-	struct xhci_data *xhci_data = (struct xhci_data *)data;
-	struct xhci_host *host	    = xhci_data->host;
-	struct xhci_regs *regs	    = host->regs;
-
-	phys_t offset = gphys - regs->rts_start;
-	u8 *reg = regs->reg_map + regs->rts_offset + offset;
 	u8 reg_offset = 0;
 
 	u8 valid = 1;
@@ -917,15 +924,17 @@ xhci_rts_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 
 	struct write_info wr_info = {buf64, len, NULL, NULL, NULL, NULL};
 
-	if (offset < RTS_INTRS_OFFSET) {
+	/* From here, traverse to the target erst location */
+	phys_t o = offset - host->regs->rts_offset;
+
+	if (o < RTS_INTRS_OFFSET)
 		goto end;
-	}
 
 	/* Don't forget to subtract with RTS_INTRS_OFFSET */
-	offset -= RTS_INTRS_OFFSET;
+	o -= RTS_INTRS_OFFSET;
 
 	/* Get the index */
-	uint index = offset / XHCI_INTR_REG_NBYTES;
+	uint index = o / XHCI_INTR_REG_NBYTES;
 
 	/* The last interrupt register set belongs to BitVisor */
 	if (index == host->max_intrs - 1) {
@@ -934,7 +943,7 @@ xhci_rts_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 	}
 
 	/* Get field offset */
-	phys_t field_offset = offset - (index * XHCI_INTR_REG_NBYTES);
+	phys_t field_offset = o - (index * XHCI_INTR_REG_NBYTES);
 
 	struct xhci_erst_data *g_erst_data = &host->g_data.erst_data[index];
 	struct xhci_erst_data *h_erst_data = &host->erst_data[index];
@@ -1014,14 +1023,13 @@ xhci_rts_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 	}
 
 	if (write64) {
-		reg = reg - reg_offset;
+		offset -= reg_offset;
 		valid = handle_reg64 (host, reg_offset, &wr_info);
 	}
 
 end:
-	if (valid) {
-		memcpy (reg, &wr_info.data, wr_info.len);
-	}
+	if (valid)
+		xhci_reg_write (r, offset, &wr_info.data, wr_info.len);
 }
 
 /* ---------- End runtime related functions ---------- */
@@ -1153,17 +1161,13 @@ handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
 }
 
 static void
-xhci_db_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
+xhci_db_reg_write (struct xhci_host *host, const struct dres_reg *r,
+		   phys_t offset, void *buf)
 {
-	struct xhci_data *xhci_data = (struct xhci_data *)data;
-	struct xhci_host *host	    = xhci_data->host;
-	struct xhci_regs *regs	    = host->regs;
-
-	phys_t field_offset = gphys - regs->db_start;
+	phys_t field_offset = offset - host->regs->db_offset;
+	union xhci_db_reg *req = buf;
 	u64 slot_id = field_offset / XHCI_DB_REG_NBYTES;
 	uint ep_no;
-
-	u8 *reg = regs->db_reg + field_offset;
 
 	switch (slot_id) {
 	case 0:
@@ -1171,7 +1175,7 @@ xhci_db_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 		break;
 	default:
 		/* Our EP starts from 0 */
-		ep_no = ((struct xhci_db_reg *)buf)->db_target - 1;
+		ep_no = req->reg.db_target - 1;
 
 		if (ep_no != 0 &&
 		    host->slot_meta[slot_id].host_ctrl == HOST_CTRL_INITIAL) {
@@ -1182,7 +1186,7 @@ xhci_db_reg_write (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 		break;
 	}
 
-	memcpy (reg, buf, len);
+	dres_reg_write32 (r, offset, req->raw_val);
 }
 
 /* ---------- End doorbell related functions ---------- */
@@ -1208,11 +1212,11 @@ range_check (u64 acc_start, u64 acc_end, u64 area_start, u64 area_end)
 	range_check (acc_start, acc_end,			\
 		     regs->db_start,  regs->db_end)
 
-static int
-xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
-		  uint len, u32 flags)
+static enum dres_reg_ret_t
+xhci_reg_handler (const struct dres_reg *r, void *handle, phys_t offset,
+		  bool wr, void *buf, uint len)
 {
-	struct xhci_data *xhci_data = (struct xhci_data *)data;
+	struct xhci_data *xhci_data = (struct xhci_data *)handle;
 	struct xhci_host *host = xhci_data->host;
 	struct xhci_regs *regs = host->regs;
 
@@ -1220,7 +1224,7 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 
 	xhci_update_er_dev_ctx_eint (host, false);
 
-	phys_t acc_start = gphys;
+	phys_t acc_start = offset;
 	phys_t acc_end	 = acc_start + len;
 
 	if (len != 4 && len != 8) {
@@ -1230,25 +1234,22 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 
 	if (RANGE_CHECK_CAP) {
 
-		if (!wr) {
-			xhci_cap_reg_read (data, gphys, buf, len, flags);
-		}
+		if (!wr)
+			xhci_cap_reg_read (host, offset, buf, len);
 
 	} else if (RANGE_CHECK_OPR) {
 
-		if (wr) {
-			xhci_opr_reg_write (data, gphys, buf, len, flags);
-		} else {
-			xhci_opr_reg_read (data, gphys, buf, len, flags);
-		}
+		if (wr)
+			xhci_opr_reg_write (host, r, offset, buf, len);
+		else
+			xhci_opr_reg_read (host, r, offset, buf, len);
 
 	} else if (RANGE_CHECK_RTS) {
 
-		if (wr) {
-			xhci_rts_reg_write (data, gphys, buf, len, flags);
-		} else {
-			xhci_rts_reg_read (data, gphys, buf, len, flags);
-		}
+		if (wr)
+			xhci_rts_reg_write (host, r, offset, buf, len);
+		else
+			xhci_rts_reg_read (host, r, offset, buf, len);
 
 	} else if (RANGE_CHECK_DB) {
 
@@ -1257,16 +1258,10 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 		 * If not, ignore the access which is likely from firmwares,
 		 * UEFI applications, or APIC programming from the guest OS.
 		 */
-		if (wr && len == 4 && !xhci_hc_halted (xhci_data->host))
-			xhci_db_reg_write (data, gphys, buf, len, flags);
+		if (wr && len == 4 && !xhci_hc_halted (host))
+			xhci_db_reg_write (host, r, offset, buf);
 
-	} else if (acc_start >= regs->iobase + regs->ext_offset) {
-
-		phys_t ext_base = regs->iobase + regs->ext_offset;
-		phys_t field_offset = gphys - ext_base;
-
-		u8 *ext_reg    = regs->reg_map + regs->ext_offset;
-		u8 *target_reg = ext_reg + field_offset;
+	} else if (acc_start >= regs->ext_offset) {
 
 		struct xhci_ext_cap *blacklist_ext_cap;
 		blacklist_ext_cap = regs->blacklist_ext_cap;
@@ -1290,15 +1285,14 @@ xhci_reg_handler (void *data, phys_t gphys, bool wr, void *buf,
 			blacklist_ext_cap = blacklist_ext_cap->next;
 		}
 
-		if (wr && !deny_wr) {
-			memcpy (target_reg, buf, len);
-		} else if (!wr) {
-			memcpy (buf, target_reg, len);
-		}
+		if (wr && !deny_wr)
+			xhci_reg_write (r, offset, buf, len);
+		else if (!wr)
+			xhci_reg_read (r, offset, buf, len);
 	}
 end:
 	spinlock_unlock (&host->sync_lock);
-	return 1;
+	return DRES_REG_RET_DONE;
 }
 
 #undef RANGE_CHECK_CAP
@@ -1310,10 +1304,9 @@ static void
 unreghook (struct xhci_data *xhci_data)
 {
 	if (xhci_data->enabled) {
-		mmio_unregister (xhci_data->handler);
-		unmapmem (xhci_data->host->regs->reg_map,
-			  xhci_data->host->regs->map_len);
-
+		struct dres_reg *r = xhci_data->host->regs->r;
+		dres_reg_unregister_handler (r);
+		dres_reg_free (r);
 		xhci_data->enabled = 0;
 	}
 }
@@ -1334,19 +1327,17 @@ reghook (struct xhci_data *xhci_data, struct pci_bar_info *bar)
 
 	regs->iobase  = bar->base;
 	regs->map_len = bar->len;
-	regs->reg_map = mapmem_as (as_passvm, bar->base, bar->len,
-				   MAPMEM_WRITE);
+	regs->r = dres_reg_alloc (bar->base, bar->len, DRES_REG_TYPE_MM,
+				  pci_dres_reg_translate,
+				  xhci_data->host->dev, 0);
+	if (!regs->r)
+		panic ("Cannot dres_reg_alloc() xHC registers");
 
-	if (!regs->reg_map) {
-		panic ("Cannot mapmem_as() xHC registers.");
-	}
-
-	xhci_data->handler = mmio_register (bar->base, bar->len,
-					    xhci_reg_handler, xhci_data);
-
-	if (!xhci_data->handler) {
-		panic ("Cannot mmio_register() xHC registers.");
-	}
+	enum dres_err_t err = dres_reg_register_handler (regs->r,
+							 xhci_reg_handler,
+							 xhci_data);
+	if (err != DRES_ERR_NONE)
+		panic ("Cannot dres_reg_register_handler() xHC registers");
 
 	xhci_data->enabled = 1;
 }
@@ -1396,37 +1387,36 @@ no_write:
 static void
 xhci_construct_blacklist_ext_cap (struct xhci_regs *regs)
 {
-	struct xhci_ext_cap_reg *ext_cap_reg = NULL;
-
-	u8 *current_base    = regs->reg_map;
+	const struct dres_reg *r = regs->r;
+	struct xhci_ext_cap_reg ext_cap_reg;
 
 	/* ext_offset is the shifted value already */
 	u64 next_cap_offset = regs->ext_offset;
 
-	phys_t current_phys_addr = regs->iobase;
+	phys_t current_offset = 0;
 
 	struct xhci_ext_cap **blacklist_ext_cap;
 	blacklist_ext_cap = &regs->blacklist_ext_cap;
 
 	while (next_cap_offset) {
-		current_base	  += next_cap_offset;
-		current_phys_addr += next_cap_offset;
+		current_offset += next_cap_offset;
 
-		ext_cap_reg = (struct xhci_ext_cap_reg *)current_base;
+		dres_reg_read32 (r, current_offset, &ext_cap_reg);
 
 		u64 total_bytes = 0;
 
 		dprintft (REG_DEBUG_LEVEL, "Capability ID: %d\n",
-			  ext_cap_reg->cap_id);
+			  ext_cap_reg.cap_id);
 
-		switch (ext_cap_reg->cap_id) {
+		switch (ext_cap_reg.cap_id) {
 		case XHCI_EXT_CAP_IO_VIRT:
 			total_bytes = XHCI_EXT_CAP_IO_VIRT_NBYTES;
 			break;
 		case XHCI_EXT_CAP_LOCAL_MEM:
 			/* (base + 0x4) contains size info in 1KB blocks */
-			total_bytes  = (*(u32 *)(current_base + 0x4)) *
-				       1024;
+			dres_reg_read32 (r, current_offset + 0x4,
+					 &total_bytes);
+			total_bytes *= 1024;
 			/* First 8 bytes of the register */
 			total_bytes += sizeof (u64);
 			break;
@@ -1437,15 +1427,15 @@ xhci_construct_blacklist_ext_cap (struct xhci_regs *regs)
 			break;
 		}
 
-		switch (ext_cap_reg->cap_id) {
+		switch (ext_cap_reg.cap_id) {
 		case XHCI_EXT_CAP_IO_VIRT:
 		case XHCI_EXT_CAP_LOCAL_MEM:
 		case XHCI_EXT_CAP_USB_DEBUG:
 			*blacklist_ext_cap = zalloc (XHCI_EXT_CAP_NBYTES);
 
-			(*blacklist_ext_cap)->type  = ext_cap_reg->cap_id;
-			(*blacklist_ext_cap)->start = current_phys_addr;
-			(*blacklist_ext_cap)->end   = current_phys_addr +
+			(*blacklist_ext_cap)->type  = ext_cap_reg.cap_id;
+			(*blacklist_ext_cap)->start = current_offset;
+			(*blacklist_ext_cap)->end   = current_offset +
 						      total_bytes;
 
 			blacklist_ext_cap = &(*blacklist_ext_cap)->next;
@@ -1455,7 +1445,7 @@ xhci_construct_blacklist_ext_cap (struct xhci_regs *regs)
 		}
 
 		/* Need to shift according to the specification */
-		next_cap_offset = ext_cap_reg->next_cap << XHCI_EXT_CAP_SHIFT;
+		next_cap_offset = ext_cap_reg.next_cap << XHCI_EXT_CAP_SHIFT;
 	}
 }
 
@@ -1484,12 +1474,6 @@ xhci_set_reg_offsets (struct xhci_regs *regs, struct xhci_cap_reg *cap_reg)
 	regs->ext_offset = CAP_CPARAM1_GET_EXT_OFFSET (cap_reg->hc_cparams1);
 	dprintft (REG_DEBUG_LEVEL, "xECP offset: 0x%X\n",
 		  regs->ext_offset);
-
-	/* For convenient access */
-	regs->cap_reg = regs->reg_map + regs->cap_offset;
-	regs->opr_reg = regs->reg_map + regs->opr_offset;
-	regs->rts_reg = regs->reg_map + regs->rts_offset;
-	regs->db_reg  = regs->reg_map + regs->db_offset;
 }
 
 static void
@@ -1497,14 +1481,14 @@ xhci_set_reg_range (struct xhci_host *host)
 {
 	struct xhci_regs *regs = host->regs;
 
-	regs->cap_start = regs->iobase + regs->cap_offset;
+	regs->cap_start = regs->cap_offset;
 	regs->cap_end	= regs->cap_start + regs->opr_offset;
 
-	regs->opr_start = regs->iobase + regs->opr_offset;
+	regs->opr_start = regs->opr_offset;
 	regs->opr_end	= regs->opr_start + OPR_PORTREG_OFFSET +
 			  (OPR_PORTREG_NBYTES * host->max_ports);
 
-	regs->rts_start = regs->iobase + regs->rts_offset;
+	regs->rts_start = regs->rts_offset;
 	regs->rts_end	= regs->rts_start + RTS_INTRS_OFFSET +
 			  (XHCI_INTR_REG_NBYTES * host->max_intrs);
 
@@ -1512,7 +1496,7 @@ xhci_set_reg_range (struct xhci_host *host)
 	 * 'max_slots' means 1 to max_slots. Don't forget that
 	 * there is a slot 0 for xHCI commands.
 	 */
-	regs->db_start	= regs->iobase + regs->db_offset;
+	regs->db_start	= regs->db_offset;
 	regs->db_end	= regs->db_start +
 			  (XHCI_DB_REG_NBYTES * (host->max_slots + 1));
 }
@@ -1600,12 +1584,10 @@ static struct usb_init_dev_operations xhci_init_dev_op = {
  * multiple times later by reading the copy of static read-only
  * capability registers instead. */
 static void
-read_cap_reg (void *copy_to, size_t len, void *copy_from)
+read_cap_reg (const struct dres_reg *r, void *copy_to, size_t len)
 {
-	u32 *dest = copy_to;
-	volatile u32 *src = copy_from;
 	for (size_t i = 0; i < len; i += sizeof (u32))
-		*dest++ = *src++;
+		dres_reg_read32 (r, i, copy_to + i);
 }
 
 static void
@@ -1615,6 +1597,7 @@ xhci_new (struct pci_device *pci_device)
 	usb_set_debug (DEBUG_LEVEL);
 
 	struct xhci_host *host = zalloc (XHCI_HOST_NBYTES);
+	host->dev = pci_device;
 
 	struct xhci_regs *regs = zalloc (XHCI_REGS_NBYTES);
 	host->regs = regs;
@@ -1634,8 +1617,10 @@ xhci_new (struct pci_device *pci_device)
 
 	pci_device->host = xhci_data;
 
+	const struct dres_reg *r = regs->r;
+
 	struct xhci_cap_reg cap_reg_copy;
-	read_cap_reg (&cap_reg_copy, sizeof cap_reg_copy, regs->reg_map);
+	read_cap_reg (r, &cap_reg_copy, sizeof cap_reg_copy);
 	xhci_set_reg_offsets (regs, &cap_reg_copy);
 
 	xhci_construct_blacklist_ext_cap (regs);
@@ -1668,7 +1653,7 @@ xhci_new (struct pci_device *pci_device)
 	regs->cap_reg_copy = zalloc (cap_reg->cap_length + 8);
 	for (uint off = 0; off < cap_reg->cap_length; off += sizeof (u32)) {
 		u32 *cap_reg_copy_off = (u32 *)&regs->cap_reg_copy[off];
-		*cap_reg_copy_off = initial_cap_reg_read (host, off);
+		*cap_reg_copy_off = initial_cap_reg_read (host, r, off);
 	}
 
 	/* Port number starts from 1 */
@@ -1688,7 +1673,8 @@ xhci_new (struct pci_device *pci_device)
 		  host->max_scratchpad);
 
 	/* See which highest bit is set in PAGESIZE register */
-	u32 buf = *(u32 *)(regs->opr_reg + OPR_PAGESIZE_OFFSET);
+	u32 buf;
+	dres_reg_read32 (r, regs->opr_offset + OPR_PAGESIZE_OFFSET, &buf);
 
 	/* We iterate only from 15 to 0 because the max page size is 128MB */
 	uint pos;

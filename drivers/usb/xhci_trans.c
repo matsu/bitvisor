@@ -33,6 +33,7 @@
  * @author	Ake Koomsin
  */
 #include <core.h>
+#include <core/dres.h>
 #include <usb.h>
 #include <usb_device.h>
 #include <usb_hook.h>
@@ -211,13 +212,15 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 	h_ep_tr->h_urb_list = urb;
 	h_ep_tr->h_urb_tail = urb;
 
-	struct xhci_db_reg req = {0};
-	req.db_target = endpoint + 1; /* endpoint starts from 0 */
+	struct xhci_regs *regs = host->regs;
 
-	volatile struct xhci_db_reg *db_reg =
-		(struct xhci_db_reg *)host->regs->db_reg;
+	union xhci_db_reg req;
+	req.reg.db_target = endpoint + 1; /* endpoint starts from 0 */
+	req.reg.padding = 0;
+	req.reg.stream_id = 0;
 
-	db_reg[slot_id] = req;
+	phys_t offset = regs->db_offset + (slot_id * sizeof req);
+	dres_reg_write32 (regs->r, offset, req.raw_val);
 
 	return urb;
 }
@@ -378,18 +381,25 @@ xhci_check_urb_advance (struct usb_host *usbhc,
 	 */
 	if (h_urb->status == URB_STATUS_ADVANCED ||
 	    h_urb->status == URB_STATUS_ERRORS) {
+		struct xhci_regs *regs = host->regs;
+		const struct dres_reg *r = regs->r;
 		u64 erst_dq_ptr;
 		u8  flags;
-		u8 *intr_reg = INTR_REG (host->regs, host->max_intrs - 1);
-		u32 *iman_reg = (u32 *)(intr_reg + RTS_IMAN_OFFSET);
-		u64 *erdp_reg = (u64 *)(intr_reg + RTS_ERDP_OFFSET);
+		phys_t intr_offset, iman_offset, erdp_offset;
+		u32 iman;
+		u64 erdp;
+		intr_offset = INTR_REG_OFFSET (regs, host->max_intrs - 1);
+		iman_offset = intr_offset + RTS_IMAN_OFFSET;
+		erdp_offset = intr_offset + RTS_ERDP_OFFSET;
 
-		if (*iman_reg & 0x1) {
-			*iman_reg = *iman_reg; /* Write to clear the IP flag */
-		}
+		/* Write to clear the IP flag if it is set */
+		dres_reg_read32 (r, iman_offset, &iman);
+		if (iman & 0x1)
+			dres_reg_write32 (r, iman_offset, iman);
 
 		/* Read to get flags in the first four bits */
-		flags = *erdp_reg & 0xF;
+		dres_reg_read64 (r, erdp_offset, &erdp);
+		flags = erdp & 0xF;
 
 		/* Calculate latest TRB we have processed */
 		uint current_seg  = h_erst_data->current_seg;
@@ -406,7 +416,7 @@ xhci_check_urb_advance (struct usb_host *usbhc,
 		h_erst_data->erst_dq_ptr = erst_dq_ptr;
 
 		/* Write back to the Event Ring Dequeue Pointer register */
-		*erdp_reg = erst_dq_ptr;
+		dres_reg_write64 (r, erdp_offset, erst_dq_ptr);
 
 		/* The URB will be freed by xhci_deactivate_urb */
 		h_ep_tr->h_urb_list = NULL;

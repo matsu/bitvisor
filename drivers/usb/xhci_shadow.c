@@ -33,6 +33,7 @@
  * @author	Ake Koomsin
  */
 #include <core.h>
+#include <core/dres.h>
 #include <core/thread.h>
 #include <usb.h>
 #include <usb_device.h>
@@ -1481,6 +1482,18 @@ create_switch_trb (struct xhci_host *host,
 }
 
 static void
+ring_doorbell (struct xhci_regs *regs, uint p_slot_id)
+{
+	union xhci_db_reg req;
+	req.reg.db_target = 0 + 1;
+	req.reg.padding = 0;
+	req.reg.stream_id = 0;
+
+	phys_t offset = regs->db_offset + (p_slot_id * sizeof req);
+	dres_reg_write32 (regs->r, offset, req.raw_val);
+}
+
+static void
 take_ctrl_tr_seg (struct usb_host *usbhc,
 		  struct usb_request_block *h_urb)
 {
@@ -1545,14 +1558,7 @@ take_ctrl_tr_seg (struct usb_host *usbhc,
 
 		host->slot_meta[p_slot_id].skip_clone_ep = 1;
 
-		/* Ring the Doorbell register */
-		struct xhci_db_reg req = {0};
-		req.db_target = 0 + 1;
-
-		struct xhci_db_reg *db_reg;
-		db_reg = (struct xhci_db_reg *)host->regs->db_reg;
-
-		db_reg[p_slot_id] = req;
+		ring_doorbell (host->regs, p_slot_id);
 	}
 
 	uint start_seg = urb_priv->start_seg;
@@ -1650,14 +1656,7 @@ return_tr_seg (struct usb_host *usbhc,
 
 		host->slot_meta[p_slot_id].skip_clone_ep = 0;
 
-		/* Ring the Doorbell register */
-		struct xhci_db_reg req = {0};
-		req.db_target = 0 + 1;
-
-		struct xhci_db_reg *db_reg;
-		db_reg = (struct xhci_db_reg *)host->regs->db_reg;
-
-		db_reg[p_slot_id] = req;
+		ring_doorbell (host->regs, p_slot_id);
 	}
 
 	struct xhci_ep_tr *current_ep_tr;
