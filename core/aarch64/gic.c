@@ -259,7 +259,7 @@ struct gicd_host {
 	phys_t base_phys;
 	u32 nids;
 	u32 n_lpis;
-	bool its_support;
+	bool lpi_support;
 };
 
 struct its_host {
@@ -1304,6 +1304,7 @@ gicd_init (phys_t base)
 {
 	phys_t typer;
 	u32 *gicd_typer, v;
+	bool lpi_support;
 
 	typer = base + GICD_TYPER;
 	gicd_typer = mapmem_hphys (typer, sizeof *gicd_typer, MAPMEM_UC);
@@ -1311,18 +1312,24 @@ gicd_init (phys_t base)
 	v = *gicd_typer;
 	unmapmem (gicd_typer, sizeof *gicd_typer);
 
-	if (!(v & GICD_TYPER_LPIS))
-		panic ("%s(): LPI not supported", __func__);
-
 	gicd = alloc (sizeof *gicd);
 	gicd->base_phys = base;
 	gicd->nids = 1 << GICD_TYPER_ID_BITS (v);
-	/* If LPI_BITS is 1 (Raw LPI_BITS is 0), calculate from ID_BITS */
-	if (GICD_TYPER_LPI_BITS (v) == 1)
-		gicd->n_lpis = gicd->nids - GIC_LPI_START;
-	else
-		gicd->n_lpis = 1 << GICD_TYPER_LPI_BITS (v);
-	gicd->its_support = true;
+	lpi_support = !!(v & GICD_TYPER_LPIS);
+	if (lpi_support) {
+		/*
+		 * If LPI_BITS is 1 (Raw LPI_BITS is 0), calculate from
+		 * ID_BITS
+		 */
+		if (GICD_TYPER_LPI_BITS (v) == 1)
+			gicd->n_lpis = gicd->nids - GIC_LPI_START;
+		else
+			gicd->n_lpis = 1 << GICD_TYPER_LPI_BITS (v);
+		gicd->lpi_support = true;
+	} else {
+		gicd->n_lpis = 0;
+		gicd->lpi_support = false;
+	}
 
 	printf ("GICD base 0x%llX\n", gicd->base_phys);
 	printf ("GICD total INTID %u\n", gicd->nids);
@@ -1379,18 +1386,21 @@ acpi_madt_walk (struct acpi_madt *m)
 	if (!gicd)
 		panic ("%s(): GICD not initialized", __func__);
 
-	/* In the second pass, search for ITS record and initialize */
-	ic_size = m->header.length - ic_offset;
-	h = (struct acpi_ic_header *)&m->ics;
-	while (ic_size) {
-		if (h->length <= ic_size && h->type == ACPI_IC_TYPE_GIC_ITS)
-			acpi_madt_handle_gic_its (h);
-		ic_size -= h->length;
-		h = (struct acpi_ic_header *)((u8 *)h + h->length);
-	}
+	if (gicd->lpi_support) {
+		/* In the second pass, search for ITS record and initialize */
+		ic_size = m->header.length - ic_offset;
+		h = (struct acpi_ic_header *)&m->ics;
+		while (ic_size) {
+			if (h->length <= ic_size &&
+			    h->type == ACPI_IC_TYPE_GIC_ITS)
+				acpi_madt_handle_gic_its (h);
+			ic_size -= h->length;
+			h = (struct acpi_ic_header *)((u8 *)h + h->length);
+		}
 
-	if (!its)
-		panic ("%s(): GIC-ITS not initialized", __func__);
+		if (!its)
+			panic ("%s(): GIC-ITS not initialized", __func__);
+	}
 }
 
 static int
@@ -1485,6 +1495,9 @@ gic_init_fdt (void)
 
 	if (!gicd)
 		panic ("%s(): GICD not initialized", __func__);
+
+	if (!gicd->lpi_support)
+		goto end;
 
 	/* Read address/size cells for the subnodes */
 	address_cells = fdt_address_cells (fdt, intc_node);
