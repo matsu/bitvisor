@@ -1320,10 +1320,18 @@ gicd_init (phys_t base)
 	u64 pfr0;
 	u32 *gicd_ctlr, ctlr_v;
 	u32 *gicd_typer, typer_v;
-	u8 el3_support;
+	u8 gic_cpu_if, el3_support;
 	bool lpi_support;
 
 	pfr0 = mrs (ID_AA64PFR0_EL1);
+
+	gic_cpu_if = ID_AA64PFR0_GET_GIC (pfr0);
+	if (gic_cpu_if == 0) {
+		printf ("%s(): currently expect system register GIC CPU "
+			" interface support\n",
+			__func__);
+		return;
+	}
 
 	ctlr = base + GICD_CTLR;
 	gicd_ctlr = mapmem_hphys (ctlr, sizeof *gicd_ctlr, MAPMEM_UC);
