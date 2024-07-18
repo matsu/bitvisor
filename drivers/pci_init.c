@@ -121,7 +121,7 @@ pci_read_config_space (struct pci_device *dev)
 }
 
 static struct pci_config_mmio_data *
-pci_search_config_mmio (u16 seg_group, u8 bus_no)
+pci_search_config_mmio (u32 seg_group, u8 bus_no)
 {
 	struct pci_segment *s;
 	struct pci_config_mmio_data *p;

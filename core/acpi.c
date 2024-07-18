@@ -840,7 +840,7 @@ get_acpi_time_raw (u32 *r)
 }
 
 bool
-acpi_read_mcfg (uint n, u64 *base, u16 *seg_group, u8 *bus_start,
+acpi_read_mcfg (uint n, u64 *base, u32 *seg_group, u8 *bus_start,
 		u8 *bus_end)
 {
 	if (!saved_mcfg)

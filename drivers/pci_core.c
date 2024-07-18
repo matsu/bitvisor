@@ -95,7 +95,7 @@ pci_pmio_save_config_addr (void)
 }
 
 struct pci_segment *
-pci_get_segment (u16 seg_no)
+pci_get_segment (u32 seg_no)
 {
 	struct pci_segment *s;
 
@@ -1320,7 +1320,7 @@ pci_enable_device (struct pci_device *pci_device, u32 pci_cmd_en_flags)
 }
 
 struct pci_device *
-pci_devices_on_segment (u16 seg_no)
+pci_devices_on_segment (u32 seg_no)
 {
 	struct pci_segment *s;
 

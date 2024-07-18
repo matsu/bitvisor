@@ -39,7 +39,7 @@ struct pci_device;
 
 struct pci_config_mmio_data {
 	u64 base;
-	u16 seg_group;
+	u32 seg_group;
 	u8 bus_start;
 	u8 bus_end;
 	phys_t phys;
@@ -53,7 +53,7 @@ struct pci_segment {
 	struct pci_config_mmio_data *mmio;
 	struct pci_virtual_device **pci_virtual_devices[PCI_MAX_VIRT_DEVICES];
 	struct pci_device *bridge_from_bus_no[PCI_MAX_BUSES];
-	u16 seg_no; /* Store segment number separatedly as mmio can be NULL */
+	u32 seg_no; /* Store segment number separatedly as mmio can be NULL */
 };
 
 struct pci_segment_list {
@@ -79,7 +79,7 @@ struct pci_msi_callback {
 
 extern int pci_config_data_handler (core_io_t io, union mem *data, void *arg);
 extern int pci_config_addr_handler (core_io_t io, union mem *data, void *arg);
-struct pci_segment *pci_get_segment (u16 seg_no);
+struct pci_segment *pci_get_segment (u32 seg_no);
 void pci_pmio_save_config_addr (void);
 void pci_append_device (struct pci_segment *s, struct pci_device *dev);
 int pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,

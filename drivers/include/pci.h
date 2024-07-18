@@ -304,7 +304,7 @@ int pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 void pci_set_bridge_io (struct pci_device *pci_device);
 void pci_set_bridge_callback (struct pci_device *pci_device,
 			      struct pci_bridge_callback *bridge_callback);
-struct pci_device *pci_devices_on_segment (u16 seg_no);
+struct pci_device *pci_devices_on_segment (u32 seg_no);
 struct pci_msi *pci_msi_init (struct pci_device *pci_device);
 void pci_msi_set (struct pci_msi *msi, u32 maddr, u32 mupper, u16 mdata);
 void pci_msi_enable (struct pci_msi *msi);

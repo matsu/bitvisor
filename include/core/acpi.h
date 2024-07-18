@@ -32,6 +32,6 @@
 
 #include <core/types.h>
 
-bool acpi_read_mcfg (uint n, u64 *base, u16 *seg_group, u8 *bus_start,
+bool acpi_read_mcfg (uint n, u64 *base, u32 *seg_group, u8 *bus_start,
 		     u8 *bus_end);
 #endif
