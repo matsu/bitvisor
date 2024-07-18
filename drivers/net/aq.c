@@ -56,8 +56,8 @@
  */
 
 #include <core.h>
+#include <core/dres.h>
 #include <core/list.h>
-#include <core/mmio.h>
 #include <core/sleep.h>
 #include <core/thread.h>
 #include <core/time.h>
@@ -336,8 +336,8 @@ struct aq {
 	u8 *rx_pkt_buf_pool;
 	phys_t rx_pkt_buf_pool_phys;
 
-	struct aq_tx_desc_reg *tx_desc_regs;
-	struct aq_rx_desc_reg *rx_desc_regs;
+	volatile struct aq_tx_desc_reg *tx_desc_regs;
+	volatile struct aq_rx_desc_reg *rx_desc_regs;
 
 	u32 tx_sw_tail;
 	u32 tx_sw_head;
@@ -347,7 +347,7 @@ struct aq {
 	u8 mac[6];
 	u8 mac_fw[6];
 
-	u8 *mmio;
+	struct dres_reg *r;
 	u64 mmio_base;
 	u32 mmio_len;
 
@@ -437,17 +437,19 @@ aq_restore_regs (struct aq *aq)
 	}
 }
 
-static u32
-aq_mmio_read (struct aq *aq, phys_t offset)
+static inline u32
+aq_mmio_read (const struct dres_reg *r, phys_t offset)
 {
-	return *(u32 *)(&aq->mmio[offset]);
+	u32 val;
+
+	dres_reg_read32 (r, offset, &val);
+	return val;
 }
 
-static void
-aq_mmio_write (struct aq *aq, phys_t offset, u32 data)
+static inline void
+aq_mmio_write (const struct dres_reg *r, phys_t offset, u32 val)
 {
-	u32 *dest = (u32 *)(&aq->mmio[offset]);
-	*dest = data;
+	dres_reg_write32 (r, offset, val);
 }
 
 static void
@@ -608,7 +610,7 @@ getinfo_physnic (void *handle, struct nicinfo *info)
 	struct aq *aq = handle;
 	u32 val;
 
-	val = aq_mmio_read (aq, AQ_FW_STATE_ADDR);
+	val = aq_mmio_read (aq->r, AQ_FW_STATE_ADDR);
 	if (val & AQ_FW_LINK_10G)
 		info->media_speed = 10000000000ull;
 	else if (val & AQ_FW_LINK_5G)
@@ -683,7 +685,7 @@ aq_intr_clear (void *param)
 	struct aq *aq = param;
 	spinlock_lock (&aq->intr_lock);
 	if (!aq->pause)
-		aq_mmio_write (aq, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
+		aq_mmio_write (aq->r, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
 	spinlock_unlock (&aq->intr_lock);
 	aq_xmit_reclaim (aq);
 	aq_recv (aq);
@@ -695,7 +697,7 @@ aq_intr_set (void *param)
 	struct aq *aq = param;
 	spinlock_lock (&aq->intr_lock);
 	if (!aq->pause)
-		aq_mmio_write (aq, AQ_INTR_STATUS_SET, 0xFFFFFFFF);
+		aq_mmio_write (aq->r, AQ_INTR_STATUS_SET, 0xFFFFFFFF);
 	spinlock_unlock (&aq->intr_lock);
 }
 
@@ -705,8 +707,9 @@ aq_intr_disable (void *param)
 	struct aq *aq = param;
 	spinlock_lock (&aq->intr_lock);
 	if (!aq->pause) {
-		aq_mmio_write (aq, AQ_INTR_MASK_CLEAR, 0xFFFFFFFF);
-		aq_mmio_write (aq, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
+		const struct dres_reg *r = aq->r;
+		aq_mmio_write (r, AQ_INTR_MASK_CLEAR, 0xFFFFFFFF);
+		aq_mmio_write (r, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
 	}
 	spinlock_unlock (&aq->intr_lock);
 	aq->intr_enabled = 0;
@@ -722,8 +725,9 @@ aq_intr_enable (void *param)
 
 	spinlock_lock (&aq->intr_lock);
 	if (!aq->pause) {
-		aq_mmio_write (aq, AQ_INTR_MASK_SET, 0xFFFFFFFF);
-		aq_mmio_write (aq, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
+		const struct dres_reg *r = aq->r;
+		aq_mmio_write (r, AQ_INTR_MASK_SET, 0xFFFFFFFF);
+		aq_mmio_write (r, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
 	}
 	spinlock_unlock (&aq->intr_lock);
 	aq->intr_enabled = 1;
@@ -756,41 +760,34 @@ aq_make_dev_reg_record (struct aq *aq)
 }
 
 static void
-aq_mmio_map (struct aq *aq, struct pci_bar_info *bar0)
+aq_init_initial_dres_reg (struct aq *aq, struct pci_bar_info *bar0)
 {
-	void *tx_base, *rx_base;
-
 	ASSERT (bar0->type == PCI_BAR_INFO_TYPE_MEM);
-
-	aq->mmio_base = bar0->base;
-	aq->mmio_len = bar0->len;
-	aq->mmio = mapmem_hphys (bar0->base, bar0->len,
-				 MAPMEM_WRITE | MAPMEM_UC);
-
-	ASSERT (aq->mmio);
-
+	aq->r = dres_reg_alloc (bar0->base, bar0->len, DRES_REG_TYPE_MM,
+				pci_dres_reg_translate, aq->dev, 0);
 	printf ("aq: MMIO 0x%016llX len 0x%X\n", bar0->base, bar0->len);
-
-	tx_base = &aq->mmio[AQ_TX_DMA_DESC_BASE];
-	rx_base = &aq->mmio[AQ_RX_DMA_DESC_BASE];
-
-	aq->tx_desc_regs = tx_base;
-	aq->rx_desc_regs = rx_base;
 }
 
 static void
-aq_mmio_unmap (struct aq *aq)
+aq_set_txrx_desc_regs (struct aq *aq)
+{
+	volatile void *base;
+
+	base = dres_reg_get_mapped_mm (aq->r);
+	aq->tx_desc_regs = base + AQ_TX_DMA_DESC_BASE;
+	aq->rx_desc_regs = base + AQ_RX_DMA_DESC_BASE;
+}
+
+static void
+aq_clear_txrx_desc_regs (struct aq *aq)
 {
 	aq->tx_desc_regs = NULL;
 	aq->rx_desc_regs = NULL;
-	unmapmem (aq->mmio, aq->mmio_len);
-	aq->mmio = NULL;
-	aq->mmio_base = 0x0;
-	aq->mmio_len = 0;
 }
 
 static void
-aq_mmio_change (void *param, struct pci_bar_info *bar_info)
+aq_mmio_change (void *param, struct pci_bar_info *bar_info,
+		struct dres_reg *new_r)
 {
 	struct aq *aq = param;
 	u32 bar0 = bar_info->base & 0xFFFFFFFF;
@@ -799,7 +796,7 @@ aq_mmio_change (void *param, struct pci_bar_info *bar_info)
 		aq->mmio_base,
 		bar_info->base);
 	aq_pause_set (aq);
-	aq_mmio_unmap (aq);
+	aq_clear_txrx_desc_regs (aq);
 	pci_config_write (aq->dev,
 			  &bar0,
 			  sizeof (bar0),
@@ -812,7 +809,8 @@ aq_mmio_change (void *param, struct pci_bar_info *bar_info)
 		(aq->dev->config_space.base_address[0] &
 		 0xFFFF) | (bar0 & 0xFFFF0000);
 	aq->dev->config_space.base_address[1] = bar1;
-	aq_mmio_map (aq, bar_info);
+	aq->r = new_r;
+	aq_set_txrx_desc_regs (aq);
 	aq_pause_clear (aq);
 }
 
@@ -862,6 +860,7 @@ static void
 aq_reset_flash (struct aq *aq)
 {
 	u32 val, i;
+	const struct dres_reg *r = aq->r;
 
 	/* Reset and pause MAC */
 	val = AQ_GC2_MCP_RESET_PULSE |
@@ -869,90 +868,91 @@ aq_reset_flash (struct aq *aq)
 	      AQ_GC2_ITR_FLB_ERROR |
 	      AQ_GC2_WATCHDOG_TIMER |
 	      AQ_GC2_MCP_RUNSTALL;
-	aq_mmio_write (aq, AQ_MIF_GC2, val);
+	aq_mmio_write (r, AQ_MIF_GC2, val);
 	usleep (50 * 1000);
 
 	/* Reset SPI */
-	val = aq_mmio_read (aq, AQ_MIF_NVR4);
-	aq_mmio_write (aq, AQ_MIF_NVR4, val | AQ_NVR_SPI_RESET);
+	val = aq_mmio_read (r, AQ_MIF_NVR4);
+	aq_mmio_write (r, AQ_MIF_NVR4, val | AQ_NVR_SPI_RESET);
 	usleep (20 * 1000);
 
-	val = aq_mmio_read (aq, AQ_MIF_GSC1);
+	val = aq_mmio_read (r, AQ_MIF_GSC1);
 	val &= ~AQ_GSC1_GLOBAL_REG_RESET_DISABLE;
 	val |= AQ_GSC1_SOFT_RESET;
-	aq_mmio_write (aq, AQ_MIF_GSC1, val);
+	aq_mmio_write (r, AQ_MIF_GSC1, val);
 
 	/* Restart MAC */
 	val = AQ_GC2_MCP_RESET |
 	      AQ_GC2_ITR_MBOX_ERROR |
 	      AQ_GC2_ITR_FLB_ERROR |
 	      AQ_GC2_WATCHDOG_TIMER;
-	aq_mmio_write (aq, AQ_MIF_GC2, val);
-	aq_mmio_write (aq, AQ_COM_MIF_PG_ENABLE, 0x0);
-	aq_mmio_write (aq, AQ_MIF_GGP9, AQ_GGP9_HOST_BOOT_LOAD_ENABLE);
+	aq_mmio_write (r, AQ_MIF_GC2, val);
+	aq_mmio_write (r, AQ_COM_MIF_PG_ENABLE, 0x0);
+	aq_mmio_write (r, AQ_MIF_GGP9, AQ_GGP9_HOST_BOOT_LOAD_ENABLE);
 
 	/* Reset SPI again */
-	val = aq_mmio_read (aq, AQ_MIF_NVR4);
-	aq_mmio_write (aq, AQ_MIF_NVR4, val | AQ_NVR_SPI_RESET);
+	val = aq_mmio_read (r, AQ_MIF_NVR4);
+	aq_mmio_write (r, AQ_MIF_NVR4, val | AQ_NVR_SPI_RESET);
 	usleep (20 * 1000);
-	aq_mmio_write (aq, AQ_MIF_NVR4, val & ~AQ_NVR_SPI_RESET);
+	aq_mmio_write (r, AQ_MIF_NVR4, val & ~AQ_NVR_SPI_RESET);
 
 	val = AQ_GC2_FLB_KICKSTART |
 	      AQ_GC2_MCP_RESET |
 	      AQ_GC2_ITR_MBOX_ERROR |
 	      AQ_GC2_ITR_FLB_ERROR |
 	      AQ_GC2_WATCHDOG_TIMER;
-	aq_mmio_write (aq, AQ_MIF_GC2, val);
+	aq_mmio_write (r, AQ_MIF_GC2, val);
 
 	 for (i = 0; i < 1000; i++) {
-	 	u32 mac_done = aq_mmio_read (aq, AQ_MIF_GDC1);
+	 	u32 mac_done = aq_mmio_read (r, AQ_MIF_GDC1);
 	 	if (mac_done & AQ_GDC1_BOOTLOAD_DONE)
 	 		break;
 	 	usleep (10 * 1000);
 	 }
 	 if (i == 1000)
 	 	printf ("aq: MAC reset fail 0x%08X\n",
-	 		aq_mmio_read (aq, AQ_MIF_GDC1));
+	 		aq_mmio_read (r, AQ_MIF_GDC1));
 
 	/* Reset firmware again */
 	val = AQ_GC2_MCP_RESET |
 	      AQ_GC2_ITR_MBOX_ERROR |
 	      AQ_GC2_ITR_FLB_ERROR |
 	      AQ_GC2_WATCHDOG_TIMER;
-	aq_mmio_write (aq, AQ_MIF_GC2, val);
+	aq_mmio_write (r, AQ_MIF_GC2, val);
 	usleep (50 * 1000);
-	aq_mmio_write (aq, AQ_FW_SEM1, AQ_FW_SEM_RELEASE);
+	aq_mmio_write (r, AQ_FW_SEM1, AQ_FW_SEM_RELEASE);
 
 	/* Enable RX reset */
-	val = aq_mmio_read (aq, AQ_RX_CTRL1);
+	val = aq_mmio_read (r, AQ_RX_CTRL1);
 	val &= ~AQ_RX_CTRL1_RESET_DISABLE;
-	aq_mmio_write (aq, AQ_RX_CTRL1, val);
+	aq_mmio_write (r, AQ_RX_CTRL1, val);
 
 	/* Enable TX reset */
-	val = aq_mmio_read (aq, AQ_TX_CTRL1);
+	val = aq_mmio_read (r, AQ_TX_CTRL1);
 	val &= ~AQ_TX_CTRL1_RESET_DISABLE;
-	aq_mmio_write (aq, AQ_TX_CTRL1, val);
+	aq_mmio_write (r, AQ_TX_CTRL1, val);
 
 	/* Enable MAC-PHYS reset */
-	val = aq_mmio_read (aq, AQ_MAC_CTRL1);
+	val = aq_mmio_read (r, AQ_MAC_CTRL1);
 	val &= ~AQ_MAC_CTRL1_RESET_DISABLE;
-	aq_mmio_write (aq, AQ_MAC_CTRL1, val);
+	aq_mmio_write (r, AQ_MAC_CTRL1, val);
 
 	/* Enable global reset */
-	val = aq_mmio_read (aq, AQ_MIF_GSC1);
+	val = aq_mmio_read (r, AQ_MIF_GSC1);
 	val &= ~AQ_GSC1_GLOBAL_REG_RESET_DISABLE;
-	aq_mmio_write (aq, AQ_MIF_GSC1, val);
+	aq_mmio_write (r, AQ_MIF_GSC1, val);
 
 	/* Issue reset */
-	val = aq_mmio_read (aq, AQ_MIF_GSC1);
+	val = aq_mmio_read (r, AQ_MIF_GSC1);
 	val |= AQ_GSC1_SOFT_RESET;
-	aq_mmio_write (aq, AQ_MIF_GSC1, val);
+	aq_mmio_write (r, AQ_MIF_GSC1, val);
 }
 
 static void
 aq_reset_rom (struct aq *aq)
 {
 	u32 val, i;
+	const struct dres_reg *r = aq->r;
 
 	/* Reset and pause MAC */
 	val = AQ_GC2_MCP_RESET_PULSE |
@@ -960,50 +960,50 @@ aq_reset_rom (struct aq *aq)
 	      AQ_GC2_ITR_FLB_ERROR |
 	      AQ_GC2_WATCHDOG_TIMER |
 	      AQ_GC2_MCP_RUNSTALL;
-	aq_mmio_write (aq, AQ_MIF_GC2, val);
-	aq_mmio_write (aq, AQ_COM_MIF_PG_ENABLE, 0x0);
+	aq_mmio_write (r, AQ_MIF_GC2, val);
+	aq_mmio_write (r, AQ_COM_MIF_PG_ENABLE, 0x0);
 
 	/* Magic value */
-	aq_mmio_write (aq, AQ_FW_BOOT_EXIT_CODE, 0xDEAD);
+	aq_mmio_write (r, AQ_FW_BOOT_EXIT_CODE, 0xDEAD);
 
 	/* Reset SPI */
-	val = aq_mmio_read (aq, AQ_MIF_NVR4);
-	aq_mmio_write (aq, AQ_MIF_NVR4, val | AQ_NVR_SPI_RESET);
+	val = aq_mmio_read (r, AQ_MIF_NVR4);
+	aq_mmio_write (r, AQ_MIF_NVR4, val | AQ_NVR_SPI_RESET);
 
 	/* Enable RX reset */
-	val = aq_mmio_read (aq, AQ_RX_CTRL1);
+	val = aq_mmio_read (r, AQ_RX_CTRL1);
 	val &= ~AQ_RX_CTRL1_RESET_DISABLE;
-	aq_mmio_write (aq, AQ_RX_CTRL1, val);
+	aq_mmio_write (r, AQ_RX_CTRL1, val);
 
 	/* Enable TX reset */
-	val = aq_mmio_read (aq, AQ_TX_CTRL1);
+	val = aq_mmio_read (r, AQ_TX_CTRL1);
 	val &= ~AQ_TX_CTRL1_RESET_DISABLE;
-	aq_mmio_write (aq, AQ_TX_CTRL1, val);
+	aq_mmio_write (r, AQ_TX_CTRL1, val);
 
 	/* Enable MAC-PHYS reset */
-	val = aq_mmio_read (aq, AQ_MAC_CTRL1);
+	val = aq_mmio_read (r, AQ_MAC_CTRL1);
 	val &= ~AQ_MAC_CTRL1_RESET_DISABLE;
-	aq_mmio_write (aq, AQ_MAC_CTRL1, val);
+	aq_mmio_write (r, AQ_MAC_CTRL1, val);
 
 	/* Enable global reset */
-	val = aq_mmio_read (aq, AQ_MIF_GSC1);
+	val = aq_mmio_read (r, AQ_MIF_GSC1);
 	val &= ~AQ_GSC1_GLOBAL_REG_RESET_DISABLE;
-	aq_mmio_write (aq, AQ_MIF_GSC1, val);
+	aq_mmio_write (r, AQ_MIF_GSC1, val);
 
 	/* Issue reset */
-	val = aq_mmio_read (aq, AQ_MIF_GSC1);
+	val = aq_mmio_read (r, AQ_MIF_GSC1);
 	val |= AQ_GSC1_SOFT_RESET;
-	aq_mmio_write (aq, AQ_MIF_GSC1, val);
+	aq_mmio_write (r, AQ_MIF_GSC1, val);
 
 	/* Reset firmware */
 	val = AQ_GC2_MCP_RESET_PULSE |
 	      AQ_GC2_ITR_MBOX_ERROR |
 	      AQ_GC2_ITR_FLB_ERROR |
 	      AQ_GC2_WATCHDOG_TIMER;
-	aq_mmio_write (aq, AQ_MIF_GC2, val);
+	aq_mmio_write (r, AQ_MIF_GC2, val);
 
 	for (i = 0; i < 1000; i++) {
-		val = aq_mmio_read (aq, AQ_FW_BOOT_EXIT_CODE);
+		val = aq_mmio_read (r, AQ_FW_BOOT_EXIT_CODE);
 		if (val != 0 && val != 0xDEAD)
 			break;
 		usleep (10 * 1000);
@@ -1018,10 +1018,11 @@ static void
 aq_reset (struct aq *aq)
 {
 	u32 val, i, boot_exit_code = 0;
+	const struct dres_reg *r = aq->r;
 
 	for (i = 0; i < 1000; i++) {
-		u32 flb_status = aq_mmio_read (aq, AQ_MIF_GDC1);
-		boot_exit_code = aq_mmio_read (aq, AQ_FW_BOOT_EXIT_CODE);
+		u32 flb_status = aq_mmio_read (r, AQ_MIF_GDC1);
+		boot_exit_code = aq_mmio_read (r, AQ_FW_BOOT_EXIT_CODE);
 
 		if (flb_status != (AQ_GDC1_MAC_ERROR | AQ_GDC1_PHY_ERROR) ||
 		    boot_exit_code != 0)
@@ -1038,8 +1039,8 @@ aq_reset (struct aq *aq)
 		aq_reset_flash (aq);
 
 	for (i = 0; i < 1000; i++) {
-		u32 fw = aq_mmio_read (aq, AQ_MIF_FW_ID);
-		u32 mailbox = aq_mmio_read (aq, AQ_FW_MBOX_ADDR);
+		u32 fw = aq_mmio_read (r, AQ_MIF_FW_ID);
+		u32 mailbox = aq_mmio_read (r, AQ_FW_MBOX_ADDR);
 		if (fw && mailbox)
 			break;
 		usleep (10 * 1000);
@@ -1049,11 +1050,11 @@ aq_reset (struct aq *aq)
 
 	usleep (20 * 1000);
 
-	 val = aq_mmio_read (aq, AQ_MIF_FW_ID);
+	 val = aq_mmio_read (r, AQ_MIF_FW_ID);
 	 if (AQ_FW_ID_VERSION (val) < 2)
 	 	panic ("aq: support only firmware version 2+");
 
-	 val = aq_mmio_read (aq, AQ_MIF_ID);
+	 val = aq_mmio_read (r, AQ_MIF_ID);
 	 val = AQ_MIF_ID_REV (val);
 	 if (val != 0x2 && val != 0xA)
 	 	panic ("aq: unsupported hardware revision 0x%X", val);
@@ -1074,7 +1075,8 @@ aq_wait_clear (struct aq *aq, u64 offset, u32 wait_and_val)
 		return;
 	}
 
-	while (aq_mmio_read (aq, offset) & wait_and_val) {
+	const struct dres_reg *r = aq->r;
+	while (aq_mmio_read (r, offset) & wait_and_val) {
 		if (get_time () - start_time > AQ_TIMEOUT)
 			panic ("aq: wait timeout, device stalls?");
 		usleep (10 * 1000);
@@ -1085,13 +1087,14 @@ static void
 aq_get_mac_addr (struct aq *aq)
 {
 	u32 dst, data[2], i;
+	const struct dres_reg *r = aq->r;
 
-	dst = aq_mmio_read (aq, AQ_FW_EFUSE_ADDR) + 0xA0; /* Magic offset */
-	aq_mmio_write (aq, AQ_MIF_MAILBOX_ADDR, dst);
+	dst = aq_mmio_read (r, AQ_FW_EFUSE_ADDR) + 0xA0; /* Magic offset */
+	aq_mmio_write (r, AQ_MIF_MAILBOX_ADDR, dst);
 	for (i = 0; i < 2; i++) {
-		aq_mmio_write (aq, AQ_MIF_MAILBOX_CMD, AQ_MAILBOX_CMD_EXEC);
+		aq_mmio_write (r, AQ_MIF_MAILBOX_CMD, AQ_MAILBOX_CMD_EXEC);
 		aq_wait_clear (aq, AQ_MIF_MAILBOX_CMD, AQ_MAILBOX_CMD_BUSY);
-		data[i] = aq_mmio_read (aq, AQ_MIF_MAILBOX_DATA);
+		data[i] = aq_mmio_read (r, AQ_MIF_MAILBOX_DATA);
 	}
 
 	aq->mac[0] = (data[0] >> 24) & 0xFF;
@@ -1120,32 +1123,33 @@ aq_get_mac_addr (struct aq *aq)
 static void
 aq_start_tx (struct aq *aq)
 {
-	struct aq_tx_desc_reg *tx_desc_reg;
+	volatile struct aq_tx_desc_reg *tx_desc_reg;
 	u32 val, i;
+	const struct dres_reg *r = aq->r;
 
 	/* Disable Direct Cache Access for TX */
 	val = ~AQ_TX_DCA_ENABLE & AQ_TX_DCA_LEGACY_MODE;
-	aq_mmio_write (aq, AQ_TX_DCA_CTRL33, val);
+	aq_mmio_write (r, AQ_TX_DCA_CTRL33, val);
 
 	/* TX Total Data Request Limit */
-	aq_mmio_write (aq, AQ_TX_DMA_TOTAL_REQ_LIMIT, 24);
+	aq_mmio_write (r, AQ_TX_DMA_TOTAL_REQ_LIMIT, 24);
 
 	/* Enable small TX packet padding */
-	val = aq_mmio_read (aq, AQ_TX_PKTBUF_CTRL1);
-	aq_mmio_write (aq, AQ_TX_PKTBUF_CTRL1, val | AQ_TX_PKTBUF_PADDING);
+	val = aq_mmio_read (r, AQ_TX_PKTBUF_CTRL1);
+	aq_mmio_write (r, AQ_TX_PKTBUF_CTRL1, val | AQ_TX_PKTBUF_PADDING);
 
 	/* Set TC mode 1 for TX */
-	val = aq_mmio_read (aq, AQ_TX_PKTBUF_CTRL1);
+	val = aq_mmio_read (r, AQ_TX_PKTBUF_CTRL1);
 	val |= AQ_TX_PKTBUF_TC_MODE_1;
-	aq_mmio_write (aq, AQ_TX_PKTBUF_CTRL1, val);
+	aq_mmio_write (r, AQ_TX_PKTBUF_CTRL1, val);
 
 	/* Set TX Packet buffer[0], upto max as we use only one */
 	val = AQ_TX_PKTBUF0_BUF_SIZE (AQ_TX_PKTBUF_MAX);
-	aq_mmio_write (aq, AQ_TX_PKTBUF0, val);
+	aq_mmio_write (r, AQ_TX_PKTBUF0, val);
 
 	/* Enable TX Buffer */
-	val = aq_mmio_read (aq, AQ_TX_PKTBUF_CTRL1);
-	aq_mmio_write (aq, AQ_TX_PKTBUF_CTRL1, val | AQ_TX_PKTBUF_ENABLE);
+	val = aq_mmio_read (r, AQ_TX_PKTBUF_CTRL1);
+	aq_mmio_write (r, AQ_TX_PKTBUF_CTRL1, val | AQ_TX_PKTBUF_ENABLE);
 
 	/* Fill TX descriptors */
 	for (i = 0; i < AQ_DESC_NUM; i++) {
@@ -1167,74 +1171,75 @@ aq_start_tx (struct aq *aq)
 static void
 aq_start_rx (struct aq *aq)
 {
-	struct aq_rx_desc_reg *rx_desc_reg;
+	volatile struct aq_rx_desc_reg *rx_desc_reg;
 	u32 val, lsw, msw, i;
+	const struct dres_reg *r = aq->r;
 
 	/* TC mode 1, FC mode 1 */
-	val = aq_mmio_read (aq, AQ_RX_PKTBUF_CTRL1);
+	val = aq_mmio_read (r, AQ_RX_PKTBUF_CTRL1);
 	val |= AQ_RX_PKTBUF_FC_MODE_1 |
 	       AQ_RX_PKTBUF_TC_MODE_1;
-	aq_mmio_write (aq, AQ_RX_PKTBUF_CTRL1, val);
+	aq_mmio_write (r, AQ_RX_PKTBUF_CTRL1, val);
 
 	/* Set Unicast Filter 0 is enough */
 	val = AQ_RX_UNICAST_FILTER_HI_ACT_HOST;
-	aq_mmio_write (aq, AQ_RX_UNICAST_FILTER0_HI, val);
+	aq_mmio_write (r, AQ_RX_UNICAST_FILTER0_HI, val);
 
 	/* Clear RX Multicast Filter Mask register */
-	aq_mmio_write (aq, AQ_RX_MULTICAST_FILTER_MASK, 0x0);
+	aq_mmio_write (r, AQ_RX_MULTICAST_FILTER_MASK, 0x0);
 
 	/* Set RX Multicast Filter 0 */
 	val = AQ_RX_MULTICAST_FILTER_DEST_ANY |
 	      AQ_RX_MULTICAST_FILTER_ACT_HOST;
-	aq_mmio_write (aq, AQ_RX_MULTICAST_FILTER0, val);
+	aq_mmio_write (r, AQ_RX_MULTICAST_FILTER0, val);
 
 	/* VLAN Promiscuous (Strange but, this is required to make RX work) */
-	aq_mmio_write (aq, AQ_RX_VLAN_CTRL1, AQ_RX_VLAN_CTRL1_PROMISC_MODE);
+	aq_mmio_write (r, AQ_RX_VLAN_CTRL1, AQ_RX_VLAN_CTRL1_PROMISC_MODE);
 
 	/* RX Interrupt Control */
-	aq_mmio_write (aq, AQ_RX_INTR_CTRL, AQ_RX_INTR_CTRL_WB_ENABLE);
+	aq_mmio_write (r, AQ_RX_INTR_CTRL, AQ_RX_INTR_CTRL_WB_ENABLE);
 
 	/* RX_SPARE_CONTROL_DEBUG (What is it for?) */
-	aq_mmio_write (aq, AQ_RX_SPARE_CONTROL_DEBUG, 0xf0000);
+	aq_mmio_write (r, AQ_RX_SPARE_CONTROL_DEBUG, 0xf0000);
 
 	/* RX Filter Control 1 */
 	val = AQ_RX_FILTER_CTRL1_L2_THRES_MAX |
 	      AQ_RX_FILTER_CTRL1_L2_BCAST_ACT_HOST;
-	aq_mmio_write (aq, AQ_RX_FILTER_CTRL1, val);
+	aq_mmio_write (r, AQ_RX_FILTER_CTRL1, val);
 
 	/* Disable Direct Cache Access for RX */
 	val = ~AQ_RX_DCA_ENABLE & AQ_RX_DCA_LEGACY_MODE;
-	aq_mmio_write (aq, AQ_RX_DCA_CTRL33, val);
+	aq_mmio_write (r, AQ_RX_DCA_CTRL33, val);
 
 	/* Set MAC address */
-	val = aq_mmio_read (aq, AQ_RX_UNICAST_FILTER0_HI);
+	val = aq_mmio_read (r, AQ_RX_UNICAST_FILTER0_HI);
 	msw = (aq->mac[0] << 8) | aq->mac[1];
 	lsw = (aq->mac[2] << 24) |
 	      (aq->mac[3] << 16) |
 	      (aq->mac[4] << 8) |
 	      aq->mac[5];
 	val |= msw;
-	aq_mmio_write (aq, AQ_RX_UNICAST_FILTER0_LW, lsw);
-	aq_mmio_write (aq, AQ_RX_UNICAST_FILTER0_HI, val);
+	aq_mmio_write (r, AQ_RX_UNICAST_FILTER0_LW, lsw);
+	aq_mmio_write (r, AQ_RX_UNICAST_FILTER0_HI, val);
 	val |= AQ_RX_UNICAST_FILTER_HI_ENABLE;
-	aq_mmio_write (aq, AQ_RX_UNICAST_FILTER0_HI, val);
+	aq_mmio_write (r, AQ_RX_UNICAST_FILTER0_HI, val);
 
 	/* Set RX Packet buffer[0], upto max as we use only one */
 	val = AQ_RX_PKTBUF0_BUF_SIZE (AQ_RX_PKTBUF_MAX);
-	aq_mmio_write (aq, AQ_RX_PKTBUF0, val);
+	aq_mmio_write (r, AQ_RX_PKTBUF0, val);
 
 	/* Accept L2 Broadcase */
-	val = aq_mmio_read (aq, AQ_RX_FILTER_CTRL1);
+	val = aq_mmio_read (r, AQ_RX_FILTER_CTRL1);
 	val |= AQ_RX_FILTER_CTRL1_L2_BCAST_ENABLE;
-	aq_mmio_write (aq, AQ_RX_FILTER_CTRL1, val);
+	aq_mmio_write (r, AQ_RX_FILTER_CTRL1, val);
 
 	/* L2 Accept All Multicast packets */
 	val = AQ_RX_MULTICAST_FILTER_MASK_ACCEPT_ALL;
-	aq_mmio_write (aq, AQ_RX_MULTICAST_FILTER_MASK, val);
+	aq_mmio_write (r, AQ_RX_MULTICAST_FILTER_MASK, val);
 
 	/* Enable RX Buffer */
-	val = aq_mmio_read (aq, AQ_RX_PKTBUF_CTRL1);
-	aq_mmio_write (aq, AQ_RX_PKTBUF_CTRL1, val | AQ_RX_PKTBUF_ENABLE);
+	val = aq_mmio_read (r, AQ_RX_PKTBUF_CTRL1);
+	aq_mmio_write (r, AQ_RX_PKTBUF_CTRL1, val | AQ_RX_PKTBUF_ENABLE);
 
 	/* Fill RX descriptors */
 	for (i = 0; i < AQ_DESC_NUM; i++) {
@@ -1260,6 +1265,7 @@ static void
 aq_start (struct aq *aq)
 {
 	u32 val, i;
+	const struct dres_reg *r = aq->r;
 
 	aq_start_tx (aq);
 	aq_start_rx (aq);
@@ -1269,32 +1275,32 @@ aq_start (struct aq *aq)
 	      AQ_PCIE_CTRL6_TDM_MPS (0x7) |
 	      AQ_PCIE_CTRL6_RDM_MRRS (0x4) |
 	      AQ_PCIE_CTRL6_RDM_MPS (0x7);
-	aq_mmio_write (aq, AQ_PCIE_CTRL6, val);
+	aq_mmio_write (r, AQ_PCIE_CTRL6, val);
 
 	/* Set ISR clear-on-read seems necessary for legacy interrupts */
-	aq_mmio_write (aq, AQ_INTR_GC, AQ_INTR_COR);
+	aq_mmio_write (r, AQ_INTR_GC, AQ_INTR_COR);
 
 	/* Enable TX/RX 0 Interrupt Mapping */
 	val = AQ_INTR_MAPPING_RX0 (0x1) |
 	      AQ_INTR_MAPPING_RX0_ENABLE |
 	      AQ_INTR_MAPPING_TX0 (0x1) |
 	      AQ_INTR_MAPPING_TX0_ENABLE;
-        aq_mmio_write (aq, AQ_INTR_MAPPING1, val);
+        aq_mmio_write (r, AQ_INTR_MAPPING1, val);
 
 	/* Enable PCI + Fatal Interrupt Mapping */
 	val = AQ_INTR_MAPPING_FATAL (0x1) |
 	      AQ_INTR_MAPPING_FATAL_ENABLE |
 	      AQ_INTR_MAPPING_PCI (0x1) |
 	      AQ_INTR_MAPPING_PCI_ENABLE;
-	aq_mmio_write (aq, AQ_INTR_MAPPING_GENERAL1, val);
+	aq_mmio_write (r, AQ_INTR_MAPPING_GENERAL1, val);
 
 	/* Negotiate link */
-	aq_mmio_write (aq, AQ_FW_CONTROL_ADDR, AQ_FW_LINK_ALL);
+	aq_mmio_write (r, AQ_FW_CONTROL_ADDR, AQ_FW_LINK_ALL);
 
 	printf ("aq: waiting for link, taking some time\n");
 
 	for (i = 0; i < 1000; i++) {
-		val = aq_mmio_read (aq, AQ_FW_STATE_ADDR);
+		val = aq_mmio_read (r, AQ_FW_STATE_ADDR);
 		if (val & AQ_FW_LINK_ALL)
 			break;
 		usleep (10 * 1000);
@@ -1411,6 +1417,8 @@ aq_new (struct pci_device *dev)
 	pci_enable (dev);
 	aq_make_dev_reg_record (aq);
 	pci_get_bar_info (aq->dev, 0, &bar0);
+	aq_init_initial_dres_reg (aq, &bar0);
+	aq_set_txrx_desc_regs (aq);
 
 	aq->virtio_net = virtio_net_init (&virtio_net_func,
 					  aq->mac,
@@ -1420,8 +1428,8 @@ aq_new (struct pci_device *dev)
 					  aq_intr_disable,
 					  aq_intr_enable,
 					  aq);
-	virtio_net_set_pci_device (aq->virtio_net, dev, &bar0, aq_mmio_change,
-				   aq);
+	virtio_net_set_pci_device (aq->virtio_net, dev, &bar0, aq->r,
+				   aq_mmio_change, aq);
 
 	if (!net_init (aq->nethandle,
 		       aq,
@@ -1430,7 +1438,6 @@ aq_new (struct pci_device *dev)
 		       virtio_net_func))
 		panic ("aq: net_init() fails");
 
-	aq_mmio_map (aq, &bar0);
 	aq_ring_alloc (aq);
 	aq_reset (aq);
 	aq_get_mac_addr (aq);
@@ -1499,6 +1506,8 @@ aq_init (void)
 static void
 aq_stop (struct aq *aq)
 {
+	struct dres_reg *r;
+
 	spinlock_lock (&aq->tx_lock);
 	aq->tx_ready = 0;
 	spinlock_unlock (&aq->tx_lock);
@@ -1517,8 +1526,8 @@ aq_stop (struct aq *aq)
 	free (aq->tx_ring);
 	free (aq->rx_ring);
 
-	aq_mmio_write (aq, AQ_INTR_MASK_CLEAR, 0xFFFFFFFF);
-	aq_mmio_write (aq, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
+	aq_mmio_write (aq->r, AQ_INTR_MASK_CLEAR, 0xFFFFFFFF);
+	aq_mmio_write (aq->r, AQ_INTR_STATUS_CLEAR, 0xFFFFFFFF);
 	aq->intr_enabled = 0;
 
 	aq->tx_sw_tail = 0;
@@ -1526,7 +1535,16 @@ aq_stop (struct aq *aq)
 	aq->rx_sw_tail = 0;
 	aq->rx_sw_head = 0;
 
-	aq_mmio_unmap (aq);
+	aq_clear_txrx_desc_regs (aq);
+
+	/*
+	 * aq->r is just a reference after starting virtio_net. We can clear
+	 * unconditionally.
+	 */
+	aq->r = NULL;
+	r = virtio_net_suspend (aq->virtio_net);
+	if (r)
+		dres_reg_free (r);
 
 	aq_save_regs (aq);
 }
@@ -1549,7 +1567,8 @@ aq_resume (void)
 	LIST1_FOREACH (aq_list, aq) {
 		aq_restore_regs (aq);
 		pci_get_bar_info (aq->dev, 0, &bar0);
-		aq_mmio_map (aq, &bar0);
+		aq_init_initial_dres_reg (aq, &bar0);
+		aq_set_txrx_desc_regs (aq);
 		aq_ring_alloc (aq);
 		aq_reset (aq);
 		aq_start (aq);

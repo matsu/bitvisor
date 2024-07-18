@@ -154,6 +154,7 @@ re_new (struct pci_device *dev)
 						    re_core_intr_enable,
 						    host);
 		virtio_net_set_pci_device (host->virtio_net, dev, &bar_info,
+					   re_core_current_dres_reg (host),
 					   re_core_mmio_change, host);
 	}
 

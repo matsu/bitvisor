@@ -884,10 +884,10 @@ struct re_softc {
 
         u_int64_t		mmio_base;
         u_int64_t		mmio_len;
-        u_int8_t		*mmio;
+        struct dres_reg		*r;
 
         u_int64_t		cmac_base;
-        u_int8_t		*cmac_regs;
+        struct dres_reg		*r_cmac;
 
         int                 re_res_id;
         int                 re_res_type;

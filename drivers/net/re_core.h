@@ -134,6 +134,8 @@
 #include <net/netapi.h>
 #include <pci.h>
 
+struct dres_reg;
+
 typedef u8  u_char;
 
 typedef u8  u_int8_t;
@@ -210,7 +212,9 @@ struct re_host {
 
 void re_core_current_mmio_bar (struct re_host *host,
 			       struct pci_bar_info *bar_info);
-void re_core_mmio_change (void *param, struct pci_bar_info *bar_info);
+struct dres_reg *re_core_current_dres_reg (struct re_host *host);
+void re_core_mmio_change (void *param, struct pci_bar_info *bar_info,
+			  struct dres_reg *new_r);
 
 /* For initialize re_host object */
 void re_core_init (struct re_host *host);

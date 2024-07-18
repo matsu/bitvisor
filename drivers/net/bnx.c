@@ -31,6 +31,7 @@
 
 #include <builtin.h>
 #include <core.h>
+#include <core/dres.h>
 #include <core/mmio.h>
 #include <core/sleep.h>
 #include <core/uefiutil.h>
@@ -95,7 +96,7 @@ struct bnx_status {
 
 struct bnx {
 	struct pci_device *pci;
-	u8 *mmio;
+	struct dres_reg *r;
 	phys_t base;
 	u32 len;
 	bool disconnected;
@@ -369,81 +370,81 @@ bnx_ring_update (u32 *index, u32 len)
 }
 
 static void
-do_mmio32 (struct bnx *bnx, void *reg_base, bool wr, void *buf, u64 delay)
+do_mmio32 (const struct dres_reg *r, phys_t offset, bool wr, void *buf,
+	   u64 delay)
 {
-	u32 *p, *b;
-
 	if (delay)
 		usleep (delay);
-
-	p = reg_base;
-	b = buf;
 	if (wr)
-		*p = *b;
+		dres_reg_write32 (r, offset, *(u32 *)buf);
 	else
-		*b = *p;
+		dres_reg_read32 (r, offset, buf);
 }
 
 static void
-bnx_mmioread32_delay (struct bnx *bnx, int offset, u32 *data, u64 delay)
+bnx_mmioread32_delay (const struct dres_reg *r, int offset, u32 *data,
+		      u64 delay)
 {
-	do_mmio32 (bnx, bnx->mmio + offset, false, data, delay);
+	do_mmio32 (r, offset, false, data, delay);
 }
 
 static void
-bnx_mmiowrite32_delay (struct bnx *bnx, int offset, u32 data, u64 delay)
+bnx_mmiowrite32_delay (const struct dres_reg *r, int offset, u32 data,
+		       u64 delay)
 {
-	do_mmio32 (bnx, bnx->mmio + offset, true, &data, delay);
+	do_mmio32 (r, offset, true, &data, delay);
 }
 
 static int
-bnx_mmioclrset32_delay (struct bnx *bnx, int offset, u32 clear_bits,
+bnx_mmioclrset32_delay (const struct dres_reg *r, int offset, u32 clear_bits,
 			u32 set_bits, u64 delay)
 {
 	u32 orig, new;
 	int wr;
-	bnx_mmioread32_delay (bnx, offset, &orig, delay);
+	bnx_mmioread32_delay (r, offset, &orig, delay);
 	new = (orig & ~clear_bits) | set_bits;
 	wr = new != orig;
 	if (wr)
-		bnx_mmiowrite32_delay (bnx, offset, new, delay);
+		bnx_mmiowrite32_delay (r, offset, new, delay);
 	return wr;
 }
 
 static int
-bnx_mmioset32_delay (struct bnx *bnx, int offset, u32 set_bits, u64 delay)
+bnx_mmioset32_delay (const struct dres_reg *r, int offset, u32 set_bits,
+		     u64 delay)
 {
-	return bnx_mmioclrset32_delay (bnx, offset, 0x0, set_bits, delay);
+	return bnx_mmioclrset32_delay (r, offset, 0x0, set_bits, delay);
 }
 
 static void
-bnx_mmioread32 (struct bnx *bnx, int offset, u32 *data)
+bnx_mmioread32 (const struct dres_reg *r, int offset, u32 *data)
 {
-	bnx_mmioread32_delay (bnx, offset, data, 0);
+	bnx_mmioread32_delay (r, offset, data, 0);
 }
 
 static void
-bnx_mmiowrite32 (struct bnx *bnx, int offset, u32 data)
+bnx_mmiowrite32 (const struct dres_reg *r, int offset, u32 data)
 {
-	bnx_mmiowrite32_delay (bnx, offset, data, 0);
+	bnx_mmiowrite32_delay (r, offset, data, 0);
 }
 
 static int
-bnx_mmioclrset32 (struct bnx *bnx, int offset, u32 clear_bits, u32 set_bits)
+bnx_mmioclrset32 (const struct dres_reg *r, int offset, u32 clear_bits,
+		  u32 set_bits)
 {
-	return bnx_mmioclrset32_delay (bnx, offset, clear_bits, set_bits, 0);
+	return bnx_mmioclrset32_delay (r, offset, clear_bits, set_bits, 0);
 }
 
 static int
-bnx_mmioset32 (struct bnx *bnx, int offset, u32 set_bits)
+bnx_mmioset32 (const struct dres_reg *r, int offset, u32 set_bits)
 {
-	return bnx_mmioclrset32 (bnx, offset, 0x0, set_bits);
+	return bnx_mmioclrset32 (r, offset, 0x0, set_bits);
 }
 
 static int
-bnx_mmioclr32 (struct bnx *bnx, int offset, u32 clear_bits)
+bnx_mmioclr32 (const struct dres_reg *r, int offset, u32 clear_bits)
 {
-	return bnx_mmioclrset32 (bnx, offset, clear_bits, 0x0);
+	return bnx_mmioclrset32 (r, offset, clear_bits, 0x0);
 }
 
 static void
@@ -460,38 +461,38 @@ bnx_pciwrite32 (struct bnx *bnx, int offset, u32 data)
 
 #if 0				/* VMM ensures the availability of MMIOs. */
 static void
-bnx_ind_memread32 (struct bnx *bnx, int offset, u32 *data)
+bnx_ind_memread32 (const struct dres_reg *r, int offset, u32 *data)
 {
-	bnx_mmiowrite32 (bnx, BNXPCI_MEMBASE, offset);
+	bnx_mmiowrite32 (r, BNXPCI_MEMBASE, offset);
 	usleep (40);
-	bnx_mmioread32 (bnx, BNXPCI_MEMDATA, data);
+	bnx_mmioread32 (r, BNXPCI_MEMDATA, data);
 	usleep (40);
 }
 
 static void
-bnx_ind_memwrite32 (struct bnx *bnx, int offset, u32 data)
+bnx_ind_memwrite32 (const struct dres_reg *r, int offset, u32 data)
 {
-	bnx_mmiowrite32 (bnx, BNXPCI_MEMBASE, offset);
+	bnx_mmiowrite32 (r, BNXPCI_MEMBASE, offset);
 	usleep (40);
-	bnx_mmiowrite32 (bnx, BNXPCI_MEMDATA, data);
+	bnx_mmiowrite32 (r, BNXPCI_MEMDATA, data);
 	usleep (40);
 }
 
 static void
-bnx_ind_regread32 (struct bnx *bnx, int offset, u32 *data)
+bnx_ind_regread32 (const struct dres_reg *r, int offset, u32 *data)
 {
-	bnx_pciwrite32 (bnx, BNXPCI_REGBASE, offset);
+	bnx_pciwrite32 (r, BNXPCI_REGBASE, offset);
 	usleep (40);
-	bnx_pciread32 (bnx, BNXPCI_REGDATA, data);
+	bnx_pciread32 (r, BNXPCI_REGDATA, data);
 	usleep (40);
 }
 
 static void
-bnx_ind_regwrite32 (struct bnx *bnx, int offset, u32 data)
+bnx_ind_regwrite32 (const struct dres_reg *r, int offset, u32 data)
 {
-	bnx_pciwrite32 (bnx, BNXPCI_REGBASE, offset);
+	bnx_pciwrite32 (r, BNXPCI_REGBASE, offset);
 	usleep (40);
-	bnx_pciwrite32 (bnx, BNXPCI_REGDATA, data);
+	bnx_pciwrite32 (r, BNXPCI_REGDATA, data);
 	usleep (40);
 }
 #endif
@@ -559,45 +560,48 @@ static void
 bnx_tx_ring_set (struct bnx *bnx)
 {
 	u32 tmp;
+	const struct dres_reg *r = bnx->r;
 
 	printd (6, "BNX: Setup TX rings. [%llx, %u]\n",
 		bnx->tx_ring_phys, bnx->tx_ring_len);
-	bnx_mmioread32 (bnx, BNXPCI_MEMBASE, &tmp);
-	bnx_mmiowrite32 (bnx, BNXMEM_STDBASE + BNXMEM_TXRCB_RINGADDR,
+	bnx_mmioread32 (r, BNXPCI_MEMBASE, &tmp);
+	bnx_mmiowrite32 (r, BNXMEM_STDBASE + BNXMEM_TXRCB_RINGADDR,
 			 bnx->tx_ring_phys >> 32);
-	bnx_mmiowrite32 (bnx, BNXMEM_STDBASE + BNXMEM_TXRCB_RINGADDR + 4,
+	bnx_mmiowrite32 (r, BNXMEM_STDBASE + BNXMEM_TXRCB_RINGADDR + 4,
 			 bnx->tx_ring_phys & 0xffffffff);
-	bnx_mmiowrite32 (bnx, BNXMEM_STDBASE + BNXMEM_TXRCB_LENFLAGS,
+	bnx_mmiowrite32 (r, BNXMEM_STDBASE + BNXMEM_TXRCB_LENFLAGS,
 			 bnx->tx_ring_len << 16);
-	bnx_mmiowrite32 (bnx, BNXPCI_MEMBASE, tmp);
+	bnx_mmiowrite32 (r, BNXPCI_MEMBASE, tmp);
 	bnx->tx_enabled = true;
 }
 
 static void
 bnx_rx_ring_set (struct bnx *bnx)
 {
+	const struct dres_reg *r = bnx->r;
+
 	printd (15, "BNX: Setup Producer RX rings. [%llx, %u]\n",
 		bnx->rx_prod_ring_phys, bnx->rx_prod_ring_len);
 	printd (15, "BNX: Setup Return RX rings. [%llx, %u]\n",
 		bnx->rx_retr_ring_phys, bnx->rx_retr_ring_len);
 	/* Set producer ring. */
-	bnx_mmiowrite32 (bnx, BNXREG_RXRCB_PROD_RINGADDR,
+	bnx_mmiowrite32 (r, BNXREG_RXRCB_PROD_RINGADDR,
 			 bnx->rx_prod_ring_phys >> 32);
-	bnx_mmiowrite32 (bnx, BNXREG_RXRCB_PROD_RINGADDR + 4,
+	bnx_mmiowrite32 (r, BNXREG_RXRCB_PROD_RINGADDR + 4,
 			 bnx->rx_prod_ring_phys & 0xffffffff);
-	bnx_mmiowrite32 (bnx, BNXREG_RXRCB_PROD_LENFLAGS,
+	bnx_mmiowrite32 (r, BNXREG_RXRCB_PROD_LENFLAGS,
 			 bnx->rx_prod_ring_len << 16 | HOST_FRAME_MAXLEN << 2);
-	bnx_mmiowrite32 (bnx, BNXREG_RXRCB_PROD_NICADDR, 0x6000);
+	bnx_mmiowrite32 (r, BNXREG_RXRCB_PROD_NICADDR, 0x6000);
 	/* Set return ring. */
-	bnx_mmiowrite32 (bnx, BNXMEM_STDBASE + BNXMEM_RXRCB_RETR_RINGADDR,
+	bnx_mmiowrite32 (r, BNXMEM_STDBASE + BNXMEM_RXRCB_RETR_RINGADDR,
 			 bnx->rx_retr_ring_phys >> 32);
-	bnx_mmiowrite32 (bnx, BNXMEM_STDBASE + BNXMEM_RXRCB_RETR_RINGADDR + 4,
+	bnx_mmiowrite32 (r, BNXMEM_STDBASE + BNXMEM_RXRCB_RETR_RINGADDR + 4,
 			 bnx->rx_retr_ring_phys & 0xffffffff);
-	bnx_mmiowrite32 (bnx, BNXMEM_STDBASE + BNXMEM_RXRCB_RETR_LENFLAGS,
+	bnx_mmiowrite32 (r, BNXMEM_STDBASE + BNXMEM_RXRCB_RETR_LENFLAGS,
 			 bnx->rx_retr_ring_len << 16 | HOST_FRAME_MAXLEN << 2);
 	/* Set indices. */
-	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_PROD, bnx->rx_prod_producer);
-	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_CONS0, bnx->rx_retr_consumer);
+	bnx_mmiowrite32 (r, BNXREG_HMBOX_RX_PROD, bnx->rx_prod_producer);
+	bnx_mmiowrite32 (r, BNXREG_HMBOX_RX_CONS0, bnx->rx_retr_consumer);
 
 	bnx->rx_enabled = true;
 }
@@ -623,10 +627,12 @@ bnx_status_alloc (struct bnx *bnx)
 static void
 bnx_status_set (struct bnx *bnx)
 {
+	const struct dres_reg *r = bnx->r;
+
 	printd (6, "BNX: Set status.\n");
-	bnx_mmiowrite32 (bnx, BNXREG_STAT_BLKADDR,
+	bnx_mmiowrite32 (r, BNXREG_STAT_BLKADDR,
 			 bnx->status_phys >> 32);
-	bnx_mmiowrite32 (bnx, BNXREG_STAT_BLKADDR + 4,
+	bnx_mmiowrite32 (r, BNXREG_STAT_BLKADDR + 4,
 			 bnx->status_phys & 0xffffffff);
 	bnx->status_enabled = true;
 }
@@ -636,12 +642,13 @@ bnx_get_addr (struct bnx *bnx, u8 *mac_fw)
 {
 	u32 addrh, addrl;
 	u16 subvendor, subdevice;
+	const struct dres_reg *r = bnx->r;
 
 	printd (0, "BNX: Retrieving MAC Address...\n");
 	pci_config_read (bnx->pci, &subvendor, sizeof subvendor, 0x2c);
 	pci_config_read (bnx->pci, &subdevice, sizeof subdevice, 0x2e);
-	bnx_mmioread32 (bnx, BNXREG_ETH_MACADDR, &addrh);
-	bnx_mmioread32 (bnx, BNXREG_ETH_MACADDR + 4, &addrl);
+	bnx_mmioread32 (r, BNXREG_ETH_MACADDR, &addrh);
+	bnx_mmioread32 (r, BNXREG_ETH_MACADDR + 4, &addrl);
 	bnx->mac[0] = (addrh >> 8) & 0xff;
 	bnx->mac[1] = (addrh >> 0) & 0xff;
 	bnx->mac[2] = (addrl >> 24) & 0xff;
@@ -739,10 +746,12 @@ static void
 bnx_handle_link_state (struct bnx *bnx)
 {
 	u32 data;
+	const struct dres_reg *r = bnx->r;
+
 	printd (15, "Link status changed.\n");
 	spinlock_lock (&bnx->reg_lock);
-	bnx_mmioread32 (bnx, BNXREG_ETH_MACSTAT, &data);
-	bnx_mmiowrite32 (bnx, BNXREG_ETH_MACSTAT, data | (1<<12));
+	bnx_mmioread32 (r, BNXREG_ETH_MACSTAT, &data);
+	bnx_mmiowrite32 (r, BNXREG_ETH_MACSTAT, data | (1 << 12));
 	spinlock_unlock (&bnx->reg_lock);
 }
 
@@ -813,7 +822,7 @@ is_bnx_ok (struct bnx *bnx)
 	}
 	u32 cmd;
 	spinlock_lock (&bnx->reg_lock);
-	bnx_mmioread32 (bnx, 4, &cmd);
+	bnx_mmioread32 (bnx->r, 4, &cmd);
 	spinlock_unlock (&bnx->reg_lock);
 	if (cmd == 0xFFFFFFFF)	/* Cannot access the device */
 		return 0;
@@ -874,11 +883,12 @@ bnx_handle_recv (struct bnx *bnx)
 
 	spinlock_lock (&bnx->ok_lock);
 	if (is_bnx_ok (bnx)) {
+		const struct dres_reg *r = bnx->r;
 		bnx->rx_need_update = false;
 		spinlock_lock (&bnx->reg_lock);
-		bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_CONS0,
+		bnx_mmiowrite32 (r, BNXREG_HMBOX_RX_CONS0,
 				 bnx->rx_retr_consumer);
-		bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_PROD,
+		bnx_mmiowrite32 (r, BNXREG_HMBOX_RX_PROD,
 				 bnx->rx_prod_producer);
 		spinlock_unlock (&bnx->reg_lock);
 	}
@@ -891,26 +901,6 @@ bnx_handle_recv (struct bnx *bnx)
 			num, rx_retr_producer, bnx->rx_retr_consumer,
 			bnx->rx_prod_producer, rx_prod_consumer);
 	}
-}
-
-static void
-bnx_mapmem (struct bnx *bnx, struct pci_bar_info *bar)
-{
-	ASSERT (bar->type == PCI_BAR_INFO_TYPE_MEM);
-
-	bnx->base = bar->base;
-	bnx->len = bar->len;
-	bnx->mmio = mapmem_as (as_passvm, bar->base, bar->len,
-			       MAPMEM_WRITE | MAPMEM_UC);
-}
-
-static void
-bnx_unmapmem (struct bnx *bnx)
-{
-	unmapmem (bnx->mmio, bnx->len);
-	bnx->base = 0x0;
-	bnx->len = 0x0;
-	bnx->mmio = NULL;
 }
 
 static void
@@ -930,7 +920,11 @@ bnx_mmio_init (struct bnx *bnx)
 	}
 
 	pci_get_bar_info (bnx->pci, 0, &bar);
-	bnx_mapmem (bnx, &bar);
+	ASSERT (bar.type == PCI_BAR_INFO_TYPE_MEM);
+	bnx->base = bar.base;
+	bnx->len = bar.len;
+	bnx->r = dres_reg_alloc (bar.base, bar.len, DRES_REG_TYPE_MM,
+				 pci_dres_reg_translate, bnx->pci, 0);
 
 	printd (4, "BNX: MMIO Phys [%016llx-%016llx]\n",
 		bnx->base, bnx->base + bnx->len);
@@ -954,7 +948,7 @@ bnx_xmit (struct bnx *bnx, void *buf, int buflen)
 	spinlock_lock (&bnx->ok_lock);
 	if (is_bnx_ok (bnx)) {
 		spinlock_lock (&bnx->reg_lock);
-		bnx_mmiowrite32 (bnx, BNXREG_HMBOX_TX_PROD,
+		bnx_mmiowrite32 (bnx->r, BNXREG_HMBOX_TX_PROD,
 				 bnx->tx_producer);
 		spinlock_unlock (&bnx->reg_lock);
 	}
@@ -966,6 +960,7 @@ static void
 bnx_reset (struct bnx *bnx)
 {
 	u32 data, set, clr, max_pld, t, timeout;
+	const struct dres_reg *r = bnx->r;
 
 	/*
 	 * Note that we access MMIO registers with delay initially before
@@ -975,16 +970,16 @@ bnx_reset (struct bnx *bnx)
 
 	set = BNXREG_MISC_HOST_CTRL_MASK_INTR |
 	      BNXREG_MISC_HOST_CTRL_ENDIAN_WORD_SWAP_EN;
-	bnx_mmioset32_delay (bnx, BNXREG_MISC_HOST_CTRL, set, TEN_MS);
+	bnx_mmioset32_delay (r, BNXREG_MISC_HOST_CTRL, set, TEN_MS);
 
-	bnx_mmiowrite32_delay (bnx, BNXREG_T3_FW_MBOX, BNX_T3_MAGIC, TEN_MS);
+	bnx_mmiowrite32_delay (r, BNXREG_T3_FW_MBOX, BNX_T3_MAGIC, TEN_MS);
 
 	set = BNXREG_SW_ARBITRATION_REQ_SET1;
-	bnx_mmioset32_delay (bnx, BNXREG_SW_ARBITRATION, set, TEN_MS);
+	bnx_mmioset32_delay (r, BNXREG_SW_ARBITRATION, set, TEN_MS);
 
 	timeout = 8;
 	do {
-		bnx_mmioread32_delay (bnx, BNXREG_SW_ARBITRATION, &data,
+		bnx_mmioread32_delay (r, BNXREG_SW_ARBITRATION, &data,
 				      TEN_MS);
 	} while (!(data & BNXREG_SW_ARBITRATION_ARB_WON1) && timeout-- > 0);
 
@@ -992,28 +987,28 @@ bnx_reset (struct bnx *bnx)
 		printf ("BNX: ARBWON1 timeout\n");
 
 	/* XXX This causes an error in status block on Mac Mini 2018 */
-	/* bnx_mmiowrite32_delay (bnx, BNXREG_FAST_BOOT_CNT, 0x0, TEN_MS); */
+	/* bnx_mmiowrite32_delay (r, BNXREG_FAST_BOOT_CNT, 0x0, TEN_MS); */
 
 	set = BNXREG_MEM_ARBITOR_MODE_EN;
-	bnx_mmioset32_delay (bnx, BNXREG_MEM_ARBITOR_MODE, set, TEN_MS);
+	bnx_mmioset32_delay (r, BNXREG_MEM_ARBITOR_MODE, set, TEN_MS);
 
 	set = BNXREG_MISC_HOST_CTRL_ENDIAN_WORD_SWAP_EN |
 	      BNXREG_MISC_HOST_CTRL_INDIRECT_ACC_EN |
 	      BNXREG_MISC_HOST_CTRL_PCI_STATE_RW_EN;
-	bnx_mmioset32_delay (bnx, BNXREG_MISC_HOST_CTRL, set, TEN_MS);
+	bnx_mmioset32_delay (r, BNXREG_MISC_HOST_CTRL, set, TEN_MS);
 
 	set = BNXREG_GRC_MISC_CFG_PHY_PW_DOWN_OVERRIDE |
 	      BNXREG_GRC_MISC_CFG_NO_PCIE_RESET;
-	bnx_mmioset32_delay (bnx, BNXREG_GRC_MISC_CFG, set, TEN_MS);
+	bnx_mmioset32_delay (r, BNXREG_GRC_MISC_CFG, set, TEN_MS);
 
 	printf ("BNX: Global resetting...");
 
-	bnx_mmioset32_delay (bnx, BNXREG_GRC_MISC_CFG,
+	bnx_mmioset32_delay (r, BNXREG_GRC_MISC_CFG,
 			     BNXREG_GRC_MISC_CFG_RESET, TEN_MS);
 
 	timeout = 8;
 	do {
-		bnx_mmioread32_delay (bnx, BNXREG_GRC_MISC_CFG, &data, TEN_MS);
+		bnx_mmioread32_delay (r, BNXREG_GRC_MISC_CFG, &data, TEN_MS);
 		usleep (TEN_MS);
 		usleep (1000 * 1000);
 		usleep (TEN_MS);
@@ -1033,31 +1028,31 @@ bnx_reset (struct bnx *bnx)
 	      BNXREG_MISC_HOST_CTRL_ENDIAN_WORD_SWAP_EN |
 	      BNXREG_MISC_HOST_CTRL_INDIRECT_ACC_EN |
 	      BNXREG_MISC_HOST_CTRL_PCI_STATE_RW_EN;
-	bnx_mmioset32 (bnx, BNXREG_MISC_HOST_CTRL, set);
+	bnx_mmioset32 (r, BNXREG_MISC_HOST_CTRL, set);
 
-	bnx_mmioread32 (bnx, BNXREG_PCIE_DEVCAP_CTRL, &max_pld);
+	bnx_mmioread32 (r, BNXREG_PCIE_DEVCAP_CTRL, &max_pld);
 	max_pld &= 0x7;
 
 	clr = BNXREG_PCIE_DEVSTS_CTRL_MAX_PLD_SIZE (-1);
 	set = BNXREG_PCIE_DEVSTS_CTRL_MAX_PLD_SIZE (max_pld);
-	bnx_mmioclrset32 (bnx, BNXREG_PCIE_DEVSTS_CTRL, clr, set);
+	bnx_mmioclrset32 (r, BNXREG_PCIE_DEVSTS_CTRL, clr, set);
 
 	set = BNXREG_MEM_ARBITOR_MODE_EN;
-	bnx_mmioset32 (bnx, BNXREG_MEM_ARBITOR_MODE, set);
+	bnx_mmioset32 (r, BNXREG_MEM_ARBITOR_MODE, set);
 
 	set = BNXREG_GRC_MODE_CTRL_BD_WORD_SWAP |
 	      BNXREG_GRC_MODE_CTRL_DATA_BYTE_SWAP |
 	      BNXREG_GRC_MODE_CTRL_DATA_WORD_SWAP;
-	bnx_mmioset32 (bnx, BNXREG_GRC_MODE_CTRL, set);
+	bnx_mmioset32 (r, BNXREG_GRC_MODE_CTRL, set);
 
 	set = BNXREG_ETH_MACMODE_PORT_MODE_GMII;
-	bnx_mmioset32 (bnx, BNXREG_ETH_MACMODE, set);
+	bnx_mmioset32 (r, BNXREG_ETH_MACMODE, set);
 	usleep (4 * TEN_MS);
 
 	timeout = 8;
 	do {
 		usleep (TEN_MS);
-		bnx_mmioread32 (bnx, BNXREG_T3_FW_MBOX, &data);
+		bnx_mmioread32 (r, BNXREG_T3_FW_MBOX, &data);
 	} while (data != ~BNX_T3_MAGIC && timeout-- > 0);
 
 	if (timeout == 0)
@@ -1069,12 +1064,12 @@ bnx_reset (struct bnx *bnx)
 	 * don't need them.
 	 */
 	set = BNXREG_MISC_HOST_CTRL_TAGGED_STS_EN;
-	bnx_mmioset32 (bnx, BNXREG_MISC_HOST_CTRL, set);
+	bnx_mmioset32 (r, BNXREG_MISC_HOST_CTRL, set);
 #endif
 
 	clr = BNXREG_DMA_RW_CTRL_DMA_WR_WATERMARK (-1);
 	set = BNXREG_DMA_RW_CTRL_DMA_WR_WATERMARK (max_pld ? 0x7 : 0x3);
-	bnx_mmioclrset32 (bnx, BNXREG_DMA_RW_CTRL, clr, set);
+	bnx_mmioclrset32 (r, BNXREG_DMA_RW_CTRL, clr, set);
 
 	set = BNXREG_GRC_MODE_CTRL_BD_WORD_SWAP |
 	      BNXREG_GRC_MODE_CTRL_DATA_BYTE_SWAP |
@@ -1082,32 +1077,32 @@ bnx_reset (struct bnx *bnx)
 	      BNXREG_GRC_MODE_CTRL_HOST_STACK_UP |
 	      BNXREG_GRC_MODE_CTRL_HOST_SEND_BD |
 	      BNXREG_GRC_MODE_CTRL_TX_NO_PSEUDO_HDR_CSUM;
-	bnx_mmioset32 (bnx, BNXREG_GRC_MODE_CTRL, set);
+	bnx_mmioset32 (r, BNXREG_GRC_MODE_CTRL, set);
 
-	bnx_mmiowrite32 (bnx, BNXREG_MBUF_LOW_WATERMARK, 0x2A);
-	bnx_mmiowrite32 (bnx, BNXREG_MBUF_HIGH_WATERMARK, 0xA0);
+	bnx_mmiowrite32 (r, BNXREG_MBUF_LOW_WATERMARK, 0x2A);
+	bnx_mmiowrite32 (r, BNXREG_MBUF_HIGH_WATERMARK, 0xA0);
 
 	clr = BNXREG_LOW_WATERMARK_MAX_RX_FRAME_SET (-1);
 	set = BNXREG_LOW_WATERMARK_MAX_RX_FRAME_SET (1);
-	bnx_mmioclrset32 (bnx, BNXREG_LOW_WATERMARK_MAX_RX_FRAME, clr, set);
+	bnx_mmioclrset32 (r, BNXREG_LOW_WATERMARK_MAX_RX_FRAME, clr, set);
 
 	/* Set internal clock to 65 MHz */
 	clr = BNXREG_GRC_MISC_CFG_TIMER_PRESCALER (-1);
 	set = BNXREG_GRC_MISC_CFG_TIMER_PRESCALER (0x41);
-	bnx_mmioclrset32 (bnx, BNXREG_GRC_MISC_CFG, clr, set);
+	bnx_mmioclrset32 (r, BNXREG_GRC_MISC_CFG, clr, set);
 
 	set = BNXREG_BUF_MANAGER_MODE_EN;
-	bnx_mmioset32 (bnx, BNXREG_BUF_MANAGER_MODE, set);
+	bnx_mmioset32 (r, BNXREG_BUF_MANAGER_MODE, set);
 
 	clr = BNXREG_STD_RBD_PROD_RING_THRESHOLD_BD (-1);
 	set = BNXREG_STD_RBD_PROD_RING_THRESHOLD_BD (0x19);
-	bnx_mmioclrset32 (bnx, BNXREG_STD_RBD_PROD_RING_THRESHOLD, clr, set);
+	bnx_mmioclrset32 (r, BNXREG_STD_RBD_PROD_RING_THRESHOLD, clr, set);
 
 	bnx_rx_ring_set (bnx);
 
 	clr = BNXREG_STD_RING_WATERMARK_BD (-1);
 	set = BNXREG_STD_RING_WATERMARK_BD (0x20);
-	bnx_mmioclrset32 (bnx, BNXREG_STD_RING_WATERMARK, clr, set);
+	bnx_mmioclrset32 (r, BNXREG_STD_RING_WATERMARK, clr, set);
 
 	bnx_tx_ring_set (bnx);
 
@@ -1115,91 +1110,91 @@ bnx_reset (struct bnx *bnx)
 	data = BNXREG_TX_MACCLEN_SLOT_TIME_LEN (0x20) |
 	       BNXREG_TX_MACCLEN_IPG_LEN (0x6) |
 	       BNXREG_TX_MACCLEN_IPG_CRS_LEN (0x2);
-	bnx_mmiowrite32 (bnx, BNXREG_TX_MACCLEN, data);
+	bnx_mmiowrite32 (r, BNXREG_TX_MACCLEN, data);
 
 	data = BNXREG_RX_RULE_CFG_NO_MATCH_DEFULT (0x1);
-	bnx_mmiowrite32 (bnx, BNXREG_RX_RULE_CFG, data);
+	bnx_mmiowrite32 (r, BNXREG_RX_RULE_CFG, data);
 
 	/* The value here is from to the spec */
 	clr = -1;
 	set = BNXREG_RPL_CFG_N_LIST_PER_DIST_GRP (1) |
 	      BNXREG_RPL_CFG_N_LIST_ACTIVE (16) |
 	      BNXREG_RPL_CFG_BAD_FRAME_CLASS (1);
-	bnx_mmioclrset32 (bnx, BNXREG_RPL_CFG, clr, set);
+	bnx_mmioclrset32 (r, BNXREG_RPL_CFG, clr, set);
 
-	bnx_mmiowrite32 (bnx, BNXREG_HOST_COALEASING_MODE, 0x0);
-	bnx_mmioread32 (bnx, BNXREG_HOST_COALEASING_MODE, &data);
+	bnx_mmiowrite32 (r, BNXREG_HOST_COALEASING_MODE, 0x0);
+	bnx_mmioread32 (r, BNXREG_HOST_COALEASING_MODE, &data);
 	timeout = 8;
 	do {
-		bnx_mmioread32 (bnx, BNXREG_HOST_COALEASING_MODE, &data);
+		bnx_mmioread32 (r, BNXREG_HOST_COALEASING_MODE, &data);
 		usleep (20 * 1000);
 	} while (data != 0x0 && timeout-- > 0);
 
 	if (timeout == 0)
 		printf ("BNX: Disable coaleascing fail\n");
 
-	bnx_mmiowrite32 (bnx, BNXREG_RX_COALEASING_TICK, 0x48);
-	bnx_mmiowrite32 (bnx, BNXREG_TX_COALEASING_TICK, 0x14);
+	bnx_mmiowrite32 (r, BNXREG_RX_COALEASING_TICK, 0x48);
+	bnx_mmiowrite32 (r, BNXREG_TX_COALEASING_TICK, 0x14);
 
-	bnx_mmiowrite32 (bnx, BNXREG_RX_MAX_COALEASED_BD_CNT, 0x1);
-	bnx_mmiowrite32 (bnx, BNXREG_TX_MAX_COALEASED_BD_CNT, 0x1);
+	bnx_mmiowrite32 (r, BNXREG_RX_MAX_COALEASED_BD_CNT, 0x1);
+	bnx_mmiowrite32 (r, BNXREG_TX_MAX_COALEASED_BD_CNT, 0x1);
 
-	bnx_mmiowrite32 (bnx, BNXREG_RX_MAX_COALEASED_BD_CNT_INTR, 0x1);
-	bnx_mmiowrite32 (bnx, BNXREG_TX_MAX_COALEASED_BD_CNT_INTR, 0x1);
+	bnx_mmiowrite32 (r, BNXREG_RX_MAX_COALEASED_BD_CNT_INTR, 0x1);
+	bnx_mmiowrite32 (r, BNXREG_TX_MAX_COALEASED_BD_CNT_INTR, 0x1);
 
 	bnx_status_set (bnx);
 
 	/* 32-bit Status Block Size */
 	set = BNXREG_HOST_COALEASING_MODE_EN |
 	      BNXREG_HOST_COALEASING_MODE_STS_BLKSIZE (0x2);
-	bnx_mmioset32 (bnx, BNXREG_HOST_COALEASING_MODE, set);
+	bnx_mmioset32 (r, BNXREG_HOST_COALEASING_MODE, set);
 
-	bnx_mmioset32 (bnx, BNXREG_RBD_COMP_MODE, BNXREG_RBD_COMP_MODE_EN);
+	bnx_mmioset32 (r, BNXREG_RBD_COMP_MODE, BNXREG_RBD_COMP_MODE_EN);
 
-	bnx_mmioset32 (bnx, BNXREG_RPL_MODE, BNXREG_RPL_MODE_EN);
+	bnx_mmioset32 (r, BNXREG_RPL_MODE, BNXREG_RPL_MODE_EN);
 
 	set = BNXREG_ETH_MACMODE_TDE_EN | BNXREG_ETH_MACMODE_RDE_EN |
 	      BNXREG_ETH_MACMODE_FHDE_EN;
-	bnx_mmioset32 (bnx, BNXREG_ETH_MACMODE, set);
+	bnx_mmioset32 (r, BNXREG_ETH_MACMODE, set);
 
 	usleep (5 * TEN_MS);
 
 	set = BNXREG_WDMA_MODE_EN | BNXREG_WDMA_MODE_STS_TAG_FIX_EN;
-	bnx_mmioset32 (bnx, BNXREG_WDMA_MODE, set);
+	bnx_mmioset32 (r, BNXREG_WDMA_MODE, set);
 
 	usleep (5 * TEN_MS);
 
-	bnx_mmioset32 (bnx, BNXREG_RDMA_MODE, BNXREG_RDMA_MODE_EN);
+	bnx_mmioset32 (r, BNXREG_RDMA_MODE, BNXREG_RDMA_MODE_EN);
 
 	usleep (5 * TEN_MS);
 
 	set = BNXREG_RD_COMP_MODE_EN;
-	bnx_mmioset32 (bnx, BNXREG_RD_COMP_MODE, set);
+	bnx_mmioset32 (r, BNXREG_RD_COMP_MODE, set);
 
 	set = BNXREG_SD_COMP_CTRL_EN;
-	bnx_mmioset32 (bnx, BNXREG_SD_COMP_CTRL, set);
+	bnx_mmioset32 (r, BNXREG_SD_COMP_CTRL, set);
 
 	set = BNXREG_SBD_COMP_CTRL_EN;
-	bnx_mmioset32 (bnx, BNXREG_SBD_COMP_CTRL, set);
+	bnx_mmioset32 (r, BNXREG_SBD_COMP_CTRL, set);
 
 	set = BNXREG_RBD_INIT_MODE_EN;
-	bnx_mmioset32 (bnx, BNXREG_RBD_INIT_MODE, set);
+	bnx_mmioset32 (r, BNXREG_RBD_INIT_MODE, set);
 
 	set = BNXREG_RD_RBD_INIT_MODE_EN;
-	bnx_mmioset32 (bnx, BNXREG_RD_RBD_INIT_MODE, set);
+	bnx_mmioset32 (r, BNXREG_RD_RBD_INIT_MODE, set);
 
 	set = BNXREG_SD_INIT_MODE_EN;
-	bnx_mmioset32 (bnx, BNXREG_SD_INIT_MODE, set);
+	bnx_mmioset32 (r, BNXREG_SD_INIT_MODE, set);
 
 	set = BNXREG_SBD_INIT_MODE_EN;
-	bnx_mmioset32 (bnx, BNXREG_SBD_INIT_MODE, set);
+	bnx_mmioset32 (r, BNXREG_SBD_INIT_MODE, set);
 
 	set = BNXREG_SBD_SELECT_MODE_EN;
-	bnx_mmioset32 (bnx, BNXREG_SBD_SELECT_MODE, set);
+	bnx_mmioset32 (r, BNXREG_SBD_SELECT_MODE, set);
 
 	/* Enable TX DMA */
 	set = BNXREG_RD_COMP_MODE_EN | BNXREG_TX_MACMODE_TXMBUF_LOCKUP_FIX;
-	bnx_mmiowrite32 (bnx, BNXREG_TX_MACMODE, set);
+	bnx_mmiowrite32 (r, BNXREG_TX_MACMODE, set);
 
 	usleep (10 * TEN_MS);
 
@@ -1208,16 +1203,16 @@ bnx_reset (struct bnx *bnx)
 	      BNXREG_RX_MACMODE_PROMISC_MODE |
 	      BNXREG_RX_MACMODE_RSS_HASH_MASK |
 	      BNXREG_RX_MACMODE_IPv4_FRAGMENT_FIX;
-	bnx_mmioset32 (bnx, BNXREG_RX_MACMODE, set);
+	bnx_mmioset32 (r, BNXREG_RX_MACMODE, set);
 
 	usleep (10 * TEN_MS);
 
 	/* Enable Auto-polling Link State */
-	bnx_mmioset32 (bnx, BNXREG_MII_MODE, BNXREG_MII_MODE_PORT_POLLING);
+	bnx_mmioset32 (r, BNXREG_MII_MODE, BNXREG_MII_MODE_PORT_POLLING);
 
 	clr = BNXREG_LOW_WATERMARK_MAX_RX_FRAME_SET (-1);
 	set = BNXREG_LOW_WATERMARK_MAX_RX_FRAME_SET (0x1);
-	bnx_mmioclrset32 (bnx, BNXREG_LOW_WATERMARK_MAX_RX_FRAME, clr, set);
+	bnx_mmioclrset32 (r, BNXREG_LOW_WATERMARK_MAX_RX_FRAME, clr, set);
 
 	data = MII_CTRL_AUTO_NEGO | MII_CTRL_RESET;
 	data = BNXREG_MII_COM_TRANSACTION_DATA (data) |
@@ -1225,11 +1220,11 @@ bnx_reset (struct bnx *bnx)
 	       BNXREG_MII_COM_PHY_ADDR (MII_PHY_ADDR_PHY_ADDR) |
 	       BNXREG_MII_COM_CMD (MII_CMD_WRITE) |
 	       BNXREG_MII_COM_START_BUSY;
-	bnx_mmiowrite32 (bnx, BNXREG_MII_COM, data);
+	bnx_mmiowrite32 (r, BNXREG_MII_COM, data);
 	timeout = 1000;
 	do {
 		usleep (1000);
-		bnx_mmioread32 (bnx, BNXREG_MII_COM, &data);
+		bnx_mmioread32 (r, BNXREG_MII_COM, &data);
 	} while (--timeout > 0 && (data & BNXREG_MII_COM_START_BUSY));
 	if (timeout > 0)
 		printf ("PHY Reset...");
@@ -1240,11 +1235,11 @@ bnx_reset (struct bnx *bnx)
 		       BNXREG_MII_COM_PHY_ADDR (MII_PHY_ADDR_PHY_ADDR) |
 		       BNXREG_MII_COM_CMD (MII_CMD_READ) |
 		       BNXREG_MII_COM_START_BUSY;
-		bnx_mmiowrite32 (bnx, BNXREG_MII_COM, data);
+		bnx_mmiowrite32 (r, BNXREG_MII_COM, data);
 		timeout = 1000;
 		do {
 			usleep (1000);
-			bnx_mmioread32 (bnx, BNXREG_MII_COM, &data);
+			bnx_mmioread32 (r, BNXREG_MII_COM, &data);
 		} while (--timeout > 0 && (data & BNXREG_MII_COM_START_BUSY));
 		if (timeout > 0) {
 			if (!(data & MII_CTRL_RESET)) {
@@ -1358,16 +1353,18 @@ bnx_update_bar (struct bnx *bnx, phys_t base)
 }
 
 static void
-bnx_mmio_change (void *param, struct pci_bar_info *bar_info)
+bnx_mmio_change (void *param, struct pci_bar_info *bar_info,
+		 struct dres_reg *new_r)
 {
 	struct bnx *bnx = param;
 	printf ("bnx: base address changed from 0x%08llX to %08llX\n",
 		bnx->base, bar_info->base);
 	u32 bar0 = bar_info->base, bar1 = bar_info->base >> 32;
 	spinlock_lock (&bnx->reg_lock);
-	bnx_unmapmem (bnx);
 	bnx_update_bar (bnx, bar_info->base);
-	bnx_mapmem (bnx, bar_info);
+	bnx->r = new_r;
+	bnx->base = bar_info->base;
+	bnx->len = bar_info->len;
 	bnx->pci->config_space.base_address[0] =
 		(bnx->pci->config_space.base_address[0] &
 		 0xFFFF) | (bar0 & 0xFFFF0000);
@@ -1380,15 +1377,17 @@ bnx_intr_clear (void *param)
 {
 	struct bnx *bnx = param;
 	u32 data;
+	const struct dres_reg *r;
 
 	if (bnx_hotplugpass (bnx))
 		return;
 	spinlock_lock (&bnx->reg_lock);
-	bnx_mmiowrite32 (bnx, 0x0204, 0);
+	r = bnx->r;
+	bnx_mmiowrite32 (r, 0x0204, 0);
 	/* Do a dummy read of a device register to flush the above
 	 * write and device DMA writes for the status block which will
 	 * be read by the following function call. */
-	bnx_mmioread32 (bnx, 0x0204, &data);
+	bnx_mmioread32 (r, 0x0204, &data);
 	spinlock_unlock (&bnx->reg_lock);
 	bnx_handle_status (bnx);
 }
@@ -1404,15 +1403,17 @@ bnx_intr_disable (void *param)
 {
 	struct bnx *bnx = param;
 	u32 set;
+	const struct dres_reg *r;
 
 	if (bnx_hotplugpass (bnx))
 		return;
 	spinlock_lock (&bnx->reg_lock);
+	r = bnx->r;
 	set = BNXREG_MISC_HOST_CTRL_MASK_INTR;
-	bnx_mmioset32 (bnx, BNXREG_MISC_HOST_CTRL, set);
-	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_INTR_CLR, 0);
+	bnx_mmioset32 (r, BNXREG_MISC_HOST_CTRL, set);
+	bnx_mmiowrite32 (r, BNXREG_HMBOX_INTR_CLR, 0);
 	set = PCI_CONFIG_COMMAND_INTR_DISABLE;
-	bnx_mmioset32 (bnx, PCI_CONFIG_COMMAND, set);
+	bnx_mmioset32 (r, PCI_CONFIG_COMMAND, set);
 	spinlock_unlock (&bnx->reg_lock);
 }
 
@@ -1421,15 +1422,17 @@ bnx_intr_enable (void *param)
 {
 	struct bnx *bnx = param;
 	u32 clr;
+	const struct dres_reg *r;
 
 	if (bnx_hotplugpass (bnx))
 		return;
 	spinlock_lock (&bnx->reg_lock);
+	r = bnx->r;
 	clr = BNXREG_MISC_HOST_CTRL_MASK_INTR;
-	bnx_mmioclr32 (bnx, BNXREG_MISC_HOST_CTRL, clr);
-	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_INTR_CLR, 0);
+	bnx_mmioclr32 (r, BNXREG_MISC_HOST_CTRL, clr);
+	bnx_mmiowrite32 (r, BNXREG_HMBOX_INTR_CLR, 0);
 	clr = PCI_CONFIG_COMMAND_INTR_DISABLE;
-	bnx_mmioclr32 (bnx, PCI_CONFIG_COMMAND, clr);
+	bnx_mmioclr32 (r, PCI_CONFIG_COMMAND, clr);
 	spinlock_unlock (&bnx->reg_lock);
 }
 
@@ -1536,6 +1539,8 @@ bnx_new (struct pci_device *pci_device)
 	option_net = pci_device->driver_options[1];
 	bnx->nethandle = net_new_nic (option_net, option_tty);
 	bnx->virtio_net = NULL;
+	bnx->pci = pci_device;
+	bnx_mmio_init (bnx);
 	if (option_virtio) {
 		bnx->virtio_net = virtio_net_init (&virtio_net_func, bnx->mac,
 						   pci_device->as_dma,
@@ -1550,7 +1555,7 @@ bnx_new (struct pci_device *pci_device)
 		struct pci_bar_info bar;
 		pci_get_bar_info (pci_device, 0, &bar);
 		virtio_net_set_pci_device (bnx->virtio_net, pci_device, &bar,
-					   bnx_mmio_change, bnx);
+					   bnx->r, bnx_mmio_change, bnx);
 		cap = pci_find_cap_offset (pci_device, PCI_CAP_PCIEXP);
 		if (cap) {
 			pci_config_read (pci_device, &pcie_ver,
@@ -1571,13 +1576,11 @@ bnx_new (struct pci_device *pci_device)
 	} else if (!net_init (bnx->nethandle, bnx, &phys_func, NULL, NULL)) {
 		panic ("bnx: passthrough mode is not supported. Use virtio=1");
 	}
-	bnx->pci = pci_device;
 	spinlock_init (&bnx->tx_lock);
 	spinlock_init (&bnx->rx_lock);
 	spinlock_init (&bnx->status_lock);
 	spinlock_init (&bnx->reg_lock);
 	spinlock_init (&bnx->ok_lock);
-	bnx_mmio_init (bnx);
 	bnx_ring_alloc (bnx);
 	bnx_status_alloc (bnx);
 	bnx_get_addr (bnx, mac_fw_valid ? mac_fw : NULL);

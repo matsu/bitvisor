@@ -29,6 +29,7 @@
 
 #include <arch/pci.h>
 #include <core.h>
+#include <core/dres.h>
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mmio.h>
@@ -324,13 +325,8 @@ struct data2 {
 struct data {
 	int i;
 	int e;
-	int io;
-	int hd;
 	bool disable;
-	void *h;
-	void *map;
-	uint maplen;
-	phys_t mapaddr;
+	struct dres_reg *r;
 	struct data2 *d;
 };
 
@@ -340,33 +336,39 @@ static void receive_physnic (struct desc_shadow *s, struct data2 *d2,
 			     uint off2);
 
 static inline u32
-pro1000_reg_read32 (void *base, u32 offset)
+pro1000_reg_read32 (const struct dres_reg *r, u32 offset)
 {
-	return *(volatile u32 *)(base + offset);
+	u32 val;
+
+	dres_reg_read32 (r, offset, &val);
+	return val;
 }
 
 static inline void
-pro1000_reg_write32 (void *base, u32 offset, u32 val)
+pro1000_reg_write32 (const struct dres_reg *r, u32 offset, u32 val)
 {
-	*(volatile u32 *)(base + offset) = val;
+	dres_reg_write32 (r, offset, val);
 }
 
-static int
-iohandler (core_io_t io, union mem *data, void *arg)
+static enum dres_reg_ret_t
+iohandler (const struct dres_reg *r, void *handle, phys_t offset, bool wr,
+	   void *buf, uint len)
 {
-	printf ("%s: io:%08x, data:%08x\n",
-		__func__, *(int*)&io, data->dword);
-	return CORE_IO_RET_DEFAULT;
+	union mem *d = buf;
+
+	printf ("%s: io offset from base:%08llx, data:%08x\n", __func__,
+		offset, d->dword);
+	return DRES_REG_RET_PASSTHROUGH;
 }
 
 static void
 get_macaddr (struct data2 *d2, void *buf)
 {
-	void *base = d2->d1[0].map;
+	const struct dres_reg *r = d2->d1[0].r;
 	u32 tmp[2];
 
-	tmp[0] = pro1000_reg_read32 (base, PRO1000_RAL);
-	tmp[1] = pro1000_reg_read32 (base, PRO1000_RAH);
+	tmp[0] = pro1000_reg_read32 (r, PRO1000_RAL);
+	tmp[1] = pro1000_reg_read32 (r, PRO1000_RAH);
 	memcpy (buf, tmp, 6);
 	printf ("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
 		((u8 *)buf)[0], ((u8 *)buf)[1], ((u8 *)buf)[2],
@@ -387,7 +389,7 @@ static void
 write_mydesc (struct desc_shadow *s, struct data2 *d2, uint off2,
 	      bool transmit)
 {
-	void *base = d2->d1[0].map;
+	const struct dres_reg *r = d2->d1[0].r;
 	phys_t addr;
 	u32 desc_size, tail;
 
@@ -401,15 +403,15 @@ write_mydesc (struct desc_shadow *s, struct data2 *d2, uint off2,
 		tail = NUM_OF_RDESC - 1;
 	}
 
-	if (pro1000_reg_read32 (base, off2 + TDRD_LEN_OFFSET) == desc_size)
+	if (pro1000_reg_read32 (r, off2 + TDRD_LEN_OFFSET) == desc_size)
 		return;
 
-	pro1000_reg_write32 (base, off2 + TDRD_LEN_OFFSET, 0);
-	pro1000_reg_write32 (base, off2 + TDRD_BAL_OFFSET, addr);
-	pro1000_reg_write32 (base, off2 + TDRD_BAH_OFFSET, addr >> 32);
-	pro1000_reg_write32 (base, off2 + TDRD_H_OFFSET, 0);
-	pro1000_reg_write32 (base, off2 + TDRD_T_OFFSET, tail);
-	pro1000_reg_write32 (base, off2 + TDRD_LEN_OFFSET, desc_size);
+	pro1000_reg_write32 (r, off2 + TDRD_LEN_OFFSET, 0);
+	pro1000_reg_write32 (r, off2 + TDRD_BAL_OFFSET, addr);
+	pro1000_reg_write32 (r, off2 + TDRD_BAH_OFFSET, addr >> 32);
+	pro1000_reg_write32 (r, off2 + TDRD_H_OFFSET, 0);
+	pro1000_reg_write32 (r, off2 + TDRD_T_OFFSET, tail);
+	pro1000_reg_write32 (r, off2 + TDRD_LEN_OFFSET, desc_size);
 }
 
 static void
@@ -420,18 +422,18 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 	uint i, off2;
 	u32 h, t, nt;
 	struct tdesc *td;
-	void *base;
+	const struct dres_reg *r;
 
 	if (d2->d1->disable)	/* PCI config reg is disabled */
 		return;
 	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
 		return;
-	base = d2->d1[0].map;
+	r = d2->d1[0].r;
 	s = &d2->tdesc[0];	    /* FIXME: 0 only */
 	off2 = PRO1000_TD_BASE (0); /* FIXME: 0 only */
 	write_mydesc (s, d2, off2, true);
-	h = pro1000_reg_read32 (base, off2 + TDRD_H_OFFSET);
-	t = pro1000_reg_read32 (base, off2 + TDRD_T_OFFSET);
+	h = pro1000_reg_read32 (r, off2 + TDRD_H_OFFSET);
+	t = pro1000_reg_read32 (r, off2 + TDRD_T_OFFSET);
 	if (h >= NUM_OF_TDESC || t >= NUM_OF_TDESC)
 		return;
 	for (i = 0; i < num_packets; i++) {
@@ -470,8 +472,8 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 		t = nt;
 	}
 	/* Link up indication */
-	if (pro1000_reg_read32 (base, PRO1000_STATUS) & PRO1000_STATUS_LU)
-		pro1000_reg_write32 (base, off2 + TDRD_T_OFFSET, t);
+	if (pro1000_reg_read32 (r, PRO1000_STATUS) & PRO1000_STATUS_LU)
+		pro1000_reg_write32 (r, off2 + TDRD_T_OFFSET, t);
 }
 
 static void
@@ -644,7 +646,7 @@ sendvirt (struct data2 *d2, struct desc_shadow *s, u8 *pkt, uint pktlen)
 			i = 0;
 	}
 	s->head = i;
-	pro1000_reg_write32 (d2->d1[0].map, PRO1000_ICS, PRO1000_INT_RXT0);
+	pro1000_reg_write32 (d2->d1[0].r, PRO1000_ICS, PRO1000_INT_RXT0);
 }
 
 static void
@@ -1096,7 +1098,7 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 			i = 0;
 	}
 	s->head = i;
-	pro1000_reg_write32 (d2->d1[0].map, PRO1000_ICS, PRO1000_INT_TXDW);
+	pro1000_reg_write32 (d2->d1[0].r, PRO1000_ICS, PRO1000_INT_TXDW);
 }
 
 static void
@@ -1108,12 +1110,11 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 	long pkt_premap[16];
 	int i = 0, num = 16;
 	struct rdesc *rd;
-	void *base;
+	const struct dres_reg *r = d2->d1[0].r;
 
-	base = d2->d1[0].map;
 	write_mydesc (s, d2, off2, false);
-	h = pro1000_reg_read32 (base, off2 + TDRD_H_OFFSET);
-	t = pro1000_reg_read32 (base, off2 + TDRD_T_OFFSET);
+	h = pro1000_reg_read32 (r, off2 + TDRD_H_OFFSET);
+	t = pro1000_reg_read32 (r, off2 + TDRD_T_OFFSET);
 	if (h >= NUM_OF_RDESC || t >= NUM_OF_RDESC)
 		return;
 	for (;;) {
@@ -1154,7 +1155,7 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 		}
 		i++;
 	}
-	pro1000_reg_write32 (base, off2 + TDRD_T_OFFSET, t);
+	pro1000_reg_write32 (r, off2 + TDRD_T_OFFSET, t);
 }
 
 static bool
@@ -1205,27 +1206,28 @@ handle_desc (uint off1, uint len1, bool wr, union mem *buf, bool recv,
 }
 
 static void
-mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
-	    union mem *buf, uint len, u32 flags)
+mmhandler2 (struct data *d1, struct data2 *d2, phys_t offset, bool wr,
+	    union mem *buf, uint len)
 {
-	union mem *q;
+	const struct dres_reg *r;
 	u32 v;
 
+	r = d1->r;
 	if (d1 != &d2->d1[0])
 		goto skip;
-	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, false, d2,
+	if (handle_desc (offset, len, wr, buf, false, d2,
 			 PRO1000_TD_BASE (0), &d2->tdesc[0]))
 		return;
-	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, false, d2,
+	if (handle_desc (offset, len, wr, buf, false, d2,
 			 PRO1000_TD_BASE (1), &d2->tdesc[1]))
 		return;
-	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, true, d2,
+	if (handle_desc (offset, len, wr, buf, true, d2,
 			 PRO1000_RD_BASE (0), &d2->rdesc[0]))
 		return;
-	if (handle_desc (gphys - d1->mapaddr, len, wr, buf, true, d2,
+	if (handle_desc (offset, len, wr, buf, true, d2,
 			 PRO1000_RD_BASE (1), &d2->rdesc[1]))
 		return;
-	if (rangecheck (gphys - d1->mapaddr, len, PRO1000_RFCTL, 4)) {
+	if (rangecheck (offset, len, PRO1000_RFCTL, 4)) {
 		/* Receive Filter Control Register */
 		if (wr) {
 			printf ("receive filter 0x%X (EXSTEN=%d)\n",
@@ -1233,13 +1235,13 @@ mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
 				!!(buf->dword & PRO1000_RFCTL_EXSTEN));
 			d2->rfctl = buf->dword;
 			v = d2->rfctl & ~PRO1000_RFCTL_EXSTEN;
-			pro1000_reg_write32 (d1->map, PRO1000_RFCTL, v);
+			pro1000_reg_write32 (r, PRO1000_RFCTL, v);
 		} else {
 			buf->dword = d2->rfctl;
 		}
 		return;
 	}
-	if (rangecheck (gphys - d1->mapaddr, len, PRO1000_RCTL, 4)) {
+	if (rangecheck (offset, len, PRO1000_RCTL, 4)) {
 		/* Receive Control Register */
 		if (wr) {
 			printf ("receive control 0x%X (DTYP=%d)\n",
@@ -1247,24 +1249,24 @@ mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
 			d2->rctl = buf->dword;
 			v = (d2->rctl & ~(PRO1000_RCTL_BSIZE_MASK)) |
 			    PRO1000_RCTL_BSIZE_4K;
-			pro1000_reg_write32 (d1->map, PRO1000_RCTL, v);
+			pro1000_reg_write32 (r, PRO1000_RCTL, v);
 		} else {
 			buf->dword = d2->rctl;
 		}
 		return;
 	}
-	if (rangecheck (gphys - d1->mapaddr, len, PRO1000_TCTL, 4)) {
+	if (rangecheck (offset, len, PRO1000_TCTL, 4)) {
 		/* Transmit Control Register */
 		if (wr) {
 			d2->tctl = buf->dword;
-			pro1000_reg_write32 (d1->map, PRO1000_TCTL, d2->tctl);
+			pro1000_reg_write32 (r, PRO1000_TCTL, d2->tctl);
 		} else {
-			d2->tctl = pro1000_reg_read32 (d1->map, PRO1000_TCTL);
+			d2->tctl = pro1000_reg_read32 (r, PRO1000_TCTL);
 			buf->dword = d2->tctl;
 		}
 		return;
 	}
-	if (rangecheck (gphys - d1->mapaddr, len, PRO1000_ICR, 4)) {
+	if (rangecheck (offset, len, PRO1000_ICR, 4)) {
 		/* Interrupt Cause Read Register */
 		struct desc_shadow *rdesc = d2->rdesc;
 		if (rdesc[0].initialized)
@@ -1273,23 +1275,22 @@ mmhandler2 (struct data *d1, struct data2 *d2, phys_t gphys, bool wr,
 			receive_physnic (&rdesc[1], d2, PRO1000_RD_BASE (1));
 	}
 skip:
-	q = (union mem *)(void *)((u8 *)d1->map + (gphys - d1->mapaddr));
 	if (wr) {
 		if (len == 1)
-			q->byte = buf->byte;
+			dres_reg_write8 (r, offset, buf->byte);
 		else if (len == 2)
-			q->word = buf->word;
+			dres_reg_write16 (r, offset, buf->word);
 		else if (len == 4)
-			q->dword = buf->dword;
+			dres_reg_write32 (r, offset, buf->dword);
 		else
 			panic ("len=%u", len);
 	} else {
 		if (len == 1)
-			buf->byte = q->byte;
+			dres_reg_read8 (r, offset, buf);
 		else if (len == 2)
-			buf->word = q->word;
+			dres_reg_read16 (r, offset, buf);
 		else if (len == 4)
-			buf->dword = q->dword;
+			dres_reg_read32 (r, offset, buf);
 		else
 			panic ("len=%u", len);
 	}
@@ -1315,33 +1316,30 @@ pro1000_msix_update (void *param)
 		pci_disable_msi_callback (d2->msicb);
 }
 
-static int
-mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
+static enum dres_reg_ret_t
+mmhandler (const struct dres_reg *r, void *handle, phys_t offset, bool wr,
+	   void *buf, uint len)
 {
-	struct data *d1 = data;
+	struct data *d1 = handle;
 	struct data2 *d2 = d1->d;
 
 	if (d2->seize) {
 		if (!wr)
 			memset (buf, 0, len);
-		return 1;
+		return DRES_REG_RET_DONE;
 	}
 	spinlock_lock (&d2->lock);
-	mmhandler2 (d1, d2, gphys, wr, buf, len, flags);
+	mmhandler2 (d1, d2, offset, wr, buf, len);
 	spinlock_unlock (&d2->lock);
-	return 1;
+	return DRES_REG_RET_DONE;
 }
 
 static void
 unreghook (struct data *d)
 {
 	if (d->e) {
-		if (d->io) {
-			core_io_unregister_handler (d->hd);
-		} else {
-			mmio_unregister (d->h);
-			unmapmem (d->map, d->maplen);
-		}
+		dres_reg_unregister_handler (d->r);
+		dres_reg_free (d->r);
 		d->e = 0;
 	}
 }
@@ -1349,67 +1347,53 @@ unreghook (struct data *d)
 static void
 reghook (struct data *d, int i, struct pci_bar_info *bar)
 {
+	dres_reg_handler_t handler;
+	enum dres_reg_t type;
+
 	if (bar->type == PCI_BAR_INFO_TYPE_NONE)
 		return;
 	unreghook (d);
 	d->i = i;
 	d->e = 0;
 	if (bar->type == PCI_BAR_INFO_TYPE_IO) {
-		d->io = 1;
-		d->hd = core_io_register_handler (bar->base, bar->len,
-						  iohandler, d,
-						  CORE_IO_PRIO_EXCLUSIVE,
-						  driver_name);
+		handler = iohandler;
+		type = DRES_REG_TYPE_IO;
 	} else {
-		d->mapaddr = bar->base;
-		d->maplen = bar->len;
-		d->map = mapmem_as (as_passvm, bar->base, bar->len,
-				    MAPMEM_WRITE | MAPMEM_UC);
-		if (!d->map)
-			panic ("mapmem failed");
-		d->io = 0;
-		d->h = mmio_register (bar->base, bar->len, mmhandler, d);
-		if (!d->h)
-			panic ("mmio_register failed");
+		handler = mmhandler;
+		type = DRES_REG_TYPE_MM;
 	}
+	d->r = dres_reg_alloc (bar->base, bar->len, type,
+			       pci_dres_reg_translate, d->d->pci_device, 0);
+	if (dres_reg_register_handler (d->r, handler, d) != DRES_ERR_NONE)
+		panic ("dres_reg_register_handler fails");
 	d->e = 1;
 }
 
 static void
-pro1000_mmio_change (void *handle, struct pci_bar_info *bar_info)
+pro1000_mmio_change (void *handle, struct pci_bar_info *bar_info,
+		     struct dres_reg *new_r)
 {
 	struct data2 *d2 = handle;
 	struct data *d = d2->d1;
-	void *old_map;
-	void *new_map;
-
-	old_map = d->map;
-	new_map = mapmem_as (as_passvm, bar_info->base, bar_info->len,
-			     MAPMEM_WRITE | MAPMEM_UC);
-	if (!new_map)
-		panic ("mapmem failed");
 
 	spinlock_lock (&d2->lock);
 	pci_handle_default_config_write (d2->pci_device, sizeof (u32),
 					 PCI_CONFIG_BASE_ADDRESS0,
 					 (union mem *)&bar_info->base);
-	d->map = new_map;
+	d->r = new_r;
 	spinlock_unlock (&d2->lock);
-
-	unmapmem (old_map, d->maplen);
-	d->mapaddr = bar_info->base;
 }
 
 static bool
 pro1000_msi (struct pci_device *pci_device, void *data)
 {
 	struct data2 *d2 = data;
-	void *base = d2->d1[0].map;
+	const struct dres_reg *r = d2->d1[0].r;
 	bool ret;
 
 	spinlock_lock (&d2->msi_lock);
-	pro1000_reg_read32 (base, PRO1000_ICR); /* Dummy read */
-	pro1000_reg_write32 (base, PRO1000_ICR, 0xFFFFFFFF);
+	pro1000_reg_read32 (r, PRO1000_ICR); /* Dummy read */
+	pro1000_reg_write32 (r, PRO1000_ICR, 0xFFFFFFFF);
 	d2->msi_intr++;
 	spinlock_unlock (&d2->msi_lock);
 	poll_physnic (d2);
@@ -1438,7 +1422,7 @@ pro1000_enable_dma_and_memory (struct pci_device *pci_device)
 static void
 seize_pro1000 (struct data2 *d2)
 {
-	void *base = d2->d1[0].map;
+	const struct dres_reg *r = d2->d1[0].r;
 	u32 v, n, i;
 	u16 dev_id = d2->pci_device->config_space.device_id;
 
@@ -1471,7 +1455,7 @@ seize_pro1000 (struct data2 *d2)
 	}
 
 	/* Disable interrupts */
-	pro1000_reg_write32 (base, PRO1000_IMC, 0xFFFFFFFF);
+	pro1000_reg_write32 (r, PRO1000_IMC, 0xFFFFFFFF);
 
 	/* Issue a Global Reset */
 	n = 10;
@@ -1480,17 +1464,17 @@ seize_pro1000 (struct data2 *d2)
 	 * apparently forces the link to 10Mbps full duplex on
 	 * 82579 and later.
 	 *
-	 * pro1000_reg_write32 (base, PRO1000_CTRL, PRO1000_CTRL_PHY_RST);
+	 * pro1000_reg_write32 (r, PRO1000_CTRL, PRO1000_CTRL_PHY_RST);
 	 * usleep (1000000);
 	 */
-	pro1000_reg_write32 (base, PRO1000_CTRL, PRO1000_CTRL_RST);
+	pro1000_reg_write32 (r, PRO1000_CTRL, PRO1000_CTRL_RST);
 	usleep (1000000);
-	pro1000_reg_write32 (base, PRO1000_CTRL, PRO1000_CTRL_SLU);
+	pro1000_reg_write32 (r, PRO1000_CTRL, PRO1000_CTRL_SLU);
 	printf ("Wait for PHY reset and link setup completion.");
 	for (;;) {
 		u32 status;
 		usleep (500 * 1000);
-		status = pro1000_reg_read32 (base, PRO1000_STATUS);
+		status = pro1000_reg_read32 (r, PRO1000_STATUS);
 		if (status & PRO1000_STATUS_LU)
 			break;
 		printf(".");
@@ -1502,7 +1486,7 @@ seize_pro1000 (struct data2 *d2)
 	printf("\n");
 
 	/* Disable interrupts */
-	pro1000_reg_write32 (base, PRO1000_IMC, 0xFFFFFFFF);
+	pro1000_reg_write32 (r, PRO1000_IMC, 0xFFFFFFFF);
 
 	/* Receive Initialization */
 	init_desc_receive (&d2->rdesc[0], d2, PRO1000_RD_BASE (0));
@@ -1510,7 +1494,7 @@ seize_pro1000 (struct data2 *d2)
 	v = PRO1000_RCTL_EN | PRO1000_RCTL_BAM | PRO1000_RCTL_BSIZE_4K |
 	    (d2->virtio_net ? PRO1000_RCTL_UPE : 0) | /* unicast promisc   */
 	    (d2->virtio_net ? PRO1000_RCTL_MPE : 0);  /* multicast promisc */
-	pro1000_reg_write32 (base, PRO1000_RCTL, v);
+	pro1000_reg_write32 (r, PRO1000_RCTL, v);
 
 	/* Transmit Initialization */
 	init_desc_transmit (&d2->tdesc[0], d2, PRO1000_TD_BASE (0));
@@ -1530,19 +1514,19 @@ seize_pro1000 (struct data2 *d2)
 		    BIT (24) | /* Multiple TX queue */
 		    BIT (25) | /* TCTL.MULR is set  */
 		    BIT (26);  /* Multiple TX queue */
-		pro1000_reg_write32 (base, PRO1000_TARC (0), v);
+		pro1000_reg_write32 (r, PRO1000_TARC (0), v);
 		v = PRO1000_TARC_COUNT_DEFAULT | PRO1000_TARC_ENABLE |
 		    BIT (22) | /* TCTL.MULR is set  */
 		    BIT (24) | /* Multiple TX queue */
 		    BIT (25) | /* TCTL.MULR is set  */
 		    BIT (26);  /* Multiple TX queue */
-		pro1000_reg_write32 (base, PRO1000_TARC (1), v);
+		pro1000_reg_write32 (r, PRO1000_TARC (1), v);
 		break;
 	case mac_82574:
 		/* PRO1000_TARC_ENABLE needs to be set for QEMU e1000e */
 		v = PRO1000_TARC_COUNT_DEFAULT| PRO1000_TARC_ENABLE |
 		    BIT (26); /* Errata */
-		pro1000_reg_write32 (base, PRO1000_TARC (0), v);
+		pro1000_reg_write32 (r, PRO1000_TARC (0), v);
 		/* Use default value for TARC1 */
 		break;
 	default:
@@ -1553,21 +1537,21 @@ seize_pro1000 (struct data2 *d2)
 	    BIT (22) | /* rsvd but 82754 requires this */
 	    BIT (24) | /* GRAN descriptor unit, rsvd on some model */
 	    BIT (25);  /* EN (I211, 82567) or LWTHRES depending on model */
-	pro1000_reg_write32 (base, PRO1000_TXDTCL (0), v);
-	pro1000_reg_write32 (base, PRO1000_TXDTCL (1), v);
+	pro1000_reg_write32 (r, PRO1000_TXDTCL (0), v);
+	pro1000_reg_write32 (r, PRO1000_TXDTCL (1), v);
 	v = PRO1000_TIPG_IPGT (0x8) | PRO1000_TIPG_IPGR1 (0x8) |
 	    PRO1000_TIPG_IPGR (0x7);
-	pro1000_reg_write32 (base, PRO1000_TIPG, v);
+	pro1000_reg_write32 (r, PRO1000_TIPG, v);
 	/* COLD and MULR are rsvd on some model */
 	v = PRO1000_TCTL_EN | PRO1000_TCTL_PSP | PRO1000_TCTL_CT (0xF) |
 	    PRO1000_TCTL_COLD (0x3F) | PRO1000_TCTL_MULR;
 	d2->tctl = v;
-	pro1000_reg_write32 (base, PRO1000_TCTL, v);
+	pro1000_reg_write32 (r, PRO1000_TCTL, v);
 
 	d2->tdesc[0].initialized = true;
 
 	/* This improve RX performance on some models */
-	pro1000_reg_write32 (base, PRO1000_ITR, ITR_DEFAULT);
+	pro1000_reg_write32 (r, PRO1000_ITR, ITR_DEFAULT);
 
 	for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
 		pci_config_read (d2->pci_device, &d2->regs_at_init[i],
@@ -1580,10 +1564,10 @@ static void
 pro1000_intr_clear (void *param)
 {
 	struct data2 *d2 = param;
-	void *base = d2->d1[0].map;
+	const struct dres_reg *r = d2->d1[0].r;
 
-	pro1000_reg_read32 (base, PRO1000_ICR); /* Dummy read */
-	pro1000_reg_write32 (base, PRO1000_ICR, 0xFFFFFFFF);
+	pro1000_reg_read32 (r, PRO1000_ICR); /* Dummy read */
+	pro1000_reg_write32 (r, PRO1000_ICR, 0xFFFFFFFF);
 	poll_physnic (d2);
 }
 
@@ -1592,7 +1576,7 @@ pro1000_intr_set (void *param)
 {
 	struct data2 *d2 = param;
 
-	pro1000_reg_write32 (d2->d1[0].map, PRO1000_ICS, PRO1000_RXINT);
+	pro1000_reg_write32 (d2->d1[0].r, PRO1000_ICS, PRO1000_RXINT);
 }
 
 static void
@@ -1600,18 +1584,18 @@ pro1000_intr_disable (void *param)
 {
 	struct data2 *d2 = param;
 
-	pro1000_reg_write32 (d2->d1[0].map, PRO1000_IMC, 0xFFFFFFFF);
+	pro1000_reg_write32 (d2->d1[0].r, PRO1000_IMC, 0xFFFFFFFF);
 }
 
 static void
 pro1000_intr_enable (void *param)
 {
 	struct data2 *d2 = param;
-	void *base = d2->d1[0].map;
+	const struct dres_reg *r = d2->d1[0].r;
 
-	pro1000_reg_write32 (base, PRO1000_IMS, PRO1000_RXINT);
-	pro1000_reg_read32 (base, PRO1000_ICR); /* Dummy read */
-	pro1000_reg_write32 (base, PRO1000_ICR, 0xFFFFFFFF);
+	pro1000_reg_write32 (r, PRO1000_IMS, PRO1000_RXINT);
+	pro1000_reg_read32 (r, PRO1000_ICR); /* Dummy read */
+	pro1000_reg_write32 (r, PRO1000_ICR, 0xFFFFFFFF);
 }
 
 static void
@@ -1645,7 +1629,6 @@ pro1000_msix_generate (void *param, unsigned int queue)
 {
 	struct data2 *d2 = param;
 	struct msix_table m = { 0, 0, 0, 1 };
-	void *base = d2->d1[0].map;
 
 	if (!queue) {
 		/* Using ICS instead of IPI reduces number of
@@ -1653,7 +1636,8 @@ pro1000_msix_generate (void *param, unsigned int queue)
 		spinlock_lock (&d2->msi_lock);
 		d2->msi_intr_pass = true;
 		if (!d2->msi_intr)
-			pro1000_reg_write32 (base, PRO1000_ICS, PRO1000_RXINT);
+			pro1000_reg_write32 (d2->d1[0].r, PRO1000_ICS,
+					     PRO1000_RXINT);
 		spinlock_unlock (&d2->msi_lock);
 		return;
 	}
@@ -1688,7 +1672,7 @@ pro1000_disable_unused_space (struct pci_device *pci_device, struct data *d)
 		}
 	}
 
-	mmio_unregister (d[0].h);
+	dres_reg_unregister_handler (d[0].r);
 }
 
 static void 
@@ -1720,6 +1704,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 
 	d2 = alloc (sizeof *d2);
 	memset (d2, 0, sizeof *d2);
+	d2->pci_device = pci_device;
 	d2->nethandle = net_new_nic (option_net, option_tty);
 	alloc_pages (&tmp, NULL, (BUFSIZE + PAGESIZE - 1) / PAGESIZE);
 	memset (tmp, 0, (BUFSIZE + PAGESIZE - 1) / PAGESIZE * PAGESIZE);
@@ -1739,7 +1724,6 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	get_macaddr (d2, d2->macaddr);
 	pci_device->host = d;
 	pci_device->driver->options.use_base_address_mask_emulation = 1;
-	d2->pci_device = pci_device;
 	d2->as_dma = pci_device->as_dma;
 	d2->virtio_net = NULL;
 	if (option_virtio) {
@@ -1755,7 +1739,8 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	if (d2->virtio_net) {
 		pci_get_bar_info (pci_device, 0, &bar_info);
 		virtio_net_set_pci_device (d2->virtio_net, pci_device,
-					   &bar_info, pro1000_mmio_change, d2);
+					   &bar_info, d2->d1[0].r,
+					   pro1000_mmio_change, d2);
 		cap = pci_find_cap_offset (pci_device, PCI_CAP_AF);
 		if (cap)
 			virtio_net_add_cap (d2->virtio_net, cap,

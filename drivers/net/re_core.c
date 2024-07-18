@@ -60,7 +60,7 @@
  */
 
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
 #include <core/sleep.h>
 #include <core/thread.h>
 #include <core/time.h>
@@ -68,6 +68,7 @@
 #include <pci.h>
 #include "re_core.h"
 #include "re_mod_header.h"
+#include "virtio_net.h"
 
 #define __P(a) a
 #define TUNABLE_INT(a, b)
@@ -93,95 +94,191 @@
 		    (((u16)(val) & 0xFF00) >> 8))
 
 #define CSR_WRITE_4(sc, reg, val) \
-	write_reg ((sc), (reg), (val), 4)
+	reg_write32 ((sc), (reg), (val))
 #define CSR_WRITE_2(sc, reg, val) \
-	write_reg ((sc), (reg), (val), 2)
+	reg_write16 ((sc), (reg), (val))
 #define CSR_WRITE_1(sc, reg, val) \
-	write_reg ((sc), (reg), (val), 1)
+	reg_write8 ((sc), (reg), (val))
 
 #define CSR_READ_4(sc, reg) \
-	((u32)read_reg ((sc), (reg), 4))
+	reg_read32 ((sc), (reg))
 #define CSR_READ_2(sc, reg) \
-	((u16)read_reg ((sc), (reg), 2))
+	reg_read16 ((sc), (reg))
 #define CSR_READ_1(sc, reg) \
-	((u8)read_reg ((sc), (reg), 1))
+	reg_read8 ((sc), (reg))
 
 /* cmac write/read MMIO register */
 #define RE_CMAC_WRITE_4(sc, reg, val) \
-	cmac_write ((sc), (reg), (val), 4)
+	cmac_write32 ((sc), (reg), (val))
 #define RE_CMAC_WRITE_2(sc, reg, val) \
-	cmac_write ((sc), (reg), (val), 2)
+	cmac_write16 ((sc), (reg), (val))
 #define RE_CMAC_WRITE_1(sc, reg, val) \
-	cmac_write ((sc), (reg), (val), 1)
+	cmac_write8 ((sc), (reg), (val))
 
 #define RE_CMAC_READ_4(sc, reg) \
-	((u32)cmac_read ((sc), (reg), 4))
+	cmac_read32 ((sc), (reg))
 #define RE_CMAC_READ_2(sc, reg) \
-	((u16)cmac_read ((sc), (reg), 2))
+	cmac_read16 ((sc), (reg))
 #define RE_CMAC_READ_1(sc, reg) \
-	((u8)cmac_read ((sc), (reg), 1))
+	cmac_read8 ((sc), (reg))
 
-static uint read_reg (struct re_softc *sc, uint reg_offset, uint nbytes);
-static void write_reg (struct re_softc *sc, uint reg_offset, uint val,
-		       uint nbytes);
-static uint cmac_read (struct re_softc *sc, uint reg_offset, uint nbytes);
-static void cmac_write (struct re_softc *sc,uint reg_offset, uint val,
-			uint nbytes);
+static inline u8 reg_read8 (struct re_softc *sc, u64 reg_offset);
+static inline u16 reg_read16 (struct re_softc *sc, u64 reg_offset);
+static inline u32 reg_read32 (struct re_softc *sc, u64 reg_offset);
+static inline void reg_write8 (struct re_softc *sc, u64 reg_offset, u8 val);
+static inline void reg_write16 (struct re_softc *sc, u64 reg_offset, u16 val);
+static inline void reg_write32 (struct re_softc *sc, u64 reg_offset, u32 val);
+static inline u8 cmac_read8 (struct re_softc *sc, u64 reg_offset);
+static inline u16 cmac_read16 (struct re_softc *sc, u64 reg_offset);
+static inline u32 cmac_read32 (struct re_softc *sc, u64 reg_offset);
+static inline void cmac_write8 (struct re_softc *sc, u64 reg_offset, u8 val);
+static inline void cmac_write16 (struct re_softc *sc, u64 reg_offset,
+				 u16 val);
+static inline void cmac_write32 (struct re_softc *sc, u64 reg_offset,
+				 u32 val);
+
 static u32 pci_read_config (device_t dev, u32 reg, uint len);
 static void pci_write_config (device_t dev, u32 reg, u32 val, uint len);
 static u32 pci_find_cap (device_t dev, u32 cap, int *cap_reg);
 
 #include "re_mod_impl.h"
 
-static uint
-read_reg (struct re_softc *sc, uint reg_offset, uint nbytes)
+static inline u8
+reg_read8 (struct re_softc *sc, u64 reg_offset)
 {
-	uint val = 0;
+	u8 val;
 
 	if (sc->prohibit_access_reg)
-		return 0xFFFFFFFF;
-
-	memcpy (&val, sc->mmio + reg_offset, nbytes);
+		val = 0xFF;
+	else
+		dres_reg_read8 (sc->r, reg_offset, &val);
 
 	return val;
 }
 
-static void
-write_reg (struct re_softc *sc, uint reg_offset, uint val, uint nbytes)
+static inline u16
+reg_read16 (struct re_softc *sc, u64 reg_offset)
 {
+	u16 val;
+
 	if (sc->prohibit_access_reg)
-		return;
-
-	memcpy (sc->mmio + reg_offset, &val, nbytes);
-}
-
-static uint
-cmac_read (struct re_softc *sc, uint reg_offset, uint nbytes)
-{
-	if (sc->prohibit_access_reg)
-		return 0xFFFFFFFF;
-
-	uint val = 0;
-
-	if (sc->cmac_regs)
-		memcpy (&val, sc->cmac_regs + reg_offset, nbytes);
+		val = 0xFFFF;
 	else
-		val = read_reg (sc, reg_offset, nbytes);
+		dres_reg_read16 (sc->r, reg_offset, &val);
 
 	return val;
 }
 
-static void
-cmac_write (struct re_softc *sc, uint reg_offset, uint val, uint nbytes)
+static inline u32
+reg_read32 (struct re_softc *sc, u64 reg_offset)
 {
+	u32 val;
+
 	if (sc->prohibit_access_reg)
-		return;
-
-	if (sc->cmac_regs)
-		memcpy (sc->cmac_regs + reg_offset, &val, nbytes);
+		val = 0xFFFFFFFF;
 	else
-		write_reg (sc, reg_offset, val, nbytes);
+		dres_reg_read32 (sc->r, reg_offset, &val);
 
+	return val;
+}
+
+static inline void
+reg_write8 (struct re_softc *sc, u64 reg_offset, u8 val)
+{
+	if (!sc->prohibit_access_reg)
+		dres_reg_write8 (sc->r, reg_offset, val);
+}
+
+static inline void
+reg_write16 (struct re_softc *sc, u64 reg_offset, u16 val)
+{
+	if (!sc->prohibit_access_reg)
+		dres_reg_write16 (sc->r, reg_offset, val);
+}
+
+static inline void
+reg_write32 (struct re_softc *sc, u64 reg_offset, u32 val)
+{
+	if (!sc->prohibit_access_reg)
+		dres_reg_write32 (sc->r, reg_offset, val);
+}
+
+static inline u8
+cmac_read8 (struct re_softc *sc, u64 reg_offset)
+{
+	const struct dres_reg *actual_r;
+	u8 val;
+
+	if (sc->prohibit_access_reg)
+		return 0xFF;
+
+	actual_r = sc->r_cmac ? sc->r_cmac : sc->r;
+	dres_reg_read8 (actual_r, reg_offset, &val);
+
+	return val;
+}
+
+static inline u16
+cmac_read16 (struct re_softc *sc, u64 reg_offset)
+{
+	const struct dres_reg *actual_r;
+	u16 val;
+
+	if (sc->prohibit_access_reg)
+		return 0xFFFF;
+
+	actual_r = sc->r_cmac ? sc->r_cmac : sc->r;
+	dres_reg_read16 (actual_r, reg_offset, &val);
+
+	return val;
+}
+
+static inline u32
+cmac_read32 (struct re_softc *sc, u64 reg_offset)
+{
+	const struct dres_reg *actual_r;
+	u32 val;
+
+	if (sc->prohibit_access_reg)
+		return 0xFFFFFFFF;
+
+	actual_r = sc->r_cmac ? sc->r_cmac : sc->r;
+	dres_reg_read32 (actual_r, reg_offset, &val);
+
+	return val;
+}
+
+static inline void
+cmac_write8 (struct re_softc *sc, u64 reg_offset, u8 val)
+{
+	const struct dres_reg *actual_r;
+
+	if (!sc->prohibit_access_reg) {
+		actual_r = sc->r_cmac ? sc->r_cmac : sc->r;
+		dres_reg_write8 (actual_r, reg_offset, val);
+	}
+}
+
+static inline void
+cmac_write16 (struct re_softc *sc, u64 reg_offset, u16 val)
+{
+	const struct dres_reg *actual_r;
+
+	if (!sc->prohibit_access_reg) {
+		actual_r = sc->r_cmac ? sc->r_cmac : sc->r;
+		dres_reg_write16 (actual_r, reg_offset, val);
+	}
+}
+
+static inline void
+cmac_write32 (struct re_softc *sc, u64 reg_offset, u32 val)
+{
+	const struct dres_reg *actual_r;
+
+	if (!sc->prohibit_access_reg) {
+		actual_r = sc->r_cmac ? sc->r_cmac : sc->r;
+		dres_reg_write32 (actual_r, reg_offset, val);
+	}
 }
 
 static u32
@@ -207,31 +304,6 @@ pci_find_cap (device_t dev, u32 cap, int *cap_reg)
 	return !!(*cap_reg);
 }
 
-static void
-re_core_mapmem (struct re_host *host, struct pci_bar_info *bar_info)
-{
-	struct re_softc *sc = host->sc;
-
-	ASSERT (bar_info->type == PCI_BAR_INFO_TYPE_MEM);
-
-	sc->mmio_base = bar_info->base;
-	sc->mmio_len = bar_info->len;
-	sc->mmio = mapmem_hphys (bar_info->base,
-				 bar_info->len,
-				 MAPMEM_WRITE | MAPMEM_UC);
-}
-
-static void
-re_core_unmapmem (struct re_host *host)
-{
-	struct re_softc *sc = host->sc;
-
-	unmapmem (sc->mmio, sc->mmio_len);
-	sc->mmio_base = 0x0;
-	sc->mmio_len = 0;
-	sc->mmio = NULL;
-}
-
 void
 re_core_current_mmio_bar (struct re_host *host, struct pci_bar_info *bar_info)
 {
@@ -240,8 +312,15 @@ re_core_current_mmio_bar (struct re_host *host, struct pci_bar_info *bar_info)
 	pci_get_bar_info (host->dev, sc->re_res_id, bar_info);
 }
 
+struct dres_reg *
+re_core_current_dres_reg (struct re_host *host)
+{
+	return host->sc->r;
+}
+
 void
-re_core_mmio_change (void *param, struct pci_bar_info *bar_info)
+re_core_mmio_change (void *param, struct pci_bar_info *bar_info,
+		     struct dres_reg *new_r)
 {
 	struct re_host *host = param;
 	struct re_softc *sc = host->sc;
@@ -254,7 +333,6 @@ re_core_mmio_change (void *param, struct pci_bar_info *bar_info)
 	bar_lo = bar_info->base & 0xFFFFFFFF;
 	bar_hi = bar_info->base >> 32;
 	host->ready = 0;
-	re_core_unmapmem (host);
 	dst = PCI_CONFIG_BASE_ADDRESS0 + (sc->re_res_id * 4);
 	pci_config_write (host->dev,
 			  &bar_lo,
@@ -265,7 +343,9 @@ re_core_mmio_change (void *param, struct pci_bar_info *bar_info)
 				  &bar_hi,
 				  sizeof bar_hi,
 				  dst + 4);
-	re_core_mapmem (host, bar_info);
+	sc->mmio_base = bar_info->base;
+	sc->mmio_len = bar_info->len;
+	sc->r = new_r;
 	host->ready = orig_ready;
 
 	mask = sc->mmio_len - 1;
@@ -326,7 +406,9 @@ re_core_init (struct re_host *host)
 	pci_config_write (dev, &zero, sizeof zero, PCI_CONFIG_BASE_ADDRESS4);
 	pci_config_write (dev, &zero, sizeof zero, PCI_CONFIG_BASE_ADDRESS5);
 
-	re_core_mapmem (host, &bar_info);
+	ASSERT (bar_info.type == PCI_BAR_INFO_TYPE_MEM);
+	sc->r = dres_reg_alloc (bar_info.base, bar_info.len, DRES_REG_TYPE_MM,
+				pci_dres_reg_translate, dev, 0);
 
 	error = re_check_mac_version (sc);
 
@@ -446,6 +528,7 @@ void
 re_core_suspend (struct re_host *host)
 {
 	struct re_softc *sc = host->sc;
+	struct dres_reg *r;
 
 	host->ready = 0;
 
@@ -460,7 +543,14 @@ re_core_suspend (struct re_host *host)
 
 	re_hw_d3_para (sc);
 
-	re_core_unmapmem (host);
+	/*
+	 * sc->r is just a reference after starting virtio_net. We can clear
+	 * unconditionally.
+	 */
+	sc->r = NULL;
+	r = virtio_net_suspend (host->virtio_net);
+	if (r)
+		dres_reg_free (r);
 
         sc->prohibit_access_reg = 1;
 
@@ -475,7 +565,9 @@ re_core_resume (struct re_host *host)
 	struct pci_bar_info bar_info;
 
 	pci_get_bar_info (sc->dev, sc->re_res_id, &bar_info);
-	re_core_mapmem (host, &bar_info);
+	sc->r = dres_reg_alloc (bar_info.base, bar_info.len, DRES_REG_TYPE_MM,
+				pci_dres_reg_translate, host->dev, 0);
+	virtio_net_resume (host->virtio_net, sc->r);
 
 	re_core_start (host);
 }

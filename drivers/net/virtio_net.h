@@ -34,6 +34,7 @@ struct mm_as;
 struct nicfunc;
 struct pci_bar_info;
 struct pci_device;
+struct dres_reg;
 
 #ifdef VIRTIO_NET
 void virtio_net_handle_config_read (void *handle, u8 iosize, u16 offset,
@@ -54,9 +55,11 @@ virtio_net_set_msix (void *handle,
 		     void *msix_param);
 void virtio_net_set_pci_device (void *handle, struct pci_device *dev,
 				struct pci_bar_info *initial_bar_info,
+				struct dres_reg *initial_r,
 				void (*mmio_change) (void *mmio_param,
 						     struct pci_bar_info
-						     *bar_info),
+						     *bar_info,
+						     struct dres_reg *new_r),
 				void *mmio_param);
 void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       const struct mm_as *as_dma,
@@ -67,6 +70,8 @@ void *virtio_net_init (struct nicfunc **func, u8 *macaddr,
 		       void *intr_param);
 bool virtio_net_add_cap (void *handle, u8 cap_start, u8 size);
 void virtio_net_unregister_handler (void *handle);
+struct dres_reg *virtio_net_suspend (void *handle);
+void virtio_net_resume (void *handle, struct dres_reg *initial_r);
 #else
 static inline void
 virtio_net_handle_config_read (void *handle, u8 iosize, u16 offset,
@@ -103,8 +108,10 @@ virtio_net_set_msix (void *handle,
 static inline void
 virtio_net_set_pci_device (void *handle, struct pci_device *dev,
 			   struct pci_bar_info *initial_bar_info,
+			   struct dres_reg *initial_r,
 			   void (*mmio_change) (void *mmio_param,
-						struct pci_bar_info *bar_info),
+						struct pci_bar_info *bar_info,
+						struct dres_reg *new_r),
 			   void *mmio_param)
 {
 }
@@ -128,6 +135,17 @@ virtio_net_add_cap (void *handle, u8 cap_start, u8 size)
 
 static inline void
 virtio_net_unregister_handler (void *handle)
+{
+}
+
+static inline struct dres_reg *
+virtio_net_suspend (void *handle)
+{
+	return NULL;
+}
+
+void
+virtio_net_resume (void *handle, struct dres_reg *initial_r)
 {
 }
 #endif

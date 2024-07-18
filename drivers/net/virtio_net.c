@@ -29,7 +29,9 @@
  */
 
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
+#include <core/mm.h>
+#include <core/panic.h>
 #include <core/time.h>
 #include <net/netapi.h>
 #include <pci.h>
@@ -175,9 +177,11 @@ struct virtio_net {
 	u64 driver_feature;
 	u32 device_feature_select;
 	u32 driver_feature_select;
-	void *mmio_handle;
+	struct dres_reg *r_mm;
+	struct dres_reg *r_io;
 	void *mmio_param;
-	void (*mmio_change) (void *mmio_param, struct pci_bar_info *bar_info);
+	void (*mmio_change) (void *mmio_param, struct pci_bar_info *bar_info,
+			     struct dres_reg *new_r);
 	bool mmio_base_emul;
 	bool mmio_base_emul_1;
 	bool v1;
@@ -198,7 +202,6 @@ struct virtio_net {
 	u16 selected_queue;
 	u16 queue_size[VIRTIO_N_QUEUES];
 	bool queue_enable[VIRTIO_N_QUEUES];
-	int hd;
 	int multifunction;
 	bool intr_suppress;
 	i8 intr_suppress_running;
@@ -1394,8 +1397,9 @@ dcfg_mac_addr (struct virtio_net *vnet, bool wr, union mem *data,
 		memcpy (data, vnet->macaddr, 6);
 }
 
-static int
-virtio_net_iohandler (core_io_t io, union mem *data, void *arg)
+static enum dres_reg_ret_t
+virtio_net_iohandler (const struct dres_reg *m, void *handle, phys_t offset,
+		      bool wr, void *buf, uint len)
 {
 	static const struct handle_io_data d_pin[] = {
 		{ 4, ccfg_device_feature },
@@ -1423,20 +1427,18 @@ virtio_net_iohandler (core_io_t io, union mem *data, void *arg)
 		{ 6, dcfg_mac_addr },
 		{ 0, NULL },
 	};
-	struct virtio_net *vnet = arg;
-	unsigned int port = io.port & 0x1F;
-	bool wr = io.dir == CORE_IO_DIR_OUT;
+	struct virtio_net *vnet = handle;
 
 	/* We have fast paths for queue_notify and isr_status */
-	if (wr && port == 0x10 && io.size == 2) {
-		queue_notify (vnet, wr, data, NULL);
-	} else if (!wr && port == 0x13 && io.size == 1) {
-		isr_status (vnet, wr, data, NULL);
-	} else {
-		handle_io (vnet, wr, io.size, port, data,
+	if (wr && offset == 0x10 && len == 2)
+		queue_notify (vnet, wr, buf, NULL);
+	else if (!wr && offset == 0x13 && len == 1)
+		isr_status (vnet, wr, buf, NULL);
+	else
+		handle_io (vnet, wr, len, offset, buf,
 			   vnet->msix_enabled ? d_msix : d_pin);
-	}
-	return CORE_IO_RET_DONE;
+
+	return DRES_REG_RET_DONE;
 }
 
 static void
@@ -1533,9 +1535,9 @@ handle_msix (struct virtio_net *vnet, bool wr, u32 iosize, u32 offset,
 	spinlock_unlock (&vnet->msix_lock);
 }
 
-static int
-virtio_net_mmio (void *handle, phys_t gphys, bool wr, void *data, uint iosize,
-		 u32 flags)
+static void
+do_handle_mmio (struct virtio_net *vnet, phys_t offset, bool wr, void *data,
+		uint iosize)
 {
 	static const v1_handler_t m[] = {
 		handle_common_cfg,
@@ -1544,9 +1546,7 @@ virtio_net_mmio (void *handle, phys_t gphys, bool wr, void *data, uint iosize,
 		handle_dev_cfg,
 		handle_msix,
 	};
-	struct virtio_net *vnet = handle;
 	void *d = data;
-	u32 offset = gphys - vnet->mmio_base;
 	u32 i = offset / VIRTIO_CFG_SIZE;
 	u32 mmio_offset = offset % VIRTIO_CFG_SIZE;
 	u32 accessible_size;
@@ -1555,7 +1555,7 @@ virtio_net_mmio (void *handle, phys_t gphys, bool wr, void *data, uint iosize,
 		m[i] (vnet, wr, iosize, mmio_offset, d);
 		accessible_size = VIRTIO_CFG_SIZE - mmio_offset;
 		if (iosize <= accessible_size)
-			return 1;
+			return;
 		i++;
 		d += accessible_size;
 		iosize -= accessible_size;
@@ -1563,8 +1563,16 @@ virtio_net_mmio (void *handle, phys_t gphys, bool wr, void *data, uint iosize,
 	}
 	if (!wr && iosize)
 		memset (d, iosize, 0);
+}
 
-	return 1;
+static enum dres_reg_ret_t
+virtio_net_mmio (const struct dres_reg *m, void *handle, phys_t offset,
+		 bool wr, void *buf, uint iosize)
+{
+	struct virtio_net *vnet = handle;
+
+	do_handle_mmio (vnet, offset, wr, buf, iosize);
+	return DRES_REG_RET_DONE;
 }
 
 static void
@@ -1636,6 +1644,26 @@ pci_handle_multifunction (struct virtio_net *vnet, bool wr, union mem *data,
 }
 
 static void
+pci_handle_ioport_write (struct virtio_net *vnet, phys_t new_ioport, uint size)
+{
+	enum dres_err_t err;
+
+	if (vnet->prev_port) {
+		dres_reg_unregister_handler (vnet->r_io);
+		dres_reg_free (vnet->r_io);
+		vnet->r_io = NULL;
+	}
+	printf ("virtio_net hook 0x%04llX\n", new_ioport);
+	vnet->r_io = dres_reg_alloc (new_ioport, size, DRES_REG_TYPE_IO,
+				     pci_dres_reg_translate, vnet->dev, 0);
+	err = dres_reg_register_handler (vnet->r_io, virtio_net_iohandler,
+					 vnet);
+	if (err != DRES_ERR_NONE)
+		panic ("%s(): fail to register IO handler", __func__);
+	vnet->prev_port = vnet->port;
+}
+
+static void
 pci_handle_ioport (struct virtio_net *vnet, bool wr, union mem *data,
 		   const void *extra_info)
 {
@@ -1644,14 +1672,9 @@ pci_handle_ioport (struct virtio_net *vnet, bool wr, union mem *data,
 		if ((vnet->port | 0x1F) != 0x1F &&
 		    (vnet->port | 0x1F) < 0xFFFF) {
 			if (vnet->prev_port != vnet->port) {
-				if (vnet->prev_port)
-					core_io_unregister_handler (vnet->hd);
-				printf ("virtio_net hook 0x%04X\n",
-					vnet->port & ~0x1F);
-				vnet->hd = core_io_register_handler
-					(vnet->port & ~0x1F, 0x20,
-					 virtio_net_iohandler, vnet,
-					 CORE_IO_PRIO_EXCLUSIVE, "virtio_net");
+				pci_handle_ioport_write (vnet,
+							 vnet->port & ~0x1F,
+							 0x20);
 				vnet->prev_port = vnet->port;
 			}
 		}
@@ -1665,6 +1688,9 @@ static void
 pci_handle_mmio (struct virtio_net *vnet, bool wr, union mem *data,
 		 const void *extra_info)
 {
+	struct dres_reg *old_m;
+	enum dres_err_t err;
+
 	if (wr) {
 		u32 new_base = data->dword & ~(vnet->mmio_len - 1);
 		if (new_base == ~(vnet->mmio_len - 1)) {
@@ -1678,21 +1704,30 @@ pci_handle_mmio (struct virtio_net *vnet, bool wr, union mem *data,
 			if (vnet->mmio_base == new_base)
 				return;
 			vnet->mmio_base = new_base;
-			if (vnet->mmio_handle) {
-				mmio_unregister (vnet->mmio_handle);
-				vnet->mmio_handle = NULL;
-			}
+			old_m = vnet->r_mm;
+			if (old_m)
+				dres_reg_unregister_handler (old_m);
+			vnet->r_mm = dres_reg_alloc (vnet->mmio_base,
+						     vnet->mmio_len,
+						     DRES_REG_TYPE_MM,
+						     pci_dres_reg_translate,
+						     vnet->dev, 0);
 			if (vnet->mmio_change) {
 				struct pci_bar_info bar;
 				bar.type = PCI_BAR_INFO_TYPE_MEM;
 				bar.base = new_base;
 				bar.len = vnet->mmio_len;
-				vnet->mmio_change (vnet->mmio_param, &bar);
+				vnet->mmio_change (vnet->mmio_param, &bar,
+						   vnet->r_mm);
 			}
-			vnet->mmio_handle = mmio_register (new_base,
-							   vnet->mmio_len,
-							   virtio_net_mmio,
-							   vnet);
+			err = dres_reg_register_handler (vnet->r_mm,
+							 virtio_net_mmio,
+							 vnet);
+			if (err != DRES_ERR_NONE)
+				panic ("%s(): fail to register MMIO handler",
+				       __func__);
+			if (old_m)
+				dres_reg_free (old_m);
 		}
 	} else {
 		data->dword = vnet->mmio_base_emul ?
@@ -1789,8 +1824,8 @@ pci_handle_pci_cfg_data (struct virtio_net *vnet, bool wr, union mem *data,
 	u32 length = vnet->pci_cfg.cap.length;
 
 	if (vnet->pci_cfg.cap.bar == VIRTIO_MMIO_BAR && length - 1 < 4) {
-		phys_t addr = vnet->mmio_base + vnet->pci_cfg.cap.offset;
-		virtio_net_mmio (vnet, addr, wr, data, length, 0);
+		phys_t offset = vnet->pci_cfg.cap.offset;
+		do_handle_mmio (vnet, offset, wr, data, length);
 	}
 }
 
@@ -1883,21 +1918,28 @@ virtio_net_set_msix (void *handle,
 void
 virtio_net_set_pci_device (void *handle, struct pci_device *dev,
 			   struct pci_bar_info *initial_bar_info,
+			   struct dres_reg *initial_r,
 			   void (*mmio_change) (void *mmio_param,
-						struct pci_bar_info *bar_info),
+						struct pci_bar_info *bar_info,
+						struct dres_reg *new_r),
 			   void *mmio_param)
 {
 	struct virtio_net *vnet = handle;
+	enum dres_err_t err;
 
 	vnet->dev = dev;
 	if (initial_bar_info) {
 		vnet->mmio_base = initial_bar_info->base;
 		vnet->mmio_len = initial_bar_info->len;
-		if (~(vnet->mmio_len - 1) != vnet->mmio_base)
-			vnet->mmio_handle = mmio_register (vnet->mmio_base,
-							   vnet->mmio_len,
-							   virtio_net_mmio,
-							   vnet);
+		if (~(vnet->mmio_len - 1) != vnet->mmio_base) {
+			vnet->r_mm = initial_r;
+			err = dres_reg_register_handler (initial_r,
+							 virtio_net_mmio,
+							 vnet);
+			if (err != DRES_ERR_NONE)
+				panic ("%s(): fail to register MMIO handler",
+				       __func__);
+		}
 	}
 	vnet->mmio_change = mmio_change;
 	vnet->mmio_param = mmio_param;
@@ -1964,7 +2006,8 @@ virtio_net_init (struct nicfunc **func, u8 *macaddr,
 	vnet->mmio_base = 0xFFFFF000;
 	vnet->mmio_len = 0x1000;
 	vnet->device_feature = VIRTIO_NET_DEVICE_FEATURES;
-	vnet->mmio_handle = NULL;
+	vnet->r_mm = NULL;
+	vnet->r_io = NULL;
 	vnet->mmio_change = NULL;
 	vnet->mmio_base_emul = false;
 	vnet->macaddr = macaddr;
@@ -2041,10 +2084,39 @@ virtio_net_unregister_handler (void *handle)
 
 	if (vnet->prev_port) {
 		vnet->prev_port = 0;
-		core_io_unregister_handler (vnet->hd);
+		dres_reg_unregister_handler (vnet->r_io);
+		dres_reg_free (vnet->r_io);
+		vnet->r_io = NULL;
 	}
-	if (vnet->mmio_handle) {
-		mmio_unregister (vnet->mmio_handle);
-		vnet->mmio_handle = NULL;
+	if (vnet->r_mm) {
+		dres_reg_unregister_handler (vnet->r_mm);
+		vnet->r_mm = NULL;
 	}
+}
+
+struct dres_reg *
+virtio_net_suspend (void *handle)
+{
+	struct virtio_net *vnet = handle;
+	struct dres_reg *r_to_free;
+
+	r_to_free = vnet->r_mm;
+	if (r_to_free) {
+		dres_reg_unregister_handler (r_to_free);
+		vnet->r_mm = NULL;
+	}
+
+	return r_to_free;
+}
+
+void
+virtio_net_resume (void *handle, struct dres_reg *initial_r)
+{
+	struct virtio_net *vnet = handle;
+	enum dres_err_t err;
+
+	vnet->r_mm = initial_r;
+	err = dres_reg_register_handler (initial_r, virtio_net_mmio, vnet);
+	if (err != DRES_ERR_NONE)
+		panic ("%s(): fail to register MMIO handler", __func__);
 }

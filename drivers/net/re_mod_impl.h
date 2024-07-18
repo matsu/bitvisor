@@ -3859,11 +3859,12 @@ static void re_init_software_variable(struct re_softc *sc)
 
                                 CmacMemPhysAddress &=  0xFFFFFFF0;
                                 sc->cmac_base = CmacMemPhysAddress;
-                                sc->cmac_regs = mapmem_as (as_passvm,
-                                                           sc->cmac_base,
-                                                           RE_REGS_SIZE,
-                                                           MAPMEM_WRITE |
-                                                           MAPMEM_UC);
+                                sc->r_cmac = dres_reg_alloc (sc->cmac_base,
+                                                             RE_REGS_SIZE,
+                                                             DRES_REG_TYPE_MM,
+                                                             pci_dres_reg_translate,
+                                                             sc->host->dev,
+                                                             0);
                         }
                 }
         }
