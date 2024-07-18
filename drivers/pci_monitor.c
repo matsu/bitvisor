@@ -30,7 +30,7 @@
 
 #include <core.h>
 #include <core/arith.h>
-#include <core/mmio.h>
+#include <core/dres.h>
 #include <core/process.h>
 #include <core/strtol.h>
 #include <core/time.h>
@@ -99,9 +99,9 @@ struct pci_monitor_options {
 	struct pci_monitor_options *next;
 	struct pci_monitor_host *host;
 	u32 offset, size;
-	int io;
-	void *mmio;
+	struct dres_reg_nomap *r_nomap;
 	u8 r, w, n;
+	bool io;
 };
 
 struct pci_monitor_time {
@@ -201,65 +201,111 @@ pci_monitor_logging (struct pci_monitor_host *host, int mode, int n, int rw,
 	spinlock_unlock (&host->lock);
 }
 
-static int
-iohandler (core_io_t io, union mem *data, void *arg)
+static void
+reg_mm_readwrite (const struct dres_reg_nomap *r, phys_t offset, bool wr,
+		  void *buf, uint len, u32 flags)
 {
-	struct pci_monitor_options *o = arg;
-	struct pci_monitor_host *host = o->host;
-
-	core_io_handle_default (io, data);
-	if (o->r && io.dir == CORE_IO_DIR_IN)
-		pci_monitor_logging (host, o->r, o->n, 0, 1,
-				     host->bar[o->n].base, io.port -
-				     host->bar[o->n].base, io.size, data);
-	else if (o->w && io.dir == CORE_IO_DIR_OUT)
-		pci_monitor_logging (host, o->w, o->n, 1, 1,
-				     host->bar[o->n].base, io.port -
-				     host->bar[o->n].base, io.size, data);
-	return CORE_IO_RET_DONE;
-}
-
-static int
-mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
-{
-	struct pci_monitor_options *o = data;
-	struct pci_monitor_host *host = o->host;
+	phys_t gphys;
 	void *p;
 
+	gphys = dres_reg_nomap_cpu_addr_base (r) + offset;
 	p = mapmem_as (as_passvm, gphys, len, (wr ? MAPMEM_WRITE : 0) | flags);
 	ASSERT (p);
-	if (wr)
-		memcpy (p, buf, len);
-	else
-		memcpy (buf, p, len);
+	if (wr) {
+		switch (len) {
+		case 1:
+			*(volatile u8 *)p = *(u8 *)buf;
+			break;
+		case 2:
+			*(volatile u16 *)p = *(u16 *)buf;
+			break;
+		case 4:
+			*(volatile u32 *)p = *(u32 *)buf;
+			break;
+		case 8:
+			*(volatile u64 *)p = *(u64 *)buf;
+			break;
+		default:
+			panic ("%s(): write len %u", __func__, len);
+		}
+	} else {
+		switch (len) {
+		case 1:
+			*(u8 *)buf = *(volatile u8 *)p;
+			break;
+		case 2:
+			*(u16 *)buf = *(volatile u16 *)p;
+			break;
+		case 4:
+			*(u32 *)buf = *(volatile u32 *)p;
+			break;
+		case 8:
+			*(u64 *)buf = *(volatile u64 *)p;
+			break;
+		default:
+			panic ("%s(): read len %u", __func__, len);
+		}
+	}
 	unmapmem (p, len);
+}
+
+static enum dres_reg_ret_t
+handler (const struct dres_reg_nomap *r, void *handle, phys_t offset,
+	 bool wr, void *buf, uint len, u32 flags)
+{
+	struct pci_monitor_options *o = handle;
+	struct pci_monitor_host *host = o->host;
+	enum dres_reg_t real_type = dres_reg_nomap_real_addr_type (r);
+
+	if (real_type == DRES_REG_TYPE_MM) {
+		reg_mm_readwrite (r, offset, wr, buf, len, flags);
+	} else if (real_type == DRES_REG_TYPE_IO)  {
+		core_io_t io;
+		io.port = dres_reg_nomap_cpu_addr_base (r) + offset;
+		io.size = len;
+		io.dir = wr;
+		core_io_handle_default (io, buf);
+	}
+
 	if (o->r && !wr)
-		pci_monitor_logging (host, o->r, o->n, 0, 2,
-				     host->bar[o->n].base, gphys -
-				     host->bar[o->n].base, len, buf);
+		pci_monitor_logging (host, o->r, o->n, 0, o->io ? 1 : 2,
+				     host->bar[o->n].base, offset, len, buf);
 	else if (o->w && wr)
-		pci_monitor_logging (host, o->w, o->n, 1, 2,
-				     host->bar[o->n].base, gphys -
-				     host->bar[o->n].base, len, buf);
-	return 1;
+		pci_monitor_logging (host, o->w, o->n, 1, o->io ? 1 : 2,
+				     host->bar[o->n].base, offset, len, buf);
+	return DRES_REG_RET_DONE;
 }
 
 static void
 pci_monitor_register_handler (struct pci_bar_info *bar,
 			      struct pci_monitor_options *o)
 {
+	phys_t addr;
+	enum dres_reg_t type;
+	enum pci_bar_info_type bar_type = bar->type;
+
 	while (o) {
-		if (bar->type == PCI_BAR_INFO_TYPE_IO) {
+		if (bar_type == PCI_BAR_INFO_TYPE_IO) {
+			addr = bar->base + o->offset;
 			printf ("pci_monitor: register i/o 0x%08llX"
-				" 0x%08X\n", bar->base + o->offset, o->size);
-			o->io = core_io_register_handler
-				(bar->base + o->offset, o->size, iohandler, o,
-				 CORE_IO_PRIO_EXCLUSIVE, "pci_monitor");
-		} else if (bar->type == PCI_BAR_INFO_TYPE_MEM) {
+				" 0x%08X\n", addr, o->size);
+			o->io = true;
+			type = DRES_REG_TYPE_IO;
+		} else if (bar_type == PCI_BAR_INFO_TYPE_MEM) {
+			addr = bar->base + o->offset;
 			printf ("pci_monitor: register mem 0x%08llX"
-				" 0x%08X\n", bar->base + o->offset, o->size);
-			o->mmio = mmio_register (bar->base + o->offset,
-						 o->size, mmhandler, o);
+				" 0x%08X\n", addr, o->size);
+			o->io = false;
+			type = DRES_REG_TYPE_MM;
+		}
+		if (bar_type == PCI_BAR_INFO_TYPE_IO ||
+		    bar_type == PCI_BAR_INFO_TYPE_MEM) {
+			o->r_nomap =
+				dres_reg_nomap_alloc (addr, o->size, type,
+						      pci_dres_reg_translate,
+						      o->host->pci_device);
+			dres_reg_nomap_register_handler (o->r_nomap, handler,
+							 o);
 		}
 		o = o->next;
 	}
@@ -269,15 +315,19 @@ static void
 pci_monitor_unregister_handler (struct pci_bar_info *bar,
 				struct pci_monitor_options *o)
 {
+	enum pci_bar_info_type bar_type = bar->type;
+
 	while (o) {
-		if (bar->type == PCI_BAR_INFO_TYPE_IO) {
+		if (bar_type == PCI_BAR_INFO_TYPE_IO)
 			printf ("pci_monitor: unregister i/o 0x%08llX"
 				" 0x%08X\n", bar->base + o->offset, o->size);
-			core_io_unregister_handler (o->io);
-		} else if (bar->type == PCI_BAR_INFO_TYPE_MEM) {
+		else if (bar_type == PCI_BAR_INFO_TYPE_MEM)
 			printf ("pci_monitor: unregister mem 0x%08llX"
 				" 0x%08X\n", bar->base + o->offset, o->size);
-			mmio_unregister (o->mmio);
+		if (bar_type == PCI_BAR_INFO_TYPE_IO ||
+		    bar_type == PCI_BAR_INFO_TYPE_MEM) {
+			dres_reg_nomap_unregister_handler (o->r_nomap);
+			dres_reg_nomap_free (o->r_nomap);
 		}
 		o = o->next;
 	}
