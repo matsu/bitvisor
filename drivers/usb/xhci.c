@@ -1424,9 +1424,9 @@ xhci_construct_blacklist_ext_cap (struct xhci_regs *regs)
 			total_bytes = XHCI_EXT_CAP_IO_VIRT_NBYTES;
 			break;
 		case XHCI_EXT_CAP_LOCAL_MEM:
-			/* (base + 0x4) contains size info */
+			/* (base + 0x4) contains size info in 1KB blocks */
 			total_bytes  = (*(u32 *)(current_base + 0x4)) *
-				       sizeof (u32);
+				       1024;
 			/* First 8 bytes of the register */
 			total_bytes += sizeof (u64);
 			break;
