@@ -39,6 +39,9 @@
 #define strlen(p)		strlen_builtin (p)
 #define strncmp(s1, s2, len)	strncmp_builtin (s1, s2, len)
 #define memmove(dest, src, len)	memmove_builtin (dest, src, len)
+#define memchr(addr, val, len)	memchr_builtin (addr, val, len)
+#define strrchr(s, c)		strrchr_builtin (s, c)
+#define strnlen(p, max)		strnlen_builtin (p, max)
 
 static inline void *
 memset_builtin (void *addr, int val, size_t len)
@@ -88,6 +91,24 @@ static inline void *
 memmove_builtin (void *dest, const void *src, size_t len)
 {
 	return __builtin_memmove (dest, src, len);
+}
+
+static inline void *
+memchr_builtin (const void *addr, int val, size_t len)
+{
+	return __builtin_memchr (addr, val, len);
+}
+
+static inline char *
+strrchr_builtin (const char *s, int c)
+{
+	return __builtin_strrchr (s, c);
+}
+
+static inline size_t
+strnlen_builtin (const char *p, size_t max_len)
+{
+	return __builtin_strnlen (p, max_len);
 }
 
 #endif

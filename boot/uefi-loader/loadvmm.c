@@ -31,6 +31,7 @@
 #include <Protocol/BlockIoCrypto.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/SimpleFileSystem.h>
+#include <efi_extra/config_table.h>
 #include <efi_extra/device_path_helper.h>
 #include <uefi_boot.h>
 
@@ -52,6 +53,8 @@ typedef int EFIAPI entry_func_t (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab,
 static EFI_GUID LoadedImageProtocol = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 static EFI_GUID FileSystemProtocol = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
 static EFI_GUID BlockIoCryptoProtocol = EFI_BLOCK_IO_CRYPTO_PROTOCOL_GUID;
+
+static EFI_GUID DtbTableGUID = EFI_DTB_TABLE_GUID;
 
 static EFI_HANDLE saved_image;
 static EFI_SYSTEM_TABLE *saved_systab;
@@ -126,6 +129,35 @@ err:
 #include "bsdriver_load.h"
 #include "acpi_table_mod.h"
 
+static BOOLEAN
+guid_cmp (EFI_GUID *g1, EFI_GUID *g2)
+{
+	UINT64 *p1, *p2;
+
+	/* GUID is 128 bits. So, we can treat it as an array of UINT64. */
+	p1 = (UINT64 *)g1;
+	p2 = (UINT64 *)g2;
+
+	return p1[0] == p2[0] && p1[1] == p2[1];
+}
+
+static BOOLEAN
+search_config_tab_dtb (EFI_SYSTEM_TABLE *systab, void **fdt_base)
+{
+	EFI_CONFIGURATION_TABLE *ct = systab->ConfigurationTable;
+	UINTN i, n;
+
+	n = systab->NumberOfTableEntries;
+	for (i = 0; i < n; i++) {
+		if (guid_cmp (&ct[i].VendorGuid, &DtbTableGUID)) {
+			*fdt_base = ct[i].VendorTable;
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
 EFI_STATUS EFIAPI
 efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 {
@@ -140,6 +172,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fileio;
 	EFI_LOADED_IMAGE_PROTOCOL *loaded_image;
 	EFI_PHYSICAL_ADDRESS paddr = UPPER_LOAD_ADDR;
+	BOOLEAN dtb_found;
 
 	saved_image = image;
 	saved_systab = systab;
@@ -201,10 +234,15 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 		UEFI_BITVISOR_ACPI_TABLE_MOD_UUID,
 		acpi_table_mod
 	};
+	struct bitvisor_devtree boot_ext4 = {
+		UEFI_BITVISOR_DEVTREE_UUID,
+	};
+	dtb_found = search_config_tab_dtb (systab, &boot_ext4.fdt_base);
 	void *boot_exts[] = {
 		&boot_ext,
 		&boot_ext2,
 		&boot_ext3,
+		dtb_found ? &boot_ext4 : NULL,
 		NULL
 	};
 

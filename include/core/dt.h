@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2024 Igel Co., Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,10 +27,18 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CORE_STRTOL_H
-#define __CORE_STRTOL_H
+#ifndef __CORE_DT_H
+#define __CORE_DT_H
 
-long int strtol (const char *s, char **e, int base);
-unsigned long int strtoul (const char *s, char **e, int base);
+#include <core/types.h>
+
+struct dt_pci_mcfg_iterator;
+
+struct dt_pci_mcfg_iterator *dt_pci_mcfg_iterator_alloc (void);
+void dt_pci_mcfg_iterator_free (struct dt_pci_mcfg_iterator *iter);
+bool dt_pci_mcfg_get (struct dt_pci_mcfg_iterator *iter, u64 *base,
+		      u32 *seg_group, u8 *bus_start, u8 *bus_end);
+bool dt_pci_addr_translate (uint segment, phys_t addr, size_t len,
+			    bool is_io_addr, phys_t *cpu_addr);
 
 #endif

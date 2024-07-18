@@ -30,6 +30,7 @@
 #include <arch/pci.h>
 #include <core/aarch64/acpi.h>
 #include <core/aarch64/gic.h>
+#include <core/dt.h>
 #include <core/dres.h>
 #include <pci.h>
 #include "../pci_internal.h"
@@ -128,7 +129,14 @@ pci_arch_dres_reg_translate (struct pci_device *dev, phys_t dev_addr,
 		return DRES_ERR_NONE;
 	}
 
-	/* TODO: Translation by devicetree */
+#ifdef DEVICETREE
+	translated = dt_pci_addr_translate (segment, dev_addr, len, is_io_addr,
+					    cpu_addr);
+	if (translated) {
+		*real_addr_type = DRES_REG_TYPE_MM;
+		return DRES_ERR_NONE;
+	}
+#endif
 
 	return DRES_ERR_ERROR;
 }

@@ -28,7 +28,9 @@
  */
 
 #include <arch/pci_init.h>
+#include <core/dt.h>
 #include <core/mm.h>
+#include "../pci_internal.h"
 
 const struct mm_as *
 pci_init_arch_as_dma (struct pci_device *dev, struct pci_device *pdev)
@@ -40,4 +42,25 @@ const struct mm_as *
 pci_init_arch_virtual_as_dma (struct pci_virtual_device *dev)
 {
 	return as_passvm;
+}
+
+uint
+pci_init_arch_find_segment (
+	void (*pci_record_segment) (struct pci_config_mmio_data *d))
+{
+#ifdef DEVICETREE
+	uint n;
+	struct pci_config_mmio_data d;
+	struct dt_pci_mcfg_iterator *iter;
+
+	iter = dt_pci_mcfg_iterator_alloc ();
+	for (n = 0; dt_pci_mcfg_get (iter, &d.base, &d.seg_group, &d.bus_start,
+				     &d.bus_end); n++)
+		pci_record_segment (&d);
+	dt_pci_mcfg_iterator_free (iter);
+
+	return n;
+#else
+	return 0;
+#endif
 }

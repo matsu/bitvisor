@@ -106,3 +106,9 @@ overflow_or_underflow:
 	else
 		return valmax;
 }
+
+unsigned long int
+strtoul (const char *s, char **e, int base)
+{
+	return strtol (s, e, base);
+}

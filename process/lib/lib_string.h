@@ -37,3 +37,6 @@ size_t strlen (const char *p);
 char *strchr (const char *s, int c);
 int strncmp (const char *s1, const char *s2, size_t len);
 void *memmove (void *dest, const void *src, size_t len);
+void *memchr (const void *src, int c, size_t len);
+char *strrchr (const char *s, int c);
+size_t strnlen (const char *p, size_t max_len);

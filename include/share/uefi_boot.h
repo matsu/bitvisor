@@ -52,6 +52,10 @@
 	{0x79FF5F54, 0x5392, 0x42E0,				\
 	 {0xA8, 0x92, 0x3B, 0x13, 0xB4, 0x71, 0xD2, 0x88}}
 
+#define UEFI_BITVISOR_DEVTREE_UUID				\
+	{0xD18652BC, 0xD274, 0x4E45,				\
+	 {0xBF, 0xCC, 0x02, 0xDB, 0x91, 0xAE, 0xD8, 0x10}}
+
 struct uuid {
 	unsigned int   field1;
 	unsigned short field2;
@@ -108,6 +112,14 @@ struct bitvisor_acpi_table_mod {
 	struct param_ext base;
 	/* IN */
 	void *modify;		/* (UINT32 signature, UINT64 table_addr) */
+};
+
+/* ------------------------------------------------------------------------- */
+
+struct bitvisor_devtree {
+	struct param_ext base;
+	/* IN */
+	void *fdt_base;
 };
 
 /* ------------------------------------------------------------------------- */

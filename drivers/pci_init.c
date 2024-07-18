@@ -441,11 +441,25 @@ pci_segment_alloc (struct pci_config_mmio_data *d_to_clone)
 	return s;
 }
 
+static void
+pci_record_segment (struct pci_config_mmio_data *d)
+{
+	struct pci_segment *s;
+
+	if (d) {
+		d->phys = d->base + (d->bus_start << 20);
+		d->len = ((u32)(d->bus_end - d->bus_start) + 1) << 20;
+		d->map = mapmem_hphys (d->phys, d->len,
+				       MAPMEM_WRITE | MAPMEM_UC);
+	}
+	s = pci_segment_alloc (d);
+	LIST1_ADD (pci_segment_list.head, s);
+}
+
 static bool
 pci_find_segment (void)
 {
 	uint n;
-	struct pci_segment *s;
 	struct pci_config_mmio_data d;
 
 	/*
@@ -453,24 +467,23 @@ pci_find_segment (void)
 	 * per segment only. So, PCI segment and its MMIO is 1-to-1.
 	 */
 	for (n = 0; acpi_read_mcfg (n, &d.base, &d.seg_group, &d.bus_start,
-				    &d.bus_end); n++) {
-		d.phys = d.base + (d.bus_start << 20);
-		d.len = ((u32)(d.bus_end - d.bus_start) + 1) << 20;
-		d.map = mapmem_hphys (d.phys, d.len, MAPMEM_WRITE | MAPMEM_UC);
-		s = pci_segment_alloc (&d);
-		LIST1_ADD (pci_segment_list.head, s);
-	}
+				    &d.bus_end); n++)
+		pci_record_segment (&d);
 
 	/*
 	 * If there is no MMIO configuration found and PMIO exists, it means
 	 * the machine has one PCI segment for legacy PCI bus.
 	 */
 	if (n == 0 && pci_arch_pmio_exist ()) {
-		s = pci_segment_alloc (NULL);
-		LIST1_ADD (pci_segment_list.head, s);
+		pci_record_segment (NULL);
 		n++;
 	}
 
+	/* If we can find MCFG from ACPI, there is no need to continue */
+	if (n > 0)
+		return true;
+
+	n = pci_init_arch_find_segment (pci_record_segment);
 	if (n == 0)
 		printf ("%s(): no PCI segment found\n", __func__);
 

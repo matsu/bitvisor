@@ -163,3 +163,10 @@ pci_init_arch_virtual_as_dma (struct pci_virtual_device *dev)
 	}
 	return as_passvm;
 }
+
+uint
+pci_init_arch_find_segment (
+	void (*pci_record_segment) (struct pci_config_mmio_data *d))
+{
+	return 0;
+}

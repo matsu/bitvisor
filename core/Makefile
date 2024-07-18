@@ -18,6 +18,7 @@ CONSTANTS-$(CONFIG_ACPI_IGNORE_ERROR) += -DACPI_IGNORE_ERROR
 
 CFLAGS += -I$(DIR)/include
 CFLAGS += -Ivpn/lib
+CFLAGS += -Idevtree/libfdt
 CFLAGS += $(CFLAGS_EDK2_INC)
 
 subdirs-y += $(ARCH)
@@ -30,6 +31,7 @@ objs-y += calluefi.o
 objs-y += config.o
 objs-y += debug.o
 objs-y += dres.o
+objs-$(CONFIG_DEVICETREE) += dt.o
 objs-y += exint_pass.o
 objs-y += iccard.o
 objs-y += initfunc.o

@@ -30,13 +30,18 @@
 #ifndef _DRIVERS_INCLUDE_ARCH_PCI_INIT_H
 #define _DRIVERS_INCLUDE_ARCH_PCI_INIT_H
 
+#include <core/types.h>
+
 struct mm_as;
 struct pci_device;
 struct pci_virtual_device;
+struct pci_config_mmio_data;
 
 const struct mm_as *pci_init_arch_as_dma (struct pci_device *dev,
 					  struct pci_device *pdev);
 const struct mm_as *pci_init_arch_virtual_as_dma
 		    (struct pci_virtual_device *dev);
+uint pci_init_arch_find_segment (
+	void (*pci_record_segment) (struct pci_config_mmio_data *d));
 
 #endif

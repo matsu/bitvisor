@@ -31,9 +31,11 @@
 #include <bits.h>
 #include <common.h>
 #include <constants.h>
+#include <libfdt.h>
 #include <core/aarch64/gic.h>
 #include <core/assert.h>
 #include <core/dres.h>
+#include <core/dt.h>
 #include <core/initfunc.h>
 #include <core/mm.h>
 #include <core/mmio.h>
@@ -43,6 +45,7 @@
 #include <core/spinlock.h>
 #include <core/types.h>
 #include "../acpi.h"
+#include "../dt.h"
 #include "../exint_pass.h"
 #include "asm.h"
 #include "exception.h"
@@ -1297,15 +1300,10 @@ gic_its_init (phys_t base_phys)
 }
 
 static void
-acpi_madt_handle_gicd (struct acpi_ic_header *h)
+gicd_init (phys_t base)
 {
-	struct acpi_gicd *entry;
-	phys_t base, typer;
+	phys_t typer;
 	u32 *gicd_typer, v;
-
-	entry = (struct acpi_gicd *)h;
-	base = entry->phys_addr;
-	ASSERT (base);
 
 	typer = base + GICD_TYPER;
 	gicd_typer = mapmem_hphys (typer, sizeof *gicd_typer, MAPMEM_UC);
@@ -1332,6 +1330,19 @@ acpi_madt_handle_gicd (struct acpi_ic_header *h)
 	if (gicd->nids > GIC_N_INITD_WATERMARK)
 		printf ("%s(): total INTID numbers more that %u\n", __func__,
 			GIC_N_INITD_WATERMARK);
+}
+
+static void
+acpi_madt_handle_gicd (struct acpi_ic_header *h)
+{
+	struct acpi_gicd *entry;
+	phys_t base;
+
+	entry = (struct acpi_gicd *)h;
+	base = entry->phys_addr;
+	ASSERT (base);
+
+	gicd_init (base);
 }
 
 static void
@@ -1382,16 +1393,156 @@ acpi_madt_walk (struct acpi_madt *m)
 		panic ("%s(): GIC-ITS not initialized", __func__);
 }
 
-static void
-gic_init (void)
+static int
+gic_init_acpi (void)
 {
 	struct acpi_madt *m;
 
 	m = acpi_find_entry (ACPI_MADT_SIGNATURE);
-	if (!m)
-		panic ("ACPI MADT not found\n");
+	if (m)
+		acpi_madt_walk (m);
 
-	acpi_madt_walk (m);
+	return m ? 0 : -1;
+}
+
+#ifdef DEVICETREE
+static int
+gic_init_fdt (void)
+{
+	struct dt_reg gicd_reg;
+	struct dt_reg its_reg;
+	const void *fdt;
+	const u32 *intp_p;
+	const void *reg;
+	u32 intp;
+	int error, intc_node, node, lenp, address_cells, size_cells;
+	int ret = 0;
+	enum dt_result_t dt_error;
+
+	fdt = dt_get_fdt ();
+	if (!fdt) {
+		ret = -1;
+		goto end;
+	}
+
+	/*
+	 * Many DT seems to have this. Try searching for interrupt controller
+	 * wtih this first initially.
+	 */
+	intp_p = fdt_getprop (fdt, 0, "interrupt-parent", NULL);
+	if (!intp_p) {
+		printf ("%s(): cannot find interrupt-parent property\n",
+			__func__);
+		ret = -1;
+		goto end;
+	}
+
+	intp = fdt32_ld (intp_p);
+	intc_node = fdt_node_offset_by_phandle (fdt, intp);
+	if (intc_node < 0) {
+		printf ("%s(): cannot find node from phandle? 0x%X %d\n",
+			__func__, intp, intc_node);
+		ret = -1;
+		goto end;
+	}
+
+	error = fdt_node_check_compatible (fdt, intc_node, "arm,gic-v3");
+	if (error) {
+		printf ("%s(): interrupt controller is not GICv3 compatible\n",
+			__func__);
+		ret = -1;
+		goto end;
+	}
+
+	/* Register's address-cells and size-cells are from the parent node */
+	dt_error = dt_helper_cur_node_reg_address_size_cell (fdt, intc_node,
+							     &address_cells,
+							     &size_cells);
+	if (dt_error) {
+		printf ("%s(): cannot read parent's address/size cells\n",
+			__func__);
+		ret = -1;
+		goto end;
+	}
+
+	reg = fdt_getprop (fdt, intc_node, "reg", &lenp);
+	if (!reg) {
+		printf ("%s(): cannot find reg property\n", __func__);
+		ret = -1;
+		goto end;
+	}
+
+	/* We want GICD only for now */
+	dt_error = dt_helper_reg_extract (reg, lenp, address_cells, size_cells,
+					  &gicd_reg, 1);
+	if (dt_error) {
+		printf ("%s(): extract GICD reg fails\n", __func__);
+		ret = -1;
+		goto end;
+	}
+
+	gicd_init (gicd_reg.addr);
+
+	if (!gicd)
+		panic ("%s(): GICD not initialized", __func__);
+
+	/* Read address/size cells for the subnodes */
+	address_cells = fdt_address_cells (fdt, intc_node);
+	if (address_cells < 0) {
+		printf ("%s(): #address-cells readding error %d\n", __func__,
+			address_cells);
+		ret = -1;
+		goto end;
+	}
+	size_cells = fdt_size_cells (fdt, intc_node);
+	if (size_cells < 0) {
+		printf ("%s(): #size-cells readding error %d\n", __func__,
+			size_cells);
+		ret = -1;
+		goto end;
+	}
+
+	fdt_for_each_subnode (node, fdt, intc_node) {
+		error = fdt_node_check_compatible (fdt, node,
+						   "arm,gic-v3-its");
+		if (error)
+			continue;
+
+		reg = fdt_getprop (fdt, node, "reg", &lenp);
+		if (!reg)
+			continue;
+
+		dt_error = dt_helper_reg_extract (reg, lenp, address_cells,
+						  size_cells, &its_reg, 1);
+		if (dt_error) {
+			printf ("%s(): extract ITS reg fails\n", __func__);
+			continue;
+		}
+		gic_its_init (its_reg.addr);
+	}
+
+	if (!its)
+		panic ("%s(): GIC-ITS not initialized", __func__);
+end:
+	return ret;
+}
+#endif
+
+static void
+gic_init (void)
+{
+	int error;
+
+	error = gic_init_acpi ();
+	if (!error)
+		return;
+#ifdef DEVICETREE
+	error = gic_init_fdt ();
+	if (!error)
+		return;
+#endif
+
+	panic ("%s(): no GIC found", __func__);
 }
 
 static void
@@ -1416,6 +1567,6 @@ gic_intr_off (void)
 	msr (GIC_ICC_IGRPEN1_EL1, 0x0);
 }
 
-INITFUNC ("acpi0", gic_init);
+INITFUNC ("bsp0", gic_init);
 INITFUNC ("pcpu0", gic_pcpu_lr_list_init);
 INITFUNC ("panic_dump_done0", gic_intr_off);

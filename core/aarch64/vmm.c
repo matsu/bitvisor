@@ -32,6 +32,7 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/process.h>
+#include "../dt.h"
 #include "../initfunc.h"
 #include "../uefi.h"
 #include "asm.h"
@@ -83,6 +84,9 @@ vmm_main (void)
 
 	initfunc_init ();
 	call_initfunc ("global");
+#ifdef DEVICETREE
+	dt_init ();
+#endif
 	call_initfunc ("bsp");
 	call_parallel ();
 	call_initfunc ("pcpu");

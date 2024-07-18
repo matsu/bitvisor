@@ -397,4 +397,7 @@ AArch64 BitVisor currently runs on `-cpu neoverse-n1` or `-cpu a64fx`. `-cpu
 max` introduces optional features are currently not supported. During QEMU
 booting, press `esc` key repeatedly to enter the settings menu. From there, we
 can enter the EFI shell. The rest is the same as what previous sections
-describe.
+describe. You can add `acpi=off` parameter to `-M` to use devicetree for
+device discovery instead of ACPI for both BitVisor and the guest OS.
+CONFIG_DEVICETREE=y is required to make BitVisor support device discovery with
+devicetree.

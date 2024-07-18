@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
+ * Copyright (c) 2024 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,10 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __CORE_STRTOL_H
-#define __CORE_STRTOL_H
+#ifndef _SHARE_EFI_EXTRA_CONFIG_TABLE_H
+#define _SHARE_EFI_EXTRA_CONFIG_TABLE_H
 
-long int strtol (const char *s, char **e, int base);
-unsigned long int strtoul (const char *s, char **e, int base);
+#define EFI_DTB_TABLE_GUID					\
+	{0xb1b621d5, 0xf19c, 0x41a5,				\
+	{0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0}}
 
 #endif

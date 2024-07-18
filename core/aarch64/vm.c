@@ -35,6 +35,7 @@
 #include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
+#include "../dt.h"
 #include "../uefi.h"
 #include "arm_std_regs.h"
 #include "asm.h"
@@ -102,6 +103,9 @@ vm_start (void)
 	p = tpidr_get_pcpu ();
 	p->currentvcpu = new_vcpu0;
 
+#ifdef DEVICETREE
+	dt_no_more_fdt ();
+#endif
 	/*
 	 * No more interacting with UEFI at this point. We are going to set up
 	 * GIC, and jump to the guest at this point.

@@ -63,3 +63,5 @@ ForEachMacros:
   - LIST4_FOREACH
   - LIST4_FOREACH_DELETABLE
   - ARRAYLIST_FOREACH
+  - fdt_for_each_subnode
+  - fdt_for_each_property_offset

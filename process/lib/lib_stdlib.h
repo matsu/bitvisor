@@ -35,3 +35,4 @@
 #define NULL ((void *)0)
 
 long int strtol (const char *s, char **e, int base);
+unsigned long int strtoul (const char *s, char **e, int base);

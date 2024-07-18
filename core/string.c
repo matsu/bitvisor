@@ -31,6 +31,9 @@
 
 #define WEAK __attribute__ ((weak))
 
+#define UC_LEN	sizeof (unsigned char)
+#define UC_BITS	(UC_LEN * 8)
+#define UC_MASK	((1 << UC_BITS) - 1)
 #define UL_LEN	sizeof (unsigned long)
 #define ADDR_LOW_UL_RESIDUE(addr) ((unsigned long)(addr) & (UL_LEN - 1))
 
@@ -247,4 +250,71 @@ memmove (void *dest, const void *src, size_t len)
 		*--p = *--q;
 
 	return dest;
+}
+
+WEAK void *
+memchr (const void *src, int c, size_t len)
+{
+	size_t i, j, k;
+	unsigned long residue, val;
+	const unsigned char *s = src, uc = c;
+
+	/* Check in UL residue first so that subsequent access can be aligned */
+	residue = ADDR_LOW_UL_RESIDUE (src);
+	if (residue) {
+		if (residue > len)
+			residue = len;
+		for (i = 0; i < residue; i++) {
+			if (*s == uc)
+				return (void *)s;
+			s++;
+		}
+		len -= residue;
+	}
+
+	/* Read UL_LEN bytes at a time instead of 1 byte at a time */
+	j = len / UL_LEN;
+	for (i = 0; i < j; i++) {
+		val = *(unsigned long *)s;
+		for (k = 0; k < UL_LEN; k++) {
+			if ((val & UC_MASK) == uc)
+				return (void *)(s + k);
+			val >>= UC_BITS;
+		}
+		s += UL_LEN;
+	}
+	len -= j * UL_LEN;
+
+	/* Search on the remaining */
+	for (i = 0; i < len; i++) {
+		if (*s == uc)
+			return (void *)s;
+		s++;
+	}
+
+	return NULL;
+}
+
+WEAK char *
+strrchr (const char *s, int c)
+{
+	char *ret = NULL;
+
+	do
+		if (*s == (char)c)
+			ret = (char *)s;
+	while (*s++);
+
+	return ret;
+}
+
+WEAK size_t
+strnlen (const char *p, size_t max_len)
+{
+	/*
+	 * It is basically search for '\0' with memchr() and find the
+	 * difference between the returned pointer and the original pointer.
+	 */
+	const char *q = memchr (p, '\0', max_len);
+	return q ? q - p : max_len;
 }

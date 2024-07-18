@@ -35,11 +35,10 @@ The current implementation assumes the running platform supports PSCI.
 Original x86 BitVisor either starts from the BIOS or UEFI environment. For
 AArch64, we currently require a UEFI environment.
 
-* ACPI
+* Support only 1 PCI segment for ACPI environment
 
-As there is no devicetree on x86 environment, current AArch64 implementation
-inherits the trait. We should support this as it is common on AArch64
-environment once we have a stable AArch64 implementation.
+We currently don't know the ACPI DSDT in case of multiple PCI segments exist
+to do device address translation properly.
 
 * PCI initialization by firmware
 
@@ -136,11 +135,12 @@ involves Stage-2 translation. The general idea is BitVisor unmaps the memory
 area it wants to intercept from Stage-2 translation. This causes exceptions to
 the hypervisor to handle the access.
 
-BitVisor then looks for the GIC controller from ACPI. BitVisor initializes its
-GIC para-passthrough driver for forwarding and injecting interrupts to the
-guest. It also needs to be able to translate IO port memory space to MMIO to
-handle guest PCI device access properly. This can be done by looking up from
-ACPI DSDT, and translating accordingly.
+BitVisor then looks for the GIC controller from ACPI or devicetree
+respectively. BitVisor initializes its GIC para-passthrough driver for
+forwarding and injecting interrupts to the guest. It also needs to be able to
+translate IO port memory space to MMIO to handle guest PCI device access
+properly. This can be done by looking up from ACPI DSDT or devicetree, and
+translating accordingly.
 
 The rest of the initialization is similar to the x86 implementation. The final
 step is to jump back to the loader to return to the EFI environment in EL1.

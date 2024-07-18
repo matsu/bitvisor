@@ -27,6 +27,7 @@ subdirs-$(CONFIG_VPN) += vpn
 subdirs-$(CONFIG_IDMAN) += idman
 subdirs-y += net
 subdirs-$(CONFIG_IP) += ip
+subdirs-$(CONFIG_DEVICETREE) += devtree
 asubdirs-$(CONFIG_CRYPTO) += crypto
 psubdirs-y += process
 

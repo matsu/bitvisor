@@ -474,3 +474,11 @@ config DEBUG_SERIAL
 	bool
 	default n
 	prompt "Debug serial for Linux early console"
+
+config DEVICETREE
+	bool
+	default y
+	prompt "Enable support for discovering devices with Devicetree"
+	help
+	  If ACPI is optional or not available on the target architecture, it
+	  is recommended to set this option to 'y'.
