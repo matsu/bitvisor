@@ -33,7 +33,7 @@
  * @author	K. Matsubara
  */
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
 #include <core/timer.h>
 #include <pci.h>
 #include <pci_conceal.h>
@@ -108,15 +108,14 @@ ehci_new(struct pci_device *pci_device)
 	return;
 }
 
-static int
-ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
-		      uint len, u32 flags)
+static enum dres_reg_ret_t
+ehci_register_handler (const struct dres_reg *r, void *handle, phys_t offset,
+		       bool wr, void *buf, uint len)
 {
-	struct ehci_host *host = (struct ehci_host *)data;
-	phys_t offset;
-	u32 *reg, val;
+	struct ehci_host *host = handle;
+	u32 reg, val;
 	u64 portno = 0;
-	int ret = 0;
+	enum dres_reg_ret_t ret = DRES_REG_RET_PASSTHROUGH;
 	u32 buf32 = 0;
 
 	if (!host)
@@ -125,9 +124,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 	ASSERT (len <= sizeof buf32);
 	if (wr)
 		memcpy (&buf32, buf, len);
-	offset = gphys - host->iobase;
-	reg = (u32 *)mapmem_as (as_passvm, gphys, sizeof (u32),
-				MAPMEM_WRITE | MAPMEM_UC);
+	dres_reg_read32 (r, offset, &reg);
 
 #define REGPRN(_level, _wr, _regname) {			    \
 		if (_wr)				    \
@@ -150,39 +147,39 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 			if (len == sizeof(u8)) {
 				REGPRN(2, wr, "CAPLENGTH");
 				if (!wr)
-					dprintf(3, " = %02x", *(u8 *)reg);
+					dprintf(3, " = %02x", reg & 0xFF);
 				dprintf(3, "\n");
 				break;
 			} else if (len > 2) {
-				reg = (void *)reg + 2;
+				reg >>= 16;
 				/* through */
 			}
 		case 0x02: /* HCIVERSION */
 			REGPRN(2, wr, "HCIVERSION");
-			dprintf(3, " = %04x\n", *(u16 *)reg);
+			dprintf(3, " = %04x\n", reg & 0xFFFF);
 			break;
 		case 0x04: /* HCSPARAMS */
 			REGPRN(2, wr, "HCSPARAMS");
 			if (!wr)
 				dprintf(3, " = %08x[N_PORTS:%d, "
 					"N_PCC:%d, N_CC:%d]",
-					  *(u32 *)reg,
-					  *reg & 0x0000000f,
-					  (*reg & 0x00000f00) >> 8,
-					  (*reg & 0x0000f000) >> 12);
+					  reg,
+					  reg & 0x0000000f,
+					  (reg & 0x00000f00) >> 8,
+					  (reg & 0x0000f000) >> 12);
 			dprintf(3, "\n");
 			break;
 		case 0x08: /* HCCPARAMS */
 			REGPRN(2, wr, "HCCPARAMS");
 			if (!wr) {
 				dprintf(3, "= %08x[ADDR:%2d, EECP:%02x]", 
-					  *reg, 
-					  32 + (*reg & 0x00000001) * 32,
-					  (*reg & 0x0000ff00) >> 8);
+					  reg,
+					  32 + (reg & 0x00000001) * 32,
+					  (reg & 0x0000ff00) >> 8);
 				/* FIXME: The ehci driver does not
 				   support the 64-bit addressing yet. */
-				buf32 = *reg & ~0x00000001;
-				ret = 1;
+				buf32 = reg & ~0x00000001;
+				ret = DRES_REG_RET_DONE;
 			}
 			dprintf(3, "\n");
 			break;
@@ -198,20 +195,20 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 		case 0x00: /* USBCMD */
 			if (!wr) {
 				dprintft(3, "read(USBCMD, %d) = %08x[", 
-					len, *reg);
-				if (*reg & 0x00000001)
+					len, reg);
+				if (reg & 0x00000001)
 					dprintf(3, "RUN,");
 				else
 					dprintf(3, "STOP,");
-				if (*reg & 0x00000002)
+				if (reg & 0x00000002)
 					dprintf(3, "HCRESET,");
-				if (*reg & 0x00000010)
+				if (reg & 0x00000010)
 					dprintf(3, "PSEN,");
-				if (*reg & 0x00000020) 
+				if (reg & 0x00000020)
 					dprintf(3, "ASEN,");
-				if (*reg & 0x00000040)
+				if (reg & 0x00000040)
 					dprintf(3, "DBELL,");
-				if (*reg & 0x00000080)
+				if (reg & 0x00000080)
 					dprintf(3, "LHCRESET,");
 				dprintf(3, "]\n");
 			} else {
@@ -272,18 +269,18 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				ehci_check_advance(host->usb_host);
 				usb_sc_unlock(host->usb_host);
 				dprintft(3, "read(USBSTS, %d) = %08x[", 
-					len, *reg);
-				if (*reg & 0x00000001)
+					len, reg);
+				if (reg & 0x00000001)
 					dprintf(3, "INT,");
-				if (*reg & 0x00000002)
+				if (reg & 0x00000002)
 					dprintf(3, "EINT,");
-				if (*reg & 0x00000004)
+				if (reg & 0x00000004)
 					dprintf(3, "PTCH,");
-				if (*reg & 0x00000008)
+				if (reg & 0x00000008)
 					dprintf(3, "FLRO,");
-				if (*reg & 0x00000010)
+				if (reg & 0x00000010)
 					dprintf(3, "SYSE,");
-				if (*reg & 0x00000020) {
+				if (reg & 0x00000020) {
 					dprintf(3, "ASADV,");
 					usb_sc_lock(host->usb_host);
 					if (host->doorbell)
@@ -291,13 +288,13 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 					ehci_cleanup_urbs (host);
 					usb_sc_unlock(host->usb_host);
 				}
-				if (*reg & 0x00001000)
+				if (reg & 0x00001000)
 					dprintf(3, "HALT,");
-				if (*reg & 0x00002000)
+				if (reg & 0x00002000)
 					dprintf(3, "ASEMP,");
-				if (*reg & 0x00004000)
+				if (reg & 0x00004000)
 					dprintf(3, "PSEN,");
-				if (*reg & 0x00008000)
+				if (reg & 0x00008000)
 					dprintf(3, "ASEN,");
 				dprintf(3, "]\n");
 			} else {
@@ -308,7 +305,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 		case 0x08: /* USBINTR */
 			if (!wr) {
 				dprintft(3, "read(USBINTR, %d) = %08x\n", 
-					len, *reg);
+					len, reg);
 			} else {
 				u32 intr = buf32;
 				dprintft(3, "write(USBINTR, %08x[", intr);
@@ -337,7 +334,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 			break;
 		case 0x10: /* CTRLDSSEGMENT */
 			REGPRN(2, wr, "CTRLDSSEGMENT");
-			val = (wr) ? buf32 : *(u32 *)reg;
+			val = (wr) ? buf32 : reg;
 			dprintf(3, ": %08x\n", val);
 			break;
 		case 0x14: /* PERIODICLISTBASE */
@@ -363,10 +360,12 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 						ehci_shadow_async_list(host);
 				}
 #if defined(ENABLE_SHADOW)
-				*reg = host->headqh_phys[1] | 0x00000002U;
+				dres_reg_write32 (r, offset,
+					host->headqh_phys[1] | 0x00000002U);
 				usb_sc_unlock(host->usb_host);
-				dprintf(3, " -> %08x\n", *reg);
-				ret = 1;
+				dres_reg_read32 (r, offset, &val);
+				dprintf(3, " -> %08x\n", val);
+				ret = DRES_REG_RET_DONE;
 #else
 				dprintf(3, "\n");
 #endif
@@ -375,14 +374,14 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				buf32 = host->headqh_phys[0] | 0x00000002U;
 				usb_sc_unlock(host->usb_host);
 				dprintf(3, ": %08x == %08x\n", 
-					buf32, *(u32 *)reg);
-				ret = 1;
+					buf32, reg);
+				ret = DRES_REG_RET_DONE;
 			}
 			break;
 		case 0x40: /* CONFIGFLAG */
 			REGPRN(2, wr, "CONFIGFLAG");
 			if (!wr) {
-				if (*reg)
+				if (reg)
 					dprintf(3, ": ROUTE TO EHCI\n");
 				else
 					dprintf(3, ": ROUTE TO CLASSIC HC\n");
@@ -410,7 +409,7 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				u32 mask = 0x0000ffff;
 				u16 port_sc;
 				
-				status = *reg; /* atomic */
+				status = reg; /* atomic */
 				if (host->portsc[portno] == status)
 					break;
 
@@ -478,9 +477,8 @@ ehci_register_handler(void *data, phys_t gphys, bool wr, void *buf,
 				 host->iobase, offset);
 		}
 	}
-	unmapmem(reg, sizeof(u32));
 
-	if (ret && !wr)
+	if (ret == DRES_REG_RET_DONE && !wr)
 		memcpy (buf, &buf32, len);
 	return ret;
 }
@@ -519,9 +517,19 @@ ehci_config_write (struct pci_device *pci_device, u8 iosize, u16 offset,
 		dprintft(2, "updating PCI_CONFIG_BASE_ADDRESS0 "
 			 "with %08x\n", iobase);
 		if (iobase < 0xffffffdeU) {
+			if (host->r) {
+				dres_reg_unregister_handler (host->r);
+				dres_reg_free (host->r);
+				host->r = NULL;
+			}
 			host->iobase = iobase;
-			mmio_register (iobase, 0x80, ehci_register_handler,
-				       (void *)host);
+			host->r = dres_reg_alloc (iobase, 0x80,
+						  DRES_REG_TYPE_MM,
+						  pci_dres_reg_translate,
+						  pci_device, 0);
+			dres_reg_register_handler (host->r,
+						   ehci_register_handler,
+						   host);
 		}
 		break;
 	case 0x61:
@@ -550,10 +558,12 @@ static struct pci_driver ehci_driver = {
 void
 ehci_conceal_portroute(void *handle, void *data)
 {
-	u32 *reg = data;
+	const struct dres_reg *r = data;
+	u32 reg;
 
-	if (*reg) {
-		*reg = 0U;
+	dres_reg_read32 (r, 0x20U + 0x40U, &reg);
+	if (reg) {
+		dres_reg_write32 (r, 0x20U + 0x40U, 0);
 		dprintft(0, "EHCI: Set PORT ROUTE "
 			 "TO COMPANION HC (UHCI)\n");
 	}
@@ -564,9 +574,10 @@ ehci_conceal_portroute(void *handle, void *data)
 static void 
 ehci_conceal_new(struct pci_device *pci_device)
 {
-	u32 *reg;
+	u32 reg;
 	phys_t iobase;
 	void *handle;
+	struct dres_reg *r;
 
 	printf("An EHCI host controller found. Disable it.\n");
 	pci_conceal_new (pci_device);
@@ -574,29 +585,29 @@ ehci_conceal_new(struct pci_device *pci_device)
 	if ((iobase == 0) || (iobase >= 0xffffffdeU))
 		return;
 
+	/* To be passed to the infinite timer function */
+	r = dres_reg_alloc (iobase, 0x80, DRES_REG_TYPE_MM,
+			    pci_dres_reg_translate, pci_device, 0);
+
 	/* CONFIGFLAG */
-	reg = (u32 *)mapmem_as (as_passvm, iobase + 0x20U + 0x40U,
-				sizeof (u32), MAPMEM_WRITE);
-	printf("EHCI: CONFIGFLAG: %08x -> ", *reg);
-	if (*reg) {
-		*reg = 0U;
-		printf("%08x\n", *reg);
+	dres_reg_read32 (r, 0x20U + 0x40U, &reg);
+	printf("EHCI: CONFIGFLAG: %08x -> ", reg);
+	if (reg) {
+		dres_reg_write32 (r, 0x20U + 0x40U, 0);
+		dres_reg_read32 (r, 0x20U + 0x40U, &reg);
+		printf("%08x\n", reg);
 	}
 
-	handle = timer_new(ehci_conceal_portroute, reg);
+	handle = timer_new(ehci_conceal_portroute, r);
 	timer_set(handle, 1000 * 1000);
 
 	/* HCSPARAMS */
-	reg = (u32 *)mapmem_as (as_passvm, iobase + 0x04U, sizeof (u32), 0);
-	printf("EHCI: HCSPARAMS: %08x\n", *reg);
-	unmapmem(reg, sizeof(u32));
+	dres_reg_read32 (r, 0x04U, &reg);
+	printf("EHCI: HCSPARAMS: %08x\n", reg);
 
 	/* HCSP-PORTROUTE */
-	reg = (u32 *)mapmem_as (as_passvm, iobase + 0x0cU, sizeof (u32), 0);
-	printf("EHCI: HCSP-PORTROUTE: %08x\n", *reg);
-	unmapmem(reg, sizeof(u32));
-
-	return;
+	dres_reg_read32 (r, 0x0cU, &reg);
+	printf("EHCI: HCSP-PORTROUTE: %08x\n", reg);
 }
 
 static struct pci_driver ehci_conceal_driver = {

@@ -724,12 +724,10 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 	struct usb_request_block *hurb;
 	int ret;
 #if defined(ENABLE_DELAYED_START)
-	u32 *reg_usbcmd;
+	u32 reg_usbcmd;
+	const struct dres_reg *r = host->r;
 
-	reg_usbcmd = mapmem_as (host->usb_host->as_dma, host->iobase + 0x20,
-				sizeof (u32),
-				MAPMEM_WRITE | MAPMEM_UC);
-				  
+	dres_reg_read32 (r, 0x20, &reg_usbcmd);
 #endif /* defined(ENABLE_DELAYED_START) */
 
 #if defined(ENABLE_SHADOW)
@@ -776,7 +774,8 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 	/* enable async. schedule in USBCMD */
 	if (host->enable_async) {
 		mmio_lock();
-		*reg_usbcmd |= 0x00000020U;
+		reg_usbcmd |= 0x00000020U;
+		dres_reg_write32 (r, 0x20, reg_usbcmd);
 		mmio_unlock();
 	}
 #endif /* defined(ENABLE_DELAYED_START) */

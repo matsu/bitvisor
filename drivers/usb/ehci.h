@@ -32,7 +32,9 @@
 #include <core/types.h>
 #include "usb.h"
 #include "usb_log.h"
-  
+
+struct dres_reg;
+
 #define ENABLE_SHADOW
 
 /* function for allocating an aligned memory */
@@ -117,6 +119,7 @@ struct ehci_qh {
 
 struct ehci_host {
 	spinlock_t lock_hurb;
+	struct dres_reg *r;
 	phys_t iobase;
 	phys_t headqh_phys[2];
 	LIST4_DEFINE_HEAD (unlink_messages, struct usb_request_block, list);
