@@ -34,13 +34,56 @@
 #define UL_LEN	sizeof (unsigned long)
 #define ADDR_LOW_UL_RESIDUE(addr) ((unsigned long)(addr) & (UL_LEN - 1))
 
+#define U32_LEN 4
+#define U64_LEN 8
+
 WEAK void *
 memset (void *addr, int val, size_t len)
 {
 	char *p;
+	unsigned long residue;
+	size_t i, j;
+	unsigned long v;
 
-	for (p = addr; len; len--)
+	if (len == 0)
+		goto end;
+
+	p = addr;
+	val = val & 0xFF; /* val is a constant byte */
+
+	/* Try to set unaligned part first */
+	residue = ADDR_LOW_UL_RESIDUE (addr);
+	if (residue) {
+		j = UL_LEN - residue;
+		if (j > len)
+			j = len;
+		for (i = 0; i < j; i++)
+			*p++ = val;
+		len -= j;
+	}
+
+	/*
+	 * Try to set with UL length. The length depends on the running
+	 * architecture. We currently expect unsigned long to be either 32-bit
+	 * or 64-bit.
+	 */
+	if (UL_LEN == U32_LEN)
+		v = val * 0x01010101UL;
+	else if (UL_LEN == U64_LEN)
+		v = val * 0x0101010101010101UL;
+	else
+		goto fallback;
+
+	j = len / UL_LEN;
+	for (i = 0; i < j; i++) {
+		*(unsigned long *)p = v;
+		p += UL_LEN;
+	}
+	len -= j * UL_LEN;
+fallback:
+	while (len--)
 		*p++ = val;
+end:
 	return addr;
 }
 
