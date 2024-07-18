@@ -65,8 +65,8 @@ struct pci_msi_callback {
 
 extern int pci_config_data_handler (core_io_t io, union mem *data, void *arg);
 extern int pci_config_addr_handler (core_io_t io, union mem *data, void *arg);
-void pci_save_config_addr (void);
 extern void pci_append_device (struct pci_device *dev);
+void pci_pmio_save_config_addr (void);
 int pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 			     uint len, u32 flags);
 void pci_config_pmio_enter (void);

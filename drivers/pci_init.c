@@ -352,7 +352,7 @@ pci_find_devices (void)
 	struct pci_virtual_device *virtual_device;
 
 	printf ("PCI: finding devices...\n");
-	pci_save_config_addr ();
+	pci_pmio_save_config_addr ();
 	pci_config_pmio_enter ();
 	for (bn = 0; bn < PCI_MAX_BUSES; bn++)
 		pci_set_bridge_from_bus_no (bn, NULL);

@@ -85,7 +85,7 @@ LIST_DEFINE_HEAD (pci_virtual_driver_list);
 struct pci_config_mmio_data *pci_config_mmio_data_head;
 
 void
-pci_save_config_addr (void)
+pci_pmio_save_config_addr (void)
 {
 	if (pci_arch_pmio_exist ()) {
 		pci_config_pmio_addrlock (ADDR_LOCK);
