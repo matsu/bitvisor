@@ -96,6 +96,9 @@ uhci_new(struct pci_device *pci_device)
 #endif
 
 	pci_system_disconnect (pci_device);
+	pci_enable_device (pci_device,
+			   PCI_CONFIG_COMMAND_BUSMASTER |
+				   PCI_CONFIG_COMMAND_MEMENABLE);
 	pci_vtd_trans_add_remap_with_vmm_mem (pci_device);
 
 	dprintft(5, "%s invoked.\n", __FUNCTION__);

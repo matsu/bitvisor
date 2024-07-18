@@ -1062,6 +1062,9 @@ x540_new (struct pci_device *pci_device)
 
 	if (x540->config.iscontroled) {
 		pci_system_disconnect (pci_device);
+		pci_enable_device (pci_device,
+				   PCI_CONFIG_COMMAND_BUSMASTER |
+					   PCI_CONFIG_COMMAND_MEMENABLE);
 		x540_linkup (x540);
 		x540_get_macaddr (x540, x540->macaddr);
 

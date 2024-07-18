@@ -1594,6 +1594,9 @@ static void
 xhci_new (struct pci_device *pci_device)
 {
 	pci_system_disconnect (pci_device);
+	pci_enable_device (pci_device,
+			   PCI_CONFIG_COMMAND_BUSMASTER |
+				   PCI_CONFIG_COMMAND_MEMENABLE);
 	usb_set_debug (DEBUG_LEVEL);
 
 	struct xhci_host *host = zalloc (XHCI_HOST_NBYTES);
