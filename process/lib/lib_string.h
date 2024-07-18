@@ -36,3 +36,4 @@ int memcmp (const void *p1, const void *p2, size_t len);
 size_t strlen (const char *p);
 char *strchr (const char *s, int c);
 int strncmp (const char *s1, const char *s2, size_t len);
+void *memmove (void *dest, const void *src, size_t len);

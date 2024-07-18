@@ -191,3 +191,60 @@ strncmp (const char *s1, const char *s2, size_t len)
 	} while (!r && c1 && --len > 0);
 	return r;
 }
+
+WEAK void *
+memmove (void *dest, const void *src, size_t len)
+{
+	char *p;
+	const char *q;
+	unsigned long residue;
+	size_t i, j;
+
+	/* In these cases, there is nothing to do */
+	if (src == dest || len == 0)
+		return dest;
+
+	/*
+	 * If src is after dest or src + len does not overlap with dest, we can
+	 * use memcpy().
+	 */
+	if (src > dest || src + len <= dest)
+		return memcpy (dest, src, len);
+
+	/* Otherwise, we have to copy backward */
+	p = dest + len;
+	q = src + len;
+
+	/*
+	 * If both src and dest are unaligned with the same residue, we
+	 * partially copy the residue part first so that subsequent copying is
+	 * aligned.
+	 */
+	residue = ADDR_LOW_UL_RESIDUE (src);
+	if (residue && residue == ADDR_LOW_UL_RESIDUE (dest)) {
+		j = residue + 1;
+		if (j > len)
+			j = len;
+		for (i = j; i > 0; i--)
+			*--p = *--q;
+		len -= j;
+	}
+
+	/*
+	 * Try to copy with UL length. The length depends on the running
+	 * architecture.
+	 */
+	j = len / UL_LEN;
+	for (i = j; i > 0; i--) {
+		p -= UL_LEN;
+		q -= UL_LEN;
+		*(unsigned long *)p = *(const unsigned long *)q;
+	}
+	len -= j * UL_LEN;
+
+	/* Copy the remaining */
+	for (i = len; i > 0; i--)
+		*--p = *--q;
+
+	return dest;
+}

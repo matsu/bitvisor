@@ -55,7 +55,6 @@ objs-y += ip_main.o net_main.o
 objs-$(CONFIG_WIREGUARD) += net_main_wg.o
 objs-y += echo-server.o echo-client.o echoctl.o
 objs-y += telnet-server.o telnet-dbgsh.o
-objs-y += string.o
 objs-$(CONFIG_WIREGUARD) += wireguard/wg_main.o \
 wireguard/wireguard-lwip/src/crypto/refc/blake2s.o \
 wireguard/wireguard-lwip/src/crypto/refc/chacha20.o \

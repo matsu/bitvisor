@@ -38,6 +38,7 @@
 #define memcmp(p1, p2, len)	memcmp_builtin (p1, p2, len)
 #define strlen(p)		strlen_builtin (p)
 #define strncmp(s1, s2, len)	strncmp_builtin (s1, s2, len)
+#define memmove(dest, src, len)	memmove_builtin (dest, src, len)
 
 static inline void *
 memset_builtin (void *addr, int val, size_t len)
@@ -81,6 +82,12 @@ static inline int
 strncmp_builtin (const char *s1, const char *s2, size_t len)
 {
 	return __builtin_strncmp (s1, s2, len);
+}
+
+static inline void *
+memmove_builtin (void *dest, const void *src, size_t len)
+{
+	return __builtin_memmove (dest, src, len);
 }
 
 #endif
