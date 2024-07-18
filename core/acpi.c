@@ -891,12 +891,14 @@ static void
 acpi_init_paral (void)
 {
 #ifdef ACPI_DSDT
-	int n = 0;
+	if (dsdt_addr) {
+		int n = 0;
 
-	acpi_dsdt_parse (dsdt_addr);
-	foreach_entry_in_xsdt (call_ssdt_parse, &n);
-	if (!n)
-		foreach_entry_in_rsdt (call_ssdt_parse, &n);
+		acpi_dsdt_parse (dsdt_addr);
+		foreach_entry_in_xsdt (call_ssdt_parse, &n);
+		if (!n)
+			foreach_entry_in_rsdt (call_ssdt_parse, &n);
+	}
 #endif
 }
 
