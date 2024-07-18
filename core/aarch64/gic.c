@@ -48,6 +48,7 @@
 #include "../dt.h"
 #include "../exint_pass.h"
 #include "asm.h"
+#include "arm_std_regs.h"
 #include "exception.h"
 #include "gic.h"
 #include "gic_regs.h"
@@ -111,6 +112,10 @@ struct acpi_madt {
 #define INTR_RSVD_NUM_1024   1024
 
 #define GIC_N_INITD_WATERMARK (1 << 16)
+
+#define GICD_CTLR 0x0
+
+#define GICD_CTLR_DS BIT (6)
 
 #define GICD_TYPER 0x4
 
@@ -260,6 +265,7 @@ struct gicd_host {
 	u32 nids;
 	u32 n_lpis;
 	bool lpi_support;
+	bool can_use_group0;
 };
 
 struct its_host {
@@ -511,6 +517,7 @@ gic_setup_virtual_gic (void)
 	struct pcpu *currentcpu;
 	u64 vmcr, val;
 	uint i;
+	bool can_use_group0;
 
 	currentcpu = tpidr_get_pcpu ();
 
@@ -518,6 +525,8 @@ gic_setup_virtual_gic (void)
 	val += 1; /* 0 based value */
 	ASSERT (val <= 16);
 	currentcpu->max_int_slot = val;
+
+	can_use_group0 = gicd->can_use_group0;
 
 	/*
 	 * According to the specification, LR reg value is unknown on warm
@@ -531,10 +540,15 @@ gic_setup_virtual_gic (void)
 	if (currentcpu->cpunum == 0) {
 		/* Copy current ICC state to ICV */
 		vmcr = 0;
+		if (can_use_group0) {
+			val = mrs (GIC_ICC_BPR0_EL1);
+			vmcr |= ICH_VMCR_VBPR0 (val);
+			val = mrs (GIC_ICC_IGRPEN0_EL1);
+			vmcr |= (ICH_VMCR_VENG0 & -val);
+			msr (GIC_ICC_IGRPEN0_EL1, 0x1);
+		}
 		val = mrs (GIC_ICC_PMR_EL1);
 		vmcr |= ICH_VMCR_VPMR (val);
-		val = mrs (GIC_ICC_BPR0_EL1);
-		vmcr |= ICH_VMCR_VBPR0 (val);
 		val = mrs (GIC_ICC_BPR1_EL1);
 		vmcr |= ICH_VMCR_VBPR1 (val);
 		val = (mrs (GIC_ICC_CTLR_EL1) >> ICC_CTLR_EOIMODE_SHIFT) &
@@ -546,21 +560,18 @@ gic_setup_virtual_gic (void)
 		vmcr |= ICH_VMCR_VFIQEN;
 		val = mrs (GIC_ICC_IGRPEN1_EL1);
 		vmcr |= (ICH_VMCR_VENG1 & -val);
-		val = mrs (GIC_ICC_IGRPEN0_EL1);
-		vmcr |= (ICH_VMCR_VENG0 & -val);
-
 		msr (GIC_ICH_HCR_EL2, ICH_HCR_EN);
 		msr (GIC_ICH_VMCR_EL2, vmcr);
 		/* Make writing to EOIR0/1 priority drop only */
 		msr (GIC_ICC_CTLR_EL1,
 		     mrs (GIC_ICC_CTLR_EL1) | ICC_CTLR_EOIMODE);
-		msr (GIC_ICC_IGRPEN0_EL1, 0x1);
 		msr (GIC_ICC_IGRPEN1_EL1, 0x1);
 		/* We don't deal with legacy MMIO interface currently */
 		msr (GIC_ICC_SRE_EL2,
 		     mrs (GIC_ICC_SRE_EL2) | ICC_SRE_SYSREG_IF_EN);
 
-		ii.icc_bpr0_el1 = mrs (GIC_ICC_BPR0_EL1);
+		if (can_use_group0)
+			ii.icc_bpr0_el1 = mrs (GIC_ICC_BPR0_EL1);
 		ii.icc_bpr1_el1 = mrs (GIC_ICC_BPR1_EL1);
 		ii.icc_ctlr_el1 = mrs (GIC_ICC_CTLR_EL1);
 		ii.icc_pmr_el1 = mrs (GIC_ICC_PMR_EL1);
@@ -568,16 +579,19 @@ gic_setup_virtual_gic (void)
 		ii.ich_hcr_el2 = mrs (GIC_ICH_HCR_EL2);
 		ii.ich_vmcr_el2 = mrs (GIC_ICH_VMCR_EL2);
 
-		exception_set_handler (gic_handle_irq, gic_handle_fiq);
+		exception_set_handler (gic_handle_irq,
+				       can_use_group0 ? gic_handle_fiq : NULL);
 	} else {
-		msr (GIC_ICC_BPR0_EL1, ii.icc_bpr0_el1);
+		if (can_use_group0) {
+			msr (GIC_ICC_BPR0_EL1, ii.icc_bpr0_el1);
+			msr (GIC_ICC_IGRPEN0_EL1, 0x1);
+		}
 		msr (GIC_ICC_BPR1_EL1, ii.icc_bpr1_el1);
 		msr (GIC_ICC_CTLR_EL1, ii.icc_ctlr_el1);
 		msr (GIC_ICC_PMR_EL1, ii.icc_pmr_el1);
 		msr (GIC_ICC_SRE_EL2, ii.icc_sre_el2);
 		msr (GIC_ICH_HCR_EL2, ii.ich_hcr_el2);
 		msr (GIC_ICH_VMCR_EL2, ii.ich_vmcr_el2);
-		msr (GIC_ICC_IGRPEN0_EL1, 0x1);
 		msr (GIC_ICC_IGRPEN1_EL1, 0x1);
 	}
 }
@@ -1302,38 +1316,66 @@ gic_its_init (phys_t base_phys)
 static void
 gicd_init (phys_t base)
 {
-	phys_t typer;
-	u32 *gicd_typer, v;
+	phys_t typer, ctlr;
+	u64 pfr0;
+	u32 *gicd_ctlr, ctlr_v;
+	u32 *gicd_typer, typer_v;
+	u8 el3_support;
 	bool lpi_support;
+
+	pfr0 = mrs (ID_AA64PFR0_EL1);
+
+	ctlr = base + GICD_CTLR;
+	gicd_ctlr = mapmem_hphys (ctlr, sizeof *gicd_ctlr, MAPMEM_UC);
+	ASSERT (gicd_ctlr);
+	ctlr_v = *gicd_ctlr;
+	unmapmem (gicd_ctlr, sizeof *gicd_ctlr);
 
 	typer = base + GICD_TYPER;
 	gicd_typer = mapmem_hphys (typer, sizeof *gicd_typer, MAPMEM_UC);
 	ASSERT (gicd_typer);
-	v = *gicd_typer;
+	typer_v = *gicd_typer;
 	unmapmem (gicd_typer, sizeof *gicd_typer);
 
 	gicd = alloc (sizeof *gicd);
 	gicd->base_phys = base;
-	gicd->nids = 1 << GICD_TYPER_ID_BITS (v);
-	lpi_support = !!(v & GICD_TYPER_LPIS);
+	gicd->nids = 1 << GICD_TYPER_ID_BITS (typer_v);
+	lpi_support = !!(typer_v & GICD_TYPER_LPIS);
 	if (lpi_support) {
 		/*
 		 * If LPI_BITS is 1 (Raw LPI_BITS is 0), calculate from
 		 * ID_BITS
 		 */
-		if (GICD_TYPER_LPI_BITS (v) == 1)
+		if (GICD_TYPER_LPI_BITS (typer_v) == 1)
 			gicd->n_lpis = gicd->nids - GIC_LPI_START;
 		else
-			gicd->n_lpis = 1 << GICD_TYPER_LPI_BITS (v);
+			gicd->n_lpis = 1 << GICD_TYPER_LPI_BITS (typer_v);
 		gicd->lpi_support = true;
 	} else {
 		gicd->n_lpis = 0;
 		gicd->lpi_support = false;
 	}
+	el3_support = ID_AA64PFR0_GET_GIC (pfr0);
+	if (el3_support) {
+		bool ds = !!(ctlr_v & GICD_CTLR_DS);
+		/*
+		 * If the firmware does not set DS, it means group0 interrupts
+		 * belongs to Secure State. Don't touch group0 related
+		 * registers in this case. It can result in stall.
+		 */
+		gicd->can_use_group0 = ds ? true : false;
+	} else {
+		/*
+		 * There is only a single security state. We can access group0
+		 * related registers.
+		 */
+		gicd->can_use_group0 = true;
+	}
 
 	printf ("GICD base 0x%llX\n", gicd->base_phys);
 	printf ("GICD total INTID %u\n", gicd->nids);
 	printf ("GICD n_lpis %u\n", gicd->n_lpis);
+	printf ("GICD can_use_group0 %u\n", gicd->can_use_group0);
 	if (gicd->nids > GIC_N_INITD_WATERMARK)
 		printf ("%s(): total INTID numbers more that %u\n", __func__,
 			GIC_N_INITD_WATERMARK);
@@ -1576,7 +1618,8 @@ gic_pcpu_lr_list_init (void)
 static void
 gic_intr_off (void)
 {
-	msr (GIC_ICC_IGRPEN0_EL1, 0x0);
+	if (gicd && gicd->can_use_group0)
+		msr (GIC_ICC_IGRPEN0_EL1, 0x0);
 	msr (GIC_ICC_IGRPEN1_EL1, 0x0);
 }
 

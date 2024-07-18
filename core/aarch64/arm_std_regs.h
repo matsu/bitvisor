@@ -336,6 +336,7 @@
 #define ID_AA64PFR0_AA64_AA32 0x2
 
 #define ID_AA64PFR0_GET_EL3(v) (((v) >> 12) & 0xF)
+#define ID_AA64PFR0_GET_GIC(v) (((v) >> 24) & 0xF)
 
 #define ID_AA64MMFR0_PA_48 0x5
 
