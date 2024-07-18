@@ -29,24 +29,23 @@
  */
 
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
 #include <pci.h>
 #include <pci_conceal.h>
 
-static int
-iohandler (core_io_t io, union mem *data, void *arg)
-{
-	if (io.dir == CORE_IO_DIR_IN)
-		memset (data, 0xFF, io.size);
-	return CORE_IO_RET_DONE;
-}
+struct pci_conceal {
+	phys_t base;
+	uint len;
+	struct dres_reg_nomap *r;
+};
 
-static int
-mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
+static enum dres_reg_ret_t
+handler (const struct dres_reg_nomap *r, void *handle, phys_t offset, bool wr,
+	 void *buf, uint len, u32 mm_flags)
 {
 	if (!wr)
 		memset (buf, 0xFF, len);
-	return 1;
+	return DRES_REG_RET_DONE;
 }
 
 int
@@ -79,13 +78,24 @@ pci_conceal_new (struct pci_device *pci_device)
 		pci_device->config_space.device_id);
 	pci_system_disconnect (pci_device);
 	for (i = 0; i < PCI_CONFIG_BASE_ADDRESS_NUMS; i++) {
+		struct pci_conceal *c = NULL;
+		enum dres_reg_t type;
 		pci_get_bar_info (pci_device, i, &bar);
 		if (bar.type == PCI_BAR_INFO_TYPE_IO) {
-			core_io_register_handler
-				(bar.base, bar.len, iohandler, NULL,
-				 CORE_IO_PRIO_EXCLUSIVE, "pci_conceal");
+			c = alloc (sizeof *c);
+			type = DRES_REG_TYPE_IO;
 		} else if (bar.type == PCI_BAR_INFO_TYPE_MEM) {
-			mmio_register (bar.base, bar.len, mmhandler, NULL);
+			c = alloc (sizeof *c);
+			type = DRES_REG_TYPE_MM;
+		}
+
+		if (c) {
+			c->base = bar.base;
+			c->len = bar.len;
+			c->r = dres_reg_nomap_alloc (bar.base, bar.len, type,
+						     pci_dres_reg_translate,
+						     pci_device);
+			dres_reg_nomap_register_handler (c->r, handler, c);
 		}
 	}
 }
