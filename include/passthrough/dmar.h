@@ -34,6 +34,8 @@
  * The PCI device ID encoding
  */
 
+struct dres_reg;
+
 struct pci_dev {
         u8 bus;
         union {
@@ -47,7 +49,7 @@ struct pci_dev {
 
 struct iommu {
         u64 reg;              /* register base address of the unit = drhd->address */
-	void *regmap;
+	struct dres_reg *r;
         u32 gcmd;             /* maintaining TE field */
         u64 cap;              /* capability register */
         u64 ecap;             /* extended capability register */

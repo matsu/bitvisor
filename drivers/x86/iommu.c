@@ -29,6 +29,7 @@
 
 #include <common.h>
 #include <core.h>
+#include <core/dres.h>
 #include <core/list.h>
 #include <passthrough/dmar.h>
 #include <passthrough/intel-iommu.h>
@@ -97,13 +98,13 @@ static void clflush_seq(struct iommu *iommu, void *addr, int size)
 static void
 read_iommu_reg (struct iommu *iommu, u32 offset, void *buf, int len)
 {
-	memcpy (buf, iommu->regmap + offset, len);
+	dres_reg_read (iommu->r, offset, buf, len);
 }
 
 static void
 write_iommu_reg (struct iommu *iommu, u32 offset, u64 val, int len)
 {
-	memcpy (iommu->regmap + offset, &val, len);
+	dres_reg_write (iommu->r, offset, &val, len);
 }
 
 /* Setup device context information */
@@ -373,8 +374,8 @@ static struct iommu *alloc_iommu(struct acpi_drhd_u *drhd)
 		return NULL;
 	memset(iommu, 0, sizeof(struct iommu));
 	
-	iommu->regmap = mapmem_hphys (drhd->address, REG_SIZE,
-				      MAPMEM_WRITE | MAPMEM_UC);
+	iommu->r = dres_reg_alloc (drhd->address, REG_SIZE, DRES_REG_TYPE_MM,
+				   dres_reg_translate_1to1, NULL, 0);
 	read_iommu_reg (iommu, CAP_REG, &iommu->cap, 8);
 	read_iommu_reg (iommu, ECAP_REG, &iommu->ecap, 8);
 	
