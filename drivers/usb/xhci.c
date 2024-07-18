@@ -226,12 +226,12 @@ xhci_update_er_dev_ctx_eint (struct xhci_host *host, bool eint)
 /* ---------- Start capability related functions ---------- */
 
 static u32
-initial_cap_reg_read (struct xhci_host *host, phys_t offset)
+initial_cap_reg_read (struct xhci_host *host, phys_t field_offset)
 {
 	struct xhci_regs *regs = host->regs;
-	u32 buf32 = *(volatile u32 *)(regs->cap_reg + offset);
+	u32 buf32 = *(volatile u32 *)(regs->cap_reg + field_offset);
 
-	switch (offset) {
+	switch (field_offset) {
 	case CAP_CAPLENGTH_OFFSET: /* CAPLENGTH and HCIVERSION */
 		dprintft (REG_DEBUG_LEVEL, "CAPLENGTH & HCIVERSION = %08X\n",
 			  buf32);
@@ -282,10 +282,10 @@ xhci_cap_reg_read (void *data, phys_t gphys, void *buf, uint len, u32 flags)
 	struct xhci_data *xhci_data = data;
 	struct xhci_host *host = xhci_data->host;
 	struct xhci_regs *regs = host->regs;
-	phys_t offset = gphys - regs->cap_start;
+	phys_t field_offset = gphys - regs->cap_start;
 	dprintft (REG_DEBUG_LEVEL,
-		  "Read Cap Reg, offset: 0x%x, size: %d\n", offset, len);
-	memcpy (buf, &regs->cap_reg_copy[offset], len);
+		  "Read Cap Reg, offset: 0x%x, size: %d\n", field_offset, len);
+	memcpy (buf, &regs->cap_reg_copy[field_offset], len);
 }
 
 /* ---------- End capability related functions ---------- */
