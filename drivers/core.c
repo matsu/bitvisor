@@ -35,7 +35,6 @@
  */
 #include <arch/io.h>
 #include <core.h>
-#include <core/x86/io.h>
 #include <core_io.h>
 
 static bool
