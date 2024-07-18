@@ -225,6 +225,23 @@ oom:
 	return -1;
 }
 
+void *
+core_io_register_handler_dres (ioport_t start, size_t num,
+			       core_io_handler_t handler, void *arg,
+			       enum core_io_prio priority, const char *name)
+{
+	int hd, *ret = NULL;
+
+	hd = core_io_register_handler (start, num, handler, arg, priority,
+				       name);
+	if (hd != -1) {
+		ret = alloc (sizeof *ret);
+		*ret = hd;
+	}
+
+	return ret;
+}
+
 /**
  * @brief		core_io_modify_handler
  * @param start		start port
@@ -282,6 +299,14 @@ core_io_unregister_handler (int hd)
 	}
 	spinlock_unlock (&handler_descriptor_lock);
 	return -1;
+}
+
+void
+core_io_unregister_handler_dres (void *handle)
+{
+	int *hd = handle;
+	core_io_unregister_handler (*hd);
+	free (hd);
 }
 
 /**

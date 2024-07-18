@@ -28,6 +28,7 @@
  */
 
 #include <arch/pci.h>
+#include <core/dres.h>
 #include <core/x86/acpi.h>
 #include <core/x86/ap.h>
 #include <pci.h>
@@ -102,4 +103,13 @@ bool
 pci_arch_pmio_exist (void)
 {
 	return true;
+}
+
+enum dres_err_t
+pci_arch_dres_reg_translate (struct pci_device *dev, phys_t dev_addr,
+			     size_t len, enum dres_reg_t dev_addr_type,
+			     phys_t *cpu_addr, enum dres_reg_t *real_addr_type)
+{
+	return dres_reg_translate_1to1 (NULL, dev_addr, len, dev_addr_type,
+					cpu_addr, real_addr_type);
 }

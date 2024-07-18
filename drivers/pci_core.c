@@ -36,6 +36,7 @@
 #include <arch/pci.h>
 #include <common.h>
 #include <core.h>
+#include <core/dres.h>
 #include <core/exint_pass.h>
 #include <core/list.h>
 #include <core/process.h>
@@ -1439,4 +1440,19 @@ __attribute__ ((weak)) bool
 pci_arch_pmio_exist (void)
 {
 	return false;
+}
+
+enum dres_err_t
+pci_dres_reg_translate (void *pci_dev, phys_t dev_addr, size_t len,
+			enum dres_reg_t dev_addr_type, phys_t *cpu_addr,
+			enum dres_reg_t *real_addr_type)
+{
+	struct pci_device *dev = pci_dev;
+
+	/*
+	 * TODO: try implementing architecture-independent solution once we
+	 * have more insight on how to discover device memory mapping.
+	 */
+	return pci_arch_dres_reg_translate (dev, dev_addr, len, dev_addr_type,
+					    cpu_addr, real_addr_type);
 }

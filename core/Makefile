@@ -28,6 +28,7 @@ objs-1 += assert.o
 objs-1 += calluefi.o
 objs-1 += config.o
 objs-1 += debug.o
+objs-1 += dres.o
 objs-1 += exint_pass.o
 objs-1 += iccard.o
 objs-1 += initfunc.o

@@ -83,13 +83,26 @@ general, we don't want 0xFFFFFFFF value to actually be written to the PCI
 configuration space as it can cause the hardware to temporarily stop working.
 This can be a problem if the driver uses the device during guest OS PCI
 enumeration. Enabling `use_base_address_mask_emulation` avoids the problem.
-* Intercept access to device's registers. Device registers can be found in BAR.
-See the device's specification for BAR layout. `pci_get_bar_info()` is used to
-obtain BAR information. `struct pci_bar_info` contains register address and its
-memory type. In case of MMIO, you can use `mmio_register()` to intercept access
-to registers through normal memory access. In case of IO memory, you can use
-`core_io_register_handler()` to intercept access to registers in IO address
-space.
+* Create a handle to access device registers. Device register addresses can be
+found in BARs. The device's specification should describe BAR layout.
+`pci_get_bar_info()` is used to obtain BAR information. `struct pci_bar_info`
+contains register address and its memory type. A driver, in general, needs to
+access them. To do that, the driver creates an abstraction to access device
+registers. This can be done by calling `dres_reg_alloc()` with information from
+BAR and `pci_dres_reg_translate()` as its translator function. Translator
+function is needed because the address seen by devices can be different from
+CPU point of view. This depends on the platform. Caller can access device
+registers with `dres_reg_read*()/dres_reg_write*()`. However, if the driver
+does not want the auto-mapping provided by `dres_reg_alloc()`, it can use
+`dres_reg_nomap_alloc()` instead. The driver can extract base address seen by
+CPU and its real memory type by using `dres_reg_nomap_cpu_addr_base()` and
+`dres_reg_nomap_real_addr_type()` respectively for its customized access. Note
+that the driver should not use `memcpy()` and `memset()` on MMIO registers
+because the standard of these two functions does not guarantee access
+alignment.
+* Intercept access to device's registers. This can be done by registering
+a handler functions to the created `dres_reg/dres_reg_nomap` handle
+`dres_reg_register_handler()/dres_reg_nomap_register_handler()`.
 * Initialize the device and driver's internal data structure.
 
 ## PCI configuration space access handling
@@ -138,10 +151,10 @@ device initialization, and remap with the new address.
 
 ## Device register access handling
 
-Guest OS access to device registers are intercepted after `mmio_register()` or
-`core_io_register_handler()` the register memory. In general, you need to read
-the device specification, and design the handling model to suit the driver
-purpose.
+Guest OS access to device registers are intercepted after
+`dres_reg_register_handler()/dres_reg_nomap_register_handler()` is called on
+`dres_reg/dres_reg_nomap` handle. In general, you need to read the device
+specification, and design the handling model to suit the driver purpose.
 
 The implementation can become tricky if both BitVisor and the guest OS
 needs to submit commands through ring buffers to the device. In this case, the
@@ -159,9 +172,21 @@ guest's commands back to the guest as well.
 Each NIC specification is different. Having to handle access from the guest OS
 for each NIC can be complex to implement. To simply handling access from the
 guest OS, NIC drivers delegate handling to virtio_net subsystem. Drivers's
-`new()` setup virtio_net with `virtio_net_init()`. The driver calls
+`new()` setup virtio_net with `virtio_net_init()` and
+`virtio_net_set_pci_deivce()`. The driver calls
 `virtio_net_handle_config_read()` and `virtio_net_handle_config_write()` for
-PCI access handling. With virtio_net subsystem, the guest OS will think that
-it is handling a virtio_net device instead of an actual hardware. The NIC
-driver will only have to deal with controlling the hardware bases on the
-specification when it utilizes virtio_net subsystem.
+PCI access handling. With virtio_net subsystem, the guest OS will think that it
+is handling a virtio_net device instead of an actual hardware. The NIC driver
+will only have to deal with controlling the hardware bases on the specification
+when it utilizes virtio_net subsystem.
+
+As mentioned earlier, a driver initially creates a `dres_reg` handle during its
+initialization for register access. The driver transfers the `dres_reg` handle
+ownership to virtio_net after `virtio_net_set_pci_device()`. The driver will
+only hold a reference to the handle for accessing actual device registers after
+the function call. Upon MMIO base address change event, virito_net notifies the
+driver with `mmio_change()` callback to let the driver update its handle
+reference. The driver calls `virtio_net_suspend()` to tell virito_net to stop
+handling MMIO access, takes back the `dres_reg` handle ownership, and frees it
+before suspending. The driver creates a new `dres_reg` handle, and transfers
+the ownership to virtio_net by calling `virtio_net_resume()` on resuming.

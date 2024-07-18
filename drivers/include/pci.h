@@ -35,6 +35,9 @@
 #define PCI_CONFIG_REGS8_NUM	256
 #define PCI_CONFIG_REGS32_NUM	(PCI_CONFIG_REGS8_NUM / sizeof (u32))
 
+enum dres_err_t;
+enum dres_reg_t;
+
 /* configuration address */
 typedef struct {
 	union {
@@ -314,5 +317,10 @@ pci_register_msi_callback (struct pci_device *pci_device,
 void pci_enable_msi_callback (struct pci_msi_callback *p, u32 maddr,
 			      u32 mupper, u16 mdata);
 void pci_disable_msi_callback (struct pci_msi_callback *p);
+enum dres_err_t pci_dres_reg_translate (void *pci_dev, phys_t dev_addr,
+					size_t len,
+					enum dres_reg_t dev_addr_type,
+					phys_t *cpu_addr,
+					enum dres_reg_t *real_addr_type);
 
 #endif

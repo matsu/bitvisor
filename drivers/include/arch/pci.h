@@ -34,6 +34,9 @@
 #include <pci.h>
 #include "io.h"
 
+enum dres_err_t;
+enum dres_reg_t;
+
 struct mm_as;
 struct pci_device;
 
@@ -44,5 +47,10 @@ void pci_arch_msi_to_ipi (pci_config_address_t pci_config_addr,
 			  u16 mdata);
 int pci_arch_msi_callback (void *data, int num);
 void pci_iommu_arch_force_map (struct pci_device *dev);
+enum dres_err_t pci_arch_dres_reg_translate (struct pci_device *dev,
+					     phys_t dev_addr, size_t len,
+					     enum dres_reg_t dev_addr_type,
+					     phys_t *cpu_addr,
+					     enum dres_reg_t *real_addr_type);
 
 #endif

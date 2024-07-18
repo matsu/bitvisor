@@ -262,8 +262,13 @@ outsn (ioport_t port, void *buf, int unit_size, u32 total_size)
 int core_io_register_handler (ioport_t start, size_t num,
 			      core_io_handler_t handler, void *arg,
 			      enum core_io_prio priority, const char *name);
+void *core_io_register_handler_dres (ioport_t start, size_t num,
+				     core_io_handler_t handler, void *arg,
+				     enum core_io_prio priority,
+				     const char *name);
 int core_io_modify_handler (int hd, ioport_t start, size_t num);
 int core_io_unregister_handler (int hd);
+void core_io_unregister_handler_dres (void *handle);
 void core_io_handle_default (core_io_t io, void *data);
 
 #endif
