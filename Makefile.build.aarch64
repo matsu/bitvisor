@@ -1,0 +1,18 @@
+# -*- makefile-gmake -*-
+
+CFLAGS_EDK2_ARCH_INC = -Iedk2/MdePkg/Include/AArch64
+CFLAGS_ARM_ARCH = -march=armv8.1-a
+CFLAGS_W = -Wundef -Werror=implicit-function-declaration -Werror=implicit-int \
+	   -Wno-address-of-packed-member
+CFLAGS_F = -fpic
+CFLAGS_M = $(CFLAGS_ARM_ARCH) -mgeneral-regs-only -mstrict-align
+CFLAGS_ARCH = $(CFLAGS_W) $(CFLAGS_F) $(CFLAGS_M)
+ASFLAGS_ARCH = $(CFLAGS_ARM_ARCH)
+LDFLAGS_ARCH = $(CFLAGS_ARM_ARCH)
+
+# Final ELF compile flags
+LDFLAGS_ELF = -Wl,--no-apply-dynamic-relocs -Wl,-z,nocopyreloc -Wl,-shared \
+	      -Wl,-pie -Wl,--no-undefined -Wl,-Bsymbolic
+
+# objcopy format
+FORMAT_ARCH = elf64-littleaarch64

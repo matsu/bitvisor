@@ -95,6 +95,7 @@ uninstall_multiple_protocol_interfaces_workaround (EFI_HANDLE Handle, ...);
 
 /* Calls the C function with a pointer of arguments to allow modifying
  * the variable arguments. */
+#if defined (__x86_64__)
 asm ("uninstall_multiple_protocol_interfaces_workaround: \n"
      " mov %rcx,8*1(%rsp) \n"
      " mov %rdx,8*2(%rsp) \n"
@@ -109,6 +110,23 @@ asm ("uninstall_multiple_protocol_interfaces_workaround: \n"
      " mov 8*3(%rsp),%r8 \n"
      " mov 8*4(%rsp),%r9 \n"
      " jmp *%rax \n");
+#elif defined (__aarch64__)
+asm ("uninstall_multiple_protocol_interfaces_workaround: \n"
+     " stp x6, x7, [sp, #-16]! \n"
+     " stp x4, x5, [sp, #-16]! \n"
+     " stp x2, x3, [sp, #-16]! \n"
+     " stp x0, x1, [sp, #-16]! \n"
+     " mov x0, sp \n"
+     " bl uninstall_multiple_protocol_interfaces_workaround_main \n"
+     " mov x10, x0 \n"
+     " ldp x0, x1, [sp], #16 \n"
+     " ldp x2, x3, [sp], #16 \n"
+     " ldp x4, x5, [sp], #16 \n"
+     " ldp x6, x7, [sp], #16 \n"
+     " br x10 \n");
+#else
+#error "Unsupported architecture"
+#endif
 
 static EFI_STATUS EFIAPI
 disconnect_controller_workaround (EFI_HANDLE ControllerHandle,

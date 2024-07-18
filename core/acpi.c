@@ -210,7 +210,7 @@ static struct rsdp rsdp1_copy;
 static u64 facs_addr[NFACS_ADDR];
 static u8 reset_value;
 #ifdef ACPI_DSDT
-static u32 dsdt_addr;
+static u64 dsdt_addr;
 #endif
 static struct mcfg *saved_mcfg;
 
@@ -1144,6 +1144,14 @@ acpi_set_waking_vector (u32 new_waking_vector, u32 old_waking_vector_ref)
 	}
 }
 
+#ifdef ACPI_DSDT
+u64
+acpi_get_dsdt_addr (void)
+{
+	return dsdt_addr;
+}
+#endif
+
 static void
 acpi_init_global (void)
 {
@@ -1175,7 +1183,8 @@ acpi_init_global (void)
 		return;
 	}
 #ifdef ACPI_DSDT
-	dsdt_addr = q->dsdt;
+	/* It is possible that dsdt is located above the first 4GB memory */
+	dsdt_addr = q->dsdt ? q->dsdt : q->x_dsdt;
 #endif
 	get_pm1a_cnt_info (q);
 	get_pm_tmr_info (q);

@@ -1,14 +1,19 @@
 EXE_CC			= clang
 RM			= rm -f
-STRIP			= strip
+STRIP			= $(CROSS_COMPILE)strip
 
-# To be used for cross compiling later
-ARCH			= x86
+ARCH_DEFAULT		!= echo `$(EXE_CC) -dumpmachine` | tr "-" "\n" | \
+			   head -n 1 | \
+			   sed 's/i[3456]86/x86/;s/x86_64/x86/;s/amd64/x86/'
+ARCH			?= $(ARCH_DEFAULT)
 
 TARGET_x86		= -target x86_64-unknown-windows
+TARGET_aarch64		= -target aarch64-unknown-windows
 TARGET			= $(TARGET_$(ARCH))
 
 CFLAGS_x86		= -mno-red-zone -mno-sse -I$(EDK2_INC)/X64
+CFLAGS_aarch64		= -march=armv8-a -mgeneral-regs-only -mstrict-align \
+			  -I$(EDK2_INC)/AArch64
 CFLAGS_ARCH		= $(CFLAGS_$(ARCH))
 
 # We use clang to call lld-link for us instead of using lld-link directly

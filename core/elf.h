@@ -86,12 +86,14 @@
 
 #include <core/types.h>
 
-#ifdef __x86_64__
+#if defined (__x86_64__) || defined (__aarch64__)
 #	define ELF_EHDR Elf64_Ehdr
 #	define ELF_PHDR Elf64_Phdr
-#else
+#elif defined (__i386__)
 #	define ELF_EHDR Elf32_Ehdr
 #	define ELF_PHDR Elf32_Phdr
+#else
+#error "Unsupported platform"
 #endif
 
 /* from FreeBSD src/sys/sys/elf_common.h: */

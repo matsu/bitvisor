@@ -2,7 +2,7 @@
 
 # commands
 AR = $(CROSS_COMPILE)ar
-CC = $(CROSS_COMPILE)cc
+CC = $(CROSS_COMPILE)gcc
 RM = rm -f
 OBJCOPY = $(CROSS_COMPILE)objcopy
 SED = sed

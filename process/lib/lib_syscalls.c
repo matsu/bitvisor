@@ -48,6 +48,8 @@ typedef unsigned long ulong;
 
 #if defined (__i386__) || defined (__x86_64__)
 #include "x86/lib_syscall.h"
+#elif defined (__aarch64__)
+#include "aarch64/lib_syscall.h"
 #else
 #error "Unsupported architecture"
 #endif

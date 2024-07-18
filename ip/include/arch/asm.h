@@ -9,6 +9,14 @@ asm_store_barrier (void)
 	asm volatile ("sfence" : : : "memory");
 }
 
+#elif defined (__aarch64__)
+
+static inline void
+asm_store_barrier (void)
+{
+	asm volatile ("dsb ish; isb" : : : "memory");
+}
+
 #else
 #error "Unsupported architecture"
 #endif

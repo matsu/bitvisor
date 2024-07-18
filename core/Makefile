@@ -25,6 +25,7 @@ subdirs-1 += $(ARCH)
 objs-1 += acpi.o
 objs-1 += acpi_dsdt.o
 objs-1 += assert.o
+objs-1 += bplus_tree.o
 objs-1 += calluefi.o
 objs-1 += config.o
 objs-1 += debug.o

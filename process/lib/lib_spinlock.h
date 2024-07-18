@@ -29,6 +29,8 @@
 
 typedef char spinlock_t;
 
+#if defined (__i386__) || defined (__x86_64__)
+
 static inline void
 spinlock_lock (spinlock_t *l)
 {
@@ -68,6 +70,26 @@ spinlock_unlock (spinlock_t *l)
 		      , "+m" (*l)
 		      : "0" ((char)0));
 }
+
+#elif defined (__aarch64__)
+
+static inline void
+spinlock_lock (spinlock_t *l)
+{
+	/* __atomic_test_and_set() returns true if *l were set */
+	while (__atomic_test_and_set (l, __ATOMIC_ACQUIRE))
+		asm volatile (" wfe" : : : "memory");
+}
+
+static inline void
+spinlock_unlock (spinlock_t *l)
+{
+	__atomic_clear (l, __ATOMIC_RELEASE);
+}
+
+#else
+#error "Unsupported architecture"
+#endif
 
 static inline void
 spinlock_init (spinlock_t *l)

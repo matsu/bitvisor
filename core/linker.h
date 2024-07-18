@@ -33,7 +33,10 @@
 #include <core/types.h>
 
 extern u8 head[];
+extern u8 code[];
+extern u8 data[];
 extern u8 dataend[];
+extern u8 bss[];
 extern u8 end[];
 
 #endif

@@ -63,6 +63,7 @@ print (EFI_SYSTEM_TABLE *systab, CHAR16 *msg, UINT64 val)
 static int
 vmcall_dbgsh (int c)
 {
+#if defined (__x86_64__)
 	int a = 0;
 	asm volatile (VMMCALL : "+a" (a) : "b" ("dbgsh"));
 	if (!a) {
@@ -71,6 +72,23 @@ vmcall_dbgsh (int c)
 	}
 	asm volatile (VMMCALL : "+a" (a) : "b" (c));
 	return a;
+#elif defined (__aarch64__)
+	register int a asm ("x0");
+	register int b asm ("x1");
+	register char *s asm ("x1") = "dbgsh";
+
+	a = 0;
+	asm volatile ("hvc 0" : "=r" (a) : "r" (a), "r" (s));
+	if (!a) {
+		error = L"vmmcall \"dbgsh\" failed\n";
+		return 0;
+	}
+	b = c;
+	asm volatile ("hvc 0" : "=r" (a) : "r" (a), "r" (b));
+	return a;
+#else
+#	error "Unsupported architecture"
+#endif
 }
 
 static void

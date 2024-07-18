@@ -34,6 +34,18 @@
 #include <efi_extra/device_path_helper.h>
 #include <uefi_boot.h>
 
+#if defined (__x86_64__)
+#define UPPER_LOAD_ADDR 0x40000000
+#define ENTRY_BOOTSTRAP_CODE_SIZE 0x10000
+#define ENTRY_MASK 0xFFFF
+#elif defined (__aarch64__)
+#define UPPER_LOAD_ADDR 0xFFFFFFFF
+#define ENTRY_BOOTSTRAP_CODE_SIZE 0x50000 /* Relocation table can be large */
+#define ENTRY_MASK 0xFFFFFFFFFFFFFFFFULL /* No need to mask */
+#else
+#error "Unsupported architecture"
+#endif
+
 typedef int EFIAPI entry_func_t (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab,
 				 void **boot_exts);
 
@@ -119,7 +131,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 {
 	void *tmp;
 	UINT32 entry;
-	UINTN readsize;
+	UINTN readsize, npages;
 	int boot_error;
 	EFI_STATUS status;
 	entry_func_t *entry_func;
@@ -127,7 +139,7 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	static CHAR16 file_path[4096];
 	EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fileio;
 	EFI_LOADED_IMAGE_PROTOCOL *loaded_image;
-	EFI_PHYSICAL_ADDRESS paddr = 0x40000000;
+	EFI_PHYSICAL_ADDRESS paddr = UPPER_LOAD_ADDR;
 
 	saved_image = image;
 	saved_systab = systab;
@@ -158,21 +170,22 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 		print (systab, L"Open ", status);
 		return status;
 	}
+	npages = ENTRY_BOOTSTRAP_CODE_SIZE / 4096;
 	status = systab->BootServices->AllocatePages (AllocateMaxAddress,
-						      EfiLoaderData, 0x10,
+						      EfiLoaderData, npages,
 						      &paddr);
 	if (EFI_ERROR (status)) {
 		print (systab, L"AllocatePages ", status);
 		return status;
 	}
-	readsize = 0x10000;
+	readsize = ENTRY_BOOTSTRAP_CODE_SIZE;
 	status = file2->Read (file2, &readsize, (void *)paddr);
 	if (EFI_ERROR (status)) {
 		print (systab, L"Read ", status);
 		return status;
 	}
 	entry = *(UINT32 *)(paddr + 0x18);
-	entry_func = (entry_func_t *)(paddr + (entry & 0xFFFF));
+	entry_func = (entry_func_t *)(paddr + (entry & ENTRY_MASK));
 
 	struct bitvisor_boot boot_ext = {
 		UEFI_BITVISOR_BOOT_UUID,

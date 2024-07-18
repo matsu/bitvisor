@@ -31,5 +31,6 @@
 #define _BITS_H
 
 #define BIT(n)				(1ULL << (n))
+#define BITFIELD(v, m, s)		(((v) & (m)) << (s))
 
 #endif

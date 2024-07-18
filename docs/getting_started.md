@@ -344,3 +344,57 @@ Recent BitVisor has a workaround for SMP bring-up and APICV problem on QEMU +
 KVM. It is possible to set `.localapic_intercept` to 1 to enable INIT-SIPI
 emulation and other APIC access emulation. When the option is enabled, BitVisor
 should run properly on QEMU + KVM.
+
+### Running AArch64 BitVisor on QEMU
+
+AArch64 BitVisor is still in the experimental state. It currently can boot Linux
+kernel with a functional network through virtio_net.
+
+To cross-compile BitVisor Aarch64 on x86_64 hosts, change directory to BitVisor
+root directory, and run `make` command with `CROSS_COMPILE` and `ARCH`
+environment variables like the following:
+
+```
+CROSS_COMPILE=aarch64-none-linux-gnu- ARCH=aarch64 make
+```
+
+`CROSS_COMPILE` is the prefix of the cross-compile toolchain. This is system
+specific. You may need to change this to match with your cross-compile toolchain
+prefix. `ARCH` is used for selecting architecture specific files and folders.
+For AArch64, it is `aarch64`.
+
+If you need to clean the build, replace `make` in the previous command with
+`make clean`.
+
+Next is to compile the UEFI loader. Switch directory to `boot/uefi-loader`, and
+run the `make` command the same as how AArch64 BitVisor is built.
+
+Before testing on QEMU, make sure that both `bitvisor.elf` and `loadvmm.efi` are
+for AArch64.
+
+```
+file bitvisor.elf
+bitvisor.elf: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, with debug_info, not stripped
+```
+```
+file loadvmm.efi
+loadvmm.efi: PE32+ executable (DLL) (EFI application) Aarch64 (stripped to external PDB), for MS Windows, 4 sections
+```
+
+To test AArch64 BitVisor on QEMU, put both `bitvisor.elf` and `loadvmm.efi` in
+the same folder, and run the following command, replace paths with ones on your
+environment:
+
+```
+qemu-system-aarch64 -m 8G -M virt,gic-version=3,virtualization=true \
+-cpu neoverse-n1 -bios /path/to/aarch64/qemu_efi.fd \
+-drive file=fat:rw:/path/to/bitvisor_dir/,format=raw \
+-cdrom /path/to/aarch64/linux.iso -nic user,model=e1000e -serial vc:1024x768 \
+-smp 4
+```
+
+AArch64 BitVisor currently runs on `-cpu neoverse-n1` or `-cpu a64fx`. `-cpu
+max` introduces optional features are currently not supported. During QEMU
+booting, press `esc` key repeatedly to enter the settings menu. From there, we
+can enter the EFI shell. The rest is the same as what previous sections
+describe.

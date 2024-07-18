@@ -45,7 +45,14 @@ typedef unsigned long ulong;
 
 struct memdump_data {
 	u64 physaddr;
+#if defined (__i386__) || defined (__x86_64__)
 	u64 cr0, cr3, cr4, efer;
+#elif defined (__aarch64__)
+	u64 ttbr0_el1, ttbr1_el1;
+	u64 sctlr_el1, mair_el1, tcr_el1;
+#else
+#error "Unsupported architecture"
+#endif
 	ulong virtaddr;
 };
 
@@ -59,10 +66,21 @@ char logbuf[65536];
 int loglen;
 int logoff;
 
+#if defined (__i386__) || defined (__x86_64__)
 struct {
 	u64 rip, rsp, gdtrbase, idtrbase;
 	u64 cr0, cr3, cr4, efer;
 } guest;
+#elif defined (__aarch64__)
+struct {
+	u64 sp_el1;
+	u64 ttbr0_el1, ttbr1_el1;
+	u64 sctlr_el1, mair_el1, tcr_el1;
+} guest;
+#else
+#error "Unsupported architecture"
+#endif
+
 
 void
 command_error (void)
@@ -177,10 +195,20 @@ dump_mem (char *buf, int t)
 		dinit = 1;
 	}
 	d.physaddr = daddr;
+#if defined (__i386__) || defined (__x86_64__)
 	d.cr3 = guest.cr3;
 	d.cr0 = guest.cr0;
 	d.cr4 = guest.cr4;
 	d.efer = guest.efer;
+#elif defined (__aarch64__)
+	d.ttbr0_el1 = guest.ttbr0_el1;
+	d.ttbr1_el1 = guest.ttbr1_el1;
+	d.sctlr_el1 = guest.sctlr_el1;
+	d.mair_el1 = guest.mair_el1;
+	d.tcr_el1 = guest.tcr_el1;
+#else
+#error "Unsupported architecture"
+#endif
 	d.virtaddr = (ulong)daddr;
 	a = msgopen ("memdump");
 	if (a < 0) {
@@ -287,6 +315,7 @@ getnextstate (void)
 		char *key;
 		u64 *data;
 	} *pp, l[] = {
+#if defined (__i386__) || defined (__x86_64__)
 		{ "RSP ", &guest.rsp },
 		{ "CR0 ", &guest.cr0 },
 		{ "CR3 ", &guest.cr3 },
@@ -295,6 +324,16 @@ getnextstate (void)
 		{ "RIP ", &guest.rip },
 		{ "GDTR ", &guest.gdtrbase },
 		{ "IDTR ", &guest.idtrbase },
+#elif defined (__aarch64__)
+		{ "SP_EL1: ",  &guest.sp_el1 },
+		{ "TTBR0_EL1: ", &guest.ttbr0_el1 },
+		{ "TTBR1_EL1: ", &guest.ttbr1_el1 },
+		{ "SCTLR_EL1: ", &guest.sctlr_el1 },
+		{ "MAIR_EL1: ",  &guest.mair_el1 },
+		{ "TCR_EL1: ",  &guest.tcr_el1 },
+#else
+#error "Unsupported architecture"
+#endif
 		{ 0, 0 }
 	};
 
@@ -331,6 +370,7 @@ guestreg (char *buf)
 		char *name;
 		u64 *data;
 	} *pp, l[] = {
+#if defined (__i386__) || defined (__x86_64__)
 		{ "%s  %08llX   ", "RIP",  &guest.rip },
 		{ "%s  %08llX   ", "RSP",  &guest.rsp },
 		{ "%s %08llX   ",  "GDTR", &guest.gdtrbase },
@@ -339,6 +379,16 @@ guestreg (char *buf)
 		{ "%s  %08llX   ", "CR3",  &guest.cr3 },
 		{ "%s  %08llX   ", "CR4",  &guest.cr4 },
 		{ "%s %08llX\n",   "EFER", &guest.efer },
+#elif defined (__aarch64__)
+		{ "%s %08llX", "SP_EL1:",  &guest.sp_el1 },
+		{ "%s %08llX", "TTBR0_EL1:", &guest.ttbr0_el1 },
+		{ "%s %08llX", "TTBR1_EL1:", &guest.ttbr1_el1 },
+		{ "%s %08llX", "SCTLR_EL1:", &guest.sctlr_el1 },
+		{ "%s %08llX", "MAIR_EL1:",  &guest.mair_el1 },
+		{ "%s %08llX", "TCR_EL1:",  &guest.tcr_el1 },
+#else
+#error "Unsupported architecture"
+#endif
 		{ 0, 0, 0 }
 	};
 	u64 tmp;

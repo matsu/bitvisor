@@ -42,6 +42,8 @@ typedef struct {
 
 #if defined (__i386__) || defined (__x86_64__)
 #include "x86/spinlock.h"
+#elif defined (__aarch64__)
+#include "aarch64/spinlock.h"
 #else
 #error "Unsupported architecture"
 #endif

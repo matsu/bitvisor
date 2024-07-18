@@ -34,7 +34,9 @@
 
 extern unsigned char acpi_dsdt_system_state[6][5];
 
-void acpi_dsdt_parse (ulong dsdt);
+void acpi_dsdt_parse (u64 dsdt);
 void acpi_ssdt_parse (u8 *ssdt, u32 len);
+bool acpi_dsdt_search_ns (u64 dsdt, char *ns, uint ns_len, u64 *start_out,
+			  u64 *readable_len);
 
 #endif

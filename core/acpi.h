@@ -68,4 +68,8 @@ void acpi_poweroff (void);
 bool get_acpi_time_raw (u32 *r);
 void acpi_reset (void);
 
+#ifdef ACPI_DSDT
+u64 acpi_get_dsdt_addr (void);
+#endif
+
 #endif

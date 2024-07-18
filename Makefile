@@ -4,6 +4,7 @@ include Makefile.common
 include $(CONFIG)
 
 arch-default-$(CONFIG_ARCH_DFLT_X86) = x86
+arch-default-$(CONFIG_ARCH_DFLT_AARCH64) = aarch64
 ARCH ?= $(arch-default-1)
 
 .PHONY : all
@@ -16,7 +17,7 @@ NAME   = bitvisor
 FORMAT = $(FORMAT_ARCH)
 elf    = $(NAME).elf
 map    = $(NAME).map
-lds    = $(NAME).lds
+lds    = $(NAME)_$(ARCH).lds
 target = $(elf)
 
 subdirs-1 += core drivers

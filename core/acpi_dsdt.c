@@ -674,14 +674,16 @@ parseok (struct parsedata *d)
 }
 
 static struct parsedatalist *
-parsemain (struct parsedata *d)
+parsemain (struct parsedata *d, const char *search, uint search_len)
 {
 	struct parsedatalist *q, *r;
 	struct pathlist *curpath;
 	struct buflist *curbuf;
 	enum elementid element;
 	unsigned char *tmpc;
-	int i;
+	char tmp[DATALEN];
+	int i, len;
+	bool search_found = false;
 
 	r = NULL;
 loop:
@@ -694,13 +696,28 @@ loop:
 			error ("getbuf");
 #endif
 		}
-		if (d->c == d->end) {
+		if (d->c == d->end || search_found) {
 			r = d->cur;
 			goto loop;
 		}
+		if (search && search_len > 0) {
+			if (search_len >= DATALEN)
+				error ("search_len >= DATALEN");
+			len = getname (d, tmp, sizeof tmp);
+			if (len >= search_len &&
+			    memcmp (tmp, (void *)search, search_len) == 0)
+				search_found = true;
+		}
 	} else {
-		if (getbuf (d) == NULL)
+		if (search && search_found)
 			return r;
+		if (getbuf (d) == NULL) {
+			if (!search)
+				return r;
+			else
+				printf ("Search for %s fail\n", search);
+		}
+		r = NULL;
 		goto err;
 	}
 loop2:
@@ -2267,7 +2284,7 @@ parser (unsigned char *start, unsigned char *end, bool print_progress)
 		d.head->next = NULL;
 		addbuflist (&d.head->bufhead, AML_AMLCode);
 		d.head->limithead = NULL;
-		q = parsemain (&d);
+		q = parsemain (&d, NULL, 0);
 		if (d.progress)
 			printf ("%c", d.progresschar);
 		if (q) {
@@ -2297,7 +2314,7 @@ parser (unsigned char *start, unsigned char *end, bool print_progress)
 	d.head->next = NULL;
 	addbuflist (&d.head->bufhead, AML_AMLCode);
 	d.head->limithead = NULL;
-	q = parsemain (&d);
+	q = parsemain (&d, NULL, 0);
 	if (d.progress)
 		printf ("%c\n", d.progresschar);
 	if (!q)
@@ -2327,7 +2344,7 @@ error:
 }
 
 void
-acpi_dsdt_parse (ulong dsdt)
+acpi_dsdt_parse (u64 dsdt)
 {
 	u32 *p;
 	u8 *q;
@@ -2349,4 +2366,69 @@ void
 acpi_ssdt_parse (u8 *ssdt, u32 len)
 {
 	parser (ssdt, ssdt + len, false);
+}
+
+bool
+acpi_dsdt_search_ns (u64 dsdt, char *ns, uint ns_len, u64 *start_out,
+		     u64 *readable_len)
+{
+	u32 *p;
+	u8 *q;
+	u32 len, i;
+	ulong offset;
+	struct parsedata d;
+	struct parsedatalist *dl;
+	bool found = false;
+
+	if (!ns || ns_len == 0)
+		goto end;
+
+	p = mapmem_hphys (dsdt, 8, 0);
+	ASSERT (p);
+	if (memcmp ((void *)p, "DSDT", 4))
+		panic ("DSDT broken");
+	len = p[1];
+	unmapmem (p, 8);
+	q = mapmem_hphys (dsdt, len, 0);
+	ASSERT (q);
+
+	d.breakhead = NULL;
+	d.progress = 0;
+	d.progresschar = '*';
+	d.start = q;
+	d.end = q + len;
+	d.breakfind = 0;
+	d.c = q;
+	d.ok = NULL;
+	d.head = parsealloc (sizeof *d.head);
+	for (i = 0; i <= 5; i++) {
+		d.head->system_state[i][0] = 0;
+		d.head->system_state_name[i] = NULL;
+	}
+	d.head->datalen = 0;
+	d.head->bufhead = NULL;
+	d.head->pathelement = OK;
+	d.head->pathhead = NULL;
+	d.head->next = NULL;
+	addbuflist (&d.head->bufhead, AML_AMLCode);
+	d.head->limithead = NULL;
+
+	dl = parsemain (&d, ns, ns_len);
+	if (dl) {
+		/* Actual data starts at dl->datac + 1 */
+		found = true;
+		offset = dl->datac + 1 - q;
+		if (start_out)
+			*start_out = dsdt + offset;
+		if (readable_len)
+			*readable_len = len - offset + 1;
+		parsefreepathlist (&dl->pathhead);
+		parsefreebuflist (&dl->bufhead);
+		parsefreelimitlist (&dl->limithead);
+		parsefree (dl);
+	}
+
+	unmapmem (q, len);
+end:
+	return found;
 }

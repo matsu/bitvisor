@@ -30,6 +30,10 @@
 #ifndef __CORE_LINKAGE
 #define __CORE_LINKAGE
 
+#if defined (__i386__) || defined (__x86_64__)
 #define asmlinkage __attribute__ ((regparm (0)))
+#else
+#define asmlinkage
+#endif
 
 #endif
