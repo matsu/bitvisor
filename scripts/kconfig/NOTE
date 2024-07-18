@@ -1,0 +1,5 @@
+Origin: https://github.com/zephyrproject-rtos/zephyr/tree/v3.6.0
+
+When updating menuconfig.py, don't forget to change '_minconf_filename' value
+to something else other than 'defconfig'. This is to avoid conflict.
+'defconfig' is currently used by BitVisor.

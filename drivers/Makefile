@@ -9,14 +9,14 @@ CONSTANTS-$(CONFIG_NET_RE) += -DNET_RE
 CFLAGS += -Idrivers/include
 CFLAGS += -Ivpn
 
-subdirs-1 += $(ARCH)
+subdirs-y += $(ARCH)
 
 subdirs-$(CONFIG_ATA_DRIVER) += ata
 subdirs-$(CONFIG_NVME_DRIVER) += nvme
 subdirs-$(CONFIG_USB_DRIVER) += usb
 subdirs-$(CONFIG_NET_DRIVER) += net
-objs-1 += core.o pci_conceal.o pci_core.o
-objs-1 += pci_debug.o pci_init.o pci_match.o pci_match_compat.o security.o
+objs-y += core.o pci_conceal.o pci_core.o
+objs-y += pci_debug.o pci_init.o pci_match.o pci_match_compat.o security.o
 objs-$(CONFIG_LOG_TO_IEEE1394) += ieee1394log.o
 objs-$(CONFIG_VGA_INTEL_DRIVER) += vga_intel.o
 objs-$(CONFIG_VGA_UEFI) += vga_uefi.o

@@ -1,2 +1,2 @@
-objs-1 += lib_arith.o
-objs-1 += lib_string.o
+objs-y += lib_arith.o
+objs-y += lib_string.o

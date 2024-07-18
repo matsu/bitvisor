@@ -3,5 +3,5 @@ CONSTANTS-$(CONFIG_IDMAN_PD) += -DIDMAN_PD
 
 CFLAGS += -Idrivers/usb
 
-objs-1 += kernel.o
-asubdirs-1 += lib
+objs-y += kernel.o
+asubdirs-y += lib

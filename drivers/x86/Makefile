@@ -3,8 +3,8 @@ CONSTANTS-$(CONFIG_VTD_TRANS) += -DVTD_TRANS
 
 CFLAGS += -Idrivers/include
 
-objs-1 += core.o
-objs-1 += dmar.o
-objs-1 += iommu.o
-objs-1 += pci.o
-objs-1 += pci_init.o
+objs-y += core.o
+objs-y += dmar.o
+objs-y += iommu.o
+objs-y += pci.o
+objs-y += pci_init.o

@@ -2,5 +2,5 @@ CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
 CONSTANTS-$(CONFIG_STORAGE_PD) += -DSTORAGE_PD
 CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
 
-objs-1 += storage.o
-subdirs-1 += crypto
+objs-y += storage.o
+subdirs-y += crypto

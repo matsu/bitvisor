@@ -1,0 +1,476 @@
+mainmenu "BitVisor Configuration"
+
+choice ARCH_DFLT
+	prompt "Choose default target architecture"
+	default ARCH_DFLT_$(shell, $(CC) -dumpmachine | sed 's/-.*//;s/i[3456]86/x86/;s/x86_64/x86/;s/amd64/x86/' | tr 'a-z' 'A-Z')
+	help
+	  When $(ARCH) variable is not defined, this option specifies the
+	  default target architecture.
+
+config ARCH_DFLT_X86
+	bool
+	prompt "x86"
+
+config ARCH_DFLT_AARCH64
+	bool
+	prompt "AArch64"
+
+endchoice
+
+menu "x86 options"
+
+config 64
+	bool
+	default $(shell, $(CC) --target-help | grep x86_64: >/dev/null && /bin/echo -n y || /bin/echo -n n)
+	prompt "64bit VMM"
+
+choice MMU_SPT
+	bool
+	prompt "MMU shadow page table"
+	default CPU_MMU_SPT_3
+	help
+	  If the processor does not support nested paging (EPT or RVI), shadow
+	  page tables are needed.
+
+	  There are 3 types of implementation of shadow page tables.
+	  CPU_MMU_SPT_* selects the type.  CPU_MMU_SPT_1 is simple
+	  implementation but very slow, because it always clear whole shadow
+	  page tables when the guest operating system flushes TLB.
+	  CPU_MMU_SPT_2 is the next one, faster than CPU_MMU_SPT_1 but not
+	  maintained well.  CPU_MMU_SPT_3 is currently expected as the best
+	  option.
+
+config CPU_MMU_SPT_1
+	bool
+	prompt "Shadow type 1 (very slow and stable)"
+
+config CPU_MMU_SPT_2
+	bool
+	select CPU_MMU_SPT_USE_PAE
+	prompt "Shadow type 2 (faster and unstable)"
+
+config CPU_MMU_SPT_3
+	bool
+	select CPU_MMU_SPT_USE_PAE
+	prompt "Shadow type 3 (faster and unstable)"
+
+endchoice
+
+config CPU_MMU_SPT_USE_PAE
+	bool
+	default y
+	prompt "Shadow page table uses PAE"
+	help
+	  CPU_MMU_SPT_USE_PAE enables PAE of shadow page tables.  CPU_MMU_SPT_2
+	  and CPU_MMU_SPT_3 need this option enabled.  64-bit guest also needs
+	  this option enabled.
+
+config CPU_MMU_SPT_DISABLE
+	bool
+	prompt "Disable SPT (fast, insecure and no MMIO)"
+	help
+	  CPU_MMU_SPT_DISABLE avoids using shadow page tables as much as
+	  possible.  Page tables created by the guest operating system are
+	  directly used.  The guest operating system can access VMM memory
+	  freely.  MMIO accesses are not handled by the VMM.  This option is
+	  for benchmarking without the overhead of shadow page tables.
+
+config USE_SYSCALL64
+	bool
+	default n
+	depends on 64
+	prompt "Use SYSCALL for 64bit system call"
+	help
+	  It is n by default because NMIs are not handled properly in case of
+	  y.
+
+config DEBUG_GDB
+	bool
+	default n
+	depends on !64
+	prompt "gdb remote debug support (32bit only)"
+
+config PS2KBD_F11PANIC
+	bool
+	default n
+	prompt "Panic when F11 is pressed (PS/2 only)"
+
+config PS2KBD_F12MSG
+	bool
+	default y
+	prompt "Print when F12 is pressed (PS/2 only)"
+
+config SHIFT_KEY_DEBUG
+	bool
+	default n
+	prompt "Debug shell with shift key while booting"
+
+config DISABLE_TCG_BIOS
+	bool
+	default n
+	prompt "Disable TCG BIOS (TPM related)"
+
+config TCG_BIOS
+	bool
+	default y if 64
+	prompt "TCG BIOS support"
+	help
+	  TCG BIOS is used for measuring the boot process.  If TCG_BIOS is y,
+	  the VMM measures the boot record read from the storage.  This option
+	  does nothing on UEFI environments.  TCG BIOS might not work on 32-bit
+	  virtual machine, so this option is y default for 64-bit only.
+
+config DISABLE_VTD
+	bool
+	default y
+	prompt "Disable VT-d translation if enabled"
+	help
+	  This option disables VT-d DMA-remapping translation when starting
+	  VMM.  The translation table should be 1:1 mappings.  If not, devices
+	  may stop working.
+
+config DMAR_PASS_THROUGH
+	bool
+	default n
+	depends on DISABLE_VTD
+	prompt "Enable DMAR pass-through"
+	help
+	  This option provides DMAR to a guest operating system. ACPI DMAR
+	  table is modified to add RMRR entries to let an operating system
+	  make 1:1 mapping of VMM addresses.  The 1:1 mapping is needed for
+	  DMA transfers between shadow buffers in VMM and PCI devices.
+	  Operating systems may warn a firmware (BIOS) bug about incorrect
+	  memory type which should be reserved for memory ranges in the RMRR.
+
+config VTD_TRANS
+	bool
+	default n
+	prompt "Enable VT-d translation"
+	help
+	  Make BitVisor use VT-d translation for drivers. Only ATA is currently
+	  supported.
+
+endmenu
+
+menu "TTY output"
+
+config TTY_SERIAL
+	bool
+	default n
+	imply ACPI_DSDT
+	prompt "VMM uses a serial port for output"
+	help
+	  ACPI_DSDT might be needed on some machines and operating systems. If
+	  the DSDT or SSDT contains a method for powering down the serial port
+	  and Windows (currently we know) will be running on it, Windows powers
+	  down the serial port, so to avoid serial port powered down,
+	  ACPI_DSDT is needed.
+
+config TTY_X540
+	bool
+	default y
+	prompt "VMM output over Intel X540"
+
+config LOG_TO_GUEST
+	bool
+	default n
+	prompt "Log to guest memory"
+
+config LOG_TO_IEEE1394
+	bool
+	default y
+	prompt "Log to IEEE 1394 host"
+
+config TTY_VGA
+	bool
+	default n
+	imply VGA_INTEL_DRIVER
+	imply VGA_UEFI
+	prompt "VMM output using VGA driver"
+
+endmenu
+
+config DBGSH
+	bool
+	default y
+	prompt "Debug shell access from guest"
+
+config STATUS
+	bool
+	default n
+	prompt "Provide VMM status for guest"
+
+config ATA_DRIVER
+	bool
+	default y
+	select STORAGE
+	select STORAGE_IO
+	prompt "Enable ATA driver"
+
+config DEBUG_ATA
+	bool
+	default n
+	depends on ATA_DRIVER
+	prompt "Enable debugging ATA driver"
+
+config NVME_DRIVER
+	bool
+	default y
+	prompt "Enable NVMe driver"
+
+config STORAGE
+	bool
+	default y
+	select CRYPTO
+	prompt "Enable storage process/encryption"
+
+config STORAGE_PD
+	bool
+	default n
+	depends on STORAGE
+	prompt "Storage encrypting in protection domain"
+
+config STORAGE_IO
+	bool
+	default y
+	prompt "Enable storage IO interface"
+
+config CRYPTO
+	bool
+	default y
+	prompt "Crypto library"
+
+config VPN
+	bool
+	default y
+	select CRYPTO
+	prompt "Enable IPsec VPN Client"
+
+config VPN_PD
+	bool
+	default n
+	depends on VPN
+	prompt "VPN in protection domain"
+
+menuconfig USB_DRIVER
+	bool
+	default y
+	prompt "Enable USB driver"
+
+if USB_DRIVER
+
+config SHADOW_UHCI
+	bool
+	default y
+	prompt "Shadow UHCI(USB1) transfers"
+
+config SHADOW_EHCI
+	bool
+	default y
+	prompt "Shadow EHCI(USB2) transfers"
+
+config SHADOW_XHCI
+	bool
+	default y
+	select HANDLE_USBMSC
+	select HANDLE_USBHUB
+	prompt "Shadow xHCI(USB3) transfers"
+
+config HANDLE_USBMSC
+	bool
+	default y
+	select STORAGE
+	prompt "Handle USB mass storage class devices"
+
+config HANDLE_USBHUB
+	bool
+	default y
+	prompt "Handle USB hub class devices"
+
+config CONCEAL_USBCCID
+	bool
+	default y
+	prompt "Conceal USB ccid class device"
+
+endif
+
+config IEEE1394_CONCEALER
+	bool
+	default y
+	prompt "Conceal USB ccid class device"
+
+config ACPI_DSDT
+	bool
+	default y
+	prompt "Parse ACPI DSDT"
+	help
+	  ACPI DSDT/SSDT contains a lot of information such as sleep state and
+	  serial port power control.  Parsing DSDT/SSDT takes a long time
+	  before starting a virtual machine.  If DISABLE_SLEEP=n and
+	  TTY_SERIAL=n, ACPI_DSDT=n can be used to reduce the time.
+
+config DISABLE_SLEEP
+	bool
+	default n
+	depends on ACPI_DSDT
+	prompt "Disable ACPI S2 and S3"
+
+config ENABLE_ASSERT
+	bool
+	default y
+	prompt "Enable checking assertion failure"
+
+config IDMAN
+	bool
+	default y
+	select CRYPTO
+	prompt "IDMAN"
+	help
+	  IDMAN, ID-manager, is smartcard support.  BitVisor can use a
+	  smartcard for connecting IPsec VPN.  This option is needed for using
+	  a smartcard certificate for VPN, or using a smartcard for the
+	  tools/iccard to lock the Windows screen automatically if the
+	  smartcard is ejected.
+
+config IDMAN_PD
+	bool
+	default n
+	depends on IDMAN
+	prompt "IDMan in protection domain"
+
+config CARDSTATUS
+	bool
+	default y
+	depends on IDMAN
+	prompt "Panic if an IC card is ejected (IDMAN)"
+	help
+	  The tools/iccard needs CARDSTATUS=y.  The tools/iccard is a Windows
+	  utility.  It communicates with VMM via vmmcall interface and check
+	  whether the smartcard is ejected.  If it is ejected, it locks the
+	  screen.
+
+menuconfig NET_DRIVER
+	bool
+	default y
+	prompt "Enable NIC drivers"
+
+if NET_DRIVER
+
+config NET_PRO100
+	bool
+	default y
+	prompt "Intel PRO/100 driver"
+
+config NET_PRO1000
+	bool
+	default y
+	prompt "Intel PRO/1000 driver"
+
+config NET_RTL8169
+	bool
+	default n
+	prompt "Realtek RTL8169 driver"
+
+config NET_RE
+	bool
+	default n
+	select NET_VIRTIO_NET
+	prompt "Realtek Family driver"
+
+config NET_BNX
+	bool
+	default y
+	select NET_VIRTIO_NET
+	prompt "Broadcom NetXtreme GbE driver"
+
+config NET_AQ
+	bool
+	default n
+	select NET_VIRTIO_NET
+	prompt "Aquantia ACQ107 driver"
+
+config NET_VIRTIO_NET
+	bool
+	default y
+	prompt "Enable virtio-net for PRO1000/BNX"
+
+config NET_V_VIRTIO_NET
+	bool
+	default y
+	prompt "Enable virtio-net virtual driver"
+
+endif
+
+config ACPI_TIME_SOURCE
+	bool
+	default y
+	prompt "Use ACPI PM Timer as time source"
+
+config BACKTRACE
+	bool
+	default n
+	prompt "Enable backtrace in panic"
+
+config VGA_INTEL_DRIVER
+	bool
+	default n
+	prompt "Enable vga_intel driver"
+
+config VGA_UEFI
+	bool
+	default n
+	prompt "Enable UEFI GOP VGA driver"
+
+config DUMP_PCI_DEV_LIST
+	bool
+	default n
+	prompt "Dump list of PCI devices"
+
+config IP
+	bool
+	default y
+	prompt "Enable TCP/IP stack"
+
+config WIREGUARD
+	bool
+	default n
+	depends on IP
+	prompt "Wireguard for vmm"
+
+config TLS
+	bool
+	default n
+	depends on IP
+	prompt "Enable TLS connection with Mbed-TLS"
+
+config PCI_MONITOR
+	bool
+	default y
+	prompt "PCI I/O monitor driver"
+
+config THREAD_1CPU
+	bool
+	default n
+	prompt "Disable parallel thread processing"
+	help
+	  If this option is n, threads may run in parallel i.e. thread 2 starts
+	  running while thread 1 is running on another processor.  If there are
+	  a lot of threads, searching next thread takes a long time because of
+	  locking.  If this option is y, while one processor is running
+	  threads, other processors never start running threads.  This reduces
+	  the overhead of searching.
+
+config ACPI_IGNORE_ERROR
+	bool
+	default n
+	prompt "Ignore ACPI DSDT/SSDT parse errors"
+
+config SQLITE
+	bool
+	default n
+	prompt "SQLite in protection domain"
+
+config DEBUG_SERIAL
+	bool
+	default n
+	prompt "Debug serial for Linux early console"

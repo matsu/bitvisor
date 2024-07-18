@@ -5,5 +5,5 @@ CONSTANTS-$(CONFIG_VPN_PD) += -DVPN_PD
 
 CFLAGS += -Iinclude/core -Ivpn/lib
 
-objs-1 += kernel.o
-asubdirs-1 += lib
+objs-y += kernel.o
+asubdirs-y += lib

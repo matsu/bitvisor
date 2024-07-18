@@ -5,5 +5,5 @@ CONSTANTS-$(CONFIG_VPN_PD) += -DVPN_PD
 
 CFLAGS += -Iinclude/core -Ivpn
 
-objs-1 += crypt.o user.o
-subdirs-1 += Se
+objs-y += crypt.o user.o
+subdirs-y += Se

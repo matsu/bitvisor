@@ -4,4 +4,4 @@ CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
 
 CFLAGS += -Icrypto -Icrypto/openssl-$(OPENSSL_VERSION)/include
 
-objs-1 += aes_xts.o crypto.o none.o
+objs-y += aes_xts.o crypto.o none.o

@@ -1,1 +1,1 @@
-objs-1 += netapi.o
+objs-y += netapi.o

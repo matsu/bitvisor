@@ -6,11 +6,11 @@ include Makefile.common
 include $(CONFIG)
 include Makefile.build.$(ARCH)
 CFLAGS_EDK2_INC = -fshort-wchar -Iedk2/MdePkg/Include/ $(CFLAGS_EDK2_ARCH_INC)
-backtrace-0 = -fomit-frame-pointer
-backtrace-1 = -fno-omit-frame-pointer
+backtrace-n = -fomit-frame-pointer
+backtrace-y = -fno-omit-frame-pointer
 backtrace = $(backtrace-$(CONFIG_BACKTRACE))
 CFLAGS = -nostdinc -g -O -ffreestanding -fno-builtin -fno-stack-protector \
-	 -fno-PIE -Wall $(CONSTANTS-1) -Iinclude -I$(DIR) $(backtrace) \
+	 -fno-PIE -Wall $(CONSTANTS-y) -Iinclude -I$(DIR) $(backtrace) \
 	 -ffunction-sections -fdata-sections \
 	 $(CFLAGS_ARCH)
 ASFLAGS = -g -Wa,-I,$(DIR) $(ASFLAGS_ARCH)
@@ -24,37 +24,37 @@ defouta = $(dir)$(outa)
 defoutp = $(dir)$(outp)
 
 include $(dir)Makefile
-subouto := $(subdirs-1:%=$(dir)%/$(outo))
-subouta := $(asubdirs-1:%=$(dir)%/$(outa))
-suboutp := $(psubdirs-1:%=$(dir)%/$(outp))
-subouto_p := $(subdirs-1:%=$(dir)%/$(outo_p))
-subouta_p := $(asubdirs-1:%=$(dir)%/$(outa_p))
-suboutp_p := $(psubdirs-1:%=$(dir)%/$(outp_p))
+subouto := $(subdirs-y:%=$(dir)%/$(outo))
+subouta := $(asubdirs-y:%=$(dir)%/$(outa))
+suboutp := $(psubdirs-y:%=$(dir)%/$(outp))
+subouto_p := $(subdirs-y:%=$(dir)%/$(outo_p))
+subouta_p := $(asubdirs-y:%=$(dir)%/$(outa_p))
+suboutp_p := $(psubdirs-y:%=$(dir)%/$(outp_p))
 make-detect := b$(shell echo g)
 m-b := b
 m-bg := g
 m := $(m-$(make-detect))
-bins-1 ?=
-bobjs-1-name := $(bins-1:%=%-objs)
-bobjs-1-b := $(bobjs-1-name:%=$(%))
-bobjs-1-g := $(foreach i,$(bobjs-1-name),$($(i)))
-bobjs-1 := $(bobjs-1-$(m))
-blibs-1-name := $(bins-1:%=%-libs)
-blibs-1-b := $(blibs-1-name:%=$(%))
-blibs-1-g := $(foreach i,$(blibs-1-name),$($(i)))
-blibs-1 := $(blibs-1-$(m))
-bstacksize-1-name :=  $(bins-1:%=%-stacksize)
-bstacksize-1-b := $(bstacksize-1-name:%=$(%).)
-bstacksize-1-g := $(foreach i,$(bstacksize-1-name),$($(i)).)
-bstacksize-1 := $(bstacksize-1-$(m))
-bobjs = $(bobjs-1:%=$(dir)%)
-objs = $(subouto) $(objs-1:%=$(dir)%) $(subouta)
-deps = $(objs-1:%.o=$(dir)%.d) $(bobjs-1:%.o=$(dir)%.d)
-bins = $(bins-1:%=$(dir)%.bin)
+bins-y ?=
+bobjs-y-name := $(bins-y:%=%-objs)
+bobjs-y-b := $(bobjs-y-name:%=$(%))
+bobjs-y-g := $(foreach i,$(bobjs-y-name),$($(i)))
+bobjs-y := $(bobjs-y-$(m))
+blibs-y-name := $(bins-y:%=%-libs)
+blibs-y-b := $(blibs-y-name:%=$(%))
+blibs-y-g := $(foreach i,$(blibs-y-name),$($(i)))
+blibs-y := $(blibs-y-$(m))
+bstacksize-y-name :=  $(bins-y:%=%-stacksize)
+bstacksize-y-b := $(bstacksize-y-name:%=$(%).)
+bstacksize-y-g := $(foreach i,$(bstacksize-y-name),$($(i)).)
+bstacksize-y := $(bstacksize-y-$(m))
+bobjs = $(bobjs-y:%=$(dir)%)
+objs = $(subouto) $(objs-y:%=$(dir)%) $(subouta)
+deps = $(objs-y:%.o=$(dir)%.d) $(bobjs-y:%.o=$(dir)%.d)
+bins = $(bins-y:%=$(dir)%.bin)
 flags-data := CFLAGS=$(CFLAGS) ASFLAGS=$(ASFLAGS) LDFLAGS=$(LDFLAGS)
 depends-data := include $(deps)
 objects-data := $(objs) $(suboutp) $(bobjs)
-boptions-data := bobjs=$(bobjs) blibs=$(blibs-1) bstacksize=$(bstacksize-1)
+boptions-data := bobjs=$(bobjs) blibs=$(blibs-y) bstacksize=$(bstacksize-y)
 
 $(defouto) : $(objs) $(suboutp) $(dir)$(depends) $(dir)$(objects)
 	$(V-info) LD $(defouto)
@@ -70,7 +70,7 @@ $(defoutp) : $(bins) $(suboutp) $(dir)$(depends) $(dir)$(objects)
 	$(CC) $(ASFLAGS) $(LDFLAGS) -Wl,-r -o $(defoutp) $(bins:%=%.s) \
 		$(suboutp)
 
-$(bins) : $(bobjs) $(blibs-1) $(objs) $(dir)$(boptions)
+$(bins) : $(bobjs) $(blibs-y) $(objs) $(dir)$(boptions)
 	$(V-info) LD $@
 	echo '.section .processes' > $@.s
 	echo '.long prc_$(*F)_name, 0, prc_$(*F)_bin, 0' >> $@.s

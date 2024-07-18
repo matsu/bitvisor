@@ -12,6 +12,7 @@ bitvisor.map
 .objects
 .boptions
 defconfig
+__pycache__
 boot/login/conf/bitvisor.conf
 boot/login/initrd/initrd.gz
 boot/login/linux/linux-*

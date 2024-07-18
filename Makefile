@@ -5,7 +5,7 @@ include $(CONFIG)
 
 arch-default-$(CONFIG_ARCH_DFLT_X86) = x86
 arch-default-$(CONFIG_ARCH_DFLT_AARCH64) = aarch64
-ARCH ?= $(arch-default-1)
+ARCH ?= $(arch-default-y)
 
 .PHONY : all
 all : pre-build-all
@@ -20,15 +20,15 @@ map    = $(NAME).map
 lds    = $(NAME)_$(ARCH).lds
 target = $(elf)
 
-subdirs-1 += core drivers
+subdirs-y += core drivers
 subdirs-$(CONFIG_STORAGE) += storage
 subdirs-$(CONFIG_STORAGE_IO) += storage_io
 subdirs-$(CONFIG_VPN) += vpn
 subdirs-$(CONFIG_IDMAN) += idman
-subdirs-1 += net
+subdirs-y += net
 subdirs-$(CONFIG_IP) += ip
 asubdirs-$(CONFIG_CRYPTO) += crypto
-psubdirs-1 += process
+psubdirs-y += process
 
 process-depends-$(CONFIG_CRYPTO) += $(dir)crypto/$(outa_p)
 process-depends-$(CONFIG_IDMAN) += $(dir)idman/$(outo_p)
@@ -44,6 +44,8 @@ $(dir)$(elf) : $(defouto) $(dir)$(lds)
 
 .PHONY : pre-build-all
 pre-build-all : $(CONFIG) defconfig
+	$(MAKE) $(V-makeopt-$(V)) -f Makefile.config check-old-config V=$(V)
+	$(MAKE) $(V-makeopt-$(V)) -f Makefile.config check-empty-config V=$(V)
 	$(MAKE) $(V-makeopt-$(V)) -f Makefile build-all
 
 .PHONY : build-all
@@ -65,17 +67,16 @@ clean-all :
 	$(RM) compile_commands.json
 
 .PHONY : config
-config : $(CONFIG)
-	$(MAKE) -f Makefile.config config
+config :
+	$(MAKE) $(V-makeopt-$(V)) -f Makefile.config menuconfig V=$(V)
 
-$(CONFIG) : Makefile.config
-	: >> $(CONFIG)
-	$(MAKE) -f Makefile.config update-config
+$(CONFIG) : Kconfig
+	$(MAKE) $(V-makeopt-$(V)) -f Makefile.config default-config V=$(V)
 
 defconfig :
 	cp defconfig.tmpl defconfig
 
-$(dir)process/$(outp_p) : $(process-depends-1)
+$(dir)process/$(outp_p) : $(process-depends-y)
 
 compile_commands.json :
 	bear -- $(MAKE)
