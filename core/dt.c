@@ -66,6 +66,11 @@ struct dt_pci_mcfg_iterator {
 	struct dt_pci_info *current_pci_info;
 };
 
+struct dt_pcie_support {
+	const char *compat;
+	int ecam_reg_idx;
+};
+
 static struct uuid devtree_uuid = UEFI_BITVISOR_DEVTREE_UUID;
 
 static LIST1_DEFINE_HEAD_INIT (struct dt_pci_info, pci_info_list);
@@ -260,14 +265,20 @@ dt_pci_addr_translate (uint segment, phys_t addr, size_t len, bool is_io_addr,
 }
 
 static enum dt_result_t
-dt_extract_pcie_info (const void *fdt)
+dt_extract_pcie_info_with_compat (const void *fdt, const char *compat,
+				  int ecam_reg_idx, bool *found)
 {
-	const char compat[] = "pci-host-ecam-generic";
 	const void *reg, *bus_range, *ranges, *ranges_end, *domain, *status;
-	struct dt_reg dt_pci_reg;
+	struct dt_reg *dt_pci_regs;
 	int offset, reg_ac, reg_sz, lenp;
 	int address_cells, size_cells;
+	int n_dt_pci_regs;
 	enum dt_result_t dt_error;
+
+	*found = false;
+
+	n_dt_pci_regs = ecam_reg_idx + 1;
+	dt_pci_regs = alloc (n_dt_pci_regs * sizeof *dt_pci_regs);
 
 	/*
 	 * It is not error if no PCI found from the beginning. It just means
@@ -319,14 +330,8 @@ dt_extract_pcie_info (const void *fdt)
 			break;
 		}
 
-		/*
-		 * TODO: each board can be different. The process of
-		 * discovering ECAM register is likely to be board dependent.
-		 * We have to come back later once we start testing on real
-		 * hardware.
-		 */
 		dt_error = dt_helper_reg_extract (reg, lenp, reg_ac, reg_sz,
-						  &dt_pci_reg, 1);
+						  dt_pci_regs, n_dt_pci_regs);
 		if (dt_error) {
 			printf ("%s(): extract PCI reg fails\n", __func__);
 			break;
@@ -386,8 +391,8 @@ dt_extract_pcie_info (const void *fdt)
 
 		new_pci_info = alloc (sizeof *new_pci_info);
 		LIST1_HEAD_INIT (new_pci_info->ranges);
-		new_pci_info->reg = dt_pci_reg.addr;
-		new_pci_info->len = dt_pci_reg.len;
+		new_pci_info->reg = dt_pci_regs[ecam_reg_idx].addr;
+		new_pci_info->len = dt_pci_regs[ecam_reg_idx].len;
 		new_pci_info->bus_start = fdt32_ld (bus_range);
 		new_pci_info->bus_end = fdt32_ld (bus_range + sizeof (u32));
 		new_pci_info->seg_domain = fdt32_ld (domain);
@@ -428,8 +433,40 @@ dt_extract_pcie_info (const void *fdt)
 		}
 
 		LIST1_ADD (pci_info_list, new_pci_info);
+		*found = true;
 next:
 		offset = fdt_node_offset_by_compatible (fdt, offset, compat);
+	}
+
+	free (dt_pci_regs);
+
+	return DT_RESULT_OK;
+}
+
+static enum dt_result_t
+dt_extract_pcie_info (const void *fdt)
+{
+	static const struct dt_pcie_support current_support[] = {
+		{"pci-host-ecam-generic", 0},
+		{"nvidia,tegra234-pcie", 4},
+		{NULL, 0},
+	};
+
+	const struct dt_pcie_support *cs = current_support;
+	enum dt_result_t dt_error;
+	bool found;
+
+	while (cs->compat) {
+		dt_error = dt_extract_pcie_info_with_compat (fdt,
+							     cs->compat,
+							     cs->ecam_reg_idx,
+							     &found);
+		if (dt_error != DT_RESULT_OK)
+			return dt_error;
+		/* Currently don't expect a mix of compat */
+		if (found)
+			break;
+		cs++;
 	}
 
 	return DT_RESULT_OK;
