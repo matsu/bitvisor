@@ -34,6 +34,7 @@
  */
 
 #include <core.h>
+#include <core/dres.h>
 #include <core/time.h>
 #include <storage.h>
 #include <storage_io.h>
@@ -534,8 +535,9 @@ filter_unexpected_interrupt (struct nvme_host *host)
 	 * NVMe driver allows only a single vector MSI, so (mask & 1) is ok.
 	 * We also read INTMS unconditionally to keep ANS2 controller alive.
 	 */
-	filter = (*(u32 *)NVME_INTMS_REG (host->regs) & 0x1) &&
-		 host->filter_msi;
+	u32 intms;
+	dres_reg_read32 (host->regs->r, NVME_INTMS_REG_OFFSET, &intms);
+	filter = (intms & 0x1) && host->filter_msi;
 	spinlock_unlock (&host->intr_mask_lock);
 	return filter;
 }

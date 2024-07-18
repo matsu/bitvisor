@@ -34,6 +34,7 @@
  */
 
 #include <core.h>
+#include <core/dres.h>
 #include <core/thread.h>
 #include <core/time.h>
 #include "nvme.h"
@@ -43,20 +44,18 @@ static void
 nvme_write_subm_db (struct nvme_host *host, u16 queue_id, u32 value)
 {
 	u32 db_nbytes = sizeof (u32) << host->db_stride;
-	u8 *db_reg_base = NVME_DB_REG (host->regs);
+	u64 offset = NVME_DB_REG_OFFSET + ((2 * queue_id) * db_nbytes);
 
-	memcpy (db_reg_base + ((2 * queue_id) * db_nbytes),
-		&value, sizeof value);
+	dres_reg_write32 (host->regs->r, offset, value);
 }
 
 static void
 nvme_write_comp_db (struct nvme_host *host, u16 queue_id, u32 value)
 {
 	u32 db_nbytes = sizeof (u32) << host->db_stride;
-	u8 *db_reg_base = NVME_DB_REG (host->regs);
+	u64 offset = NVME_DB_REG_OFFSET + ((2 * queue_id + 1) * db_nbytes);
 
-	memcpy (db_reg_base + ((2 * queue_id + 1) * db_nbytes),
-		&value, sizeof value);
+	dres_reg_write32 (host->regs->r, offset, value);
 }
 
 void

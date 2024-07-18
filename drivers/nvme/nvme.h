@@ -58,6 +58,8 @@
 
 #define NVME_ALIGN_NO (0)
 
+struct dres_reg;
+
 static inline void *
 alloc2_align (uint nbytes, phys_t *phys_addr, uint align)
 {
@@ -86,8 +88,7 @@ zalloc2_align (uint nbytes, phys_t *phys_addr, uint align)
 
 struct nvme_regs {
 	phys_t iobase;
-
-	u8 *reg_map;
+	struct dres_reg *r;
 	uint map_nbytes;
 };
 #define NVME_REGS_NBYTES (sizeof (struct nvme_regs))
@@ -132,20 +133,6 @@ struct nvme_regs {
 #define NVME_CMBSZ_REG_END     (0x40)
 /* I/O Submission/Completion Doorbell registers */
 #define NVME_DB_REG_OFFSET     (0x1000)
-
-#define NVME_CAP_REG(regs)    ((regs)->reg_map + NVME_CAP_REG_OFFSET)
-#define NVME_VS_REG(regs)     ((regs)->reg_map + NVME_VS_REG_OFFSET)
-#define NVME_INTMS_REG(regs)  ((regs)->reg_map + NVME_INTMS_REG_OFFSET)
-#define NVME_INTMC_REG(regs)  ((regs)->reg_map + NVME_INTMC_REG_OFFSET)
-#define NVME_CC_REG(regs)     ((regs)->reg_map + NVME_CC_REG_OFFSET)
-#define NVME_CSTS_REG(regs)   ((regs)->reg_map + NVME_CSTS_REG_OFFSET)
-#define NVME_NSSRC_REG(regs)  ((regs)->reg_map + NVME_NSSRC_REG_OFFSET)
-#define NVME_AQA_REG(regs)    ((regs)->reg_map + NVME_AQA_REG_OFFSET)
-#define NVME_ASQ_REG(regs)    ((regs)->reg_map + NVME_ASQ_REG_OFFSET)
-#define NVME_ACQ_REG(regs)    ((regs)->reg_map + NVME_ACQ_REG_OFFSET)
-#define NVME_CMBLOC_REG(regs) ((regs)->reg_map + NVME_CMBLOC_REG_OFFSET)
-#define NVME_CMBSZ_REG(regs)  ((regs)->reg_map + NVME_CMBSZ_REG_OFFSET)
-#define NVME_DB_REG(regs)     ((regs)->reg_map + NVME_DB_REG_OFFSET)
 
 #define NVME_CAP_GET_MQES(value)   ((value) & 0xFFFF)
 #define NVME_CAP_GET_CQR(value)    (((value) >> 16) & 0x1)
@@ -529,8 +516,6 @@ struct nvme_host {
 #define NVME_DEV_TOSHIBA_0115 (0x0115)
 
 struct nvme_data {
-	void *handler;
-	void *msix_handler;
 	struct nvme_host *host;
 
 	u8 enabled;

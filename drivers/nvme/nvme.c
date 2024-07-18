@@ -35,7 +35,7 @@
 
 #include <arch/pci.h>
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
 #include <core/thread.h>
 #include <core/time.h>
 #include <pci.h>
@@ -58,6 +58,16 @@ struct nvme_ext_list {
 };
 
 static struct nvme_ext_list *ext_head;
+
+static inline void
+nvme_reg_rw (bool wr, const struct dres_reg *r, phys_t offset, void *buf,
+	     uint len)
+{
+	if (wr)
+		dres_reg_write (r, offset, buf, len);
+	else
+		dres_reg_read (r, offset, buf, len);
+}
 
 void
 nvme_register_ext (char *name,
@@ -120,23 +130,15 @@ patch_msqe (struct nvme_host *host, u64 *value)
 }
 
 static void
-nvme_cap_reg_read (void *data,
-		   phys_t gphys,
-		   bool wr,
-		   void *buf,
-		   uint len,
-		   u32 flags)
+nvme_cap_reg_read (struct nvme_host *host, const struct dres_reg *r,
+		   phys_t offset, void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
-
-	phys_t cap_start    = nvme_regs->iobase + NVME_CAP_REG_OFFSET;
-	phys_t field_offset = gphys - cap_start;
+	phys_t field_offset = offset - NVME_CAP_REG_OFFSET;
 
 	u64 r_shift_bit = field_offset * 8;
 
-	u64 buf64 = TO_U64 (NVME_CAP_REG (nvme_regs));
+	u64 buf64;
+	dres_reg_read64 (r, NVME_CAP_REG_OFFSET, &buf64);
 
 	/* Force Contiguous Queue Required */
 	buf64 = NVME_CAP_SET_CQR (buf64);
@@ -290,14 +292,16 @@ init_admin_queue (struct nvme_host *host)
 	g_queue->comp_queue_info[0] = g_comp_queue_info;
 
 	/* Write 32-bit at a time, follow Linux implementation */
-	struct nvme_regs *nvme_regs = host->regs;
-	u32 *asq_reg = (u32 *)NVME_ASQ_REG (nvme_regs);
-	asq_reg[0] = h_subm_queue_info->queue_phys & 0xFFFFFFFF; /* lower */
-	asq_reg[1] = h_subm_queue_info->queue_phys >> 32; /* upper */
+	const struct dres_reg *r = host->regs->r;
+	u32 data_lower = h_subm_queue_info->queue_phys & 0xFFFFFFFF;
+	u32 data_upper = h_subm_queue_info->queue_phys >> 32;
+	dres_reg_write32 (r, NVME_ASQ_REG_OFFSET, data_lower);
+	dres_reg_write32 (r, NVME_ASQ_REG_OFFSET + 4, data_upper);
 
-	u32 *acq_reg = (u32 *)NVME_ACQ_REG (nvme_regs);
-	acq_reg[0] = h_comp_queue_info->queue_phys & 0xFFFFFFFF; /* lower */
-	acq_reg[1] = h_comp_queue_info->queue_phys >> 32; /* upper */
+	data_lower = h_comp_queue_info->queue_phys & 0xFFFFFFFF;
+	data_upper = h_comp_queue_info->queue_phys >> 32;
+	dres_reg_write32 (r, NVME_ACQ_REG_OFFSET, data_lower);
+	dres_reg_write32 (r, NVME_ACQ_REG_OFFSET + 4, data_upper);
 }
 
 static void
@@ -411,17 +415,9 @@ find_interrupt_mode (struct nvme_host *host)
 }
 
 static void
-nvme_cc_reg_write (void *data,
-		   phys_t gphys,
-		   bool wr,
-		   void *buf,
-		   uint len,
-		   u32 flags)
+nvme_cc_reg_write (struct nvme_host *host, const struct dres_reg *r,
+		   phys_t offset, void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
-
 	u32 value = TO_U32 (buf);
 
 	if (value == 0x0)
@@ -494,7 +490,7 @@ end:
 		dprintf (NVME_ETC_DEBUG, "NVMe has been enabled\n");
 	}
 
-	memcpy (NVME_CC_REG (nvme_regs), buf, len);
+	nvme_reg_rw (true, r, NVME_CC_REG_OFFSET, buf, len);
 }
 
 /* ---------- End Controller Configuration register handler ---------- */
@@ -502,19 +498,12 @@ end:
 /* ---------- Start Controller Status register handler ---------- */
 
 static void
-nvme_csts_reg_read (void *data,
-		    phys_t gphys,
-		    bool wr,
-		    void *buf,
-		    uint len,
-		    u32 flags)
+nvme_csts_reg_read (const struct dres_reg *r, phys_t offset, void *buf,
+		    uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
+	u32 value;
 
-	u32 value = TO_U32 (NVME_CSTS_REG (nvme_regs));
-
+	dres_reg_read32 (r, NVME_CSTS_REG_OFFSET, &value);
 	if (NVME_CSTS_GET_CFS (value))
 		dprintf (1, "Fatal: Controller Fatal Status detected!!!\n");
 	if (NVME_CSTS_GET_NSSRO (value))
@@ -530,16 +519,8 @@ nvme_csts_reg_read (void *data,
 /* ---------- Start Admin Queue Attribute register handler ---------- */
 
 static void
-nvme_aqa_reg_read (void *data,
-		   phys_t gphys,
-		   bool wr,
-		   void *buf,
-		   uint len,
-		   u32 flags)
+nvme_aqa_reg_read (struct nvme_host *host, void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-
 	u32 value = ((host->g_admin_subm_n_entries - 1) & 0xFFFF) |
 		    ((host->g_admin_comp_n_entries - 1) << 16);
 
@@ -547,17 +528,9 @@ nvme_aqa_reg_read (void *data,
 }
 
 static void
-nvme_aqa_reg_write (void *data,
-		    phys_t gphys,
-		    bool wr,
-		    void *buf,
-		    uint len,
-		    u32 flags)
+nvme_aqa_reg_write (struct nvme_host *host, const struct dres_reg *r,
+		    void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
-
 	u32 value = TO_U32 (buf);
 
 	bool unique254_quirk = !!(host->quirks & NVME_QUIRK_CMDID_UNIQUE_254);
@@ -618,7 +591,7 @@ nvme_aqa_reg_write (void *data,
 	value = ((host->h_admin_subm_n_entries - 1) & 0xFFFF) |
 		((host->h_admin_comp_n_entries - 1) << 16);
 
-	memcpy (NVME_AQA_REG (nvme_regs), &value, len);
+	nvme_reg_rw (true, r, NVME_AQA_REG_OFFSET, &value, len);
 }
 
 /* ---------- End Admin Queue Attribute register handler ---------- */
@@ -661,19 +634,9 @@ read_queue_addr (phys_t g_queue_addr,
 /* ---------- Start Admin Submission Queue register handler ---------- */
 
 static void
-nvme_asq_reg_read (void *data,
-		   phys_t gphys,
-		   bool wr,
-		   void *buf,
-		   uint len,
-		   u32 flags)
+nvme_asq_reg_read (struct nvme_host *host, phys_t offset, void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
-
-	phys_t asq_start    = nvme_regs->iobase + NVME_ASQ_REG_OFFSET;
-	phys_t field_offset = gphys - asq_start;
+	phys_t field_offset = offset - NVME_ASQ_REG_OFFSET;
 
 	read_queue_addr (host->g_admin_subm_queue_addr,
 			 field_offset,
@@ -682,19 +645,9 @@ nvme_asq_reg_read (void *data,
 }
 
 static void
-nvme_asq_reg_write (void *data,
-		    phys_t gphys,
-		    bool wr,
-		    void *buf,
-		    uint len,
-		    u32 flags)
+nvme_asq_reg_write (struct nvme_host *host, phys_t offset, void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
-
-	phys_t asq_start    = nvme_regs->iobase + NVME_ASQ_REG_OFFSET;
-	phys_t field_offset = gphys - asq_start;
+	phys_t field_offset = offset - NVME_ASQ_REG_OFFSET;
 
 	record_queue_addr (host,
 			   &host->g_admin_subm_queue_addr,
@@ -710,19 +663,9 @@ nvme_asq_reg_write (void *data,
 /* ---------- Start Admin Completion Queue register handler ---------- */
 
 static void
-nvme_acq_reg_read (void *data,
-		   phys_t gphys,
-		   bool wr,
-		   void *buf,
-		   uint len,
-		   u32 flags)
+nvme_acq_reg_read (struct nvme_host *host, phys_t offset, void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
-
-	phys_t acq_start    = nvme_regs->iobase + NVME_ACQ_REG_OFFSET;
-	phys_t field_offset = gphys - acq_start;
+	phys_t field_offset = offset - NVME_ACQ_REG_OFFSET;
 
 	read_queue_addr (host->g_admin_comp_queue_addr,
 			 field_offset,
@@ -731,19 +674,9 @@ nvme_acq_reg_read (void *data,
 }
 
 static void
-nvme_acq_reg_write (void *data,
-		    phys_t gphys,
-		    bool wr,
-		    void *buf,
-		    uint len,
-		    u32 flags)
+nvme_acq_reg_write (struct nvme_host *host, phys_t offset, void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
-	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
-
-	phys_t acq_start    = nvme_regs->iobase + NVME_ACQ_REG_OFFSET;
-	phys_t field_offset = gphys - acq_start;
+	phys_t field_offset = offset - NVME_ACQ_REG_OFFSET;
 
 	record_queue_addr (host,
 			   &host->g_admin_comp_queue_addr,
@@ -959,52 +892,33 @@ intercept_db_read (struct nvme_host *host, uint idx, void *buf, uint len)
 
 /* ---------- End Queue Doorbell Register handler ---------- */
 
-static inline void
-nvme_reg_rw (bool wr, void *reg, void *buf, uint len)
-{
-	if (!wr)
-		memcpy (buf, reg, len); /* Read access */
-	else
-		memcpy (reg, buf, len); /* Write access */
-}
-
-static int
-nvme_reg_msi_handler (void *data,
-		      phys_t gphys,
-		      bool wr,
-		      void *buf,
-		      uint len,
-		      u32 flags)
+static enum dres_reg_ret_t
+nvme_reg_msi_handler (const struct dres_reg *r, void *handle, phys_t offset,
+		      bool wr, void *buf, uint len)
 {
 	static u64 dummy_buf; /* Avoid optimization */
 
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
+	struct nvme_data *nvme_data = handle;
 	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->msix_bar == 0 ?
-				      host->regs :
-				      host->msix_regs;
 
-	phys_t acc_start = gphys;
-
-	u8 *reg = nvme_regs->reg_map + (acc_start - nvme_regs->iobase);
-	nvme_reg_rw (wr, reg, buf, len);
+	nvme_reg_rw (wr, r, offset, buf, len);
 
 	if (!host->msix_vector_base)
-		return 1;
+		return DRES_REG_RET_DONE;
 
-	phys_t msix_start = nvme_regs->iobase + host->msix_vector_base;
+	phys_t msix_start = host->msix_vector_base;
 	phys_t msix_end = msix_start + (host->msix_n_vectors * 16);
 
-	if (acc_start >= msix_start && acc_start < msix_end) {
-		if ((acc_start & 0xf) == 0xc && wr &&
+	if (offset >= msix_start && offset < msix_end) {
+		if ((offset & 0xf) == 0xc && wr &&
 		    !(*(u8 *)buf & 1)) {
 			/* Read the register again to flush the write */
-			nvme_reg_rw (!wr, reg, &dummy_buf, len);
+			nvme_reg_rw (false, r, offset, &dummy_buf, len);
 			nvme_process_all_comp_queues (host);
 		}
 	}
 
-	return 1;
+	return DRES_REG_RET_DONE;
 }
 
 /*
@@ -1019,66 +933,49 @@ range_check (u64 acc_start, u64 acc_end, u64 area_start, u64 area_end)
 	return acc_start >= area_start && acc_end <= area_end;
 }
 
-#define RANGE_CHECK_CAP(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_CAP_REG_OFFSET,    \
-		     (regs)->iobase + NVME_CAP_REG_END)
-#define RANGE_CHECK_VS(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_VS_REG_OFFSET,     \
-		     (regs)->iobase + NVME_VS_REG_END)
-#define RANGE_CHECK_INTMS(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_INTMS_REG_OFFSET,  \
-		     (regs)->iobase + NVME_INTMS_REG_END)
-#define RANGE_CHECK_INTMC(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_INTMC_REG_OFFSET,  \
-		     (regs)->iobase + NVME_INTMC_REG_END)
-#define RANGE_CHECK_CC(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_CC_REG_OFFSET,     \
-		     (regs)->iobase + NVME_CC_REG_END)
-#define RANGE_CHECK_CSTS(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_CSTS_REG_OFFSET,   \
-		     (regs)->iobase + NVME_CSTS_REG_END)
-#define RANGE_CHECK_NSSRC(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_NSSRC_REG_OFFSET,  \
-		     (regs)->iobase + NVME_NSSRC_REG_END)
-#define RANGE_CHECK_AQA(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_AQA_REG_OFFSET,    \
-		     (regs)->iobase + NVME_AQA_REG_END)
-#define RANGE_CHECK_ASQ(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_ASQ_REG_OFFSET,    \
-		     (regs)->iobase + NVME_ASQ_REG_END)
-#define RANGE_CHECK_ACQ(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_ACQ_REG_OFFSET,    \
-		     (regs)->iobase + NVME_ACQ_REG_END)
-#define RANGE_CHECK_CMBLOC(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_CMBLOC_REG_OFFSET, \
-		     (regs)->iobase + NVME_CMBLOC_REG_END)
-#define RANGE_CHECK_CMBSZ(acc_start, acc_end, regs)	      \
-	range_check ((acc_start), (acc_end),		      \
-		     (regs)->iobase + NVME_CMBSZ_REG_OFFSET,  \
-		     (regs)->iobase + NVME_CMBSZ_REG_END)
+#define RANGE_CHECK_CAP(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_CAP_REG_OFFSET, \
+		     NVME_CAP_REG_END)
+#define RANGE_CHECK_VS(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_VS_REG_OFFSET, \
+		     NVME_VS_REG_END)
+#define RANGE_CHECK_INTMS(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_INTMS_REG_OFFSET, \
+		     NVME_INTMS_REG_END)
+#define RANGE_CHECK_INTMC(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_INTMC_REG_OFFSET, \
+		     NVME_INTMC_REG_END)
+#define RANGE_CHECK_CC(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_CC_REG_OFFSET, \
+		     NVME_CC_REG_END)
+#define RANGE_CHECK_CSTS(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_CSTS_REG_OFFSET, \
+		     NVME_CSTS_REG_END)
+#define RANGE_CHECK_NSSRC(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_NSSRC_REG_OFFSET, \
+		     NVME_NSSRC_REG_END)
+#define RANGE_CHECK_AQA(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_AQA_REG_OFFSET, \
+		     NVME_AQA_REG_END)
+#define RANGE_CHECK_ASQ(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_ASQ_REG_OFFSET, \
+		     NVME_ASQ_REG_END)
+#define RANGE_CHECK_ACQ(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_ACQ_REG_OFFSET, \
+		     NVME_ACQ_REG_END)
+#define RANGE_CHECK_CMBLOC(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_CMBLOC_REG_OFFSET, \
+		     NVME_CMBLOC_REG_END)
+#define RANGE_CHECK_CMBSZ(acc_start, acc_end) \
+	range_check ((acc_start), (acc_end), NVME_CMBSZ_REG_OFFSET, \
+		     NVME_CMBSZ_REG_END)
 
-static int
-nvme_reg_handler (void *data,
-		  phys_t gphys,
-		  bool wr,
-		  void *buf,
-		  uint len,
-		  u32 flags)
+static enum dres_reg_ret_t
+nvme_reg_handler (const struct dres_reg *r, void *handle, phys_t offset,
+		  bool wr, void *buf, uint len)
 {
-	struct nvme_data *nvme_data = (struct nvme_data *)data;
+	struct nvme_data *nvme_data = handle;
 	struct nvme_host *host	    = nvme_data->host;
-	struct nvme_regs *nvme_regs = host->regs;
 
 	u32 db_nbytes = sizeof (u32) << host->db_stride;
 	int ret = 1;
@@ -1087,105 +984,106 @@ nvme_reg_handler (void *data,
 	if (len != 4 && len != 8)
 		goto end;
 
-	phys_t acc_start = gphys;
-	phys_t acc_end	 = acc_start + len;
+	phys_t acc_start = offset;
+	phys_t acc_end = offset + len;
 
-	if (RANGE_CHECK_CAP (acc_start, acc_end, nvme_regs)) {
+	if (RANGE_CHECK_CAP (acc_start, acc_end)) {
 
 		if (!wr)
-			nvme_cap_reg_read (data, gphys, wr, buf, len, flags);
+			nvme_cap_reg_read (host, r, offset, buf, len);
 
 		goto end;
 
-	} else if (RANGE_CHECK_VS (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_VS (acc_start, acc_end)) {
 
-		nvme_reg_rw (wr, NVME_VS_REG (nvme_regs), buf, len);
+		nvme_reg_rw (wr, r, NVME_VS_REG_OFFSET, buf, len);
 
 		goto end;
 
-	} else if (RANGE_CHECK_INTMS (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_INTMS (acc_start, acc_end)) {
 
 		spinlock_lock (&host->intr_mask_lock);
-		nvme_reg_rw (wr, NVME_INTMS_REG (nvme_regs), buf, len);
+		nvme_reg_rw (wr, r, NVME_INTMS_REG_OFFSET, buf, len);
 		nvme_process_all_comp_queues (host);
 		spinlock_unlock (&host->intr_mask_lock);
 
 		goto end;
 
-	} else if (RANGE_CHECK_INTMC (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_INTMC (acc_start, acc_end)) {
 
 		spinlock_lock (&host->intr_mask_lock);
-		nvme_reg_rw (wr, NVME_INTMC_REG (nvme_regs), buf, len);
+		nvme_reg_rw (wr, r, NVME_INTMC_REG_OFFSET, buf, len);
 		nvme_process_all_comp_queues (host);
 		spinlock_unlock (&host->intr_mask_lock);
 
 		goto end;
 
-	} else if (RANGE_CHECK_CC (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_CC (acc_start, acc_end)) {
 
 		if (!wr)
-			memcpy (buf, NVME_CC_REG (nvme_regs), len);
+			nvme_reg_rw (false, r, NVME_CC_REG_OFFSET, buf, len);
 		else
-			nvme_cc_reg_write (data, gphys, wr, buf, len, flags);
+			nvme_cc_reg_write (host, r, offset, buf, len);
 
 		goto end;
 
-	} else if (RANGE_CHECK_CSTS (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_CSTS (acc_start, acc_end)) {
 
 		if (!wr)
-			nvme_csts_reg_read (data, gphys, wr, buf, len, flags);
+			nvme_csts_reg_read (r, offset, buf, len);
 		else
-			memcpy (NVME_CSTS_REG (nvme_regs), buf, len);
+			nvme_reg_rw (true, r, NVME_CSTS_REG_OFFSET, buf, len);
 
 		goto end;
 
-	} else if (RANGE_CHECK_NSSRC (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_NSSRC (acc_start, acc_end)) {
 
 		if (!wr) {
-			memcpy (buf, NVME_NSSRC_REG (nvme_regs), len);
+			nvme_reg_rw (false, r, NVME_NSSRC_REG_OFFSET, buf,
+				     len);
 		} else {
 			if (TO_U32 (buf) == NVME_NSSRC_MAGIC)
 				reset_controller (host);
-			memcpy (NVME_NSSRC_REG (nvme_regs), buf, len);
+			nvme_reg_rw (true, r, NVME_NSSRC_REG_OFFSET, buf, len);
 		}
 
 		goto end;
 
-	} else if (RANGE_CHECK_AQA (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_AQA (acc_start, acc_end)) {
 
 		if (!wr)
-			nvme_aqa_reg_read (data, gphys, wr, buf, len, flags);
+			nvme_aqa_reg_read (host, buf, len);
 		else
-			nvme_aqa_reg_write (data, gphys, wr, buf, len, flags);
+			nvme_aqa_reg_write (host, r, buf, len);
 
 		goto end;
 
-	} else if (RANGE_CHECK_ASQ (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_ASQ (acc_start, acc_end)) {
 
 		if (!wr)
-			nvme_asq_reg_read (data, gphys, wr, buf, len, flags);
+			nvme_asq_reg_read (host, offset, buf, len);
 		else
-			nvme_asq_reg_write (data, gphys, wr, buf, len, flags);
+			nvme_asq_reg_write (host, offset, buf, len);
 
 		goto end;
 
-	} else if (RANGE_CHECK_ACQ (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_ACQ (acc_start, acc_end)) {
 
 		if (!wr)
-			nvme_acq_reg_read (data, gphys, wr, buf, len, flags);
+			nvme_acq_reg_read (host, offset, buf, len);
 		else
-			nvme_acq_reg_write (data, gphys, wr, buf, len, flags);
+			nvme_acq_reg_write (host, offset, buf, len);
 
 		goto end;
 
-	} else if (RANGE_CHECK_CMBLOC (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_CMBLOC (acc_start, acc_end)) {
 
 		if (!wr)
 			memset (buf, 0, len);
 
 		goto end;
 
-	} else if (RANGE_CHECK_CMBSZ (acc_start, acc_end, nvme_regs)) {
+	} else if (RANGE_CHECK_CMBSZ (acc_start, acc_end)) {
 
 		if (!wr)
 			memset (buf, 0, len);
@@ -1202,7 +1100,7 @@ nvme_reg_handler (void *data,
 	/* + 1 is an Admin queue. * 2 because Subm Queues + Comp Queues */
 	u64 total_queues = (max_n_queues + 1) * 2;
 
-	phys_t db_start = nvme_regs->iobase + NVME_DB_REG_OFFSET;
+	phys_t db_start = NVME_DB_REG_OFFSET;
 	phys_t db_end	= db_start + (total_queues * db_nbytes);
 
 	/* I/O Submission/Completion Doorbell */
@@ -1219,7 +1117,7 @@ nvme_reg_handler (void *data,
 		 * MSI/MSI-X registers located in BAR 0 at the offset beyond
 		 * all controller registers. We need to allow accessing them.
 		 */
-		ret = nvme_reg_msi_handler (data, gphys, wr, buf, len, flags);
+		ret = nvme_reg_msi_handler (r, handle, offset, wr, buf, len);
 	} else {
 		if (!wr)
 			memset (buf, 0, len);
@@ -1233,51 +1131,45 @@ static void
 unreghook (struct nvme_data *nvme_data, uint bar_idx)
 {
 	struct nvme_host *host = nvme_data->host;
+	struct dres_reg **r = NULL;
+
 	if (bar_idx == 0) {
 		if (nvme_data->enabled) {
-			mmio_unregister (nvme_data->handler);
-			unmapmem (host->regs->reg_map,
-				  host->regs->map_nbytes);
+			r = &host->regs->r;
 			nvme_data->enabled = 0;
 		}
 	} else {
 		ASSERT (bar_idx == host->msix_bar);
 		if (nvme_data->enabled_msix) {
-			mmio_unregister (nvme_data->msix_handler);
-			unmapmem (host->msix_regs->reg_map,
-				  host->msix_regs->map_nbytes);
+			r = &host->msix_regs->r;
 			nvme_data->enabled_msix = 0;
 		}
+	}
+
+	if (r) {
+		dres_reg_unregister_handler (*r);
+		dres_reg_free (*r);
+		*r = NULL;
 	}
 }
 
 static void
-do_reghook (struct nvme_data *nvme_data,
-	    struct pci_bar_info *bar,
-	    struct nvme_regs *regs,
-	    void **handler,
-	    int (*reg_handler) (void *data,
-				phys_t gphys,
-				bool wr,
-				void *buf,
-				uint len,
-				u32 flags))
+do_reghook (struct nvme_data *nvme_data, struct pci_bar_info *bar,
+	    struct nvme_regs *regs, dres_reg_handler_t reg_handler)
 {
-	regs->iobase	 = bar->base;
-	regs->reg_map	 = mapmem_as (as_passvm, bar->base, bar->len,
-				      MAPMEM_WRITE | MAPMEM_UC);
+	enum dres_err_t err;
+
+	regs->iobase = bar->base;
+	regs->r = dres_reg_alloc (bar->base, bar->len, DRES_REG_TYPE_MM,
+				  pci_dres_reg_translate, nvme_data->host->pci,
+				  0);
 	regs->map_nbytes = bar->len;
+	if (!regs->r)
+		panic ("Cannot map NVMe registers");
 
-	if (!regs->reg_map)
-		panic ("Cannot mapmem_as() NVMe registers");
-
-	*handler = mmio_register (bar->base,
-				  bar->len,
-				  reg_handler,
-				  nvme_data);
-
-	if (!*handler)
-		panic ("Cannot mmio_register() NVMe registers");
+	err = dres_reg_register_handler (regs->r, reg_handler, nvme_data);
+	if (err != DRES_ERR_NONE)
+		panic ("Cannot register NVMe registers handler");
 }
 
 static void
@@ -1293,19 +1185,13 @@ reghook (struct nvme_data *nvme_data,
 
 	if (bar_idx == 0) {
 		nvme_data->enabled = 0;
-		do_reghook (nvme_data,
-			    bar,
-			    nvme_data->host->regs,
-			    &nvme_data->handler,
+		do_reghook (nvme_data, bar, nvme_data->host->regs,
 			    nvme_reg_handler);
 		nvme_data->enabled = 1;
 	} else {
 		nvme_data->enabled_msix = 0;
 		ASSERT (bar_idx == nvme_data->host->msix_bar);
-		do_reghook (nvme_data,
-			    bar,
-			    nvme_data->host->msix_regs,
-			    &nvme_data->msix_handler,
+		do_reghook (nvme_data, bar, nvme_data->host->msix_regs,
 			    nvme_reg_msi_handler);
 		nvme_data->enabled_msix = 1;
 	}
@@ -1453,33 +1339,37 @@ nvme_new (struct pci_device *pci_device)
 
 	pci_device->host = nvme_data;
 
+	const struct dres_reg *r = host->regs->r;
+
 	/* Read Controller Capabilities */
-	u64 *cap_reg = (u64 *)NVME_CAP_REG (nvme_regs);
+	u64 cap;
+	dres_reg_read64 (r, NVME_CAP_REG_OFFSET, &cap);
 
 	dprintf (NVME_ETC_DEBUG,
 		 "Max queue entries support: %llu\n",
-		 NVME_CAP_GET_MQES (*cap_reg));
+		 NVME_CAP_GET_MQES (cap));
 	dprintf (NVME_ETC_DEBUG,
 		 "Contiguous queue required: %llu\n",
-		 NVME_CAP_GET_CQR (*cap_reg));
+		 NVME_CAP_GET_CQR (cap));
 	dprintf (NVME_ETC_DEBUG,
 		 "Doorbell stride	  : %llu\n",
-		 NVME_CAP_GET_DSTRD (*cap_reg));
+		 NVME_CAP_GET_DSTRD (cap));
 	dprintf (NVME_ETC_DEBUG,
 		 "NVM subsys reset	  : %llu\n",
-		 NVME_CAP_GET_NSSRS (*cap_reg));
+		 NVME_CAP_GET_NSSRS (cap));
 	dprintf (NVME_ETC_DEBUG,
 		 "Memory Page size min	  : %llu\n",
-		 NVME_CAP_GET_MPSMIN (*cap_reg));
+		 NVME_CAP_GET_MPSMIN (cap));
 	dprintf (NVME_ETC_DEBUG,
 		 "Memory Page size max	  : %llu\n",
-		 NVME_CAP_GET_MPSMAX (*cap_reg));
+		 NVME_CAP_GET_MPSMAX (cap));
 
-	host->max_n_entries = NVME_CAP_GET_MQES (*cap_reg) + 1; /* 0 based */
+	host->max_n_entries = NVME_CAP_GET_MQES (cap) + 1; /* 0 based */
 
 	/* Read CMBLOC and CMBSZ */
-	u32 cmbsz  = *(u32 *)NVME_CMBSZ_REG (nvme_regs);
-	u32 cmbloc = *(u32 *)NVME_CMBLOC_REG (nvme_regs);
+	u32 cmbsz, cmbloc;
+	dres_reg_read32 (r, NVME_CMBSZ_REG_OFFSET, &cmbsz);
+	dres_reg_read32 (r, NVME_CMBLOC_REG_OFFSET, &cmbloc);
 
 	dprintf (NVME_ETC_DEBUG, "CMBSZ : 0x%08X\n", cmbsz);
 	dprintf (NVME_ETC_DEBUG, "CMBLOC: 0x%08X\n", cmbloc);
@@ -1494,7 +1384,6 @@ nvme_new (struct pci_device *pci_device)
 		dprintf (NVME_ETC_DEBUG, "Size     : 0x%x\n",
 			 (cmbsz >> 12));
 
-		u32 cmbloc = *(u32 *)NVME_CMBLOC_REG (nvme_regs);
 		u8 bir = cmbloc & 0xF;
 		struct pci_bar_info cmbbar_info;
 		pci_get_bar_info (pci_device, 0, &cmbbar_info);
@@ -1504,16 +1393,16 @@ nvme_new (struct pci_device *pci_device)
 			 cmbbar_info.len);
 	}
 
-	host->db_stride = NVME_CAP_GET_DSTRD (*cap_reg);
+	host->db_stride = NVME_CAP_GET_DSTRD (cap);
 
 	/* Read version */
-	host->version = *(u32 *)NVME_VS_REG (nvme_regs);
+	dres_reg_read32 (r, NVME_VS_REG_OFFSET, &host->version);
 	dprintf (NVME_ETC_DEBUG, "NVMe Version %u.%u.%u\n",
 		 NVME_VERSION_MJ (host->version),
 		 NVME_VERSION_MN (host->version),
 		 NVME_VERSION_TE (host->version));
 
-	uint page_shift = PAGESHIFT_INIT_POS + NVME_CAP_GET_MPSMIN (*cap_reg);
+	uint page_shift = PAGESHIFT_INIT_POS + NVME_CAP_GET_MPSMIN (cap);
 	host->page_nbytes = (1 << page_shift); /* Initial size */
 
 	struct nvme_queue *h_queue, *g_queue;
@@ -1557,28 +1446,32 @@ nvme_new (struct pci_device *pci_device)
 	 * disable it first after disconnecting from UEFI. For example,
 	 * writing to ACQ and ASQ registers results in wrong value.
 	 */
-	if (NVME_CC_GET_ENABLE (*(u32 *)NVME_CC_REG (nvme_regs))) {
+	u32 cc;
+	dres_reg_read32 (r, NVME_CC_REG_OFFSET, &cc);
+	if (NVME_CC_GET_ENABLE (cc)) {
 		printf ("NVMe controller is running, stop it\n");
-		u32 buf = 0;
-		memcpy (NVME_CC_REG (nvme_regs), &buf, sizeof (u32));
+		dres_reg_write32 (r, NVME_CC_REG_OFFSET, 0);
 	}
 
 	/* Wait for the controller to stop properly */
-	while (NVME_CSTS_GET_READY (*(u32 *)NVME_CSTS_REG (nvme_regs)) &&
-	       !waiting_quirk (host))
+	u32 csts;
+	dres_reg_read32 (r, NVME_CSTS_REG_OFFSET, &csts);
+	while (NVME_CSTS_GET_READY (csts) && !waiting_quirk (host)) {
 		schedule ();
+		dres_reg_read32 (r, NVME_CSTS_REG_OFFSET, &csts);
+	}
 
 	/* Interrupt mask should be cleared after controller stop
 	 * (reset).  If interrupt mask is still set, clear it here.
 	 * Apparently Apple ANS2 Controller does not clear interrupt
 	 * mask on reset. */
-	volatile u32 *intmc_reg = (u32 *)NVME_INTMC_REG (nvme_regs);
-	u32 intmask = *intmc_reg;
+	u32 intmask;
+	dres_reg_read32 (r, NVME_INTMC_REG_OFFSET, &intmask);
 	if (intmask) {
 		/* Writing the read value clears the mask.  Using a
 		 * volatile pointer prevents compilers from optimizing
 		 * it out. */
-		*intmc_reg = intmask;
+		dres_reg_write32 (r, NVME_INTMC_REG_OFFSET, intmask);
 		printf ("NVMe interrupt mask 0x%X is cleared.\n", intmask);
 	}
 
