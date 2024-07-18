@@ -1383,11 +1383,11 @@ bnx_intr_clear (void *param)
 		return;
 	spinlock_lock (&bnx->reg_lock);
 	r = bnx->r;
-	bnx_mmiowrite32 (r, 0x0204, 0);
+	bnx_mmiowrite32 (r, BNXREG_HMBOX_INTR_CLR, 0);
 	/* Do a dummy read of a device register to flush the above
 	 * write and device DMA writes for the status block which will
 	 * be read by the following function call. */
-	bnx_mmioread32 (r, 0x0204, &data);
+	bnx_mmioread32 (r, BNXREG_HMBOX_INTR_CLR, &data);
 	spinlock_unlock (&bnx->reg_lock);
 	bnx_handle_status (bnx);
 }
