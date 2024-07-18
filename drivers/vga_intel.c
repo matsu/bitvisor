@@ -28,13 +28,15 @@
  */
 
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
+#include <core/mm.h>
 #include <core/vga.h>
 #include <pci.h>
 
 #define MAX_NFENCE 16
 
 struct vga_func_data {
+	struct pci_device *pci;
 	u32 reg_base, reg_len;
 	u32 vram_base, vram_len;
 	u32 *reg, vram_mapped_len, stride, srcsize, vram_off, tiled_off;
@@ -97,6 +99,7 @@ vga_intel_new (struct pci_device *pci_device)
 	if (bar2.type != PCI_BAR_INFO_TYPE_MEM)
 		return;
 	d = alloc (sizeof *d);
+	d->pci = pci_device;
 	d->reg_base = bar0.base;
 	d->reg_len = bar0.len;
 	d->vram_base = bar2.base;
@@ -194,13 +197,21 @@ vga_intel_is_ready (struct vga_func_data *data)
 {
 	u32 *reg, ctl, off, stride;
 	int ab, bpp;
+	phys_t cpu_addr;
+	enum dres_reg_t dummy_type;
+	enum dres_err_t err;
 
 	data->ready = false;
 	if (data->reg_len < 0x80000)
 		return 0;
 	if (data->reg)
 		unmapmem (data->reg, data->reg_len);
-	data->reg = reg = mapmem_as (as_passvm, data->reg_base, data->reg_len,
+	err = pci_dres_reg_translate (data->pci, data->reg_base, data->reg_len,
+				      DRES_REG_TYPE_MM, &cpu_addr,
+				      &dummy_type);
+	if (err != DRES_ERR_NONE)
+		return 0;
+	data->reg = reg = mapmem_as (as_passvm, cpu_addr, data->reg_len,
 				     MAPMEM_WRITE);
 	if (!reg)
 		return 0;
@@ -250,8 +261,13 @@ vga_intel_is_ready (struct vga_func_data *data)
 		 (data->tiled_off & 0xFFF)) * 4;
 	if (data->vram_mapped_len > data->vram_len - off)
 		data->vram_mapped_len = data->vram_len - off;
-	data->vram = mapmem_as (as_passvm, data->vram_base + off,
-				data->vram_mapped_len, MAPMEM_WRITE);
+	err = pci_dres_reg_translate (data->pci, data->vram_base + off,
+				      data->vram_mapped_len, DRES_REG_TYPE_MM,
+				      &cpu_addr, &dummy_type);
+	if (err != DRES_ERR_NONE)
+		return 0;
+	data->vram = mapmem_as (as_passvm, cpu_addr, data->vram_mapped_len,
+				MAPMEM_WRITE);
 	if (!data->vram)
 		return 0;
 	data->nfence = 0;
