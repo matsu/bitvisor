@@ -30,7 +30,7 @@
  */
 
 #include <core.h>
-#include <core/mmio.h>
+#include <core/dres.h>
 #include <core/time.h>
 #include <core/tty.h>
 #include <pci.h>
@@ -72,8 +72,7 @@ enum ieee1394_regs {
 struct ieee1394 {
 	phys_t base;
 	u32 len;
-	void *regs;
-	void *hook;
+	struct dres_reg *r;
 };
 
 static bool ieee1394log_loaded = false;
@@ -92,13 +91,16 @@ ieee1394_usleep (u32 usec)
 static inline void
 ieee1394_write (struct ieee1394 *ctx, u32 offset, u32 data)
 {
-	*(u32 *)(ctx->regs + offset) = data;
+	dres_reg_write32 (ctx->r, offset, data);
 }
 
 static inline u32
 ieee1394_read (struct ieee1394 *ctx, u32 offset)
 {
-	return *(u32 *)(ctx->regs + offset);
+	u32 data;
+
+	dres_reg_read32 (ctx->r, offset, &data);
+	return data;
 }
 
 static inline void
@@ -227,13 +229,13 @@ ieee1394_reset (struct ieee1394 *ctx)
 	ieee1394_write (ctx, IEEE1394_REG_PHY_UPPER_BOUND, 0xffff0000);
 }
 
-static int
-ieee1394log_mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len,
-		       u32 flags)
+static enum dres_reg_ret_t
+ieee1394log_mmhandler (const struct dres_reg *r, void *handle, phys_t offset,
+		       bool wr, void *buf, uint len)
 {
 	if (!wr)
 		memset (buf, 0, len);
-	return 1;
+	return DRES_REG_RET_DONE;
 }
 
 static int
@@ -257,6 +259,7 @@ ieee1394log_new (struct pci_device *pci_device)
 	struct ieee1394 *ctx;
 	u32 len;
 	struct pci_bar_info bar;
+	enum dres_err_t err;
 
 	pci_get_bar_info (pci_device, 0, &bar);
 	if (bar.type != PCI_BAR_INFO_TYPE_MEM) {
@@ -289,10 +292,11 @@ ieee1394log_new (struct pci_device *pci_device)
 
 	ctx->base = bar.base;
 	ctx->len = len;
-	ctx->regs = mapmem_as (as_passvm, bar.base, len, MAPMEM_WRITE);
-	ctx->hook = mmio_register (bar.base, len, ieee1394log_mmhandler, ctx);
-	ASSERT (ctx->regs);
-	ASSERT (ctx->hook);
+	ctx->r = dres_reg_alloc (bar.base, len, DRES_REG_TYPE_MM,
+				 pci_dres_reg_translate, pci_device, 0);
+	ASSERT (ctx->r);
+	err = dres_reg_register_handler (ctx->r, ieee1394log_mmhandler, ctx);
+	ASSERT (err == DRES_ERR_NONE);
 
 	/* Do initialization. */
 	ieee1394_reset (ctx);
