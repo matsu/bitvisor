@@ -61,5 +61,4 @@ objs-1 += vmmcall_dbgsh.o
 objs-1 += vmmcall_iccard.o
 objs-1 += vmmcall_log.o
 objs-1 += vmmcall_status.o
-objs-1 += vpn_ve.o
 objs-1 += vramwrite.o
