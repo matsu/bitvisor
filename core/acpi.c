@@ -27,6 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <arch/acpi.h>
 #include <core/acpi.h>
 #include <core/assert.h>
 #include <core/initfunc.h>
@@ -41,7 +42,6 @@
 #include "calluefi.h"
 #include "uefi.h"
 
-#define FIND_RSDP_NOT_FOUND	0xFFFFFFFFFFFFFFFFULL
 #define RSDP_SIGNATURE		"RSD PTR"
 #define RSDP_SIGNATURE_LEN	7
 #define ADDRESS_SPACE_ID_MEM	0
@@ -383,21 +383,8 @@ get_reg_info_with_gas_log (struct acpi_reg *r, struct gas *g)
 	}
 }
 
-static u64
-get_ebda_address (void)
-{
-	u16 *p;
-
-	if (uefi_acpi_20_table != ~0UL)
-		return uefi_acpi_20_table;
-	if (uefi_acpi_table != ~0UL)
-		return uefi_acpi_table;
-	p = acpi_mapmem (0x40E, sizeof *p);
-	return ((u64)*p) << 4;
-}
-
-static u64
-find_rsdp_iapc_sub (u64 start, u64 end)
+u64
+acpi_find_rsdp_from_mem (u64 start, u64 end)
 {
 	struct rsdp *p;
 	u64 i;
@@ -408,26 +395,32 @@ find_rsdp_iapc_sub (u64 start, u64 end)
 		    && !acpi_checksum (p, sizeof *p))
 			return i;
 	}
-	return FIND_RSDP_NOT_FOUND;
-}
-
-static u64
-find_rsdp_iapc (void)
-{
-	u64 ebda;
-	u64 rsdp;
-
-	ebda = get_ebda_address ();
-	rsdp = find_rsdp_iapc_sub (ebda, ebda + 0x3FF);
-	if (rsdp == FIND_RSDP_NOT_FOUND)
-		rsdp = find_rsdp_iapc_sub (0xE0000, 0xFFFFF);
-	return rsdp;
+	return ACPI_RSDP_NOT_FOUND;
 }
 
 static u64
 find_rsdp (void)
 {
-	return find_rsdp_iapc ();
+	u64 rsdp;
+	u64 mem;
+
+	/* Try to get RSDP from UEFI first */
+	if (uefi_acpi_20_table != ~0UL) {
+		mem = uefi_acpi_20_table;
+		rsdp = acpi_find_rsdp_from_mem (mem, mem + 0x3FF);
+	} else if (uefi_acpi_table != ~0UL) {
+		mem = uefi_acpi_table;
+		rsdp = acpi_find_rsdp_from_mem (mem, mem + 0x3FF);
+	} else {
+		/*
+		 * If we cannot find from UEFI, ask architecture-dependent
+		 * implementation for RSDP. Note that this can return
+		 * ACPI_RSDP_NOT_FOUND depending on the running platform.
+		 */
+		rsdp = acpi_arch_find_rsdp ();
+	}
+
+	return rsdp;
 }
 
 /* Return ACPIv1 table address if UEFI firmware provides ACPIv1 table
@@ -442,13 +435,13 @@ find_rsdp1 (void)
 	/* If uefi_acpi_20_table != ~0UL && uefi_acpi_table == ~0UL,
 	 * ACPIv1 table is not provided. */
 	if (uefi_acpi_20_table == ~0UL || uefi_acpi_table == ~0UL)
-		return FIND_RSDP_NOT_FOUND;
+		return ACPI_RSDP_NOT_FOUND;
 	/* If uefi_acpi_20_table == uefi_acpi_table, uefi_acpi_table
 	 * is returned by find_rsdp(). */
 	if (uefi_acpi_20_table == uefi_acpi_table)
-		return FIND_RSDP_NOT_FOUND;
-	u64 ebda = uefi_acpi_table;
-	return find_rsdp_iapc_sub (ebda, ebda + 0x3FF);
+		return ACPI_RSDP_NOT_FOUND;
+	u64 mem = uefi_acpi_table;
+	return acpi_find_rsdp_from_mem (mem, mem + 0x3FF);
 }
 
 static void *
@@ -1162,12 +1155,12 @@ acpi_init_global (void)
 	rsdp1_found = false;
 
 	rsdp1 = find_rsdp1 ();
-	if (rsdp1 != FIND_RSDP_NOT_FOUND) {
+	if (rsdp1 != ACPI_RSDP_NOT_FOUND) {
 		copy_rsdp1 (rsdp1, &rsdp1_copy);
 		rsdp1_found = true;
 	}
 	rsdp = find_rsdp ();
-	if (rsdp == FIND_RSDP_NOT_FOUND) {
+	if (rsdp == ACPI_RSDP_NOT_FOUND) {
 		printf ("ACPI RSDP not found.\n");
 		return;
 	}

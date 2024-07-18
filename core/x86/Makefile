@@ -24,6 +24,7 @@ CONSTANTS-$(CONFIG_DEBUG_SERIAL) += -DDEBUG_SERIAL
 CFLAGS += -Icore/include
 CFLAGS += $(CFLAGS_EDK2_INC)
 
+objs-1 += acpi.o
 objs-1 += acpi_dmar.o
 objs-1 += acpi_iohook.o
 objs-1 += ap.o

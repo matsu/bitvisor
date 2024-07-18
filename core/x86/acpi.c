@@ -27,45 +27,22 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_ACPI_H
-#define _CORE_ACPI_H
+#include <arch/acpi.h>
+#include "../acpi.h"
 
-#include <core/types.h>
+u64
+acpi_arch_find_rsdp (void)
+{
+	u64 rsdp;
+	u64 mem;
+	u16 *p_to_ebda;
 
-#define ACPI_SIGNATURE_LEN	4
-#define ACPI_RSDP_NOT_FOUND	0xFFFFFFFFFFFFFFFFULL
+	/* RSDP is located in one of the following memory location */
+	p_to_ebda = acpi_mapmem (0x40E, sizeof *p_to_ebda);
+	mem = ((u64)*p_to_ebda) << 4;
+	rsdp = acpi_find_rsdp_from_mem (mem, mem + 0x3FF);
+	if (rsdp == ACPI_RSDP_NOT_FOUND)
+		rsdp = acpi_find_rsdp_from_mem (0xE0000, 0xFFFFF);
 
-struct acpi_description_header {
-	u8 signature[4];
-	u32 length;
-	u8 revision;
-	u8 checksum;
-	u8 oemid[6];
-	u8 oem_table_id[8];
-	u8 oem_revision[4];
-	u8 creator_id[4];
-	u8 creator_revision[4];
-} __attribute__ ((packed));
-
-u8 acpi_checksum (void *p, int len);
-void *acpi_mapmem (u64 addr, int len);
-void *acpi_find_entry (char *signature);
-void acpi_itr_rsdt1_entry (void *(*func) (void *data, u64 entry), void *data);
-void acpi_itr_rsdt_entry (void *(*func) (void *data, u64 entry), void *data);
-void acpi_itr_xsdt_entry (void *(*func) (void *data, u64 entry), void *data);
-void acpi_modify_table (char *signature, u64 address);
-u64 acpi_find_rsdp_from_mem (u64 start, u64 end);
-
-bool acpi_reg_pm1a_cnt_write (u64 val);
-bool acpi_reg_get_pm1a_cnt_ioaddr (u32 *ioaddr);
-bool acpi_reg_get_smi_cmd_ioaddr (u32 *ioaddr);
-
-bool acpi_dsdt_pm1_cnt_slp_typx_check (u32 v);
-bool acpi_get_waking_vector (u32 *old_waking_vector, bool *error);
-void acpi_set_waking_vector (u32 new_waking_vector, u32 old_waking_vector_ref);
-
-void acpi_poweroff (void);
-bool get_acpi_time_raw (u32 *r);
-void acpi_reset (void);
-
-#endif
+	return rsdp;
+}

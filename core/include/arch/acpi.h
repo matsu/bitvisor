@@ -27,45 +27,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_ACPI_H
-#define _CORE_ACPI_H
+#ifndef _CORE_INCLUDE_ARCH_ACPI_H
+#define _CORE_INCLUDE_ARCH_ACPI_H
 
 #include <core/types.h>
 
-#define ACPI_SIGNATURE_LEN	4
-#define ACPI_RSDP_NOT_FOUND	0xFFFFFFFFFFFFFFFFULL
-
-struct acpi_description_header {
-	u8 signature[4];
-	u32 length;
-	u8 revision;
-	u8 checksum;
-	u8 oemid[6];
-	u8 oem_table_id[8];
-	u8 oem_revision[4];
-	u8 creator_id[4];
-	u8 creator_revision[4];
-} __attribute__ ((packed));
-
-u8 acpi_checksum (void *p, int len);
-void *acpi_mapmem (u64 addr, int len);
-void *acpi_find_entry (char *signature);
-void acpi_itr_rsdt1_entry (void *(*func) (void *data, u64 entry), void *data);
-void acpi_itr_rsdt_entry (void *(*func) (void *data, u64 entry), void *data);
-void acpi_itr_xsdt_entry (void *(*func) (void *data, u64 entry), void *data);
-void acpi_modify_table (char *signature, u64 address);
-u64 acpi_find_rsdp_from_mem (u64 start, u64 end);
-
-bool acpi_reg_pm1a_cnt_write (u64 val);
-bool acpi_reg_get_pm1a_cnt_ioaddr (u32 *ioaddr);
-bool acpi_reg_get_smi_cmd_ioaddr (u32 *ioaddr);
-
-bool acpi_dsdt_pm1_cnt_slp_typx_check (u32 v);
-bool acpi_get_waking_vector (u32 *old_waking_vector, bool *error);
-void acpi_set_waking_vector (u32 new_waking_vector, u32 old_waking_vector_ref);
-
-void acpi_poweroff (void);
-bool get_acpi_time_raw (u32 *r);
-void acpi_reset (void);
+u64 acpi_arch_find_rsdp (void);
 
 #endif
