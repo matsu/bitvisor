@@ -31,6 +31,9 @@
 
 #define WEAK __attribute__ ((weak))
 
+#define UL_LEN	sizeof (unsigned long)
+#define ADDR_LOW_UL_RESIDUE(addr) ((unsigned long)(addr) & (UL_LEN - 1))
+
 WEAK void *
 memset (void *addr, int val, size_t len)
 {
@@ -46,9 +49,47 @@ memcpy (void *dest, const void *src, size_t len)
 {
 	char *p;
 	const char *q;
+	unsigned long residue;
+	size_t i, j;
 
-	for (p = dest, q = src; len; len--)
+	/* In these cases, there is nothing to do */
+	if (src == dest || len == 0)
+		goto end;
+
+	p = dest;
+	q = src;
+
+	/*
+	 * If both src and dest are unaligned with the same residue, we
+	 * partially copy the residue part first so that subsequent
+	 * copying is aligned.
+	 */
+	residue = ADDR_LOW_UL_RESIDUE (src);
+	if (residue && residue == ADDR_LOW_UL_RESIDUE (dest)) {
+		j = UL_LEN - residue;
+		if (j > len)
+			j = len;
+		for (i = 0; i < j; i++)
+			*p++ = *q++;
+		len -= j;
+	}
+
+	/*
+	 * Try to copy with UL length. The length depends on the running
+	 * architecture.
+	 */
+	j = len / UL_LEN;
+	for (i = 0; i < j; i++) {
+		*(unsigned long *)p = *(const unsigned long *)q;
+		p += UL_LEN;
+		q += UL_LEN;
+	}
+	len -= j * UL_LEN;
+
+	/* Copy the remaining */
+	while (len--)
 		*p++ = *q++;
+end:
 	return dest;
 }
 
