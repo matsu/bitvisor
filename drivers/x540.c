@@ -29,8 +29,8 @@
  */
 
 #include <core.h>
+#include <core/dres.h>
 #include <core/initfunc.h>
-#include <core/mmio.h>
 #include <core/time.h>
 #include <core/tty.h>
 #include <pci.h>
@@ -143,15 +143,15 @@ struct x540_hook_context {
 	int ishooked;
 	int isio;
 
-	int iohandle;
-	void *mmhandle;
+	struct dres_reg *r;
 
 	int mapsize;
 	void *mappedaddr;
-	u32 baseaddr;
+	phys_t baseaddr;
 };
 
 struct x540 {
+	struct pci_device *pci;
 	u8 macaddr[6];
 
 	spinlock_t lock;
@@ -187,12 +187,17 @@ x540_usleep (u32 usec)
 	while (time2 - time1 < usec);
 }
 
-static int
-x540_iohandler (core_io_t io, union mem *data, void *arg)
+static enum dres_reg_ret_t
+x540_iohandler (const struct dres_reg *r, void *handle, phys_t offset, bool wr,
+		void *buf, uint len)
 {
-	printf ("%s: io:%08x, data:%08x\n",
-		__func__, *(int *)&io, data->dword);
-	return CORE_IO_RET_DEFAULT;
+	union mem m;
+
+	m.qword = 0;
+	memcpy (&m, buf, len);
+	printf ("%s: io offset:%08llx, data:%08x\n", __func__, offset,
+		m.dword);
+	return DRES_REG_RET_DONE;
 }
 
 /* register offsets */
@@ -844,25 +849,24 @@ static void
 x540_readwrite (struct x540_hook_context *context, u32 offset, bool write,
 		union mem *buf, int len)
 {
-	union mem *reg = (union mem *)(void *)((u8 *)context->mappedaddr +
-					       offset);
+	const struct dres_reg *r = context->r;
 
 	if (write) {
 		if (len == 1)
-			reg->byte = buf->byte;
+			dres_reg_write8 (r, offset, buf->byte);
 		else if (len == 2)
-			reg->word = buf->word;
+			dres_reg_write16 (r, offset, buf->word);
 		else if (len == 4)
-			reg->dword = buf->dword;
+			dres_reg_write32 (r, offset, buf->dword);
 		else
 			panic ("len=%u", len);
 	} else {
 		if (len == 1)
-			buf->byte = reg->byte;
+			dres_reg_read8 (r, offset, buf);
 		else if (len == 2)
-			buf->word = reg->word;
+			dres_reg_read16 (r, offset, buf);
 		else if (len == 4)
-			buf->dword = reg->dword;
+			dres_reg_read32 (r, offset, buf);
 		else
 			panic ("len=%u", len);
 	}
@@ -879,38 +883,38 @@ x540_mmhandler_internal (struct x540 *x540, struct x540_hook_context *context,
 	x540_readwrite (context, offset, write, buf, len);
 }
 
-static int
-x540_mmhandler (void *data, phys_t gphys, bool write, void *buf, uint len,
-		u32 flags)
+static enum dres_reg_ret_t
+x540_mmhandler (const struct dres_reg *r, void *handle, phys_t offset, bool wr,
+		void *buf, uint len)
 {
-	struct x540_hook_context *context = data;
+	struct x540_hook_context *context = handle;
 
 	spinlock_lock (&context->x540->lock);
-	x540_mmhandler_internal (context->x540, context,
-				 gphys - context->baseaddr, write, buf, len);
+	x540_mmhandler_internal (context->x540, context, offset, wr, buf, len);
 	spinlock_unlock (&context->x540->lock);
 
-	return 1;
+	return DRES_REG_RET_DONE;
 }
 
 /******** MMIO hook/unhook functions ********/
 static void
 x540_unreghook (struct x540_hook_context *context)
 {
-	if (context->isio) {
-		DBG ("unreghook ioio\n");
-		core_io_unregister_handler (context->iohandle);
-	} else {
-		DBG ("unreghook mmio\n");
-		mmio_unregister (context->mmhandle);
-		unmapmem (context->mappedaddr, context->mapsize);
+	if (context->ishooked) {
+		DBG ("unreghook %s\n", context->isio ? "ioio" : "mmio");
+		dres_reg_unregister_handler (context->r);
+		dres_reg_free (context->r);
+		context->ishooked = false;
 	}
-	context->ishooked = false;
 }
 
 static void
 x540_reghook (struct x540_hook_context *context, struct pci_bar_info *bar)
 {
+	dres_reg_handler_t handler;
+	enum dres_reg_t type;
+	enum dres_err_t err;
+
 	if (bar->type == PCI_BAR_INFO_TYPE_NONE)
 		return;
 
@@ -919,25 +923,26 @@ x540_reghook (struct x540_hook_context *context, struct pci_bar_info *bar)
 	if (bar->type == PCI_BAR_INFO_TYPE_IO) {
 		/* hooking ioio */
 		context->isio = 1;
-		context->iohandle =
-			core_io_register_handler (bar->base, bar->len,
-						  x540_iohandler, context,
-						  CORE_IO_PRIO_EXCLUSIVE,
-						  driver_name);
+		type = DRES_REG_TYPE_IO;
+		handler = x540_iohandler;
 	} else {
 		/* hooking mmio */
+		context->isio = 0;
+		type = DRES_REG_TYPE_MM;
+		handler = x540_mmhandler;
 		context->baseaddr = bar->base;
 		context->mapsize = bar->len;
-		context->mappedaddr = mapmem_as (as_passvm, bar->base,
-						 bar->len, MAPMEM_WRITE);
-		if (!context->mappedaddr)
-			panic ("mapmem failed");
-		context->isio = 0;
-		context->mmhandle = mmio_register (bar->base, bar->len,
-						   x540_mmhandler, context);
-		if (!context->mmhandle)
-			panic ("mmio_register failed");
 	}
+	context->baseaddr = bar->base;
+	context->mapsize = bar->len;
+	context->r = dres_reg_alloc (bar->base, bar->len, type,
+				     pci_dres_reg_translate,
+				     context->x540->pci, 0);
+	if (context->r)
+		panic ("dres_reg_alloc failed");
+	err = dres_reg_register_handler (context->r, handler, context);
+	if (err != DRES_ERR_NONE)
+		panic ("dres_reg_register_handler failed");
 	context->ishooked = true;
 }
 
@@ -1040,6 +1045,7 @@ x540_new (struct pci_device *pci_device)
 	}
 	memset (x540, 0, sizeof *x540);
 
+	x540->pci = pci_device;
 	x540->config = x540_default_config;
 	spinlock_init (&x540->lock);
 	for (i = 0; i < 6; i++) {
