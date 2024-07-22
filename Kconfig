@@ -297,7 +297,7 @@ endif
 config IEEE1394_CONCEALER
 	bool
 	default y
-	prompt "Conceal USB ccid class device"
+	prompt "Conceal IEEE1394 controller"
 
 config ACPI_DSDT
 	bool
