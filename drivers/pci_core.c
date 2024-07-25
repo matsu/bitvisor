@@ -417,11 +417,6 @@ pci_handle_bridge_config_write (struct pci_device *bridge, u8 iosize,
 				       old_secondary_bus_no);
 			device_disconnect (dev);
 			dev->address.bus_no = new_secondary_bus_no;
-			/* Clear the dev->config_mmio because the new
-			 * bus number may be out of range of current
-			 * MCFG space.  It will be set again in
-			 * pci_reconnect_device() if necessary. */
-			dev->config_mmio = NULL;
 		} else if (!dev->disconnect &&
 			   old_secondary_bus_no &&
 			   dev->address.bus_no > old_secondary_bus_no &&
@@ -529,7 +524,7 @@ new_device:
 	 * non-existent devices.  This behavior is apparently required
 	 * for EFI variable access on iMac (Retina 5K, 27-inch, Late
 	 * 2015) and MacBook (Retina, 12-inch, Early 2016). */
-	if (d)
+	if (is_pci_bus_within_mmio_range (d, bus_no))
 		pci_readwrite_config_mmio (d, wr, bus_no, device_no, func_no,
 					   offset, len, buf);
 	else
@@ -1026,8 +1021,9 @@ void
 pci_config_read (struct pci_device *pci_device, void *data, uint iosize,
 		 uint offset)
 {
-	if (pci_device->config_mmio)
-		pci_read_config_mmio (pci_device->config_mmio,
+	if (is_pci_bus_within_mmio_range (pci_device->segment->mmio,
+					  pci_device->address.bus_no))
+		pci_read_config_mmio (pci_device->segment->mmio,
 				      pci_device->address.bus_no,
 				      pci_device->address.device_no,
 				      pci_device->address.func_no,
@@ -1043,8 +1039,9 @@ void
 pci_config_write (struct pci_device *pci_device, void *data, uint iosize,
 		  uint offset)
 {
-	if (pci_device->config_mmio)
-		pci_write_config_mmio (pci_device->config_mmio,
+	if (is_pci_bus_within_mmio_range (pci_device->segment->mmio,
+					  pci_device->address.bus_no))
+		pci_write_config_mmio (pci_device->segment->mmio,
 				       pci_device->address.bus_no,
 				       pci_device->address.device_no,
 				       pci_device->address.func_no,

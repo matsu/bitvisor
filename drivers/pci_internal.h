@@ -87,6 +87,12 @@ int pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 void pci_config_pmio_enter (void);
 void pci_config_pmio_leave (void);
 
+static inline bool
+is_pci_bus_within_mmio_range (struct pci_config_mmio_data *m, u8 bus_no)
+{
+	return m && m->bus_start <= bus_no && bus_no <= m->bus_end;
+}
+
 extern struct pci_segment_list pci_segment_list;
 extern struct pci_msi_callback *pci_msi_callback_list;
 
