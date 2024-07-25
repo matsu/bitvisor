@@ -298,8 +298,7 @@ struct pci_device *pci_get_bridge_from_bus_no (struct pci_segment *s,
 					       u8 bus_no);
 void pci_set_bridge_from_bus_no (struct pci_segment *s, u8 bus_no,
 				 struct pci_device *bridge);
-int pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
-			  struct pci_config_mmio_data *mmio);
+int pci_reconnect_device (struct pci_device *dev);
 void pci_set_bridge_io (struct pci_device *pci_device);
 void pci_set_bridge_callback (struct pci_device *pci_device,
 			      struct pci_bridge_callback *bridge_callback);

@@ -168,28 +168,16 @@ pci_set_bridge_from_bus_no (struct pci_segment *s, u8 bus_no,
 }
 
 int
-pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
-		      struct pci_config_mmio_data *mmio)
+pci_reconnect_device (struct pci_device *dev)
 {
 	u32 data0, data8;
 
 	/* Read device ID, vendor ID and class code.  If the vendor ID
 	 * is 0xFFFF, the device remains disconnected. */
-	if (is_pci_bus_within_mmio_range (mmio, addr.bus_no)) {
-		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
-				      addr.func_no, 0, sizeof data0, &data0);
-		if ((data0 & 0xFFFF) == 0xFFFF)
-			return 0;
-		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
-				      addr.func_no, 8, sizeof data8, &data8);
-	} else {
-		pci_read_config_pmio (addr.bus_no, addr.device_no,
-				      addr.func_no, 0, sizeof data0, &data0);
-		if ((data0 & 0xFFFF) == 0xFFFF)
-			return 0;
-		pci_read_config_pmio (addr.bus_no, addr.device_no,
-				      addr.func_no, 8, sizeof data8, &data8);
-	}
+	pci_config_read (dev, &data0, sizeof data0, 0);
+	if ((data0 & 0xFFFF) == 0xFFFF)
+		return 0;
+	pci_config_read (dev, &data8, sizeof data8, 8);
 	/* Compare the read data with data stored in the dev
 	 * structure. */
 	if (dev->config_space.regs32[0] == data0 &&
@@ -267,14 +255,9 @@ pci_possible_new_device (struct pci_segment *s, pci_config_address_t addr)
 {
 	u16 data;
 	struct pci_device *ret = NULL;
-	struct pci_config_mmio_data *mmio = s->mmio;
 
-	if (is_pci_bus_within_mmio_range (mmio, addr.bus_no))
-		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
-				      addr.func_no, 0, sizeof data, &data);
-	else
-		pci_read_config_pmio (addr.bus_no, addr.device_no,
-				      addr.func_no, 0, sizeof data, &data);
+	pci_read_config_io (s, addr.bus_no, addr.device_no, addr.func_no,
+			    &data, sizeof data, 0);
 	if (data != 0xFFFF)
 		ret = pci_new_device (s, addr);
 	if (ret) {
@@ -295,14 +278,9 @@ pci_try_add_device (struct pci_segment *s, pci_config_address_t addr,
 {
 	u16 data;
 	struct pci_device *dev;
-	struct pci_config_mmio_data *mmio = s->mmio;
 
-	if (is_pci_bus_within_mmio_range (mmio, addr.bus_no))
-		pci_read_config_mmio (mmio, addr.bus_no, addr.device_no,
-				      addr.func_no, 0, sizeof data, &data);
-	else
-		pci_read_config_pmio (addr.bus_no, addr.device_no,
-				      addr.func_no, 0, sizeof data, &data);
+	pci_read_config_io (s, addr.bus_no, addr.device_no, addr.func_no,
+			    &data, sizeof data, 0);
 	if (data == 0xFFFF) /* not exist */
 		return NULL;
 

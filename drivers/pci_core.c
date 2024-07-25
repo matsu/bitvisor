@@ -447,7 +447,6 @@ pci_config_io_handler (struct pci_segment *s, bool wr,
 	struct pci_virtual_device *virtual_dev;
 	void (*virtual_func) (struct pci_virtual_device *dev, u8 iosize,
 			      u16 offset, union mem *data);
-	struct pci_config_mmio_data *d = s->mmio;
 
 	spinlock_lock (&pci_config_io_lock);
 	if (last_bus_no == bus_no && last_device_no == device_no &&
@@ -524,15 +523,15 @@ new_device:
 	 * non-existent devices.  This behavior is apparently required
 	 * for EFI variable access on iMac (Retina 5K, 27-inch, Late
 	 * 2015) and MacBook (Retina, 12-inch, Early 2016). */
-	if (is_pci_bus_within_mmio_range (d, bus_no))
-		pci_readwrite_config_mmio (d, wr, bus_no, device_no, func_no,
-					   offset, len, buf);
+	if (wr)
+		pci_write_config_io (s, bus_no, device_no, func_no, buf, len,
+				     offset);
 	else
-		pci_readwrite_config_pmio (wr, bus_no, device_no, func_no,
-					   offset, len, buf);
+		pci_read_config_io (s, bus_no, device_no, func_no, buf, len,
+				    offset);
 	goto ret;
 dev_found:
-	if (dev->disconnect && pci_reconnect_device (dev, dev->address, d))
+	if (dev->disconnect && pci_reconnect_device (dev))
 		goto new_device;
 	if (dev->disconnect) {
 		dev = NULL;
@@ -1017,40 +1016,53 @@ pci_write_config_pmio (uint bus_no, uint device_no, uint func_no, uint offset,
 				   iosize, data);
 }
 
+static inline bool
+is_pci_bus_within_mmio_range (struct pci_config_mmio_data *m, u8 bus_no)
+{
+	return m && m->bus_start <= bus_no && bus_no <= m->bus_end;
+}
+
+void
+pci_read_config_io (struct pci_segment *s, uint bus_no, uint device_no,
+		    uint func_no, void *data, uint iosize, uint offset)
+{
+	if (is_pci_bus_within_mmio_range (s->mmio, bus_no))
+		pci_read_config_mmio (s->mmio, bus_no, device_no, func_no,
+				      offset, iosize, data);
+	else
+		pci_read_config_pmio (bus_no, device_no, func_no, offset,
+				      iosize, data);
+}
+
+void
+pci_write_config_io (struct pci_segment *s, uint bus_no, uint device_no,
+		     uint func_no, void *data, uint iosize, uint offset)
+{
+	if (is_pci_bus_within_mmio_range (s->mmio, bus_no))
+		pci_write_config_mmio (s->mmio, bus_no, device_no, func_no,
+				       offset, iosize, data);
+	else
+		pci_write_config_pmio (bus_no, device_no, func_no, offset,
+				       iosize, data);
+}
+
 void
 pci_config_read (struct pci_device *pci_device, void *data, uint iosize,
 		 uint offset)
 {
-	if (is_pci_bus_within_mmio_range (pci_device->segment->mmio,
-					  pci_device->address.bus_no))
-		pci_read_config_mmio (pci_device->segment->mmio,
-				      pci_device->address.bus_no,
-				      pci_device->address.device_no,
-				      pci_device->address.func_no,
-				      offset, iosize, data);
-	else
-		pci_read_config_pmio (pci_device->address.bus_no,
-				      pci_device->address.device_no,
-				      pci_device->address.func_no,
-				      offset, iosize, data);
+	pci_read_config_io (pci_device->segment, pci_device->address.bus_no,
+			    pci_device->address.device_no,
+			    pci_device->address.func_no, data, iosize, offset);
 }
 
 void
 pci_config_write (struct pci_device *pci_device, void *data, uint iosize,
 		  uint offset)
 {
-	if (is_pci_bus_within_mmio_range (pci_device->segment->mmio,
-					  pci_device->address.bus_no))
-		pci_write_config_mmio (pci_device->segment->mmio,
-				       pci_device->address.bus_no,
-				       pci_device->address.device_no,
-				       pci_device->address.func_no,
-				       offset, iosize, data);
-	else
-		pci_write_config_pmio (pci_device->address.bus_no,
-				       pci_device->address.device_no,
-				       pci_device->address.func_no,
-				       offset, iosize, data);
+	pci_write_config_io (pci_device->segment, pci_device->address.bus_no,
+			     pci_device->address.device_no,
+			     pci_device->address.func_no, data, iosize,
+			     offset);
 }
 
 /**
