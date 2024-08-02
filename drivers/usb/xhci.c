@@ -1131,9 +1131,9 @@ handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
 	while (g_urb) {
 		struct usb_request_block *h_urb = xhci_shadow_g_urb (g_urb);
 
-		u8 ret = usb_hook_process (host->usb_host,
-					   h_urb,
-					   USB_HOOK_REQUEST);
+		int ret = usb_hook_process (host->usb_host,
+					    h_urb,
+					    USB_HOOK_REQUEST);
 
 		if (ret == USB_HOOK_DISCARD) {
 			dprintft (1, "slot: %u ep_no: %u Request discarded\n",
