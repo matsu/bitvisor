@@ -470,11 +470,14 @@ gic_handle_fiq (union exception_saved_regs *r)
 	if (intid == INTR_MAINTENANCE_NUM) {
 		handle_mint (intid);
 		msr (GIC_ICC_DIR_EL1, intid); /* Deactivate the interrupt */
+		isb ();
 	} else {
-		if (num != -1)
+		if (num != -1) {
 			try_inject_vint (intid, rpr, 0);
-		else
+		} else {
 			msr (GIC_ICC_DIR_EL1, intid);
+			isb ();
+		}
 	}
 end:
 	return EXCEPTION_HANDLE_RETURN_OK;
@@ -506,11 +509,14 @@ gic_handle_irq (union exception_saved_regs *r)
 	if (intid == INTR_MAINTENANCE_NUM) {
 		handle_mint (intid);
 		msr (GIC_ICC_DIR_EL1, intid); /* Deactivate the interrupt */
+		isb ();
 	} else {
-		if (num != -1)
+		if (num != -1) {
 			try_inject_vint (intid, rpr, 1);
-		else
+		} else {
 			msr (GIC_ICC_DIR_EL1, intid);
+			isb ();
+		}
 	}
 end:
 	return EXCEPTION_HANDLE_RETURN_OK;
