@@ -84,9 +84,11 @@ handle_psci_cpu_on (union exception_saved_regs *r)
 				   sym_to_phys (entry_secondary),
 				   (u64)(stack + VMM_STACKSIZE));
 
-	if (error)
+	if (error) {
 		printf ("Fail to start core 0x%llX, error %d\n", r->reg.x1,
 			error);
+		free (stack);
+	}
 
 	/* Return error to the guest */
 	r->reg.x0 = error;
