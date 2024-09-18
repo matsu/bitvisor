@@ -32,38 +32,38 @@
 	.balign 4
 	.global smc_asm_passthrough_call
 smc_asm_passthrough_call:
-	str x20, [sp, #-16]!
-	mov x20, x0
+	str	x20, [sp, #-16]!
+	mov	x20, x0
 
 	/* Load registers, prepare for SMC call */
-	ldp x0, x1, [x20, #(16 * 0)]
-	ldp x2, x3, [x20, #(16 * 1)]
-	ldp x4, x5, [x20, #(16 * 2)]
-	ldp x6, x7, [x20, #(16 * 3)]
-	ldp x8, x9, [x20, #(16 * 4)]
-	ldp x10, x11, [x20, #(16 * 5)]
-	ldp x12, x13, [x20, #(16 * 6)]
-	ldp x14, x15, [x20, #(16 * 7)]
-	ldp x16, x17, [x20, #(16 * 8)]
+	ldp	x0, x1, [x20, #(16 * 0)]
+	ldp	x2, x3, [x20, #(16 * 1)]
+	ldp	x4, x5, [x20, #(16 * 2)]
+	ldp	x6, x7, [x20, #(16 * 3)]
+	ldp	x8, x9, [x20, #(16 * 4)]
+	ldp	x10, x11, [x20, #(16 * 5)]
+	ldp	x12, x13, [x20, #(16 * 6)]
+	ldp	x14, x15, [x20, #(16 * 7)]
+	ldp	x16, x17, [x20, #(16 * 8)]
 
 	smc #0
 
 	/* Save results */
-	stp x0, x1, [x20, #(16 * 0)]
-	stp x2, x3, [x20, #(16 * 1)]
-	stp x4, x5, [x20, #(16 * 2)]
-	stp x6, x7, [x20, #(16 * 3)]
-	stp x8, x9, [x20, #(16 * 4)]
-	stp x10, x11, [x20, #(16 * 5)]
-	stp x12, x13, [x20, #(16 * 6)]
-	stp x14, x15, [x20, #(16 * 7)]
-	stp x16, x17, [x20, #(16 * 8)]
+	stp	x0, x1, [x20, #(16 * 0)]
+	stp	x2, x3, [x20, #(16 * 1)]
+	stp	x4, x5, [x20, #(16 * 2)]
+	stp	x6, x7, [x20, #(16 * 3)]
+	stp	x8, x9, [x20, #(16 * 4)]
+	stp	x10, x11, [x20, #(16 * 5)]
+	stp	x12, x13, [x20, #(16 * 6)]
+	stp	x14, x15, [x20, #(16 * 7)]
+	stp	x16, x17, [x20, #(16 * 8)]
 
-	ldr x20, [sp], #16
+	ldr	x20, [sp], #16
 	ret
 
 	/* int smc_asm_psci_call (u64, u64, u64, u64) */
 	.global smc_asm_psci_call
 smc_asm_psci_call:
-	smc #0
+	smc	#0
 	ret
