@@ -455,6 +455,7 @@ gic_handle_fiq (union exception_saved_regs *r)
 	isb ();
 	dsb_sy ();
 	rpr = mrs (GIC_ICC_RPR_EL1) & ICC_RPR_MASK;
+	isb ();
 
 	/* TODO: what to do with special INTID? */
 	if (intid >= INTR_RSVD_NUM_1020 && intid <= INTR_RSVD_NUM_1024)
@@ -490,6 +491,7 @@ gic_handle_irq (union exception_saved_regs *r)
 	isb ();
 	dsb_sy ();
 	rpr = mrs (GIC_ICC_RPR_EL1) & ICC_RPR_MASK;
+	isb ();
 
 	/* TODO: what to do with special INTID? */
 	if (intid >= INTR_RSVD_NUM_1020 && intid <= INTR_RSVD_NUM_1024)
