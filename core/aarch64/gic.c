@@ -452,6 +452,8 @@ gic_handle_fiq (union exception_saved_regs *r)
 
 	/* Acknowledge the interrupt */
 	intid = mrs (GIC_ICC_IAR0_EL1) & ICC_IAR_MASK;
+	isb ();
+	dsb_sy ();
 	rpr = mrs (GIC_ICC_RPR_EL1) & ICC_RPR_MASK;
 
 	/* TODO: what to do with special INTID? */
@@ -485,6 +487,8 @@ gic_handle_irq (union exception_saved_regs *r)
 
 	/* Acknowledge the interrupt */
 	intid = mrs (GIC_ICC_IAR1_EL1) & ICC_IAR_MASK;
+	isb ();
+	dsb_sy ();
 	rpr = mrs (GIC_ICC_RPR_EL1) & ICC_RPR_MASK;
 
 	/* TODO: what to do with special INTID? */
