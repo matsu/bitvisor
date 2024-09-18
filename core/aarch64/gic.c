@@ -193,8 +193,8 @@ struct acpi_madt {
 #define ICC_CTLR_EOIMODE_MASK  0x1
 #define ICC_CTLR_EOIMODE_SHIFT 1
 
-#define ICH_VTR_MASK  0x1F
-#define ICH_VTR_SHIFT 0x0
+#define ICH_VTR_NLR_MASK  0x1F
+#define ICH_VTR_NLR_SHIFT 0
 
 #define ICH_VMCR_VENG0	  BIT (0)
 #define ICH_VMCR_VENG1	  BIT (1)
@@ -521,7 +521,7 @@ gic_setup_virtual_gic (void)
 
 	currentcpu = tpidr_get_pcpu ();
 
-	val = (mrs (GIC_ICH_VTR_EL2) >> ICH_VTR_SHIFT) & ICH_VTR_MASK;
+	val = (mrs (GIC_ICH_VTR_EL2) >> ICH_VTR_NLR_SHIFT) & ICH_VTR_NLR_MASK;
 	val += 1; /* 0 based value */
 	ASSERT (val <= 16);
 	currentcpu->max_int_slot = val;
