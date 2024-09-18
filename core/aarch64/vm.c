@@ -172,7 +172,8 @@ vm_start_at (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id)
 	printf ("Processor %X entering EL1\n", currentcpu_get_id ());
 
 	msr (SCTLR_EL12, 0);
-	msr (SPSR_EL2, 0x5);
+	msr (SPSR_EL2, 0x5 | SPSR_D_BIT | SPSR_A_BIT | SPSR_I_BIT |
+	     SPSR_F_BIT);
 	msr (ELR_EL2, g_entry);
 	msr (HCR_EL2, HCR_FLAGS);
 	isb ();
