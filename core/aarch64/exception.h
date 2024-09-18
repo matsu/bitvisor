@@ -32,6 +32,8 @@
 
 #include <core/types.h>
 
+#define EXCEPTION_N_GENERAL_REGS 31 /* x0 - x30 */
+
 enum exception_handle_return {
 	EXCEPTION_HANDLE_RETURN_OK,
 	EXCEPTION_HANDLE_RETURN_NOT_HANDLED,
@@ -53,7 +55,7 @@ union exception_saved_regs {
 		u64 tpidr_el0;
 		u64 padding;
 	} reg;
-	u64 regs[31];
+	u64 regs[EXCEPTION_N_GENERAL_REGS];
 };
 
 struct exception_pcpu_data {
