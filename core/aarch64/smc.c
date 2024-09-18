@@ -117,8 +117,10 @@ smc_call_hook (union exception_saved_regs *r, uint smc_num)
 	default:
 		/*
 		 * According to SMC call convention document, non-zero values
-		 * are reserved. For now, we do nothing.
+		 * are reserved. For now, we do nothing by returning
+		 * PSCI_ERR_NOT_SUPPORTED as an error to the caller.
 		 */
+		r->reg.x0 = PSCI_ERR_NOT_SUPPORTED;
 		printf ("%s(): ignore SMC call %u", __func__, smc_num);
 		break;
 	}
