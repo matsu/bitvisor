@@ -130,7 +130,7 @@ vmm_entry (enum vmm_boot_mode boot_mode)
 }
 
 void
-vmm_entry_secondary (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id)
+vmm_entry_cpu_on (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id)
 {
 	exception_secondary_init ();
 	pcpu_secondary_init ();

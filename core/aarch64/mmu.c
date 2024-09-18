@@ -172,7 +172,7 @@ static struct mmu_pt_desc mmu_vmm_pt_s2;
 static struct mmu_pt_desc mmu_vmm_pt_identity;
 static struct mmu_pt_desc mmu_proc_pt_none;
 
-/* For secondary core entry */
+/* For core entry after BitVisor starts */
 static u64 *mmu_ttbr0_identity_table;
 phys_t mmu_ttbr0_identity_table_phys;
 phys_t mmu_ttbr1_table_phys;
@@ -1214,7 +1214,7 @@ mmu_s2_map_identity (void)
 }
 
 static void
-mmu_prepare_secondary_entry (void)
+mmu_prepare_identity_entry (void)
 {
 	phys_t addr;
 	u64 size, pte_flags;
@@ -1233,8 +1233,8 @@ mmu_prepare_secondary_entry (void)
 
 	mmu_ttbr0_identity_table_phys = mmu_vmm_pt_identity.pt_phys;
 
-	addr = sym_to_phys (entry_secondary);
-	size = sym_to_phys (entry_secondary_end) - addr;
+	addr = sym_to_phys (entry_identity);
+	size = sym_to_phys (entry_identity_end) - addr;
 	pte_flags = PTE_VALID | PTE_MAIR_IDX (MAIR_WB_IDX) |
 		PTE_SH (PTE_SH_INNER) | PTE_AF | PTE_PERM_RX;
 	apply_map (&mmu_vmm_pt_identity, addr, addr, size, pte_flags);
@@ -1271,7 +1271,7 @@ mmu_init_mm_ok (void)
 {
 	mmu_s2_map_identity ();
 	mmu_s2_vmm_mem_ro ();
-	mmu_prepare_secondary_entry ();
+	mmu_prepare_identity_entry ();
 }
 
 static void

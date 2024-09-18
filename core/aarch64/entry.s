@@ -201,11 +201,16 @@ uefi_entry_arch_call:
 	ldp	x29, x30, [x10]
 	ret
 
-	/* entry_secondary() gets identity-mapped for secondary core entry */
+	/*
+	 * entry_identity code gets identity-mapped for core entry after
+	 * BitVisor start.
+	 */
 	.balign	PAGESIZE
+	.global entry_identity
+entry_identity:
 	/* x0 points to top of the stack (virtual address) */
-	.global entry_secondary
-entry_secondary:
+	.global entry_cpu_on
+entry_cpu_on:
 	msr	DAIFSet, #3 /* Disable interrupts */
 	isb /* Want msr write to be effective immediately */
 
@@ -267,19 +272,19 @@ entry_secondary:
 	ldp	x2, x3, [sp, #-32]
 	ldp	x4, x5, [sp, #-16]
 
-	adrp	x10, vmm_entry_secondary
-	add	x10, x10, :lo12:vmm_entry_secondary
+	adrp	x10, vmm_entry_cpu_on
+	add	x10, x10, :lo12:vmm_entry_cpu_on
 	sub	x10, x10, x4
 	add	x10, x10, x5
 
 	mov	x29, xzr
 	mov	x30, xzr
-	br	x10 /* Jump to vmm_entry_secondary with virtual address */
+	br	x10 /* Jump to vmm_entry_cpu_on with virtual address */
 	b	. /* The instruction should never return */
 
 	.balign PAGESIZE
-	.global entry_secondary_end
-entry_secondary_end:
+	.global entry_identity_end
+entry_identity_end:
 
 	.section .entry.data
 	.balign 16

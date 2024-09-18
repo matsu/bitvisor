@@ -81,7 +81,7 @@ handle_psci_cpu_on (union exception_saved_regs *r)
 
 	/* Check for error from SMC call */
 	error = smc_asm_psci_call (r->reg.x0, r->reg.x1,
-				   sym_to_phys (entry_secondary),
+				   sym_to_phys (entry_cpu_on),
 				   (u64)(stack + VMM_STACKSIZE));
 
 	if (error) {
