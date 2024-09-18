@@ -55,4 +55,10 @@ isb (void)
 	asm volatile ("isb" : : : "memory");
 }
 
+static inline void
+dsb_sy (void)
+{
+	asm volatile ("dsb sy" : : : "memory");
+}
+
 #endif
