@@ -43,6 +43,7 @@ static inline void
 cnt_set_default_after_e2h_en (void)
 {
 	msr (CNTHCTL_EL2, CNTHCTL_DEFAULT_FLAGS);
+	msr (CNTVOFF_EL2, 0);
 	isb ();
 }
 
