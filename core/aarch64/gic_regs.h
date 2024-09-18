@@ -89,7 +89,7 @@
 #define GIC_ICH_LR5_EL2	  sys_reg (3, 4, 12, 12, 5)
 #define GIC_ICH_LR6_EL2	  sys_reg (3, 4, 12, 12, 6)
 #define GIC_ICH_LR7_EL2	  sys_reg (3, 4, 12, 12, 7)
-#define GIC_ICH_LR8_EL2	  sys_reg (3, 4, 12, 12, 0)
+#define GIC_ICH_LR8_EL2	  sys_reg (3, 4, 12, 13, 0)
 #define GIC_ICH_LR9_EL2	  sys_reg (3, 4, 12, 13, 1)
 #define GIC_ICH_LR10_EL2  sys_reg (3, 4, 12, 13, 2)
 #define GIC_ICH_LR11_EL2  sys_reg (3, 4, 12, 13, 3)
