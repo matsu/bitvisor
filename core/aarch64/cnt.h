@@ -30,6 +30,7 @@
 #ifndef _CORE_AARCH64_CT_H
 #define _CORE_AARCH64_CT_H
 
+#include <core/types.h>
 #include "asm.h"
 #include "arm_std_regs.h"
 
@@ -43,6 +44,19 @@ cnt_set_default_after_e2h_en (void)
 {
 	msr (CNTHCTL_EL2, CNTHCTL_DEFAULT_FLAGS);
 	isb ();
+}
+
+static inline u64
+cnt_get_cntfrq_el0 (void)
+{
+	return mrs (CNTFRQ_EL0);
+}
+
+static inline u64
+cnt_get_cntpct_el0 (void)
+{
+	isb (); /* Avoid out-of-order reading */
+	return mrs (CNTPCT_EL0);
 }
 
 #endif

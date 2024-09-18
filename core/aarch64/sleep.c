@@ -29,18 +29,18 @@
  */
 
 #include <core/types.h>
-#include "asm.h"
+#include "cnt.h"
 
 #define MICRO_PER_SEC 1000000
 
 void
 usleep (u32 usec)
 {
-	u64 freq, cnt, start;
+	u64 freq, n_tick, end;
 
-	freq = mrs (CNTFRQ_EL0);
-	cnt = usec * freq / MICRO_PER_SEC;
-	start = mrs (CNTPCT_EL0);
-	while (mrs (CNTPCT_EL0) < start + cnt)
+	freq = cnt_get_cntfrq_el0 ();
+	n_tick = usec * freq / MICRO_PER_SEC;
+	end = cnt_get_cntpct_el0 () + n_tick;
+	while (cnt_get_cntpct_el0 () < end)
 		;
 }
