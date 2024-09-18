@@ -594,17 +594,21 @@ gic_setup_virtual_gic (void)
 		exception_set_handler (gic_handle_irq,
 				       can_use_group0 ? gic_handle_fiq : NULL);
 	} else {
+		msr (GIC_ICC_SRE_EL2, ii.icc_sre_el2);
+		isb ();
+		msr (GIC_ICC_PMR_EL1, ii.icc_pmr_el1);
+		msr (GIC_ICC_CTLR_EL1, ii.icc_ctlr_el1);
+		msr (GIC_ICH_HCR_EL2, ii.ich_hcr_el2);
+		msr (GIC_ICH_VMCR_EL2, ii.ich_vmcr_el2);
+		isb ();
 		if (can_use_group0) {
 			msr (GIC_ICC_BPR0_EL1, ii.icc_bpr0_el1);
 			msr (GIC_ICC_IGRPEN0_EL1, 0x1);
+			isb ();
 		}
 		msr (GIC_ICC_BPR1_EL1, ii.icc_bpr1_el1);
-		msr (GIC_ICC_CTLR_EL1, ii.icc_ctlr_el1);
-		msr (GIC_ICC_PMR_EL1, ii.icc_pmr_el1);
-		msr (GIC_ICC_SRE_EL2, ii.icc_sre_el2);
-		msr (GIC_ICH_HCR_EL2, ii.ich_hcr_el2);
-		msr (GIC_ICH_VMCR_EL2, ii.ich_vmcr_el2);
 		msr (GIC_ICC_IGRPEN1_EL1, 0x1);
+		isb ();
 	}
 }
 
