@@ -414,12 +414,23 @@ handle_mint (uint intid)
 	printf ("We don't handle maintenance interrupt now\n");
 }
 
+static uint
+gic_ich_vtr_n_lr (void)
+{
+	uint val;
+
+	val = (mrs (GIC_ICH_VTR_EL2) >> ICH_VTR_NLR_SHIFT) & ICH_VTR_NLR_MASK;
+	val += 1; /* 0 based value */
+	ASSERT (val <= 16);
+	return val;
+}
+
 static void
 try_inject_vint (u64 intid, u64 rpr, uint group)
 {
 	struct pcpu *currentcpu;
 	u64 elrsr, val, lr_val, g;
-	uint i;
+	uint i, n_lr;
 	bool empty = false;
 
 	currentcpu = tpidr_get_pcpu ();
@@ -432,7 +443,8 @@ try_inject_vint (u64 intid, u64 rpr, uint group)
 	enqueue_lr (currentcpu, val);
 
 	elrsr = mrs (GIC_ICH_ELRSR_EL2);
-	for (i = 0; elrsr != 0 && i < currentcpu->max_int_slot; i++) {
+	n_lr = gic_ich_vtr_n_lr ();
+	for (i = 0; elrsr != 0 && i < n_lr; i++) {
 		empty = !!(elrsr & 0x1);
 		if (empty) {
 			if (dequeue_lr (currentcpu, &lr_val))
@@ -528,15 +540,10 @@ gic_setup_virtual_gic (void)
 {
 	struct pcpu *currentcpu;
 	u64 vmcr, val;
-	uint i;
+	uint i, n_lr;
 	bool can_use_group0;
 
 	currentcpu = tpidr_get_pcpu ();
-
-	val = (mrs (GIC_ICH_VTR_EL2) >> ICH_VTR_NLR_SHIFT) & ICH_VTR_NLR_MASK;
-	val += 1; /* 0 based value */
-	ASSERT (val <= 16);
-	currentcpu->max_int_slot = val;
 
 	can_use_group0 = gicd->can_use_group0;
 
@@ -546,7 +553,8 @@ gic_setup_virtual_gic (void)
 	 * inactive state. We need boundary because accessing non-existing
 	 * LR register causes an error.
 	 */
-	for (i = 0; i < val; i++)
+	n_lr = gic_ich_vtr_n_lr ();
+	for (i = 0; i < n_lr; i++)
 		set_lr (i, 0x0);
 
 	if (currentcpu->cpunum == 0) {
