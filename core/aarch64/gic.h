@@ -33,8 +33,22 @@
 
 #include <core/types.h>
 
+struct gic_context {
+	u64 gic_icc_sre_el2;
+	u64 gic_icc_ctlr_el1;
+	u64 gic_icc_pmr_el1;
+	u64 gic_icc_bpr1_el1;
+	u64 gic_icc_igrpen1_el1;
+	u64 gic_icc_bpr0_el1;
+	u64 gic_icc_igrpen0_el1;
+	u64 gic_ich_hcr_el2;
+};
+
 int gic_sgi_handle (uint group, u64 *reg, bool wr);
 int gic_asgi_handle (u64 *reg, bool wr);
 void gic_setup_virtual_gic (void);
+bool gic_can_suspend (void);
+void gic_before_suspend (struct gic_context *c);
+void gic_after_suspend (struct gic_context *c);
 
 #endif

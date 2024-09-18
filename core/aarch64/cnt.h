@@ -39,6 +39,11 @@
 	(CNTHCTL_EL0PCTEN | CNTHCTL_EL0VCTEN | CNTHCTL_EL0VTEN | \
 	 CNTHCTL_EL0PTEN | CNTHCTL_EL1PCTEN | CNTHCTL_EL1PTEN)
 
+struct cnt_context {
+	u64 cntv_cval_el02;
+	u64 cntv_ctl_el02;
+};
+
 static inline void
 cnt_set_default_after_e2h_en (void)
 {
@@ -59,5 +64,8 @@ cnt_get_cntpct_el0 (void)
 	isb (); /* Avoid out-of-order reading */
 	return mrs (CNTPCT_EL0);
 }
+
+void cnt_before_suspend (struct cnt_context *c);
+void cnt_after_suspend (struct cnt_context *c);
 
 #endif

@@ -35,6 +35,7 @@
 
 union exception_saved_regs;
 
-int smc_call_hook (union exception_saved_regs *r, uint smc_num);
+int smc_call_hook (union exception_saved_regs *r, uint smc_num,
+		   bool *skip_inst);
 
 #endif

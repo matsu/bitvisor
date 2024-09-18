@@ -620,6 +620,67 @@ gic_setup_virtual_gic (void)
 	}
 }
 
+/*
+ * gic_can_suspend() currently checks whether there are pending hardware-backed
+ * virtual interrupts to be handled by the guest (activated interrupts from
+ * BitVisor point of view). If suspending happens when there are activated
+ * interrupts, the actual interrupts lose after resuming. Rejecting suspending
+ * if there exists pending hardware-backed virtual interrupts is currently the
+ * simplest solution to avoid interrupt loss.
+ */
+bool
+gic_can_suspend (void)
+{
+	u64 mask;
+
+	mask = BIT_MASK_NBITS (gic_ich_vtr_n_lr ());
+
+	/* Return false when LR is not empty (not all bits are set) */
+	return (mrs (GIC_ICH_ELRSR_EL2) & mask) == mask;
+}
+
+void
+gic_before_suspend (struct gic_context *c)
+{
+	c->gic_icc_sre_el2 = mrs (GIC_ICC_SRE_EL2);
+	c->gic_icc_ctlr_el1 = mrs (GIC_ICC_CTLR_EL1);
+	c->gic_icc_pmr_el1 = mrs (GIC_ICC_PMR_EL1);
+	c->gic_icc_bpr1_el1 = mrs (GIC_ICC_BPR1_EL1);
+	c->gic_icc_igrpen1_el1 = mrs (GIC_ICC_IGRPEN1_EL1);
+	if (gicd->can_use_group0) {
+		c->gic_icc_bpr0_el1 = mrs (GIC_ICC_BPR0_EL1);
+		c->gic_icc_igrpen0_el1 = mrs (GIC_ICC_IGRPEN0_EL1);
+	}
+	c->gic_ich_hcr_el2 = mrs (GIC_ICH_HCR_EL2);
+}
+
+void
+gic_after_suspend (struct gic_context *c)
+{
+	u64 vtr, n_lr;
+	uint i;
+
+	/* n_lr and prebits are zero based */
+	vtr = mrs (GIC_ICH_VTR_EL2);
+	n_lr = ((vtr >> ICH_VTR_NLR_SHIFT) & ICH_VTR_NLR_MASK) + 1;
+
+	/* Restore ICC registers */
+	msr (GIC_ICC_SRE_EL2, c->gic_icc_sre_el2);
+	isb ();
+	msr (GIC_ICC_CTLR_EL1, c->gic_icc_ctlr_el1);
+	msr (GIC_ICC_PMR_EL1, c->gic_icc_pmr_el1);
+	msr (GIC_ICC_BPR1_EL1, c->gic_icc_bpr1_el1);
+	msr (GIC_ICC_IGRPEN1_EL1, c->gic_icc_igrpen1_el1);
+	if (gicd->can_use_group0) {
+		msr (GIC_ICC_BPR0_EL1, c->gic_icc_bpr0_el1);
+		msr (GIC_ICC_IGRPEN0_EL1, c->gic_icc_igrpen0_el1);
+	}
+	for (i = 0; i < n_lr; i++)
+		set_lr (i, 0);
+	msr (GIC_ICH_VMCR_EL2, 0);
+	msr (GIC_ICH_HCR_EL2, c->gic_ich_hcr_el2);
+}
+
 int
 gic_sgi_handle (uint group, u64 *reg, bool wr)
 {

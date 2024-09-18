@@ -201,16 +201,7 @@ uefi_entry_arch_call:
 	ldp	x29, x30, [x10]
 	ret
 
-	/*
-	 * entry_identity code gets identity-mapped for core entry after
-	 * BitVisor start.
-	 */
-	.balign	PAGESIZE
-	.global entry_identity
-entry_identity:
-	/* x0 points to top of the stack (virtual address) */
-	.global entry_cpu_on
-entry_cpu_on:
+	.macro _entry_early_setup
 	msr	DAIFSet, #3 /* Disable interrupts */
 	isb /* Want msr write to be effective immediately */
 
@@ -256,6 +247,19 @@ entry_cpu_on:
 	/* Reset TPIDR_EL2 with panic initial state */
 	mov	x10, PANIC_INITIAL_STATE
 	msr	TPIDR_EL2, x10
+	.endm
+
+	/*
+	 * entry_identity code gets identity-mapped for core entry after
+	 * BitVisor start.
+	 */
+	.balign	PAGESIZE
+	.global entry_identity
+entry_identity:
+	/* x0 points to top of the stack (virtual address) */
+	.global entry_cpu_on
+entry_cpu_on:
+	_entry_early_setup
 
 	/* We can access virtual address now */
 	mov	sp, x0
@@ -280,6 +284,35 @@ entry_cpu_on:
 	mov	x29, xzr
 	mov	x30, xzr
 	br	x10 /* Jump to vmm_entry_cpu_on with virtual address */
+	b	. /* The instruction should never return */
+
+	.global entry_resume
+entry_resume:
+	_entry_early_setup
+
+	/* We can access virtual address now */
+	mov	sp, x0
+
+	ldp	x0, xzr, [sp, #(16 * 0)] /* Load current vm */
+	ldp	x5, x6, [sp, #(16 * 1)] /* load pa_base and va_base */
+	ldp	x10, x11, [sp, #(16 * 2)] /* Load VTTBR_EL2 and VTCR_EL2 */
+	ldp	x12, x13, [sp, #(16 * 3)] /* Load TPIDR_EL2 and VBAR_EL2 */
+	msr	VTTBR_EL2, x10
+	isb
+	msr	VTCR_EL2, x11
+	isb
+	msr	TPIDR_EL2, x12
+	isb
+	msr	VBAR_EL2, x13
+	isb
+	adrp	x10, vm_asm_resume
+	add	x10, x10, :lo12:vm_asm_resume
+	sub	x10, x10, x5
+	add	x10, x10, x6
+
+	mov	x29, xzr
+	mov	x30, xzr
+	br	x10 /* Jump to vm_asm_resume with virtual address */
 	b	. /* The instruction should never return */
 
 	.balign PAGESIZE

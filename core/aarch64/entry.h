@@ -37,5 +37,6 @@ extern u8 entry_identity[];
 extern u8 entry_identity_end[];
 
 extern u8 entry_cpu_on[];
+extern u8 entry_resume[];
 
 #endif

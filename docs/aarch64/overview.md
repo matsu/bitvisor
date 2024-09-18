@@ -180,3 +180,28 @@ points, and issues its own `CPU_ON` function with its own entry point. Once a
 secondary core starts, it enters the entry point specified by BitVisor.
 BitVisor then initializes core specific system registers and data. Finally, it
 enters EL1 with the saved entry point from the guest.
+
+## Guest's PSCI CPU_SUSPEND handling
+
+For non-power-down PSCI CPU_SUSPEND, BitVisor can issue the request as it is.
+This type of requests can be said to be equivalent to `wfi` and `wfe`
+instructions. For power-down PSCI CPU_SUSPEND, BitVisor needs to record the
+guest entry point and context. It issues the request with its own entry point
+and context. Upon wake up, BitVisor restores its system registers and returns
+to the guest at the guest's entry point.
+
+BitVisor currently saves and restores guest's CNTV_CTL_EL0 and CNTV_CVAL_EL0.
+It seems that CNTV_CTL_EL0 loses its state after waking up from power-down. If
+we don't restore it, it can cause stalling in the guest. According to the
+reference manual, the system counter must be implemented in an always-on power
+domain. CNTV_CVAL_EL0 should not lose its value during power-down state.
+However, to avoid the possibility of the running system does not strictly
+follow the standard, it is not a bad idea to save and restore CNTV_CVAL_EL0 as
+well.
+
+It is also possible that there exists an activated interrupt when BitVisor
+traps the guest SMC call. To avoid interrupt loss, The current simplest
+solution is to return to the guest immediately to let the guest handle the
+interrupt. The idea is Power-down PSCI CPU_SUSPEND request can be returned
+immediately if there exists a pending interrupt. Activated interrupts from
+BitVisor point of view are pending interrupts from the guest point of view.

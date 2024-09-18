@@ -196,6 +196,19 @@ vm_start_at (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id)
 	vm_asm_start_guest_with_ctx_id (g_ctx_id);
 }
 
+void
+vm_resume (struct vm_ctx *vm)
+{
+	cptr_set_default_after_e2h_en ();
+	cnt_set_default_after_e2h_en ();
+	set_vmpidr_and_vpidr ();
+
+	/* Ensure that MMU in EL1 is off and there is no valid TLB on entry */
+	msr (SCTLR_EL12, 0);
+	asm volatile ("tlbi alle1" : : : "memory");
+	isb ();
+}
+
 struct vm_ctx *
 vm_get_current_ctx (void)
 {

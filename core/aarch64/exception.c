@@ -176,8 +176,9 @@ handle_hvc (union exception_saved_regs *r, uint hvc_num)
 static int
 trap_smc (union exception_saved_regs *r, u32 iss)
 {
-	int error = smc_call_hook (r, iss);
-	if (!error)
+	bool skip;
+	int error = smc_call_hook (r, iss, &skip);
+	if (skip)
 		skip_inst (r);
 
 	return error;

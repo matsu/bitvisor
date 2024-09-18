@@ -67,3 +67,41 @@ smc_asm_passthrough_call:
 smc_asm_psci_call:
 	smc	#0
 	ret
+
+	/* int smc_asm_psci_suspend_call (u64, u64, u64, u64, u64, u64, u64) */
+	.global smc_asm_psci_suspend_call
+smc_asm_psci_suspend_call:
+	sub	sp, sp, #(16 * 10)
+
+	stp	x3, x4, [sp, #(16 * 0)] /* Save current vm and imm_ret */
+	stp	x5, x6, [sp, #(16 * 1)] /* Save pa_base and va_base */
+	mrs	x10, VTTBR_EL2
+	mrs	x11, VTCR_EL2
+	stp	x10, x11, [sp, #(16 * 2)]
+	mrs	x12, TPIDR_EL2
+	mrs	x13, VBAR_EL2
+	stp	x12, x13, [sp, #(16 * 3)]
+	stp	x19, x20, [sp, #(16 * 4)]
+	stp	x21, x22, [sp, #(16 * 5)]
+	stp	x23, x24, [sp, #(16 * 6)]
+	stp	x25, x26, [sp, #(16 * 7)]
+	stp	x27, x28, [sp, #(16 * 8)]
+	stp	x29, x30, [sp, #(16 * 9)]
+
+	/* x0, x1, x2 are already in places */
+	mov	x3, sp
+
+	smc	#0
+
+	/*
+	 * If SMC call returns here, set immediate return to true(1). There is
+	 * no need to restore x19-x30 as they are preserved registers according
+	 * to the SMC Calling Convention.
+	 */
+	ldp	xzr, x4, [sp, #(16 * 0)]
+	mov	w10, #1
+	str	w10, [x4]
+
+	/* Free allocated stack and return */
+	add	sp, sp, #(16 * 10)
+	ret

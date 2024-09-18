@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
- * Copyright (c) 2022 Igel Co., Ltd
+ * Copyright (c) 2024 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,18 +27,39 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _CORE_AARCH64_SMC_ASM_H
-#define _CORE_AARCH64_SMC_ASM_H
+#include "asm.h"
+#include "cnt.h"
 
-#include <core/types.h>
+void
+cnt_before_suspend (struct cnt_context *c)
+{
+	/*
+	 * It appears that CNTV_CTL_EL0 used by the guest can lose its states
+	 * after going power-down suspending. We found this behavior on Jetson
+	 * Orin Nano Developer Kit. To avoid the problem, we save and restore
+	 * both CNTV_CVAL_EL0 and CNTV_CTL_EL0 to avoid virtual timer interrupt
+	 * loss in the guest. Note that while the reference manual says the
+	 * system counter must be implemented in an always-on power domain, we
+	 * want to be more defensive here by saving and restoring CNTV_CVAL_EL0
+	 * too just in case the system implementation does not strictly follow
+	 * the reference manual.
+	 *
+	 * We use isb() after reading the registers to ensure that we get the
+	 * value at the read time immediately. It is to avoid out-of-order
+	 * execution.
+	 */
+	c->cntv_cval_el02 = mrs (CNTV_CVAL_EL02);
+	isb ();
+	c->cntv_ctl_el02 = mrs (CNTV_CTL_EL02);
+	isb ();
+}
 
-union exception_saved_regs;
-struct vm_ctx;
-
-int smc_asm_passthrough_call (union exception_saved_regs *r);
-int smc_asm_psci_call (u64 func_id, u64 param0, u64 param1, u64 param2);
-int smc_asm_psci_suspend_call (u64 func_id, u64 powerstate, u64 resume_entry,
-			       struct vm_ctx *vm, bool *iomm_ret,
-			       u64 phys_base, u64 virt_base);
-
-#endif
+void
+cnt_after_suspend (struct cnt_context *c)
+{
+	/* Avoid out-of-order execution as well on restore */
+	msr (CNTV_CVAL_EL02, c->cntv_cval_el02);
+	isb ();
+	msr (CNTV_CTL_EL02, c->cntv_ctl_el02);
+	isb ();
+}
