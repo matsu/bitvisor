@@ -30,20 +30,38 @@
 #ifndef _INC_CORE_AARCH64_SPINLOCK_H
 #define _INC_CORE_AARCH64_SPINLOCK_H
 
+#define SPINLOCK_RD_VAL_MASK_NONE ~0
+
 /*
  * === Note on WFE ===
  *
  * Upon store-release operation, writing causes the Exclusive Monitor mode to
  * be cleared. This implicitly generated a WFE wake-up event. There is no need
- * to call SEV explicitly. Note that threads that execute WFE instruction are
- * in Exclusive Minotor mode due to load-acquire operation. See Figure B2-5,
- * Section B2.10.6 and Section D1.17.1 in ARM DDI 0487A.f. for references.
+ * to call SEV explicitly. BitVisor requires Armv8.1 extension as a
+ * requirement. It means FEAT_LSE is supported. As a result, the compiler will
+ * generate atomic instructions, like cas or swp, for builtin atomic operations
+ * by default for performance reasons. While it retains load-acquire and
+ * store-release semantics, it will not emit load/store exclusive instructions.
+ * To generate an event on store-release operation, the memory location related
+ * to lock have to enter the exclusive monitor through load-exclusive
+ * instructions. The address leaves the exclusive monitor on store-related
+ * operations.
  *
+ * As a result, we need to use load-exclusive instruction manually before
+ * executing wfe instruction for waiting. This is to make unlock operation
+ * generate an event to wake up from wfe. See B2.17.6-7 in ARM DDI 0487K.a for
+ * references.
  */
 static inline void
-spinlock_arch_wait (void)
+spinlock_arch_wait (void *val_addr_to_monitor, u32 expect, u32 rd_val_mask)
 {
-	asm volatile ("wfe" : : : "memory");
+	u32 v;
+	asm volatile ("ldxr %w0, [%1]"
+		      : "=r" (v)
+		      : "r" (val_addr_to_monitor)
+		      : "memory");
+	if ((v & rd_val_mask) != expect)
+		asm volatile ("wfe" : : : "memory");
 }
 
 static inline void
@@ -51,7 +69,7 @@ spinlock_lock (spinlock_t *l)
 {
 	/* __atomic_test_and_set() returns true if *l were set */
 	while (__atomic_test_and_set (l, __ATOMIC_ACQUIRE))
-		spinlock_arch_wait ();
+		spinlock_arch_wait (l, 0, SPINLOCK_RD_VAL_MASK_NONE);
 }
 
 static inline void
@@ -64,7 +82,7 @@ static inline void
 rw_spinlock_lock_sh (rw_spinlock_t *l)
 {
 	while (__atomic_add_fetch (l, 1, __ATOMIC_ACQUIRE) & (1 << 31))
-		spinlock_arch_wait ();
+		spinlock_arch_wait (l, 0, (1 << 31));
 }
 
 static inline void
@@ -87,7 +105,7 @@ static inline void
 rw_spinlock_lock_ex (rw_spinlock_t *l)
 {
 	while (rw_spinlock_trylock_ex (l))
-		spinlock_arch_wait ();
+		spinlock_arch_wait (l, 0, (1 << 31));
 }
 
 static inline void
@@ -101,7 +119,7 @@ ticketlock_lock (ticketlock_t *l)
 {
 	u32 ticket = __atomic_fetch_add (&l->next_ticket, 1, __ATOMIC_RELAXED);
 	while (__atomic_load_n (&l->now_serving, __ATOMIC_ACQUIRE) != ticket)
-		spinlock_arch_wait ();
+		spinlock_arch_wait (l, ticket, SPINLOCK_RD_VAL_MASK_NONE);
 }
 
 static inline void
