@@ -45,7 +45,8 @@ int mm_process_arch_mapstack (struct mm_arch_proc_desc *mm_proc_desc,
 bool mm_process_arch_shared_mem_absent (struct mm_arch_proc_desc *mm_proc_desc,
 					virt_t virt);
 int mm_process_arch_virt_to_phys (struct mm_arch_proc_desc *mm_proc_desc,
-				  virt_t virt, phys_t *phys);
+				  virt_t virt, phys_t *phys,
+				  bool expect_writable);
 bool mm_process_arch_stack_absent (struct mm_arch_proc_desc *mm_proc_desc,
 				   virt_t virt);
 int mm_process_arch_unmap (struct mm_arch_proc_desc *mm_proc_desc,

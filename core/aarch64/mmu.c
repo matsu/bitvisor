@@ -661,14 +661,17 @@ mmu_va_unmap (virt_t aligned_vaddr, u64 aligned_size)
 
 /* Return PAR_EL1 content from AT instruction */
 static u64
-at_translate_el2_addr (virt_t addr)
+at_translate_el2_addr (virt_t addr, bool tl_with_write_perm)
 {
 	u64 orig_par;
 	u64 par;
 
 	spinlock_lock (&mmu_vmm_pt_s1.lock);
 	orig_par = mrs (PAR_EL1);
-	asm volatile ("at S1E2R, %0" : : "r" (addr) : "memory");
+	if (tl_with_write_perm)
+		asm volatile ("at S1E2W, %0" : : "r" (addr) : "memory");
+	else
+		asm volatile ("at S1E2R, %0" : : "r" (addr) : "memory");
 	isb (); /* Explicit sync is required */
 	par = mrs (PAR_EL1); /* Record the result */
 	msr (PAR_EL1, orig_par);
@@ -680,7 +683,7 @@ at_translate_el2_addr (virt_t addr)
 bool
 mmu_check_existing_va_map (virt_t addr)
 {
-	return !(at_translate_el2_addr (addr) & PAR_F);
+	return !(at_translate_el2_addr (addr, false) & PAR_F);
 }
 
 void *
@@ -961,17 +964,24 @@ mmu_pt_desc_proc_unmap_stack (struct mmu_pt_desc *proc_pd, virt_t virt,
 
 int
 mmu_pt_desc_proc_virt_to_phys (struct mmu_pt_desc *proc_pd, virt_t virt,
-			       phys_t *phys)
+			       phys_t *phys, bool expect_writable)
 {
 	u64 *pte;
 	int ret = -1;
+	bool pte_writable;
 
 	if (!mmu_pt_desc_proc_get_pte (proc_pd, virt, &pte)) {
+		if (expect_writable) {
+			pte_writable = (*pte & PTE_PERM_RW_EL0) ==
+				PTE_PERM_RW_EL0;
+			if (!pte_writable)
+				goto end;
+		}
 		if (phys)
 			*phys = *pte & PTE_ADDR_MASK;
 		ret = 0;
 	}
-
+end:
 	return ret;
 }
 
@@ -1105,12 +1115,12 @@ mmu_gvirt_to_ipa (u64 gvirt, uint el, bool wr, u64 *ipa_out,
 }
 
 int
-mmu_vmm_virt_to_phys (virt_t addr, phys_t *out_paddr)
+mmu_vmm_virt_to_phys (virt_t addr, phys_t *out_paddr, bool expect_writable)
 {
 	u64 par;
 	int error;
 
-	par = at_translate_el2_addr (addr);
+	par = at_translate_el2_addr (addr, expect_writable);
 	error = !!(par & PAR_F);
 	if (!error && out_paddr)
 		*out_paddr = par & PAR_PA_MASK;

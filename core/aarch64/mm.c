@@ -131,7 +131,7 @@ mm_process_arch_shared_mem_absent (struct mm_arch_proc_desc *mm_proc_desc,
 
 int
 mm_process_arch_virt_to_phys (struct mm_arch_proc_desc *mm_proc_desc,
-			      virt_t virt, phys_t *phys)
+			      virt_t virt, phys_t *phys, bool expect_writable)
 {
 	int error;
 
@@ -143,9 +143,9 @@ mm_process_arch_virt_to_phys (struct mm_arch_proc_desc *mm_proc_desc,
 	 */
 	if (virt < 0x40000000)
 		error = mmu_pt_desc_proc_virt_to_phys (mm_proc_desc->pd, virt,
-						       phys);
+						       phys, expect_writable);
 	else
-		error = mmu_vmm_virt_to_phys (virt, phys);
+		error = mmu_vmm_virt_to_phys (virt, phys, expect_writable);
 
 	return error;
 }

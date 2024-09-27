@@ -1052,7 +1052,7 @@ retry:
 	for (virt = virt_s & ~0xFFF, off = 0; virt < virt_e;
 	     virt += PAGESIZE, off += PAGESIZE) {
 		if (mm_process_arch_virt_to_phys (mm_proc_desc_caller, virt,
-						  &phys)) {
+						  &phys, rw)) {
 			mm_process_unmap (mm_proc_desc_callee,
 					  (virt_t)(uservirt + (virt_s &
 							       0xFFF)),
