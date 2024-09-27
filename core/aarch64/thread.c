@@ -34,6 +34,8 @@
 
 struct thread_context {
 	u64 x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30;
+	u64 sp_el1; /* For process return sp */
+	u64 padding;
 };
 
 /* There is no syscallstack for AArch64 */

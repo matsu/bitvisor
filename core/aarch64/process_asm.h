@@ -33,7 +33,7 @@
 
 #include <core/types.h>
 
-void process_asm_return_from_proc (int retval, u64 sp);
+void process_asm_return_from_proc (int retval);
 int process_asm_processuser_syscall (void);
 int process_asm_enter_el0 (int m, int c, ulong buf, int bufcnt);
 

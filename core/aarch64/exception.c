@@ -580,15 +580,6 @@ exception_secondary_init (void)
 	isb ();
 }
 
-u64
-exception_sp_on_entry (void)
-{
-	struct pcpu *currentcpu = tpidr_get_pcpu ();
-	union exception_saved_regs *r = currentcpu->exception_data.saved_regs;
-
-	return (u64)r + sizeof (r->reg);
-}
-
 void
 exception_set_handler (enum exception_handle_return (*handle_irq) (
 				union exception_saved_regs *r),
