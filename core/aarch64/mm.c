@@ -45,7 +45,6 @@
 
 struct mm_arch_proc_desc {
 	struct mmu_pt_desc *pd;
-	u64 cur_sp;
 };
 
 static u64 phys_blank;
@@ -97,7 +96,6 @@ mm_process_arch_alloc (struct mm_arch_proc_desc **mm_proc_desc_out,
 
 	new = alloc (sizeof *new);
 	new->pd = pd;
-	new->cur_sp = 0x0;
 	*mm_proc_desc_out = new;
 
 	return 0;
@@ -186,30 +184,17 @@ mm_process_arch_switch (struct mm_arch_proc_desc *switchto)
 	struct pcpu *currentcpu;
 	struct mm_arch_proc_desc *cur_mm_proc_desc;
 	struct mmu_pt_desc *pt_desc;
-	u64 cur_sp;
 
 	currentcpu = tpidr_get_pcpu ();
 	cur_mm_proc_desc = currentcpu->cur_mm_proc_desc;
-	if (cur_mm_proc_desc)
-		cur_mm_proc_desc->cur_sp = mrs (SP_EL0);
-	if (switchto) {
+	if (switchto)
 		pt_desc = switchto->pd;
-		cur_sp = switchto->cur_sp;
-	} else {
+	else
 		pt_desc = mmu_pt_desc_none ();
-		cur_sp = 0x0;
-	}
-	msr (SP_EL0, cur_sp);
 	mmu_pt_desc_proc_switch (pt_desc);
 	currentcpu->cur_mm_proc_desc = switchto;
 
 	return cur_mm_proc_desc;
-}
-
-void
-mm_process_record_cur_sp (struct mm_arch_proc_desc *mm_proc_desc, u64 sp)
-{
-	mm_proc_desc->cur_sp = sp;
 }
 
 static virt_t

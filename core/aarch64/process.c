@@ -35,17 +35,14 @@
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/string.h>
-#include "../mm.h"
 #include "../sym.h"
 #include "../process.h"
 #include "../process_builtin.h"
 #include "arm_std_regs.h"
+#include "asm.h"
 #include "exception.h"
-#include "mm.h"
-#include "pcpu.h"
 #include "process.h"
 #include "process_asm.h"
-#include "tpidr.h"
 
 extern struct process_builtin_data __process_builtin[];
 extern struct process_builtin_data __process_builtin_end[];
@@ -72,8 +69,6 @@ int
 process_arch_exec (void *func, ulong sp, void *arg, int len, ulong buf,
 		   int bufcnt)
 {
-	struct pcpu *currentcpu;
-	struct mm_arch_proc_desc *mm_proc_desc;
 	u64 orig_elr, orig_spsr;
 	u64 orig_sp_el0, orig_tpidr_el0;
 	u64 orig_hcr;
@@ -85,9 +80,6 @@ process_arch_exec (void *func, ulong sp, void *arg, int len, ulong buf,
 
 	memcpy (msg, arg, sizeof msg);
 
-	currentcpu = tpidr_get_pcpu ();
-	mm_proc_desc = currentcpu->cur_mm_proc_desc;
-
 	orig_elr = mrs (ELR_EL2);
 	orig_spsr = mrs (SPSR_EL2);
 	orig_hcr = mrs (HCR_EL2);
@@ -97,7 +89,6 @@ process_arch_exec (void *func, ulong sp, void *arg, int len, ulong buf,
 
 	msr (ELR_EL2, (u64)func);
 	msr (SPSR_EL2, SPSR_INTR_MASK); /* SPSR_M is 0 for EL0 */
-	mm_process_record_cur_sp (mm_proc_desc, sp);
 	msr (SP_EL0, sp);
 	msr (TPIDR_EL0, 0);
 	msr (HCR_EL2, HCR_E2H | HCR_TGE);
@@ -110,7 +101,6 @@ process_arch_exec (void *func, ulong sp, void *arg, int len, ulong buf,
 	msr (HCR_EL2, orig_hcr);
 	isb ();
 	msr (TPIDR_EL0, orig_tpidr_el0);
-	mm_process_record_cur_sp (mm_proc_desc, mrs (SP_EL0));
 	msr (SP_EL1, orig_exit_sp_el2);
 	msr (SP_EL0, orig_sp_el0);
 	msr (SPSR_EL2, orig_spsr);
