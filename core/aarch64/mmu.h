@@ -68,5 +68,6 @@ bool mmu_pt_desc_proc_sharedmem_absent (struct mmu_pt_desc *proc_pd,
 void mmu_pt_desc_proc_switch (struct mmu_pt_desc *proc_pd);
 int mmu_gvirt_to_ipa (u64 gvirt, uint el, bool wr, u64 *ipa_out,
 		      u64 *ipa_out_flags);
+int mmu_vmm_virt_to_phys (virt_t addr, phys_t *out_paddr);
 
 #endif

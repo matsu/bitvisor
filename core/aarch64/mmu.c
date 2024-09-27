@@ -659,21 +659,28 @@ mmu_va_unmap (virt_t aligned_vaddr, u64 aligned_size)
 	apply_map_fixed (&mmu_vmm_pt_s1, aligned_vaddr, 0, aligned_size, 0);
 }
 
-bool
-mmu_check_existing_va_map (virt_t addr)
+/* Return PAR_EL1 content from AT instruction */
+static u64
+at_translate_el2_addr (virt_t addr)
 {
 	u64 orig_par;
-	bool exist;
+	u64 par;
 
 	spinlock_lock (&mmu_vmm_pt_s1.lock);
 	orig_par = mrs (PAR_EL1);
 	asm volatile ("at S1E2R, %0" : : "r" (addr) : "memory");
 	isb (); /* Explicit sync is required */
-	exist = !(mrs (PAR_EL1) & PAR_F);
+	par = mrs (PAR_EL1); /* Record the result */
 	msr (PAR_EL1, orig_par);
 	spinlock_unlock (&mmu_vmm_pt_s1.lock);
 
-	return exist;
+	return par;
+}
+
+bool
+mmu_check_existing_va_map (virt_t addr)
+{
+	return !(at_translate_el2_addr (addr) & PAR_F);
 }
 
 void *
@@ -1095,6 +1102,20 @@ mmu_gvirt_to_ipa (u64 gvirt, uint el, bool wr, u64 *ipa_out,
 	}
 
 	return 0;
+}
+
+int
+mmu_vmm_virt_to_phys (virt_t addr, phys_t *out_paddr)
+{
+	u64 par;
+	int error;
+
+	par = at_translate_el2_addr (addr);
+	error = !!(par & PAR_F);
+	if (!error && out_paddr)
+		*out_paddr = par & PAR_PA_MASK;
+
+	return error;
 }
 
 static void

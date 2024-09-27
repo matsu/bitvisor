@@ -31,6 +31,7 @@
 #include <arch/mm.h>
 #include <arch/vmm_mem.h>
 #include <constants.h>
+#include <core/assert.h>
 #include <core/mm.h>
 #include <core/panic.h>
 #include <core/spinlock.h>
@@ -134,7 +135,21 @@ int
 mm_process_arch_virt_to_phys (struct mm_arch_proc_desc *mm_proc_desc,
 			      virt_t virt, phys_t *phys)
 {
-	return mmu_pt_desc_proc_virt_to_phys (mm_proc_desc->pd, virt, phys);
+	int error;
+
+	/*
+	 * The implementation currently follows what the x86 implementation
+	 * does. Note that currently virtual address of a process is hardcoded
+	 * to be below 0x40000000. If the address is above 0x40000000, the
+	 * virtual address is from the VMM/kernel.
+	 */
+	if (virt < 0x40000000)
+		error = mmu_pt_desc_proc_virt_to_phys (mm_proc_desc->pd, virt,
+						       phys);
+	else
+		error = mmu_vmm_virt_to_phys (virt, phys);
+
+	return error;
 }
 
 bool
