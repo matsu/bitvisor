@@ -30,12 +30,17 @@
 
 #include <arch/thread.h>
 #include <core/string.h>
+#include "arm_std_regs.h"
 #include "thread_asm.h"
 
 struct thread_context {
 	u64 x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30;
 	u64 sp_el0; /* Current running process stack */
 	u64 sp_el1; /* For process return sp */
+	u64 elr_el2;
+	u64 spsr_el2;
+	u64 hcr_el2;
+	u64 tpidr_el0;
 };
 
 /* There is no syscallstack for AArch64 */
@@ -61,6 +66,11 @@ thread_arch_context_init (void (*func) (void *), void *arg,
 	q = stack_lowest_addr + stacksize;
 	c.x29 = 0;
 	c.x30 = (u64)thread_asm_start0;
+	/*
+	 * We initially set HCR_E2H only like when we initialize BitVisor.
+	 * It is because MMU is configured with HCR_E2H set in mind.
+	 */
+	c.hcr_el2 = HCR_E2H;
 #define PUSH(n) memcpy (q -= sizeof (n), &(n), sizeof (n))
 	PUSH (arg);
 	PUSH (func);
