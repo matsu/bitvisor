@@ -32,13 +32,22 @@
 	.balign 4
 thread_arch_switch:
 	/* Save the old context */
-	sub	sp, sp, #(16 * 6)
+	sub	sp, sp, #(16 * 9)
+	mrs	x10, SP_EL0
+	mrs	x11, SP_EL1
+	mrs	x12, ELR_EL2
+	mrs	x13, SPSR_EL2
+	mrs	x14, HCR_EL2
+	mrs	x15, TPIDR_EL0
 	stp	x19, x20, [sp, #(16 * 0)]
 	stp	x21, x22, [sp, #(16 * 1)]
 	stp	x23, x24, [sp, #(16 * 2)]
 	stp	x25, x26, [sp, #(16 * 3)]
 	stp	x27, x28, [sp, #(16 * 4)]
 	stp	x29, x30, [sp, #(16 * 5)]
+	stp	x10, x11, [sp, #(16 * 6)]
+	stp	x12, x13, [sp, #(16 * 7)]
+	stp	x14, x15, [sp, #(16 * 8)]
 	mov	x10, sp
 	str	x10, [x0]
 	/* Set return arg */
@@ -51,7 +60,16 @@ thread_arch_switch:
 	ldp	x25, x26, [sp, #(16 * 3)]
 	ldp	x27, x28, [sp, #(16 * 4)]
 	ldp	x29, x30, [sp, #(16 * 5)]
-	add	sp, sp, #(16 * 6)
+	ldp	x10, x11, [sp, #(16 * 6)]
+	ldp	x12, x13, [sp, #(16 * 7)]
+	ldp	x14, x15, [sp, #(16 * 8)]
+	msr	SP_EL0, x10
+	msr	SP_EL1, x11
+	msr	ELR_EL2, x12
+	msr	SPSR_EL2, x13
+	msr	HCR_EL2, x14
+	msr	TPIDR_EL0, x15
+	add	sp, sp, #(16 * 9)
 	ret
 
 /*

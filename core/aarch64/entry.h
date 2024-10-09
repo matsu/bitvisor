@@ -32,7 +32,11 @@
 
 #include <core/types.h>
 
-extern u8 entry_secondary[];
-extern u8 entry_secondary_end[];
+/* entry_identity is the area for core entry after BitVisor starts */
+extern u8 entry_identity[];
+extern u8 entry_identity_end[];
+
+extern u8 entry_cpu_on[];
+extern u8 entry_resume[];
 
 #endif

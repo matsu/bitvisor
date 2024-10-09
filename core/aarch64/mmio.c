@@ -461,6 +461,7 @@ mmio_replay_pending_actions (void)
 static void
 mmio_gphys_access (phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 {
+	volatile union mem *src, *dst;
 	void *p;
 
 	ASSERT (len > 0);
@@ -468,10 +469,25 @@ mmio_gphys_access (phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 	p = mapmem_as (vm_get_current_as (), gphys, len,
 		       (wr ? MAPMEM_WRITE : 0) | flags);
 	ASSERT (p);
-	if (wr)
-		memcpy (p, buf, len);
-	else
-		memcpy (buf, p, len);
+	src = wr ? buf : p;
+	dst = wr ? p : buf;
+	switch (len) {
+	case 1:
+		dst->byte = src->byte;
+		break;
+	case 2:
+		dst->word = src->word;
+		break;
+	case 4:
+		dst->dword = src->dword;
+		break;
+	case 8:
+		dst->qword = src->qword;
+		break;
+	default:
+		panic ("%s(): invalid len %u gphys 0x%llX wr %u", __func__,
+		       len, gphys, wr);
+	}
 	unmapmem (p, len);
 }
 

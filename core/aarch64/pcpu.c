@@ -33,7 +33,6 @@
 #include <core/string.h>
 #include "arm_std_regs.h"
 #include "asm.h"
-#include "exception.h"
 #include "pcpu.h"
 #include "tpidr.h"
 
@@ -41,7 +40,6 @@
 #define PCPU_ALIGN_MASK (PCPU_ALIGN - 1)
 
 static struct pcpu __attribute__ ((aligned (PCPU_ALIGN))) pcpu_cpu0;
-static union exception_saved_regs dummy_early_saved_regs;
 
 static void
 do_init_pcpu_and_tpidr (struct pcpu *p)
@@ -61,18 +59,6 @@ void
 pcpu_early_init (void)
 {
 	do_init_pcpu_and_tpidr (&pcpu_cpu0); /* No alloc on early start */
-
-	/*
-	 * This dummy_early_saved_regs is to avoid having to check for NULL
-	 * in exception handling. The following saved value is for process
-	 * execution during initialization phase.
-	 */
-	dummy_early_saved_regs.reg.elr_el2 = mrs (ELR_EL2);
-	dummy_early_saved_regs.reg.spsr_el2 = mrs (SPSR_EL2);
-	dummy_early_saved_regs.reg.hcr_el2 = mrs (HCR_EL2);
-	dummy_early_saved_regs.reg.sp_el0 = mrs (SP_EL0);
-	dummy_early_saved_regs.reg.tpidr_el0 = mrs (TPIDR_EL0);
-	pcpu_cpu0.exception_data.saved_regs = &dummy_early_saved_regs;
 }
 
 void

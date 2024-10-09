@@ -60,7 +60,7 @@ int mmu_pt_desc_proc_map_stack (struct mmu_pt_desc *proc_pd, virt_t virt,
 int mmu_pt_desc_proc_unmap_stack (struct mmu_pt_desc *proc_pd, virt_t virt,
 				  uint npages);
 int mmu_pt_desc_proc_virt_to_phys (struct mmu_pt_desc *proc_pd, virt_t virt,
-				   phys_t *phys);
+				   phys_t *phys, bool expect_writable);
 bool mmu_pt_desc_proc_stackmem_absent (struct mmu_pt_desc *proc_pd,
 				       virt_t virt);
 bool mmu_pt_desc_proc_sharedmem_absent (struct mmu_pt_desc *proc_pd,
@@ -68,5 +68,7 @@ bool mmu_pt_desc_proc_sharedmem_absent (struct mmu_pt_desc *proc_pd,
 void mmu_pt_desc_proc_switch (struct mmu_pt_desc *proc_pd);
 int mmu_gvirt_to_ipa (u64 gvirt, uint el, bool wr, u64 *ipa_out,
 		      u64 *ipa_out_flags);
+int mmu_vmm_virt_to_phys (virt_t addr, phys_t *out_paddr,
+			  bool expect_writable);
 
 #endif

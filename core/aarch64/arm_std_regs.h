@@ -228,6 +228,11 @@
 #define SPSR_Z(spsr)   (((spsr) >> 30) & 0x1)
 #define SPSR_N(spsr)   (((spsr) >> 31) & 0x1)
 
+#define SPSR_F_BIT   BIT (6)
+#define SPSR_I_BIT   BIT (7)
+#define SPSR_A_BIT   BIT (8)
+#define SPSR_D_BIT   BIT (9)
+
 /* TCR */
 #define TCR_T0SZ(val)  ((val) & 0x3F)
 #define TCR_EPD0       BIT (7)

@@ -46,6 +46,7 @@ objs-y += putchar.o
 objs-y += qsort.o
 objs-y += random.o
 objs-y += reboot.o
+objs-y += sleep.o
 objs-y += string.o
 objs-y += strtol.o
 objs-y += sym.o

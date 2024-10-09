@@ -30,97 +30,21 @@
 #include <core/initfunc.h>
 #include <core/process.h>
 #include <core/sleep.h>
-#include "../time.h"
-#include "../uefi.h"
-#include "asm.h"
-#include "constants.h"
-#include "sleep.h"
 
-void
-waitcycles (u32 d, u32 a)
+static int
+usleep_msghandler (int m, int c)
 {
-	u32 a0, d0, aa, dd, a1, d1;
-
-	asm_rdtsc (&a0, &d0);
-	a1 = a0 + a;
-	d1 = d0 + d + (a1 < a0);
-	do
-		asm_rdtsc (&aa, &dd);
-	while (dd < d1 || (dd == d1 && aa < a1));
-}
-
-/* read count of timer 0 */
-static u16
-get_timer0 (void)
-{
-	u16 count;
-	u8 l, h;
-
-	asm_outb (PIT_CONTROL,
-		  PIT_CONTROL_BINARY |
-		  PIT_CONTROL_MODE2 |
-		  PIT_CONTROL_LATCH |
-		  PIT_CONTROL_COUNTER0);
-	asm_inb (PIT_COUNTER0, &l);
-	asm_inb (PIT_COUNTER0, &h);
-	count = l | (h << 8);
-	return count;
-}
-
-/* busyloop for usec microseconds */
-void
-usleep (u32 usec)
-{
-	u32 count, remainder, counter0, tmp, diff;
-	u64 acpitime, acpitime2;
-
-	if (get_acpi_time (&acpitime)) {
-		while (get_acpi_time (&acpitime2))
-			if (acpitime2 - acpitime >= usec)
-				return;
+	if (m == MSG_INT) {
+		usleep (c);
+		return 0;
 	}
-	while (usec > 3599591843U) {
-		usleep (3599591843U);
-		usec -= 3599591843U;
-	}
-	asm_mul_and_div (14318181, usec, 12000000, &count, &remainder);
-	if (remainder >= 12000000 / 2)
-		count++;
-	counter0 = get_timer0 ();
-	while (count) {
-		do
-			tmp = get_timer0 ();
-		while (counter0 == tmp);
-		if (counter0 > tmp) {
-			diff = counter0 - tmp;
-			if (count < tmp)
-				diff = count;
-		} else {
-			diff = 1;
-		}
-		count -= diff;
-		counter0 = tmp;
-	}
-}
-
-void
-sleep_set_timer_counter (void)
-{
-	/* set PIT counter 0 to 65536 */
-	asm_outb (PIT_CONTROL,
-		  PIT_CONTROL_BINARY |
-		  PIT_CONTROL_MODE2 |
-		  PIT_CONTROL_16BIT |
-		  PIT_CONTROL_COUNTER0);
-	asm_outb (PIT_COUNTER0, 0);
-	asm_outb (PIT_COUNTER0, 0);
+	return -1;
 }
 
 static void
-sleep_init_global (void)
+sleep_init_msg (void)
 {
-	if (!uefi_booted)
-		sleep_set_timer_counter ();
+	msgregister ("usleep", usleep_msghandler);
 }
 
-INITFUNC ("global0", sleep_init_global);
+INITFUNC ("msg0", sleep_init_msg);

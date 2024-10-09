@@ -37,6 +37,7 @@ struct vm_ctx;
 
 void vm_start (void);
 void vm_start_at (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id);
+void vm_resume (struct vm_ctx *vm);
 struct vm_ctx *vm_get_current_ctx (void);
 const struct mm_as *vm_get_current_as (void);
 

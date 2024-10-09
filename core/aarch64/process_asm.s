@@ -34,7 +34,10 @@
 	.text
 	.global process_asm_return_from_proc
 process_asm_return_from_proc:
-	mov	sp, x1
+	/* Restore process return sp */
+	mrs	x10, SP_EL1
+	mov	sp, x10
+
 	/* Restore the context after running a process */
 	ldp	x19, x20, [sp, #(16 * 0)]
 	ldp	x21, x22, [sp, #(16 * 1)]
@@ -75,6 +78,10 @@ process_asm_enter_el0:
 	stp	x25, x26, [sp, #(16 * 3)]
 	stp	x27, x28, [sp, #(16 * 4)]
 	stp	x29, x30, [sp, #(16 * 5)]
+
+	/* Save process return sp */
+	mov	x10, sp
+	msr	SP_EL1, x10
 
 	/* After a process returns, it goes to 0x3FFFF100 */
 	mov	x30, #0xF100

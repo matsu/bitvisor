@@ -79,6 +79,13 @@ vm_add_vm_ctx (struct vm_ctx *vc)
 	spinlock_unlock (&vml.lock);
 }
 
+static void
+set_vmpidr_and_vpidr (void)
+{
+	msr (VMPIDR_EL2, mrs (MPIDR_EL1));
+	msr (VPIDR_EL2, mrs (MIDR_EL1));
+}
+
 void
 vm_start (void)
 {
@@ -152,6 +159,8 @@ vm_start (void)
 	 * It is already set bymmu_setup_for_loaded_bitvisor().
 	 */
 	cnt_set_default_after_e2h_en ();
+	set_vmpidr_and_vpidr ();
+
 	vm_asm_start_guest (&_uefi_entry_ctx);
 }
 
@@ -171,15 +180,33 @@ vm_start_at (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id)
 
 	printf ("Processor %X entering EL1\n", currentcpu_get_id ());
 
+	/* Ensure that MMU in EL1 is off and there is no valid TLB on entry */
 	msr (SCTLR_EL12, 0);
-	msr (SPSR_EL2, 0x5);
+	asm volatile ("tlbi alle1" : : : "memory");
+	isb ();
+	msr (SPSR_EL2, 0x5 | SPSR_D_BIT | SPSR_A_BIT | SPSR_I_BIT |
+	     SPSR_F_BIT);
 	msr (ELR_EL2, g_entry);
 	msr (HCR_EL2, HCR_FLAGS);
 	isb ();
 	cptr_set_default_after_e2h_en ();
 	cnt_set_default_after_e2h_en ();
+	set_vmpidr_and_vpidr ();
 
 	vm_asm_start_guest_with_ctx_id (g_ctx_id);
+}
+
+void
+vm_resume (struct vm_ctx *vm)
+{
+	cptr_set_default_after_e2h_en ();
+	cnt_set_default_after_e2h_en ();
+	set_vmpidr_and_vpidr ();
+
+	/* Ensure that MMU in EL1 is off and there is no valid TLB on entry */
+	msr (SCTLR_EL12, 0);
+	asm volatile ("tlbi alle1" : : : "memory");
+	isb ();
 }
 
 struct vm_ctx *

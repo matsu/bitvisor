@@ -48,7 +48,6 @@ struct pcpu {
 	LIST1_DEFINE_HEAD (struct gic_lr_list, int_pending);
 	struct vcpu *currentvcpu;
 	void *stackaddr;
-	uint max_int_slot;
 	uint rnd_context;
 	int cpunum;
 	int pid;

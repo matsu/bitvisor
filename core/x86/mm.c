@@ -313,7 +313,7 @@ process_virt_to_phys_prepare (void)
 
 int
 mm_process_arch_virt_to_phys (struct mm_arch_proc_desc *mm_proc_desc,
-			      virt_t virt, phys_t *phys)
+			      virt_t virt, phys_t *phys, bool expect_writable)
 {
 	u64 pte;
 	int r = -1;
@@ -331,10 +331,15 @@ mm_process_arch_virt_to_phys (struct mm_arch_proc_desc *mm_proc_desc,
 	}
 	pmap_seek (&m, virt, 1);
 	pte = pmap_read (&m);
+	if (expect_writable) {
+		if (!(pte & PTE_RW_BIT))
+			goto end;
+	}
 	if (pte & PTE_P_BIT) {
 		*phys = (pte & PTE_ADDR_MASK) | (virt & ~PTE_ADDR_MASK);
 		r = 0;
 	}
+end:
 	pmap_close (&m);
 	spinlock_unlock (&mm_lock_process_virt_to_phys);
 	return r;

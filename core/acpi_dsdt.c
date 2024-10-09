@@ -673,6 +673,15 @@ parseok (struct parsedata *d)
 		parseok_def (d, path);
 }
 
+static void
+parsedata_free (struct parsedatalist *q)
+{
+        parsefreepathlist (&q->pathhead);
+        parsefreebuflist (&q->bufhead);
+        parsefreelimitlist (&q->limithead);
+        parsefree (q);
+}
+
 static struct parsedatalist *
 parsemain (struct parsedata *d, const char *search, uint search_len)
 {
@@ -683,42 +692,45 @@ parsemain (struct parsedata *d, const char *search, uint search_len)
 	unsigned char *tmpc;
 	char tmp[DATALEN];
 	int i, len;
-	bool search_found = false;
 
-	r = NULL;
 loop:
-	if (r == NULL) {
-		if (getbuf (d) == NULL) {
+	if (getbuf (d) == NULL) {
 #ifdef ACPI_IGNORE_ERROR
-			printf ("getbuf error\n");
-			return NULL;
+		printf ("getbuf error\n");
+		return NULL;
 #else
-			error ("getbuf");
+		error ("getbuf");
 #endif
+	}
+	if (d->c == d->end) {
+		r = d->cur;
+		/* Free remaining parsing data */
+		while (getbuf (d))
+			parsedata_free (d->cur);
+		/*
+		 * We have reached the end of parsing. in search case, if we
+		 * reach this point, it means we cannot find the string. Free
+		 * the recorded d->cur, and return NULL.
+		 */
+		if (search) {
+			printf ("Search for %s fail\n", search);
+			parsedata_free (r);
+			r = NULL;
 		}
-		if (d->c == d->end || search_found) {
+		return r;
+	}
+	if (search && search_len > 0) {
+		if (search_len >= DATALEN)
+			error ("search_len >= DATALEN");
+		len = getname (d, tmp, sizeof tmp);
+		if (len >= search_len &&
+		    memcmp (tmp, (void *)search, search_len) == 0) {
 			r = d->cur;
-			goto loop;
-		}
-		if (search && search_len > 0) {
-			if (search_len >= DATALEN)
-				error ("search_len >= DATALEN");
-			len = getname (d, tmp, sizeof tmp);
-			if (len >= search_len &&
-			    memcmp (tmp, (void *)search, search_len) == 0)
-				search_found = true;
-		}
-	} else {
-		if (search && search_found)
+			/* Free remaining parsing data */
+			while (getbuf (d))
+				parsedata_free (d->cur);
 			return r;
-		if (getbuf (d) == NULL) {
-			if (!search)
-				return r;
-			else
-				printf ("Search for %s fail\n", search);
 		}
-		r = NULL;
-		goto err;
 	}
 loop2:
 	curbuf = d->cur->bufhead;
@@ -2237,10 +2249,7 @@ loop2:
 		goto loop;
 	}
 err:
-	parsefreepathlist (&d->cur->pathhead);
-	parsefreebuflist (&d->cur->bufhead);
-	parsefreelimitlist (&d->cur->limithead);
-	parsefree (d->cur);
+	parsedata_free (d->cur);
 	goto loop;
 }
 
@@ -2287,12 +2296,8 @@ parser (unsigned char *start, unsigned char *end, bool print_progress)
 		q = parsemain (&d, NULL, 0);
 		if (d.progress)
 			printf ("%c", d.progresschar);
-		if (q) {
-			parsefreepathlist (&q->pathhead);
-			parsefreebuflist (&q->bufhead);
-			parsefreelimitlist (&q->limithead);
-			parsefree (q);
-		}
+		if (q)
+			parsedata_free (q);
 		if (d.progress) {
 			for (i = 0, j = end - start; i < j; i += d.progress)
 				printf ("\b");
@@ -2335,10 +2340,7 @@ parser (unsigned char *start, unsigned char *end, bool print_progress)
 		for (j = 0; j < 5; j++)
 			acpi_dsdt_system_state[i][j] = q->system_state[i][j];
 	}
-	parsefreepathlist (&q->pathhead);
-	parsefreebuflist (&q->bufhead);
-	parsefreelimitlist (&q->limithead);
-	parsefree (q);
+	parsedata_free (q);
 error:
 	parsefreebreaklist (&d.breakhead);
 }
@@ -2422,10 +2424,7 @@ acpi_dsdt_search_ns (u64 dsdt, char *ns, uint ns_len, u64 *start_out,
 			*start_out = dsdt + offset;
 		if (readable_len)
 			*readable_len = len - offset + 1;
-		parsefreepathlist (&dl->pathhead);
-		parsefreebuflist (&dl->bufhead);
-		parsefreelimitlist (&dl->limithead);
-		parsefree (dl);
+		parsedata_free (dl);
 	}
 
 	unmapmem (q, len);

@@ -32,5 +32,7 @@
 
 #define BIT(n)				(1ULL << (n))
 #define BITFIELD(v, m, s)		(((v) & (m)) << (s))
+#define BIT_MASK_NBITS(n_bits) \
+	((n_bits) > 0 ? ((2ULL << ((n_bits) - 1)) - 1) : 0)
 
 #endif

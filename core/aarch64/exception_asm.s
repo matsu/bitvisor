@@ -39,8 +39,9 @@ _restore_regs_and_eret:
 	msr	HCR_EL2, x0
 	msr	SP_EL0, x1
 	isb /* Want HCR_EL2 an others write to have effect after this */
-	ldp	x0, xzr, [sp, #(16 * 19)]
+	ldp	x0, x1, [sp, #(16 * 19)]
 	msr	TPIDR_EL0, x0
+	msr	SP_EL1, x1
 	ldp	x0, x1, [sp, #(16 * 0)]
 	ldp	x2, x3, [sp, #(16 * 1)]
 	ldp	x4, x5, [sp, #(16 * 2)]
@@ -105,7 +106,8 @@ _restore_regs_and_eret:
 	mrs	x1, SP_EL0
 	stp	x0, x1, [sp, #(16 * 18)]
 	mrs	x0, TPIDR_EL0
-	stp	x0, xzr, [sp, #(16 * 19)]
+	mrs	x1, SP_EL1
+	stp	x0, x1, [sp, #(16 * 19)]
 
 	/* Set base frame register to NULL as the bottom of the stack */
 	mov	x29, xzr
