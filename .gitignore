@@ -12,6 +12,8 @@ bitvisor.map
 .boptions
 defconfig
 __pycache__
+boot/loader/bootloader
+boot/loader/bootloaderusb
 boot/login/conf/bitvisor.conf
 boot/login/initrd/initrd.gz
 boot/login/linux/linux-*
