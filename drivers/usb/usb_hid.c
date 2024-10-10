@@ -47,7 +47,12 @@ hid_intercept(struct usb_host *usbhc,
                 continue;
             u8 *cp;
             cp = (u8 *)mapmem_as(as_passvm, ub->padr, ub->len, 0);
+            printf("Modifier keys: 0x%02x\n", cp[0]);  // 修飾キー（Shift, Ctrl, Altなど）
+            printf("Reserved: 0x%02x\n", cp[1]);       // 予約バイト
             for(int i = 0; i < ub->len; i++){
+                if (cp[i] != 0) {
+                    printf("Key pressed: 0x%02x\n", cp[i]);
+                }
                 if(i >= 2 && *cp == 0x1d){ // z
                     *cp = 0x04; // a
                 }
