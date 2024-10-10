@@ -35,35 +35,25 @@
 #include "usb_log.h"
 
 #define USB_ICLASS_HID  0x3
+#define USB_PROTOCOL_KEYBOARD  0x1
 
 static int
 hid_intercept(struct usb_host *usbhc,
 	      struct usb_request_block *urb, void *arg)
 {
-	struct uhci_td_meta *tdm, *g_tdm;
-	phys_t current_td;
-	u8 clear_active = 0;
-
-	tdm = URB_UHCI(urb)->tdm_head;
-	g_tdm = URB_UHCI(urb->shadow)->tdm_head;
-
-	if (get_pid_from_td(tdm->td) != UHCI_TD_TOKEN_PID_IN)
-		return USB_HOOK_PASS;
-
-	current_td =  URB_UHCI(urb)->qh->element;
-	while (tdm) {
-		if (clear_active) {
-			if (get_pid_from_td(tdm->td) == UHCI_TD_TOKEN_PID_IN) {
-				tdm->td->status &= ~UHCI_TD_STAT_AC;
-				g_tdm->status_copy = tdm->status_copy =
-					tdm->td->status;
-			}
-		}
-		if (tdm->td_phys == current_td)
-			clear_active = 1;
-		tdm = tdm->next;
-		g_tdm = g_tdm->next;
-	}
+	struct usb_buffer_list *ub;
+        for(ub = urb->shadow->buffers; ub; ub = ub->next){
+            if (ub->pid != USB_PID_IN)
+                continue;
+            u8 *cp;
+            cp = (u8 *)mapmem_as(as_passvm, ub->padr, ub->len, 0);
+            for(int i = 0; i < ub->len; i++){
+                if(i >= 2 && *cp == 0x1d){ // z
+                    *cp = 0x04; // a
+                }
+                cp++;
+            }
+        }	
 	return USB_HOOK_PASS;
 }
 
@@ -78,43 +68,46 @@ hid_intercept(struct usb_host *usbhc,
 void
 usbhid_init_handle (struct usb_host *host, struct usb_device *dev)
 {
-	u8 class;
-	int i;
-	struct usb_interface_descriptor *ides;
+	    u8 class, protocol;
+        int i;
+        struct usb_interface_descriptor *ides;
 
-	/* the current implementation supports only UHCI. */
-	if (host->type != USB_HOST_TYPE_UHCI)
-		return;
+        if (!dev || !dev->config || !dev->config->interface ||
+            !dev->config->interface->altsetting ||
+            !dev->config->interface->num_altsetting) {
+            dprintft(1, "HID(%02x): interface descriptor not found.\n",
+                 dev->devnum);
+            return;
+        }
+        for (i = 0; i < dev->config->interface->num_altsetting; i++) {
+            ides = dev->config->interface->altsetting + i;
+            class = ides->bInterfaceClass;
+            protocol = ides->bInterfaceProtocol;
+            if (class == USB_ICLASS_HID && protocol == USB_PROTOCOL_KEYBOARD)
+                break;
+        }
 
-	if (!dev || !dev->config || !dev->config->interface ||
-	    !dev->config->interface->altsetting ||
-		!dev->config->interface->num_altsetting) {
-		dprintft(1, "HID(%02x): interface descriptor not found.\n",
-			 dev->devnum);
-		return;
-	}
-	for (i = 0; i < dev->config->interface->num_altsetting; i++) {
-		ides = dev->config->interface->altsetting + i;
-		class = ides->bInterfaceClass;
-		if (class == USB_ICLASS_HID)
-			break;
-	}
+        if (i == dev->config->interface->num_altsetting)
+            return;
 
-	if (i == dev->config->interface->num_altsetting)
-		return;
+        printf("HID(%02x): an USB keyboard found.\n", dev->devnum);
 
-	dprintft(1, "HID(%02x): an HID device found.\n", dev->devnum);
+        spinlock_lock(&host->lock_hk);
+        struct usb_endpoint_descriptor *epdesc;
+        for(i = 1; i <= ides->bNumEndpoints; i++){
+            epdesc = &ides->endpoint[i];
+            if (epdesc->bEndpointAddress & USB_ENDPOINT_IN) {
+                usb_hook_register(host, USB_HOOK_REPLY,
+                          USB_HOOK_MATCH_DEV | USB_HOOK_MATCH_ENDP,
+                          dev->devnum, epdesc->bEndpointAddress,
+                          NULL, hid_intercept, dev, dev);
+                printf("HID(%02x, %02x): HID device monitor registered.\n",
+                        dev->devnum, epdesc->bEndpointAddress);
+            }
+        }
+        spinlock_unlock(&host->lock_hk);
 
-	/* register a hook to force transfers to
-	   happen one td at a time */
-
-	spinlock_lock(&host->lock_hk);
-	usb_hook_register(host, USB_HOOK_REQUEST,
-			  USB_HOOK_MATCH_DEV, dev->devnum, 0,
-			  NULL, hid_intercept, dev, dev);
-	spinlock_unlock(&host->lock_hk);
-
-	dprintft(1, "HID(%02x): HID device monitor registered.\n",
+    dprintft(1, "HID(%02x): HID device monitor registered.\n",
 		 dev->devnum);
 
 	return;
