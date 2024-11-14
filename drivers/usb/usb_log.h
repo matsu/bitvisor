@@ -37,14 +37,15 @@
 
 #if defined(ENABLE_DPRINTF)
 #define dprintf(level, ...) \
-	((level) <= usb_log_level ? _dprintf ((level), __VA_ARGS__) : 0)
+	((level) <= usb_log_level ? usb_log_dprintf ((level), __VA_ARGS__) : 0)
 #define dprintft(level, ...) \
-	((level) <= usb_log_level ? _dprintft ((level), __VA_ARGS__) : 0)
+	((level) <= usb_log_level ? usb_log_dprintft ((level), __VA_ARGS__) \
+	 : 0)
 
 extern int usb_log_level;
 
-int _dprintf(int level, char *format, ...);
-int _dprintft(int level, char *format, ...);
+int usb_log_dprintf(int level, char *format, ...);
+int usb_log_dprintft(int level, char *format, ...);
 #else
 #define dprintf(...)             /* none */
 #define dprintft(...)             /* none */

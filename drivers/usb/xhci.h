@@ -1017,7 +1017,7 @@ int xhci_shadow_trbs (struct usb_host *usbhc,
 		      u32 clone_content);
 
 void xhci_release_data (struct xhci_host *host);
-struct xhci_trb *tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg);
+struct xhci_trb *xhci_tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg);
 
 void xhci_update_vmm_hc_state (struct xhci_host *host);
 bool xhci_hc_halted (struct xhci_host *host);

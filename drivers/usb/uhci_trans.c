@@ -1021,7 +1021,7 @@ recheck:
  * @param host struct uhci_host
  */
 int
-init_hframelist(struct uhci_host *host) 
+uhci_init_hframelist (struct uhci_host *host)
 {
 	struct usb_request_block *urb;
 	u32 frid;

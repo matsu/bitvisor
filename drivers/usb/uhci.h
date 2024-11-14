@@ -296,12 +296,10 @@ uhci_shadow_buffer(struct usb_host *usbhc,
 		   struct usb_request_block *gurb, u32 flag);
 void
 uhci_framelist_monitor(void *data);
-int 
-scan_gframelist(struct uhci_host *host);
+int uhci_scan_gframelist (struct uhci_host *host);
 
 /* uhci_trans.c */
-int
-init_hframelist(struct uhci_host *host);
+int uhci_init_hframelist (struct uhci_host *host);
 u8 
 uhci_check_urb_advance(struct usb_host *usbhc, struct usb_request_block *urb);
 int 

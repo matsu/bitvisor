@@ -229,9 +229,9 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 
 			if (!host->gframelist) {
 				host->gframelist = (*data).dword;
-				scan_gframelist(host);
+				uhci_scan_gframelist (host);
 
-				init_hframelist(host);
+				uhci_init_hframelist (host);
 				dprintft(3, "%04x: shadow frame list "
 					 "created.\n", host->iobase);
 				out32(host->iobase + UHCI_REG_FRBASEADD, 
@@ -246,7 +246,7 @@ uhci_bm_handler(core_io_t io, union mem *data, void *arg)
 					 (*data).dword);
 				/* FIXME: delete all gfl skeltons */
 				host->gframelist = (*data).dword;
-				scan_gframelist(host);
+				uhci_scan_gframelist (host);
 			}
 			/* MEMO: ignore repeated address set */
 		} else {
