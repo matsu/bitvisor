@@ -277,8 +277,6 @@ struct usb_device {
 	u32 hc_specific_data[2];
 };
 
-void
-free_config_descriptors(struct usb_config_descriptor *cdesc, int n);
 int
 free_device(struct usb_host *host, struct usb_device *dev);
 void 
@@ -295,8 +293,6 @@ handle_connect_status(struct usb_host *ub_host, u64 portno, u16 status);
 int
 handle_port_reset(struct usb_host *ub_host, 
 		  u64 portno, u16 status, u8 offset);
-void
-dprintf_port(int level, u64 portno);
 
 static inline struct usb_device *
 get_device_by_address(struct usb_host *host, u8 address)

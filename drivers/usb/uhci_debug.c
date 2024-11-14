@@ -46,7 +46,7 @@
 /**
  * @brief prints out the TD by virtual address
  */
-void
+static void
 dump_td_byvirt(int level, struct uhci_host *host, struct uhci_td *td)
 {
 	size_t maxlen, actlen, len;
@@ -95,7 +95,7 @@ dump_td_byvirt(int level, struct uhci_host *host, struct uhci_td *td)
 	return;
 }
 
-phys32_t
+static phys32_t
 dump_td(int level, struct uhci_host *host, 
 	u32 padr, u32 cached[], int *n_cached, int flags)
 {
@@ -136,7 +136,7 @@ is_link_loop(phys_t padr, phys_t cache[], int n_caches)
 }
 
 #define UHCI_DUMP_TD_MAX           2048
-int
+static int
 dump_qh(int level, struct uhci_host *host, 
 	u32 qh_padr,u32 cached[], int *n_cached, int flags)
 {
@@ -195,7 +195,7 @@ dump_qh(int level, struct uhci_host *host,
 	return n;
 }
 
-int 
+static int
 dump_frame(int level, struct uhci_host *host, int frid, 
 	   u32 cached[], int *n_cached, int flag)
 {
