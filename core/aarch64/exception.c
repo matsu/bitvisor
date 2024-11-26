@@ -176,8 +176,9 @@ handle_hvc (union exception_saved_regs *r, uint hvc_num)
 static int
 trap_smc (union exception_saved_regs *r, u32 iss)
 {
-	int error = smc_call_hook (r, iss);
-	if (!error)
+	bool skip;
+	int error = smc_call_hook (r, iss, &skip);
+	if (skip)
 		skip_inst (r);
 
 	return error;
@@ -577,15 +578,6 @@ exception_secondary_init (void)
 {
 	msr (VBAR_EL2, exception_vector_table);
 	isb ();
-}
-
-u64
-exception_sp_on_entry (void)
-{
-	struct pcpu *currentcpu = tpidr_get_pcpu ();
-	union exception_saved_regs *r = currentcpu->exception_data.saved_regs;
-
-	return (u64)r + sizeof (r->reg);
 }
 
 void

@@ -172,7 +172,7 @@ static struct mmu_pt_desc mmu_vmm_pt_s2;
 static struct mmu_pt_desc mmu_vmm_pt_identity;
 static struct mmu_pt_desc mmu_proc_pt_none;
 
-/* For secondary core entry */
+/* For core entry after BitVisor starts */
 static u64 *mmu_ttbr0_identity_table;
 phys_t mmu_ttbr0_identity_table_phys;
 phys_t mmu_ttbr1_table_phys;
@@ -659,21 +659,31 @@ mmu_va_unmap (virt_t aligned_vaddr, u64 aligned_size)
 	apply_map_fixed (&mmu_vmm_pt_s1, aligned_vaddr, 0, aligned_size, 0);
 }
 
-bool
-mmu_check_existing_va_map (virt_t addr)
+/* Return PAR_EL1 content from AT instruction */
+static u64
+at_translate_el2_addr (virt_t addr, bool tl_with_write_perm)
 {
 	u64 orig_par;
-	bool exist;
+	u64 par;
 
 	spinlock_lock (&mmu_vmm_pt_s1.lock);
 	orig_par = mrs (PAR_EL1);
-	asm volatile ("at S1E2R, %0" : : "r" (addr) : "memory");
+	if (tl_with_write_perm)
+		asm volatile ("at S1E2W, %0" : : "r" (addr) : "memory");
+	else
+		asm volatile ("at S1E2R, %0" : : "r" (addr) : "memory");
 	isb (); /* Explicit sync is required */
-	exist = !(mrs (PAR_EL1) & PAR_F);
+	par = mrs (PAR_EL1); /* Record the result */
 	msr (PAR_EL1, orig_par);
 	spinlock_unlock (&mmu_vmm_pt_s1.lock);
 
-	return exist;
+	return par;
+}
+
+bool
+mmu_check_existing_va_map (virt_t addr)
+{
+	return !(at_translate_el2_addr (addr, false) & PAR_F);
 }
 
 void *
@@ -954,17 +964,24 @@ mmu_pt_desc_proc_unmap_stack (struct mmu_pt_desc *proc_pd, virt_t virt,
 
 int
 mmu_pt_desc_proc_virt_to_phys (struct mmu_pt_desc *proc_pd, virt_t virt,
-			       phys_t *phys)
+			       phys_t *phys, bool expect_writable)
 {
 	u64 *pte;
 	int ret = -1;
+	bool pte_writable;
 
 	if (!mmu_pt_desc_proc_get_pte (proc_pd, virt, &pte)) {
+		if (expect_writable) {
+			pte_writable = (*pte & PTE_PERM_RW_EL0) ==
+				PTE_PERM_RW_EL0;
+			if (!pte_writable)
+				goto end;
+		}
 		if (phys)
 			*phys = *pte & PTE_ADDR_MASK;
 		ret = 0;
 	}
-
+end:
 	return ret;
 }
 
@@ -1097,6 +1114,20 @@ mmu_gvirt_to_ipa (u64 gvirt, uint el, bool wr, u64 *ipa_out,
 	return 0;
 }
 
+int
+mmu_vmm_virt_to_phys (virt_t addr, phys_t *out_paddr, bool expect_writable)
+{
+	u64 par;
+	int error;
+
+	par = at_translate_el2_addr (addr, expect_writable);
+	error = !!(par & PAR_F);
+	if (!error && out_paddr)
+		*out_paddr = par & PAR_PA_MASK;
+
+	return error;
+}
+
 static void
 mmu_init (void)
 {
@@ -1214,7 +1245,7 @@ mmu_s2_map_identity (void)
 }
 
 static void
-mmu_prepare_secondary_entry (void)
+mmu_prepare_identity_entry (void)
 {
 	phys_t addr;
 	u64 size, pte_flags;
@@ -1233,8 +1264,8 @@ mmu_prepare_secondary_entry (void)
 
 	mmu_ttbr0_identity_table_phys = mmu_vmm_pt_identity.pt_phys;
 
-	addr = sym_to_phys (entry_secondary);
-	size = sym_to_phys (entry_secondary_end) - addr;
+	addr = sym_to_phys (entry_identity);
+	size = sym_to_phys (entry_identity_end) - addr;
 	pte_flags = PTE_VALID | PTE_MAIR_IDX (MAIR_WB_IDX) |
 		PTE_SH (PTE_SH_INNER) | PTE_AF | PTE_PERM_RX;
 	apply_map (&mmu_vmm_pt_identity, addr, addr, size, pte_flags);
@@ -1271,7 +1302,7 @@ mmu_init_mm_ok (void)
 {
 	mmu_s2_map_identity ();
 	mmu_s2_vmm_mem_ro ();
-	mmu_prepare_secondary_entry ();
+	mmu_prepare_identity_entry ();
 }
 
 static void

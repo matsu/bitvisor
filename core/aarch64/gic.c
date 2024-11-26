@@ -193,8 +193,8 @@ struct acpi_madt {
 #define ICC_CTLR_EOIMODE_MASK  0x1
 #define ICC_CTLR_EOIMODE_SHIFT 1
 
-#define ICH_VTR_MASK  0x1F
-#define ICH_VTR_SHIFT 0x0
+#define ICH_VTR_NLR_MASK  0x1F
+#define ICH_VTR_NLR_SHIFT 0
 
 #define ICH_VMCR_VENG0	  BIT (0)
 #define ICH_VMCR_VENG1	  BIT (1)
@@ -414,12 +414,23 @@ handle_mint (uint intid)
 	printf ("We don't handle maintenance interrupt now\n");
 }
 
+static uint
+gic_ich_vtr_n_lr (void)
+{
+	uint val;
+
+	val = (mrs (GIC_ICH_VTR_EL2) >> ICH_VTR_NLR_SHIFT) & ICH_VTR_NLR_MASK;
+	val += 1; /* 0 based value */
+	ASSERT (val <= 16);
+	return val;
+}
+
 static void
 try_inject_vint (u64 intid, u64 rpr, uint group)
 {
 	struct pcpu *currentcpu;
 	u64 elrsr, val, lr_val, g;
-	uint i;
+	uint i, n_lr;
 	bool empty = false;
 
 	currentcpu = tpidr_get_pcpu ();
@@ -432,7 +443,8 @@ try_inject_vint (u64 intid, u64 rpr, uint group)
 	enqueue_lr (currentcpu, val);
 
 	elrsr = mrs (GIC_ICH_ELRSR_EL2);
-	for (i = 0; elrsr != 0 && i < currentcpu->max_int_slot; i++) {
+	n_lr = gic_ich_vtr_n_lr ();
+	for (i = 0; elrsr != 0 && i < n_lr; i++) {
 		empty = !!(elrsr & 0x1);
 		if (empty) {
 			if (dequeue_lr (currentcpu, &lr_val))
@@ -452,7 +464,10 @@ gic_handle_fiq (union exception_saved_regs *r)
 
 	/* Acknowledge the interrupt */
 	intid = mrs (GIC_ICC_IAR0_EL1) & ICC_IAR_MASK;
+	isb ();
+	dsb_sy ();
 	rpr = mrs (GIC_ICC_RPR_EL1) & ICC_RPR_MASK;
+	isb ();
 
 	/* TODO: what to do with special INTID? */
 	if (intid >= INTR_RSVD_NUM_1020 && intid <= INTR_RSVD_NUM_1024)
@@ -467,11 +482,14 @@ gic_handle_fiq (union exception_saved_regs *r)
 	if (intid == INTR_MAINTENANCE_NUM) {
 		handle_mint (intid);
 		msr (GIC_ICC_DIR_EL1, intid); /* Deactivate the interrupt */
+		isb ();
 	} else {
-		if (num != -1)
+		if (num != -1) {
 			try_inject_vint (intid, rpr, 0);
-		else
+		} else {
 			msr (GIC_ICC_DIR_EL1, intid);
+			isb ();
+		}
 	}
 end:
 	return EXCEPTION_HANDLE_RETURN_OK;
@@ -485,7 +503,10 @@ gic_handle_irq (union exception_saved_regs *r)
 
 	/* Acknowledge the interrupt */
 	intid = mrs (GIC_ICC_IAR1_EL1) & ICC_IAR_MASK;
+	isb ();
+	dsb_sy ();
 	rpr = mrs (GIC_ICC_RPR_EL1) & ICC_RPR_MASK;
+	isb ();
 
 	/* TODO: what to do with special INTID? */
 	if (intid >= INTR_RSVD_NUM_1020 && intid <= INTR_RSVD_NUM_1024)
@@ -500,11 +521,14 @@ gic_handle_irq (union exception_saved_regs *r)
 	if (intid == INTR_MAINTENANCE_NUM) {
 		handle_mint (intid);
 		msr (GIC_ICC_DIR_EL1, intid); /* Deactivate the interrupt */
+		isb ();
 	} else {
-		if (num != -1)
+		if (num != -1) {
 			try_inject_vint (intid, rpr, 1);
-		else
+		} else {
 			msr (GIC_ICC_DIR_EL1, intid);
+			isb ();
+		}
 	}
 end:
 	return EXCEPTION_HANDLE_RETURN_OK;
@@ -516,15 +540,10 @@ gic_setup_virtual_gic (void)
 {
 	struct pcpu *currentcpu;
 	u64 vmcr, val;
-	uint i;
+	uint i, n_lr;
 	bool can_use_group0;
 
 	currentcpu = tpidr_get_pcpu ();
-
-	val = (mrs (GIC_ICH_VTR_EL2) >> ICH_VTR_SHIFT) & ICH_VTR_MASK;
-	val += 1; /* 0 based value */
-	ASSERT (val <= 16);
-	currentcpu->max_int_slot = val;
 
 	can_use_group0 = gicd->can_use_group0;
 
@@ -534,7 +553,8 @@ gic_setup_virtual_gic (void)
 	 * inactive state. We need boundary because accessing non-existing
 	 * LR register causes an error.
 	 */
-	for (i = 0; i < val; i++)
+	n_lr = gic_ich_vtr_n_lr ();
+	for (i = 0; i < n_lr; i++)
 		set_lr (i, 0x0);
 
 	if (currentcpu->cpunum == 0) {
@@ -582,18 +602,83 @@ gic_setup_virtual_gic (void)
 		exception_set_handler (gic_handle_irq,
 				       can_use_group0 ? gic_handle_fiq : NULL);
 	} else {
+		msr (GIC_ICC_SRE_EL2, ii.icc_sre_el2);
+		isb ();
+		msr (GIC_ICC_PMR_EL1, ii.icc_pmr_el1);
+		msr (GIC_ICC_CTLR_EL1, ii.icc_ctlr_el1);
+		msr (GIC_ICH_HCR_EL2, ii.ich_hcr_el2);
+		msr (GIC_ICH_VMCR_EL2, ii.ich_vmcr_el2);
+		isb ();
 		if (can_use_group0) {
 			msr (GIC_ICC_BPR0_EL1, ii.icc_bpr0_el1);
 			msr (GIC_ICC_IGRPEN0_EL1, 0x1);
+			isb ();
 		}
 		msr (GIC_ICC_BPR1_EL1, ii.icc_bpr1_el1);
-		msr (GIC_ICC_CTLR_EL1, ii.icc_ctlr_el1);
-		msr (GIC_ICC_PMR_EL1, ii.icc_pmr_el1);
-		msr (GIC_ICC_SRE_EL2, ii.icc_sre_el2);
-		msr (GIC_ICH_HCR_EL2, ii.ich_hcr_el2);
-		msr (GIC_ICH_VMCR_EL2, ii.ich_vmcr_el2);
 		msr (GIC_ICC_IGRPEN1_EL1, 0x1);
+		isb ();
 	}
+}
+
+/*
+ * gic_can_suspend() currently checks whether there are pending hardware-backed
+ * virtual interrupts to be handled by the guest (activated interrupts from
+ * BitVisor point of view). If suspending happens when there are activated
+ * interrupts, the actual interrupts lose after resuming. Rejecting suspending
+ * if there exists pending hardware-backed virtual interrupts is currently the
+ * simplest solution to avoid interrupt loss.
+ */
+bool
+gic_can_suspend (void)
+{
+	u64 mask;
+
+	mask = BIT_MASK_NBITS (gic_ich_vtr_n_lr ());
+
+	/* Return false when LR is not empty (not all bits are set) */
+	return (mrs (GIC_ICH_ELRSR_EL2) & mask) == mask;
+}
+
+void
+gic_before_suspend (struct gic_context *c)
+{
+	c->gic_icc_sre_el2 = mrs (GIC_ICC_SRE_EL2);
+	c->gic_icc_ctlr_el1 = mrs (GIC_ICC_CTLR_EL1);
+	c->gic_icc_pmr_el1 = mrs (GIC_ICC_PMR_EL1);
+	c->gic_icc_bpr1_el1 = mrs (GIC_ICC_BPR1_EL1);
+	c->gic_icc_igrpen1_el1 = mrs (GIC_ICC_IGRPEN1_EL1);
+	if (gicd->can_use_group0) {
+		c->gic_icc_bpr0_el1 = mrs (GIC_ICC_BPR0_EL1);
+		c->gic_icc_igrpen0_el1 = mrs (GIC_ICC_IGRPEN0_EL1);
+	}
+	c->gic_ich_hcr_el2 = mrs (GIC_ICH_HCR_EL2);
+}
+
+void
+gic_after_suspend (struct gic_context *c)
+{
+	u64 vtr, n_lr;
+	uint i;
+
+	/* n_lr and prebits are zero based */
+	vtr = mrs (GIC_ICH_VTR_EL2);
+	n_lr = ((vtr >> ICH_VTR_NLR_SHIFT) & ICH_VTR_NLR_MASK) + 1;
+
+	/* Restore ICC registers */
+	msr (GIC_ICC_SRE_EL2, c->gic_icc_sre_el2);
+	isb ();
+	msr (GIC_ICC_CTLR_EL1, c->gic_icc_ctlr_el1);
+	msr (GIC_ICC_PMR_EL1, c->gic_icc_pmr_el1);
+	msr (GIC_ICC_BPR1_EL1, c->gic_icc_bpr1_el1);
+	msr (GIC_ICC_IGRPEN1_EL1, c->gic_icc_igrpen1_el1);
+	if (gicd->can_use_group0) {
+		msr (GIC_ICC_BPR0_EL1, c->gic_icc_bpr0_el1);
+		msr (GIC_ICC_IGRPEN0_EL1, c->gic_icc_igrpen0_el1);
+	}
+	for (i = 0; i < n_lr; i++)
+		set_lr (i, 0);
+	msr (GIC_ICH_VMCR_EL2, 0);
+	msr (GIC_ICH_HCR_EL2, c->gic_ich_hcr_el2);
 }
 
 int

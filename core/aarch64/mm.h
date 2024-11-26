@@ -49,6 +49,4 @@ struct mm_arch_proc_desc;
 u64 mm_as_translate (const struct mm_as *as, unsigned int *npages,
 		     u64 address);
 
-void mm_process_record_cur_sp (struct mm_arch_proc_desc *mm_proc_desc, u64 sp);
-
 #endif

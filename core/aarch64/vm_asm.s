@@ -100,3 +100,27 @@ vm_asm_start_guest_with_ctx_id:
 	eret
 	dsb	nsh
 	isb
+
+	/* x0: vm context */
+	.global vm_asm_resume
+	.type vm_asm_resume, @function
+	.balign 4
+vm_asm_resume:
+	/*
+	 * x0 for argument is already in place. Call vmm_entry_resume() for
+	 * additional setup necessary for resuming.
+	 */
+	bl	vmm_entry_resume
+
+	/* Restore previous state before SMC suspend call */
+	ldp	x19, x20, [sp, #(16 * 4)]
+	ldp 	x21, x22, [sp, #(16 * 5)]
+	ldp 	x23, x24, [sp, #(16 * 6)]
+	ldp 	x25, x26, [sp, #(16 * 7)]
+	ldp 	x27, x28, [sp, #(16 * 8)]
+	ldp 	x29, x30, [sp, #(16 * 9)]
+	add	sp, sp, #(16 * 10)
+
+	/* Return no error to the SMC suspend caller */
+	mov	x0, xzr
+	ret

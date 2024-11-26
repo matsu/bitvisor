@@ -32,6 +32,8 @@
 
 #include <core/types.h>
 
+#define EXCEPTION_N_GENERAL_REGS 31 /* x0 - x30 */
+
 enum exception_handle_return {
 	EXCEPTION_HANDLE_RETURN_OK,
 	EXCEPTION_HANDLE_RETURN_NOT_HANDLED,
@@ -51,9 +53,9 @@ union exception_saved_regs {
 		u64 xzr; /* padding for general registers load/store pair */
 		u64 elr_el2, spsr_el2, far_el2, esr_el2, hcr_el2, sp_el0;
 		u64 tpidr_el0;
-		u64 padding;
+		u64 sp_el1; /* Borrow this register for process return sp */
 	} reg;
-	u64 regs[31];
+	u64 regs[EXCEPTION_N_GENERAL_REGS];
 };
 
 struct exception_pcpu_data {
@@ -64,7 +66,6 @@ struct exception_pcpu_data {
 
 void exception_init (void);
 void exception_secondary_init (void);
-u64 exception_sp_on_entry (void);
 void exception_set_handler (enum exception_handle_return (*handle_irq) (
 				    union exception_saved_regs *r),
 			    enum exception_handle_return (*handle_fiq) (

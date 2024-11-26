@@ -130,7 +130,7 @@ vmm_entry (enum vmm_boot_mode boot_mode)
 }
 
 void
-vmm_entry_secondary (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id)
+vmm_entry_cpu_on (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id)
 {
 	exception_secondary_init ();
 	pcpu_secondary_init ();
@@ -141,6 +141,12 @@ vmm_entry_secondary (struct vm_ctx *vm, u64 g_mpidr, u64 g_entry, u64 g_ctx_id)
 
 	vm_start_at (vm, g_mpidr, g_entry, g_ctx_id);
 	panic ("vm_start_at() returns");
+}
+
+void
+vmm_entry_resume (struct vm_ctx *vm)
+{
+	vm_resume (vm);
 }
 
 INITFUNC ("global1", print_boot_msg);

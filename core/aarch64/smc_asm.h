@@ -34,8 +34,12 @@
 #include <core/types.h>
 
 union exception_saved_regs;
+struct vm_ctx;
 
 int smc_asm_passthrough_call (union exception_saved_regs *r);
 int smc_asm_psci_call (u64 func_id, u64 param0, u64 param1, u64 param2);
+int smc_asm_psci_suspend_call (u64 func_id, u64 powerstate, u64 resume_entry,
+			       struct vm_ctx *vm, bool *iomm_ret,
+			       u64 phys_base, u64 virt_base);
 
 #endif

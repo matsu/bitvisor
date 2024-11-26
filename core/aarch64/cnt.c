@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2007, 2008 University of Tsukuba
- * Copyright (c) 2022 Igel Co., Ltd
+ * Copyright (c) 2024 Igel Co., Ltd
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,53 +27,39 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <arch/thread.h>
-#include <core/string.h>
-#include "arm_std_regs.h"
-#include "thread_asm.h"
+#include "asm.h"
+#include "cnt.h"
 
-struct thread_context {
-	u64 x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30;
-	u64 sp_el0; /* Current running process stack */
-	u64 sp_el1; /* For process return sp */
-	u64 elr_el2;
-	u64 spsr_el2;
-	u64 hcr_el2;
-	u64 tpidr_el0;
-};
-
-/* There is no syscallstack for AArch64 */
-ulong
-thread_arch_get_syscallstack (void)
+void
+cnt_before_suspend (struct cnt_context *c)
 {
-	return 0;
+	/*
+	 * It appears that CNTV_CTL_EL0 used by the guest can lose its states
+	 * after going power-down suspending. We found this behavior on Jetson
+	 * Orin Nano Developer Kit. To avoid the problem, we save and restore
+	 * both CNTV_CVAL_EL0 and CNTV_CTL_EL0 to avoid virtual timer interrupt
+	 * loss in the guest. Note that while the reference manual says the
+	 * system counter must be implemented in an always-on power domain, we
+	 * want to be more defensive here by saving and restoring CNTV_CVAL_EL0
+	 * too just in case the system implementation does not strictly follow
+	 * the reference manual.
+	 *
+	 * We use isb() after reading the registers to ensure that we get the
+	 * value at the read time immediately. It is to avoid out-of-order
+	 * execution.
+	 */
+	c->cntv_cval_el02 = mrs (CNTV_CVAL_EL02);
+	isb ();
+	c->cntv_ctl_el02 = mrs (CNTV_CTL_EL02);
+	isb ();
 }
 
 void
-thread_arch_set_syscallstack (ulong newstack)
+cnt_after_suspend (struct cnt_context *c)
 {
-	/* Do nothing */
-}
-
-struct thread_context *
-thread_arch_context_init (void (*func) (void *), void *arg,
-			  u8 *stack_lowest_addr, uint stacksize)
-{
-	u8 *q;
-	struct thread_context c;
-
-	q = stack_lowest_addr + stacksize;
-	c.x29 = 0;
-	c.x30 = (u64)thread_asm_start0;
-	/*
-	 * We initially set HCR_E2H only like when we initialize BitVisor.
-	 * It is because MMU is configured with HCR_E2H set in mind.
-	 */
-	c.hcr_el2 = HCR_E2H;
-#define PUSH(n) memcpy (q -= sizeof (n), &(n), sizeof (n))
-	PUSH (arg);
-	PUSH (func);
-	PUSH (c);
-#undef PUSH
-	return (struct thread_context *)q;
+	/* Avoid out-of-order execution as well on restore */
+	msr (CNTV_CVAL_EL02, c->cntv_cval_el02);
+	isb ();
+	msr (CNTV_CTL_EL02, c->cntv_ctl_el02);
+	isb ();
 }

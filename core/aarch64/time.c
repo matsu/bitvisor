@@ -29,14 +29,14 @@
  */
 
 #include <arch/time.h>
-#include "asm.h"
+#include "cnt.h"
 
 #define MICRO_PER_SEC 1000000
 
 u64
 time_arch_get_cpu_time (void)
 {
-	return mrs (CNTPCT_EL0) * MICRO_PER_SEC / mrs (CNTFRQ_EL0);
+	return cnt_get_cntpct_el0 () * MICRO_PER_SEC / cnt_get_cntfrq_el0 ();
 }
 
 bool

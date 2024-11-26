@@ -12,6 +12,7 @@ objs-y += acc_emu_asm.o
 objs-y += acpi.o
 objs-y += arith.o
 objs-y += calluefi_asm.o
+objs-y += cnt.o
 objs-y += currentcpu.o
 objs-y += debug.o
 objs-y += entry.o
