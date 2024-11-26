@@ -37,29 +37,73 @@
 #define USB_ICLASS_HID  0x3
 #define USB_PROTOCOL_KEYBOARD  0x1
 
+static const char *hid_keycode_to_ascii[256] = {
+    [0x04] = "a", [0x05] = "b", [0x06] = "c", [0x07] = "d", [0x08] = "e",
+    [0x09] = "f", [0x0A] = "g", [0x0B] = "h", [0x0C] = "i", [0x0D] = "j",
+    [0x0E] = "k", [0x0F] = "l", [0x10] = "m", [0x11] = "n", [0x12] = "o",
+    [0x13] = "p", [0x14] = "q", [0x15] = "r", [0x16] = "s", [0x17] = "t",
+    [0x18] = "u", [0x19] = "v", [0x1A] = "w", [0x1B] = "x", [0x1C] = "y",
+    [0x1D] = "z",
+    [0x1E] = "1", [0x1F] = "2", [0x20] = "3", [0x21] = "4", [0x22] = "5",
+    [0x23] = "6", [0x24] = "7", [0x25] = "8", [0x26] = "9", [0x27] = "0",
+
+    // ten key
+    [0x59] = "1", [0x5A] = "2", [0x5B] = "3", [0x5C] = "4", [0x5D] = "5",
+    [0x5E] = "6", [0x5F] = "7", [0x60] = "8", [0x61] = "9", [0x62] = "0"
+};
+
+const char *keycode_to_ascii(u8 keycode) {
+    return hid_keycode_to_ascii[keycode];
+}
+
+static u8 previous_keys[6] = {0};
+
+static bool is_key_in_previous_state(u8 key, u8 *previous)
+{
+    for (int i = 0; i < 6; i++) {
+        if (previous[i] == key) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static int
 hid_intercept(struct usb_host *usbhc,
 	      struct usb_request_block *urb, void *arg)
 {
 	struct usb_buffer_list *ub;
-        for(ub = urb->shadow->buffers; ub; ub = ub->next){
-            if (ub->pid != USB_PID_IN)
+    static u8 previous_keys[6] = {0};
+    bool keys_processed = false;  // このURBでのキー処理フラグ
+
+    for(ub = urb->shadow->buffers; ub; ub = ub->next) {
+        if (ub->pid != USB_PID_IN)
+            continue;
+        u8 *cp;
+        cp = (u8 *)mapmem_as(as_passvm, ub->padr, ub->len, 0);
+        if (!cp || ub->len < 8) {
+            if (cp) unmapmem(cp, ub->len);
                 continue;
-            u8 *cp;
-            cp = (u8 *)mapmem_as(as_passvm, ub->padr, ub->len, 0);
-            printf("Modifier keys: 0x%02x\n", cp[0]);  // 修飾キー（Shift, Ctrl, Altなど）
-            printf("Reserved: 0x%02x\n", cp[1]);       // 予約バイト
-            for(int i = 0; i < ub->len; i++){
-                if (cp[i] != 0) {
-                    printf("Key pressed: 0x%02x\n", cp[i]);
+        }
+
+        if (!keys_processed) {
+            u8 modifiers = cp[0]; // ctrl:01, shift:02, alt:04
+            for(int i = 2; i < 8; i++) { // 0: Modifiers, 1: Reserved, 2-7: Keycodes
+                if (cp[i] != 0 && !is_key_in_previous_state(cp[i], previous_keys)) { // key pressed && not in previous state
+                    const char *ascii = hid_keycode_to_ascii[cp[i]];
+                    if (ascii) {
+                        printf("Pressed key: %s (modifiers: %02x)\n", ascii, modifiers);
+                    }
                 }
-                if(i >= 2 && *cp == 0x1d){ // z
-                    *cp = 0x04; // a
-                }
-                cp++;
             }
-        }	
-	return USB_HOOK_PASS;
+
+            memcpy(previous_keys, &cp[2], 6);
+            keys_processed = true;
+        }
+
+        unmapmem(cp, ub->len);
+    }   
+    return USB_HOOK_PASS;
 }
 
 /* CAUTION:
