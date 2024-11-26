@@ -1593,7 +1593,6 @@ read_cap_reg (const struct dres_reg *r, void *copy_to, size_t len)
 static void
 xhci_new (struct pci_device *pci_device)
 {
-	pci_system_disconnect (pci_device);
 	pci_enable_device (pci_device,
 			   PCI_CONFIG_COMMAND_BUSMASTER |
 				   PCI_CONFIG_COMMAND_MEMENABLE);
@@ -1729,6 +1728,8 @@ xhci_new (struct pci_device *pci_device)
 			   NULL, NULL);
 
 	spinlock_unlock (&host->usb_host->lock_hk);
+
+	usb_init_device_monitor(host->usb_host);
 
 	/* Set up spinlock for state synchronization */
 	spinlock_init (&host->sync_lock);

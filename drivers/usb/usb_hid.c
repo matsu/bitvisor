@@ -35,36 +35,75 @@
 #include "usb_log.h"
 
 #define USB_ICLASS_HID  0x3
+#define USB_PROTOCOL_KEYBOARD  0x1
+
+static const char *hid_keycode_to_ascii[256] = {
+    [0x04] = "a", [0x05] = "b", [0x06] = "c", [0x07] = "d", [0x08] = "e",
+    [0x09] = "f", [0x0A] = "g", [0x0B] = "h", [0x0C] = "i", [0x0D] = "j",
+    [0x0E] = "k", [0x0F] = "l", [0x10] = "m", [0x11] = "n", [0x12] = "o",
+    [0x13] = "p", [0x14] = "q", [0x15] = "r", [0x16] = "s", [0x17] = "t",
+    [0x18] = "u", [0x19] = "v", [0x1A] = "w", [0x1B] = "x", [0x1C] = "y",
+    [0x1D] = "z",
+    [0x1E] = "1", [0x1F] = "2", [0x20] = "3", [0x21] = "4", [0x22] = "5",
+    [0x23] = "6", [0x24] = "7", [0x25] = "8", [0x26] = "9", [0x27] = "0",
+
+    // ten key
+    [0x59] = "1", [0x5A] = "2", [0x5B] = "3", [0x5C] = "4", [0x5D] = "5",
+    [0x5E] = "6", [0x5F] = "7", [0x60] = "8", [0x61] = "9", [0x62] = "0"
+};
+
+const char *keycode_to_ascii(u8 keycode) {
+    return hid_keycode_to_ascii[keycode];
+}
+
+static u8 previous_keys[6] = {0};
+
+static bool is_key_in_previous_state(u8 key, u8 *previous)
+{
+    for (int i = 0; i < 6; i++) {
+        if (previous[i] == key) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static int
 hid_intercept(struct usb_host *usbhc,
 	      struct usb_request_block *urb, void *arg)
 {
-	struct uhci_td_meta *tdm, *g_tdm;
-	phys_t current_td;
-	u8 clear_active = 0;
+	struct usb_buffer_list *ub;
+    static u8 previous_keys[6] = {0};
+    bool keys_processed = false;  // このURBでのキー処理フラグ
 
-	tdm = URB_UHCI(urb)->tdm_head;
-	g_tdm = URB_UHCI(urb->shadow)->tdm_head;
+    for(ub = urb->shadow->buffers; ub; ub = ub->next) {
+        if (ub->pid != USB_PID_IN)
+            continue;
+        u8 *cp;
+        cp = (u8 *)mapmem_as(as_passvm, ub->padr, ub->len, 0);
+        if (!cp || ub->len < 8) {
+            if (cp) unmapmem(cp, ub->len);
+                continue;
+        }
 
-	if (get_pid_from_td(tdm->td) != UHCI_TD_TOKEN_PID_IN)
-		return USB_HOOK_PASS;
+        if (!keys_processed) {
+            u8 modifiers = cp[0]; // ctrl:01, shift:02, alt:04
+            for(int i = 2; i < 8; i++) { // 0: Modifiers, 1: Reserved, 2-7: Keycodes
+                if (cp[i] != 0 && !is_key_in_previous_state(cp[i], previous_keys)) { // key pressed && not in previous state
+                    const char *ascii = hid_keycode_to_ascii[cp[i]];
+                    if (ascii) {
+                        printf("Pressed key: %s (modifiers: %02x)\n", ascii, modifiers);
+                    }
+                }
+            }
 
-	current_td =  URB_UHCI(urb)->qh->element;
-	while (tdm) {
-		if (clear_active) {
-			if (get_pid_from_td(tdm->td) == UHCI_TD_TOKEN_PID_IN) {
-				tdm->td->status &= ~UHCI_TD_STAT_AC;
-				g_tdm->status_copy = tdm->status_copy =
-					tdm->td->status;
-			}
-		}
-		if (tdm->td_phys == current_td)
-			clear_active = 1;
-		tdm = tdm->next;
-		g_tdm = g_tdm->next;
-	}
-	return USB_HOOK_PASS;
+            memcpy(previous_keys, &cp[2], 6);
+            keys_processed = true;
+        }
+
+        unmapmem(cp, ub->len);
+    }   
+    return USB_HOOK_PASS;
 }
 
 /* CAUTION:
@@ -78,43 +117,46 @@ hid_intercept(struct usb_host *usbhc,
 void
 usbhid_init_handle (struct usb_host *host, struct usb_device *dev)
 {
-	u8 class;
-	int i;
-	struct usb_interface_descriptor *ides;
+	    u8 class, protocol;
+        int i;
+        struct usb_interface_descriptor *ides;
 
-	/* the current implementation supports only UHCI. */
-	if (host->type != USB_HOST_TYPE_UHCI)
-		return;
+        if (!dev || !dev->config || !dev->config->interface ||
+            !dev->config->interface->altsetting ||
+            !dev->config->interface->num_altsetting) {
+            dprintft(1, "HID(%02x): interface descriptor not found.\n",
+                 dev->devnum);
+            return;
+        }
+        for (i = 0; i < dev->config->interface->num_altsetting; i++) {
+            ides = dev->config->interface->altsetting + i;
+            class = ides->bInterfaceClass;
+            protocol = ides->bInterfaceProtocol;
+            if (class == USB_ICLASS_HID && protocol == USB_PROTOCOL_KEYBOARD)
+                break;
+        }
 
-	if (!dev || !dev->config || !dev->config->interface ||
-	    !dev->config->interface->altsetting ||
-		!dev->config->interface->num_altsetting) {
-		dprintft(1, "HID(%02x): interface descriptor not found.\n",
-			 dev->devnum);
-		return;
-	}
-	for (i = 0; i < dev->config->interface->num_altsetting; i++) {
-		ides = dev->config->interface->altsetting + i;
-		class = ides->bInterfaceClass;
-		if (class == USB_ICLASS_HID)
-			break;
-	}
+        if (i == dev->config->interface->num_altsetting)
+            return;
 
-	if (i == dev->config->interface->num_altsetting)
-		return;
+        printf("HID(%02x): an USB keyboard found.\n", dev->devnum);
 
-	dprintft(1, "HID(%02x): an HID device found.\n", dev->devnum);
+        spinlock_lock(&host->lock_hk);
+        struct usb_endpoint_descriptor *epdesc;
+        for(i = 1; i <= ides->bNumEndpoints; i++){
+            epdesc = &ides->endpoint[i];
+            if (epdesc->bEndpointAddress & USB_ENDPOINT_IN) {
+                usb_hook_register(host, USB_HOOK_REPLY,
+                          USB_HOOK_MATCH_DEV | USB_HOOK_MATCH_ENDP,
+                          dev->devnum, epdesc->bEndpointAddress,
+                          NULL, hid_intercept, dev, dev);
+                printf("HID(%02x, %02x): HID device monitor registered.\n",
+                        dev->devnum, epdesc->bEndpointAddress);
+            }
+        }
+        spinlock_unlock(&host->lock_hk);
 
-	/* register a hook to force transfers to
-	   happen one td at a time */
-
-	spinlock_lock(&host->lock_hk);
-	usb_hook_register(host, USB_HOOK_REQUEST,
-			  USB_HOOK_MATCH_DEV, dev->devnum, 0,
-			  NULL, hid_intercept, dev, dev);
-	spinlock_unlock(&host->lock_hk);
-
-	dprintft(1, "HID(%02x): HID device monitor registered.\n",
+    dprintft(1, "HID(%02x): HID device monitor registered.\n",
 		 dev->devnum);
 
 	return;
