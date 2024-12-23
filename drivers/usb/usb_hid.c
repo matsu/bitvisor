@@ -65,6 +65,11 @@ struct key_state {
 
 static struct key_state key_states[256] = {0};
 static u8 current_keys[MAX_KEYS] = {0};
+static bool is_authorized = false;
+static char* password = "password";
+static int password_index = 0;
+static int password_length = 8;
+char* input = "";
 
 static int
 hid_intercept(struct usb_host *usbhc,
@@ -97,10 +102,10 @@ hid_intercept(struct usb_host *usbhc,
                     key_states[keycode].is_pressed = true;
                     key_states[keycode].modifiers = modifiers;
                     const char *ascii = hid_keycode_to_ascii[keycode];
-                    if (ascii) {
-                        printf("Key Input Start: %s (modifiers: %02x)\n",
-                               ascii, modifiers);
-                    }
+                    // if (ascii) {
+                    //     printf("Key Input Start: %s (modifiers: %02x)\n",
+                    //            ascii, modifiers);
+                    // }
                 }
             } else {
                 if (key_states[keycode].is_pressed) {
@@ -108,12 +113,29 @@ hid_intercept(struct usb_host *usbhc,
                     const char *ascii = hid_keycode_to_ascii[keycode];
                     if (ascii) {
                         printf("Key Input Complete: %s\n", ascii);
+						printf("input[%d]: compare: input:%s password:%c \n", password_index, ascii, password[password_index]);
+
+						if (!is_authorized) {
+							if (ascii[0] == password[password_index]) {
+								password_index++;
+								if (password_index == password_length) {
+									is_authorized = true;
+									printf("Authorized\n");
+								}
+							} else {
+								password_index = 0;
+								input = "";
+							}
+						}
                     }
                 }
             }
         }
 
-		memset(cp, 0, ub->len);
+		if (!is_authorized) {
+			printf("Unauthorized\n");
+			memset(cp, 0, ub->len);
+		}
 
         unmapmem(cp, ub->len);
     }
