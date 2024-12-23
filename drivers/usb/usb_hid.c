@@ -33,6 +33,7 @@
 #include "usb_device.h"
 #include "usb_hook.h"
 #include "usb_log.h"
+#include <core/time.h>
 
 #define USB_ICLASS_HID  0x3
 #define USB_PROTOCOL_KEYBOARD  0x1
@@ -75,6 +76,9 @@ static int
 hid_intercept(struct usb_host *usbhc,
 	      struct usb_request_block *urb, void *arg)
 {
+	long long second;
+	int microsecond;
+	get_epoch_time(&second, &microsecond);
     struct usb_buffer_list *ub;
 
     for(ub = urb->shadow->buffers; ub; ub = ub->next) {
@@ -114,6 +118,7 @@ hid_intercept(struct usb_host *usbhc,
                     if (ascii) {
                         printf("Key Input Complete: %s\n", ascii);
 						printf("input[%d]: compare: input:%s password:%c \n", password_index, ascii, password[password_index]);
+						printf("Time: %lld.%d\n", second, microsecond);
 
 						if (!is_authorized) {
 							if (ascii[0] == password[password_index]) {
