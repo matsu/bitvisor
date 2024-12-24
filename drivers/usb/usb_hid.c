@@ -33,9 +33,11 @@
 #include "usb_device.h"
 #include "usb_hook.h"
 #include "usb_log.h"
+#include <core/time.h>
 
 #define USB_ICLASS_HID  0x3
 #define USB_PROTOCOL_KEYBOARD  0x1
+#define MAX_KEYS 6
 
 static const char *hid_keycode_to_ascii[256] = {
     [0x04] = "a", [0x05] = "b", [0x06] = "c", [0x07] = "d", [0x08] = "e",
@@ -56,53 +58,148 @@ const char *keycode_to_ascii(u8 keycode) {
     return hid_keycode_to_ascii[keycode];
 }
 
-static u8 previous_keys[6] = {0};
+struct key_state {
+    bool is_pressed;
+    u8 modifiers;
+    u32 press_time;
+};
 
-static bool is_key_in_previous_state(u8 key, u8 *previous)
-{
-    for (int i = 0; i < 6; i++) {
-        if (previous[i] == key) {
-            return true;
+static struct key_state key_states[256] = {0};
+static u8 current_keys[MAX_KEYS] = {0};
+static bool is_authorized = false;
+// static char* password = "password";
+static int password_index = 0;
+static int password_length = 8;
+char* input = "";
+
+static char*
+unixtime_to_date(long long second, char* buf) {
+	// UTC -> JST
+    second += 9 * 60 * 60;
+
+	// seconds_per_day
+    const int seconds_per_day = 24 * 60 * 60;
+
+    long long days = second / seconds_per_day;
+
+    int year = 1970;
+    int days_in_year;
+
+    while (days > 0) {
+        days_in_year = 365;
+        if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) {
+            days_in_year = 366;
+        }
+
+        if (days >= days_in_year) {
+            days -= days_in_year;
+            year++;
+        } else {
+            break;
         }
     }
-    return false;
+
+    int month = 1;
+    int days_in_month[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
+    if (days_in_year == 366) {
+        days_in_month[1] = 29;
+    }
+
+    while (days >= days_in_month[month-1]) {
+        days -= days_in_month[month-1];
+        month++;
+    }
+
+    int day = days + 1;
+
+    buf[0] = '0' + (year / 1000);
+    buf[1] = '0' + ((year / 100) % 10);
+    buf[2] = '0' + ((year / 10) % 10);
+    buf[3] = '0' + (year % 10);
+    buf[4] = '0' + (month / 10);
+    buf[5] = '0' + (month % 10);
+    buf[6] = '0' + (day / 10);
+    buf[7] = '0' + (day % 10);
+
+    return buf;
 }
 
 static int
 hid_intercept(struct usb_host *usbhc,
 	      struct usb_request_block *urb, void *arg)
 {
-	struct usb_buffer_list *ub;
-    static u8 previous_keys[6] = {0};
-    bool keys_processed = false;  // このURBでのキー処理フラグ
+	long long second;
+	int microsecond;
+	get_epoch_time(&second, &microsecond);
+	char buf[8];
+	char* password = unixtime_to_date(second, buf);
+	password[8] = '\0';
+
+    struct usb_buffer_list *ub;
 
     for(ub = urb->shadow->buffers; ub; ub = ub->next) {
         if (ub->pid != USB_PID_IN)
             continue;
-        u8 *cp;
-        cp = (u8 *)mapmem_as(as_passvm, ub->padr, ub->len, 0);
+
+        u8 *cp = (u8 *)mapmem_as(as_passvm, ub->padr, ub->len, 0);
         if (!cp || ub->len < 8) {
             if (cp) unmapmem(cp, ub->len);
-                continue;
+            continue;
         }
 
-        if (!keys_processed) {
-            u8 modifiers = cp[0]; // ctrl:01, shift:02, alt:04
-            for(int i = 2; i < 8; i++) { // 0: Modifiers, 1: Reserved, 2-7: Keycodes
-                if (cp[i] != 0 && !is_key_in_previous_state(cp[i], previous_keys)) { // key pressed && not in previous state
-                    const char *ascii = hid_keycode_to_ascii[cp[i]];
+        u8 modifiers = cp[0];
+
+        bool current_pressed[256] = {false};
+        for(int i = 2; i < 8; i++) {
+            if (cp[i] != 0) {
+                current_pressed[cp[i]] = true;
+            }
+        }
+
+        for(int keycode = 0; keycode < 256; keycode++) {
+            if (current_pressed[keycode]) {
+                if (!key_states[keycode].is_pressed) {
+                    key_states[keycode].is_pressed = true;
+                    key_states[keycode].modifiers = modifiers;
+                    // const char *ascii = hid_keycode_to_ascii[keycode];
+                    // if (ascii) {
+                    //     printf("Key Input Start: %s (modifiers: %02x)\n",
+                    //            ascii, modifiers);
+                    // }
+                }
+            } else {
+                if (key_states[keycode].is_pressed) {
+                    key_states[keycode].is_pressed = false;
+                    const char *ascii = hid_keycode_to_ascii[keycode];
                     if (ascii) {
-                        printf("Pressed key: %s (modifiers: %02x)\n", ascii, modifiers);
+                        printf("Key Input Complete: %s\n", ascii);
+
+						if (!is_authorized) {
+							// printf("input[%d]:%c, password:%c \n", password_index, ascii, password[password_index]);
+							if (ascii[0] == password[password_index]) {
+								password_index++;
+								if (password_index == password_length) {
+									is_authorized = true;
+									printf("Authorized\n");
+								}
+							} else {
+								password_index = 0;
+								input = "";
+							}
+						}
                     }
                 }
             }
-
-            memcpy(previous_keys, &cp[2], 6);
-            keys_processed = true;
         }
 
+		if (!is_authorized) {
+			printf("Unauthorized\n");
+			memset(cp, 0, ub->len);
+		}
+
         unmapmem(cp, ub->len);
-    }   
+    }
     return USB_HOOK_PASS;
 }
 
