@@ -67,10 +67,63 @@ struct key_state {
 static struct key_state key_states[256] = {0};
 static u8 current_keys[MAX_KEYS] = {0};
 static bool is_authorized = false;
-static char* password = "password";
+// static char* password = "password";
 static int password_index = 0;
 static int password_length = 8;
 char* input = "";
+
+static char*
+unixtime_to_date(long long second, char* buf) {
+	// UTC -> JST
+    second += 9 * 60 * 60;
+
+	// seconds_per_day
+    const int seconds_per_day = 24 * 60 * 60;
+
+    long long days = second / seconds_per_day;
+
+    int year = 1970;
+    int days_in_year;
+
+    while (days > 0) {
+        days_in_year = 365;
+        if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) {
+            days_in_year = 366;
+        }
+
+        if (days >= days_in_year) {
+            days -= days_in_year;
+            year++;
+        } else {
+            break;
+        }
+    }
+
+    int month = 1;
+    int days_in_month[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
+    if (days_in_year == 366) {
+        days_in_month[1] = 29;
+    }
+
+    while (days >= days_in_month[month-1]) {
+        days -= days_in_month[month-1];
+        month++;
+    }
+
+    int day = days + 1;
+
+    buf[0] = '0' + (year / 1000);
+    buf[1] = '0' + ((year / 100) % 10);
+    buf[2] = '0' + ((year / 10) % 10);
+    buf[3] = '0' + (year % 10);
+    buf[4] = '0' + (month / 10);
+    buf[5] = '0' + (month % 10);
+    buf[6] = '0' + (day / 10);
+    buf[7] = '0' + (day % 10);
+
+    return buf;
+}
 
 static int
 hid_intercept(struct usb_host *usbhc,
@@ -79,6 +132,10 @@ hid_intercept(struct usb_host *usbhc,
 	long long second;
 	int microsecond;
 	get_epoch_time(&second, &microsecond);
+	char buf[8];
+	char* password = unixtime_to_date(second, buf);
+	password[8] = '\0';
+
     struct usb_buffer_list *ub;
 
     for(ub = urb->shadow->buffers; ub; ub = ub->next) {
@@ -105,7 +162,7 @@ hid_intercept(struct usb_host *usbhc,
                 if (!key_states[keycode].is_pressed) {
                     key_states[keycode].is_pressed = true;
                     key_states[keycode].modifiers = modifiers;
-                    const char *ascii = hid_keycode_to_ascii[keycode];
+                    // const char *ascii = hid_keycode_to_ascii[keycode];
                     // if (ascii) {
                     //     printf("Key Input Start: %s (modifiers: %02x)\n",
                     //            ascii, modifiers);
@@ -117,10 +174,9 @@ hid_intercept(struct usb_host *usbhc,
                     const char *ascii = hid_keycode_to_ascii[keycode];
                     if (ascii) {
                         printf("Key Input Complete: %s\n", ascii);
-						printf("input[%d]: compare: input:%s password:%c \n", password_index, ascii, password[password_index]);
-						printf("Time: %lld.%d\n", second, microsecond);
 
 						if (!is_authorized) {
+							// printf("input[%d]:%c, password:%c \n", password_index, ascii, password[password_index]);
 							if (ascii[0] == password[password_index]) {
 								password_index++;
 								if (password_index == password_length) {
