@@ -615,7 +615,7 @@ ehci_shadow_qh(struct usb_request_block *gurb)
 	return hurb;
 }
 
-struct usb_request_block *
+static struct usb_request_block *
 get_gurb_by_address (struct ehci_host *host, phys32_t target_phys)
 {
 	struct usb_request_block *urb;
@@ -718,7 +718,7 @@ register_gurb (struct ehci_host *host, phys32_t qh_phys)
 	return new_urb;
 }
 
-void 
+static void
 shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 {
 	struct usb_request_block *hurb;
@@ -819,7 +819,7 @@ ehci_deactivate_urb(struct usb_host *usbhc, struct usb_request_block *hurb)
 	return status;
 }
 
-void 
+static void
 deactivate_and_delete_urb(struct ehci_host *host, 
 			  struct usb_request_block *gurb)
 {

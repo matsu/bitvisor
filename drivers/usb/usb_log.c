@@ -38,8 +38,8 @@
 int usb_log_level = 1;
 
 #if defined(ENABLE_DPRINTF)
-int 
-_dprintf(int level, char *format, ...) 
+int
+usb_log_dprintf (int level, char *format, ...)
 {
 	int ret = 0;
 	va_list ptrs;
@@ -53,8 +53,8 @@ _dprintf(int level, char *format, ...)
 	return ret;
 }
 
-int 
-_dprintft(int level, char *format, ...)
+int
+usb_log_dprintft (int level, char *format, ...)
 {
 	int ret = 0;
 	u64 t;

@@ -1381,7 +1381,7 @@ sort_skeltons (struct uhci_host *host, struct usb_request_block *index[],
  * @return skeleton numbers 
  */
 int
-scan_gframelist(struct uhci_host *host)
+uhci_scan_gframelist (struct uhci_host *host)
 {
 	int frid;
 	int skel_n = 0;

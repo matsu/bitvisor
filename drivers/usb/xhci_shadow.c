@@ -1052,7 +1052,7 @@ tr_seg_trbs_is_alloced (struct xhci_tr_segment *tr_seg)
 }
 
 struct xhci_trb *
-tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg)
+xhci_tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg)
 {
 	if (!tr_seg->trbs_alloc)
 		panic ("%s: !trbs_alloc", __func__);
@@ -1254,7 +1254,7 @@ clean_ep0_host_only (struct xhci_ep_tr *ep0_host_only, u8 toggle)
 	ep0_host_only->current_toggle = toggle;
 
 	struct xhci_trb *trbs;
-	trbs = tr_seg_trbs_get_alloced (&ep0_host_only->tr_segs[0]);
+	trbs = xhci_tr_seg_trbs_get_alloced (&ep0_host_only->tr_segs[0]);
 	memset (trbs, 0, XHCI_HOST_N_TRBS * XHCI_TRB_NBYTES);
 
 	uint i;
@@ -1538,7 +1538,7 @@ take_ctrl_tr_seg (struct usb_host *usbhc,
 
 		/* Clear the BitVisor's owned TR segment */
 		struct xhci_trb *trbs;
-		trbs = tr_seg_trbs_get_alloced (p_target_tr_seg);
+		trbs = xhci_tr_seg_trbs_get_alloced (p_target_tr_seg);
 		memset (trbs, 0, XHCI_HOST_N_TRBS * XHCI_TRB_NBYTES);
 
 		uint i;
@@ -2585,8 +2585,8 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 	do { /* for stop */
 		u8 new_seg = 0;
 
-		h_trbs = tr_seg_trbs_get_alloced (&h_ep_tr->
-						  tr_segs[current_seg]);
+		h_trbs = xhci_tr_seg_trbs_get_alloced (&h_ep_tr->
+						       tr_segs[current_seg]);
 		struct xhci_tr_segment *g_tr_seg;
 		g_tr_seg = &g_ep_tr->tr_segs[current_seg];
 
@@ -2672,7 +2672,7 @@ first_trb:
 	u8   next_td_toggle = XHCI_URB_PRIVATE (g_urb)->next_td_toggle;
 
 	struct xhci_trb *next_td_trb;
-	h_trbs = tr_seg_trbs_get_alloced (&h_ep_tr->tr_segs[next_td_seg]);
+	h_trbs = xhci_tr_seg_trbs_get_alloced (&h_ep_tr->tr_segs[next_td_seg]);
 	next_td_trb = &h_trbs[next_td_idx];
 
 	/* Make sure that it is not the start TRB. Unlikely to happen */
@@ -2724,7 +2724,7 @@ xhci_hand_eps_back_to_guest (struct xhci_host *host, uint slot_id)
 		 * exists on the BitVisor side.
 		 */
 		struct xhci_trb *h_trb;
-		h_trb = tr_seg_trbs_get_alloced (&h_ep_tr->tr_segs[seg]);
+		h_trb = xhci_tr_seg_trbs_get_alloced (&h_ep_tr->tr_segs[seg]);
 
 		/*
 		 * Create a link TRB that link back to

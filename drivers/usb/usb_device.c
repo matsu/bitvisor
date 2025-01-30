@@ -131,7 +131,7 @@ free_interface_descriptors(struct usb_interface_descriptor *idesc, int n)
  * @param cfg configuration descriptor arrays
  * @param n size of array  
  */
-void
+static void
 free_config_descriptors(struct usb_config_descriptor *cdesc, int n)
 {
 	int i;
@@ -672,7 +672,7 @@ parse_descriptor(struct usb_host *usbhc, u16 desc, virt_t buf,
 	return USB_HOOK_PASS;
 }
 
-void
+static void
 dprintf_port(int level, u64 port)
 {
         int i;
