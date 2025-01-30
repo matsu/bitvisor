@@ -80,7 +80,7 @@ unixtime_to_date(long long second, char* buf) {
 	// seconds_per_day
     const int seconds_per_day = 24 * 60 * 60;
 
-    long long days = second / seconds_per_day;
+    long days = (long)second / seconds_per_day;
 
     int year = 1970;
     int days_in_year;
@@ -111,7 +111,7 @@ unixtime_to_date(long long second, char* buf) {
         month++;
     }
 
-	int hour = (second % seconds_per_day) / 3600;
+	long hour = ((long)second % seconds_per_day) / 3600;
 
     int day = days + 1;
 
