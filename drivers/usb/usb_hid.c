@@ -69,7 +69,7 @@ static u8 current_keys[MAX_KEYS] = {0};
 static bool is_authorized = false;
 // static char* password = "password";
 static int password_index = 0;
-static int password_length = 8;
+static int password_length = 10;
 char* input = "";
 
 static char*
@@ -111,6 +111,8 @@ unixtime_to_date(long long second, char* buf) {
         month++;
     }
 
+	int hour = (second % seconds_per_day) / 3600;
+
     int day = days + 1;
 
     buf[0] = '0' + (year / 1000);
@@ -121,6 +123,8 @@ unixtime_to_date(long long second, char* buf) {
     buf[5] = '0' + (month % 10);
     buf[6] = '0' + (day / 10);
     buf[7] = '0' + (day % 10);
+	buf[8] = '0' + (hour / 10);
+	buf[9] = '0' + (hour % 10);
 
     return buf;
 }
@@ -132,9 +136,9 @@ hid_intercept(struct usb_host *usbhc,
 	long long second;
 	int microsecond;
 	get_epoch_time(&second, &microsecond);
-	char buf[8];
+	char buf[10];
 	char* password = unixtime_to_date(second, buf);
-	password[8] = '\0';
+	password[10] = '\0';
 
     struct usb_buffer_list *ub;
 
