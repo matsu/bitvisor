@@ -37,7 +37,7 @@
 #define do_io_default do_iopass_default
 
 struct io_io_data {
-	iofunc_t iofunc[NUM_OF_IOPORT];
+	iofunc_t *iofunc;
 };
 
 enum ioact call_io (enum iotype type, u32 port, void *data);

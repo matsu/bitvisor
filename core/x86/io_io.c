@@ -28,6 +28,7 @@
  */
 
 #include <core/initfunc.h>
+#include <core/mm.h>
 #include <core/panic.h>
 #include <core/printf.h>
 #include <core/x86/io.h>
@@ -83,9 +84,15 @@ io_io_init (void)
 {
 	u32 i;
 
-	if (current->vcpu0 == current)
+	if (current->vcpu0 == current) {
+		current->vcpu0->io.iofunc =
+			alloc (sizeof current->vcpu0->io.iofunc[0] *
+			       NUM_OF_IOPORT);
+		for (i = 0; i < NUM_OF_IOPORT; i++)
+			current->vcpu0->io.iofunc[i] = NULL;
 		for (i = 0; i < NUM_OF_IOPORT; i++)
 			set_iofunc (i, do_io_nothing);
+	}
 }
 
 enum ioact
