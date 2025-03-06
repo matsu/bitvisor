@@ -185,6 +185,15 @@ svm_np_map_page (struct svm_np *np, bool write, u64 gphys)
 	*p = hphys | hattr;
 }
 
+/* Since PDE_PS_BIT == PTE_PAT_BIT, PTE_PAT_BIT needs to be converted
+ * to PDE_PS_PAT_BIT when setting PDE_PS_BIT. */
+static u32
+attr_set_ps (u32 attr)
+{
+	return (attr & PTE_PAT_BIT ? attr | PDE_PS_PAT_BIT : attr)
+		| PDE_PS_BIT;
+}
+
 /* Note: You need to use "cur_move()" before using this function to move
  * "cur" to "gphys". */
 static bool
@@ -202,8 +211,8 @@ svm_np_map_2mpage (struct svm_np *np, u64 gphys)
 	if (!cache_gmtrr_type_equal (gphys & ~PAGESIZE2M_MASK,
 				     PAGESIZE2M_MASK))
 		return true;
-	hattr = cache_get_gmtrr_attr (gphys & ~PAGESIZE2M_MASK) | PDE_P_BIT |
-		PDE_RW_BIT | PDE_US_BIT | PDE_A_BIT | PDE_D_BIT | PDE_PS_BIT |
+	hattr = attr_set_ps (cache_get_gmtrr_attr (gphys & ~PAGESIZE2M_MASK)) |
+		PDE_P_BIT | PDE_RW_BIT | PDE_US_BIT | PDE_A_BIT | PDE_D_BIT |
 		PDE_AVAILABLE1_BIT;
 	p = cur_fill (np, gphys, 1);
 	*p = hphys | hattr;
@@ -229,8 +238,8 @@ svm_np_map_1gpage (struct svm_np *np, u64 gphys)
 	if (!cache_gmtrr_type_equal (gphys & ~PAGESIZE1G_MASK,
 				     PAGESIZE1G_MASK))
 		return true;
-	hattr = cache_get_gmtrr_attr (gphys & ~PAGESIZE1G_MASK) | PDE_P_BIT |
-		PDE_RW_BIT | PDE_US_BIT | PDE_A_BIT | PDE_D_BIT | PDE_PS_BIT |
+	hattr = attr_set_ps (cache_get_gmtrr_attr (gphys & ~PAGESIZE1G_MASK)) |
+		PDE_P_BIT | PDE_RW_BIT | PDE_US_BIT | PDE_A_BIT | PDE_D_BIT |
 		PDE_AVAILABLE2_BIT;
 	p = cur_fill (np, gphys, 2);
 	*p = hphys | hattr;
