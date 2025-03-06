@@ -268,6 +268,10 @@ svm_init (void)
 		currentcpu->svm.nrip_save = true;
 	else
 		currentcpu->svm.nrip_save = false;
+	if (d & CPUID_EXT_A_EDX_DECODE_ASSISTS_BIT)
+		currentcpu->svm.decode_assists = true;
+	else
+		currentcpu->svm.decode_assists = false;
 	currentcpu->svm.nasid = b;
 }
 

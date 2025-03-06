@@ -468,10 +468,30 @@ do_pagefault (void)
 }
 
 static void
-do_readwrite_cr (void)
+do_readwrite_cr (enum control_reg creg, bool write)
 {
 	enum vmmerr err;
 
+	if (currentcpu->svm.decode_assists && currentcpu->svm.nrip_save) {
+		struct vmcb *vmcb = current->u.svm.vi.vmcb;
+		u64 exitinfo1 = vmcb->exitinfo1;
+		static const u64 mov_crx_bit = 0x8000000000000000ULL;
+		static const u64 gpr_number_mask = 0xF;
+		if (exitinfo1 & mov_crx_bit) {
+			enum general_reg greg = exitinfo1 & gpr_number_mask;
+			ulong val;
+			if (write) {
+				svm_read_general_reg (greg, &val);
+				svm_write_control_reg (creg, val);
+			} else {
+				svm_read_control_reg (creg, &val);
+				svm_write_general_reg (greg, val);
+			}
+			vmcb->rip = vmcb->nrip;
+			return;
+		}
+		/* Use cpu_interpreter for LMSW and CLTS. */
+	}
 	err = cpu_interpreter ();
 	if (err != VMMERR_SUCCESS)
 		panic ("ERR %d", err);
@@ -736,12 +756,22 @@ svm_exit_code (void)
 		do_pagefault ();
 		break;
 	case VMEXIT_CR0_READ:
+		do_readwrite_cr (CONTROL_REG_CR0, false);
+		break;
 	case VMEXIT_CR0_WRITE:
+		do_readwrite_cr (CONTROL_REG_CR0, true);
+		break;
 	case VMEXIT_CR3_READ:
+		do_readwrite_cr (CONTROL_REG_CR3, false);
+		break;
 	case VMEXIT_CR3_WRITE:
+		do_readwrite_cr (CONTROL_REG_CR3, true);
+		break;
 	case VMEXIT_CR4_READ:
+		do_readwrite_cr (CONTROL_REG_CR4, false);
+		break;
 	case VMEXIT_CR4_WRITE:
-		do_readwrite_cr ();
+		do_readwrite_cr (CONTROL_REG_CR4, true);
 		break;
 	case VMEXIT_IOIO:
 		svm_ioio ();

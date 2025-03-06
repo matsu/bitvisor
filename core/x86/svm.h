@@ -72,6 +72,7 @@ struct svm_pcpu_data {
 	u64 vmcbhost_phys;
 	bool flush_by_asid;
 	bool nrip_save;
+	bool decode_assists;
 	u32 nasid;
 };
 
