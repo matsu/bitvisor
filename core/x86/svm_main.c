@@ -546,10 +546,21 @@ do_npf (void)
 	svm_paging_npf (write, vmcb->exitinfo2, true);
 }
 
+/* Advance %rip using nrip if available, or %rip offset addition for
+ * processors without nrip support. */
+static void
+advance_rip_to_next (struct vmcb *vmcb, unsigned int instruction_length)
+{
+	if (currentcpu->svm.nrip_save)
+		vmcb->rip = vmcb->nrip;
+	else
+		vmcb->rip += instruction_length;
+}
+
 static void
 do_vmmcall (void)
 {
-	current->u.svm.vi.vmcb->rip += 3;
+	advance_rip_to_next (current->u.svm.vi.vmcb, 3);
 	vmmcall ();
 }
 
@@ -563,21 +574,21 @@ static void
 do_cpuid (void)
 {
 	cpu_emul_cpuid ();
-	current->u.svm.vi.vmcb->rip += 2;
+	advance_rip_to_next (current->u.svm.vi.vmcb, 2);
 }
 
 static void
 do_clgi (void)
 {
 	current->u.svm.vi.vmcb->v_intr_masking = 1;
-	current->u.svm.vi.vmcb->rip += 3;
+	advance_rip_to_next (current->u.svm.vi.vmcb, 3);
 }
 
 static void
 do_stgi (void)
 {
 	current->u.svm.vi.vmcb->v_intr_masking = 0;
-	current->u.svm.vi.vmcb->rip += 3;
+	advance_rip_to_next (current->u.svm.vi.vmcb, 3);
 	svm_nmi ();
 }
 
@@ -641,7 +652,7 @@ again:
 	if (nmi_or_init)
 		svm_nmi ();
 	else
-		svm->vi.vmcb->rip += 3;
+		advance_rip_to_next (svm->vi.vmcb, 3);
 }
 
 static void
@@ -655,7 +666,7 @@ do_invlpga (void)
 		svm_paging_invalidate (address);
 	else if (asid != current->u.svm.vi.vmcb->guest_asid)
 		asm_invlpga (address, asid);
-	current->u.svm.vi.vmcb->rip += 3;
+	advance_rip_to_next (current->u.svm.vi.vmcb, 3);
 }
 
 static ulong
