@@ -146,18 +146,13 @@ getallsysmemmap_uefi (void)
 	u32 offset;
 	u64 *p;
 	int i;
+	u32 type;
 
 	call_uefi_get_memory_map ();
 	for (i = 0, offset = 0;
 	     i < MAXNUM_OF_SYSMEMMAP && offset + 5 * 8 <= uefi_memory_map_size;
 	     i++, offset += uefi_memory_map_descsize) {
 		p = (u64 *)&uefi_memory_map_data[offset];
-		if (i)
-			sysmemmap[i - 1].nn = i;
-		sysmemmap[i].n = i;
-		sysmemmap[i].nn = 0;
-		sysmemmap[i].m.base = p[1];
-		sysmemmap[i].m.len = p[3] << 12;
 		switch (p[0] & 0xFFFFFFFF) {
 		case 1: /* EfiLoaderCode */
 		case 2: /* EfiLoaderData */
@@ -166,12 +161,27 @@ getallsysmemmap_uefi (void)
 		case 5: /* EfiRuntineServicesCode */
 		case 6: /* EfiRuntineServicesData */
 		case 7: /* EfiConventionalMemory */
-			sysmemmap[i].m.type = SYSMEMMAP_TYPE_AVAILABLE;
+			type = SYSMEMMAP_TYPE_AVAILABLE;
 			break;
 		default:
-			sysmemmap[i].m.type = SYSMEMMAP_TYPE_RESERVED;
+			type = SYSMEMMAP_TYPE_RESERVED;
 			break;
 		}
+		if (i) {
+			/* Combine adjacent regions of the same type
+			 * to reduce internal data size. */
+			if (sysmemmap[i - 1].m.type == type && p[1] ==
+			    sysmemmap[i - 1].m.base + sysmemmap[i - 1].m.len) {
+				sysmemmap[--i].m.len += p[3] << 12;
+				continue;
+			}
+			sysmemmap[i - 1].nn = i;
+		}
+		sysmemmap[i].n = i;
+		sysmemmap[i].nn = 0;
+		sysmemmap[i].m.type = type;
+		sysmemmap[i].m.base = p[1];
+		sysmemmap[i].m.len = p[3] << 12;
 	}
 	sysmemmaplen = i;
 }
