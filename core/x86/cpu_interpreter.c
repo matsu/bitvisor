@@ -279,6 +279,8 @@ struct op {
 	struct realmode_sysregs *rsr;
 	bool longmode;
 	bool modrm_ripflag;
+	const u8 *fetched_bytes;
+	u8 fetched_bytes_len;
 };
 
 struct modrm_info {
@@ -833,6 +835,10 @@ read_next_b (struct op *op, u8 *data)
 {
 	if (op->ip_off >= 15)
 		return VMMERR_INSTRUCTION_TOO_LONG;
+	if (op->ip_off < op->fetched_bytes_len) {
+		*data = op->fetched_bytes[op->ip_off++];
+		return VMMERR_SUCCESS;
+	}
 	return cpu_seg_read_b (SREG_CS, op->ip + op->ip_off++,
 			       data);
 }
@@ -2538,6 +2544,9 @@ cpu_interpreter (void)
 	op->longmode = false;
 	current->vmctl.read_ip (&op->ip);
 	op->ip_off = 0;
+	op->fetched_bytes = NULL;
+	op->fetched_bytes_len = current->
+		vmctl.get_instruction_bytes_buffer (&op->fetched_bytes);
 	READ_NEXT_B (op, &code);
 	clear_prefix (&op->prefix);
 	for (;;) {

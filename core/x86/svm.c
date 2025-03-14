@@ -56,6 +56,7 @@ static void svm_tsc_offset_changed (void);
 static void svm_spt_tlbflush (void);
 static void svm_spt_setcr3 (ulong cr3);
 static void svm_invlpg (ulong addr);
+static u8 svm_get_instruction_bytes_buffer (const u8 **instruction_bytes);
 
 static struct vmctl_func func = {
 	svm_vminit,
@@ -98,6 +99,7 @@ static struct vmctl_func func = {
 	svm_paging_map_1mb,
 	svm_msrpass,
 	svm_unblock_nmis,
+	svm_get_instruction_bytes_buffer,
 };
 
 static void
@@ -171,6 +173,36 @@ static void
 svm_invlpg (ulong addr)
 {
 	svm_paging_invalidate (addr);
+}
+
+static u8
+svm_get_instruction_bytes_buffer (const u8 **instruction_bytes)
+{
+	/* Guest instruction bytes are stored if all of the following
+	 * conditions are met:
+	 * - Decode assists are supported
+	 * - #VMEXIT of Nested Page Fault or intercepted #PF (not by
+	 *   instruction-fetch page faults)
+	 *
+	 * When guest %rip is changed after #VMEXIT,
+	 * vmcb->guest_instruction_bytes[0] must be cleared to zero to
+	 * prevent this function using the guest instruction bytes.
+	 *
+	 * Comparing vmcb->guest_instruction_bytes[0] first is fast
+	 * path since it should be zero if decode assists are not
+	 * supported and it is cleared to zero in case of all other
+	 * intercepts.
+	 */
+	struct vmcb *vmcb = current->u.svm.vi.vmcb;
+	if (vmcb->guest_instruction_bytes[0] > 0 &&
+	    vmcb->guest_instruction_bytes[0] < sizeof
+	    vmcb->guest_instruction_bytes && currentcpu->svm.decode_assists &&
+	    (vmcb->exitcode == VMEXIT_EXCP14 ||
+	     vmcb->exitcode == VMEXIT_NPF)) {
+		*instruction_bytes = vmcb->guest_instruction_bytes + 1;
+		return vmcb->guest_instruction_bytes[0];
+	}
+	return 0;
 }
 
 void

@@ -50,6 +50,7 @@ static void vt_tsc_offset_changed (void);
 static void vt_spt_tlbflush (void);
 static void vt_spt_setcr3 (ulong cr3);
 static void vt_invlpg (ulong addr);
+static u8 vt_get_instruction_bytes_buffer (const u8 **instruction_bytes);
 
 static struct vmctl_func func = {
 	vt_vminit,
@@ -92,6 +93,7 @@ static struct vmctl_func func = {
 	vt_paging_map_1mb,
 	vt_msrpass,
 	vt_unblock_nmis,
+	vt_get_instruction_bytes_buffer,
 };
 
 void
@@ -200,6 +202,12 @@ static void
 vt_invlpg (ulong addr)
 {
 	vt_paging_invalidate (addr);
+}
+
+static u8
+vt_get_instruction_bytes_buffer (const u8 **instruction_bytes)
+{
+	return 0;
 }
 
 static void

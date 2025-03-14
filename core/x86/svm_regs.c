@@ -369,6 +369,7 @@ void
 svm_write_ip (ulong val)
 {
 	current->u.svm.vi.vmcb->rip = val;
+	current->u.svm.vi.vmcb->guest_instruction_bytes[0] = 0;
 	current->updateip = true;
 }
 

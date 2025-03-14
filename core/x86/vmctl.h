@@ -77,6 +77,7 @@ struct vmctl_func {
 	void (*paging_map_1mb) (void);
 	void (*msrpass) (u32 msrindex, bool wr, bool pass);
 	void (*unblock_nmis) (void);
+	u8 (*get_instruction_bytes_buffer) (const u8 **instruction_bytes);
 };
 
 #endif

@@ -155,7 +155,7 @@ struct vmcb {
 	/* 0x0C0 */
 	u32 reserved0c[2];	/* 0x0C0 */
 	u64 nrip;		/* 0x0C8 */
-	u32 reserved0d[4];	/* 0x0D0 */
+	u8 guest_instruction_bytes[16];	/* 0x0D0 */
 	u32 reserved0e[4];	/* 0x0E0 */
 	u32 reserved0f[4];	/* 0x0F0 */
 	u32 reserved1[64];	/* 0x100 */

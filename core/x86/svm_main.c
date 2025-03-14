@@ -530,8 +530,10 @@ do_readwrite_msr (void)
 		default:
 			panic ("Invalid EXITINFO1 0x%llX", vmcb->exitinfo1);
 		}
-		if (!msr_fault)
+		if (!msr_fault) {
 			vmcb->rip = vmcb->nrip;
+			vmcb->guest_instruction_bytes[0] = 0;
+		}
 	} else {
 		err = cpu_interpreter ();
 		switch (err) {
@@ -733,6 +735,7 @@ do_pause_hlt_or_mwait (void)
 		vmcb->rip = vmcb->nrip;
 	else
 		vmcb->rip = svm_get_pause_hlt_or_mwait_nrip (vmcb->rip);
+	vmcb->guest_instruction_bytes[0] = 0;
 }
 
 static void

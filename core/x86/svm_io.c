@@ -80,8 +80,10 @@ svm_ioio (void)
 		case IOACT_RERUN:
 			return;
 		}
-		if (!current->updateip)
+		if (!current->updateip) {
 			vmcb->rip = vmcb->exitinfo2;
+			vmcb->guest_instruction_bytes[0] = 0;
+		}
 	}
 }
 
