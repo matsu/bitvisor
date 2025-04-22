@@ -1182,7 +1182,10 @@ xhci_db_reg_write (struct xhci_host *host, const struct dres_reg *r,
 			set_slot_owner (host, slot_id);
 		}
 
-		handle_slot_write (host, slot_id, ep_no);
+		/* Hooks are called for host controlled endpoint only.
+		 * Otherwise, Transfer Ring is pass-through. */
+		if (XHCI_IS_HOST_CTRL (host, slot_id, ep_no))
+			handle_slot_write (host, slot_id, ep_no);
 		break;
 	}
 

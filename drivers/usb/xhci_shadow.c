@@ -391,12 +391,7 @@ check_last_intr (struct usb_request_block *h_urb,
 			ret = 1;
 		}
 	} else {
-		uint slot_id = urb_priv->slot_id;
-		uint ep_no   = urb_priv->ep_no;
-
-		u64 param_to_cmp = XHCI_IS_HOST_CTRL (host, slot_id, ep_no) ?
-				   last_intr_meta->h_data.param :
-				   last_intr_meta->g_data.param;
+		u64 param_to_cmp = last_intr_meta->h_data.param;
 
 		ret = (h_ev_trb->param.value == param_to_cmp) ? 1 : 0;
 	}
@@ -415,11 +410,7 @@ get_actlen_by_scan (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 	uint ep_no   = urb_priv->ep_no;
 
 	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
-	struct xhci_slot_meta *g_slot_meta = &host->g_data.slot_meta[slot_id];
-
-	struct xhci_ep_tr *ep_tr = XHCI_IS_HOST_CTRL (host, slot_id, ep_no) ?
-				   &h_slot_meta->ep_trs[ep_no]:
-				   &g_slot_meta->ep_trs[ep_no];
+	struct xhci_ep_tr *ep_tr = &h_slot_meta->ep_trs[ep_no];
 
 	struct xhci_trb *trb = NULL;
 	phys_t trb_addr      = 0x0;
@@ -593,8 +584,6 @@ is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 	uint slot_id = urb_priv->slot_id;
 	uint ep_no   = urb_priv->ep_no;
 
-	u8 is_host_ctrl = XHCI_IS_HOST_CTRL (host, slot_id, ep_no);
-
 	u8 trb_code = h_ev_trb->sts.ev.code;
 
 	if (trb_code == XHCI_TRB_CODE_SUCCESS ||
@@ -603,9 +592,7 @@ is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 		struct xhci_trb_meta *intr_meta = urb_priv->intr_list;
 
 		while (intr_meta) {
-			u64 param_to_cmp = is_host_ctrl ?
-					   intr_meta->h_data.param :
-					   intr_meta->g_data.param;
+			u64 param_to_cmp = intr_meta->h_data.param;
 
 			if (h_ev_trb->param.value == param_to_cmp) {
 				ret = 1;
@@ -624,9 +611,7 @@ is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 		uint cur_idx  = urb_priv->start_idx;
 
 		struct xhci_ep_tr *ep_tr;
-		ep_tr = is_host_ctrl ?
-			&host->slot_meta[slot_id].ep_trs[ep_no]:
-			&host->g_data.slot_meta[slot_id].ep_trs[ep_no];
+		ep_tr = &host->slot_meta[slot_id].ep_trs[ep_no];
 
 		u8 stop = 0;
 
@@ -824,15 +809,13 @@ handle_ev_trb (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 
 		break;
 	case XHCI_TRB_TYPE_TX_EV:
-		process_tx_ev (host, h_ev_trb);
-
-		if (XHCI_EV_GET_EP_NO (h_ev_trb) != 0 &&
-		    host->slot_meta[slot_id].host_ctrl == HOST_CTRL_NO) {
-			break;
+		/* Hooks are called for host controlled endpoint only.
+		 * Otherwise, Transfer Event TRBs are pass-through. */
+		if (XHCI_IS_HOST_CTRL (host, slot_id,
+				       XHCI_EV_GET_EP_NO (h_ev_trb))) {
+			process_tx_ev (host, h_ev_trb);
+			patch_tx_ev_trb (host, h_ev_trb);
 		}
-
-		patch_tx_ev_trb (host, h_ev_trb);
-
 		break;
 	default:
 		break;
