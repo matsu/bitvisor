@@ -2520,48 +2520,19 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 	first_h_trb = tr_seg_trbs_ref (host, &h_ep_tr->tr_segs[start_seg],
 				       start_idx);
 
-	struct xhci_trb *first_g_trb;
-	first_g_trb = tr_seg_trbs_ref (host, &g_ep_tr->tr_segs[start_seg],
-				       start_idx);
-
-	if (start_seg	 == end_seg &&
-	    start_idx	 == end_idx &&
-	    start_toggle == end_toggle) {
-		goto first_trb;
-	}
-
 	/*
 	 * The specification says that the first TRB of a TD
 	 * should be written last
 	 */
+	/* Write inverted C bit first, then write non-inverted C bit
+	 * after all other TRBs are written for simplicity. */
 	uint current_seg    = start_seg;
-	uint current_idx    = start_idx + 1; /* Start at the second one */
+	uint current_idx    = start_idx;
 	u8   current_toggle = start_toggle;
 
 	struct xhci_trb_meta *cur_link_meta = urb_priv->link_trb_list;
 
 	struct usb_buffer_list *cur_ub = h_urb->buffers;
-
-	switch (XHCI_TRB_GET_TYPE (first_g_trb)) {
-	case XHCI_TRB_TYPE_LINK:
-		current_seg = cur_link_meta->next_seg;
-		current_idx = 0;
-
-		if (XHCI_TRB_GET_TC (first_g_trb)) {
-			current_toggle ^= 1;
-		}
-
-		cur_link_meta = cur_link_meta->next;
-		break;
-	case XHCI_TRB_TYPE_NORMAL:
-	case XHCI_TRB_TYPE_SETUP_STAGE:
-	case XHCI_TRB_TYPE_DATA_STAGE:
-	case XHCI_TRB_TYPE_ISOCH:
-		cur_ub = cur_ub->next;
-		break;
-	default:
-		break;
-	}
 
 	u8 stop = 0;
 
@@ -2579,8 +2550,13 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 		for (i_trb = current_idx;
 		     i_trb < n_trbs && !stop && !new_seg;
 		     i_trb++) {
-			struct xhci_trb *g_trb;
-			g_trb = tr_seg_trbs_ref (host, g_tr_seg, i_trb);
+			struct xhci_trb g_trb;
+			g_trb = *tr_seg_trbs_ref (host, g_tr_seg, i_trb);
+			struct xhci_trb *h_trb = &h_trbs[i_trb];
+			if (h_trb == first_h_trb)
+				/* Invert C bit of the first TRB using
+				 * exclusive or. */
+				g_trb.ctrl.value ^= XHCI_TRB_SET_C (1);
 
 			if (current_seg    == end_seg &&
 			    i_trb	   == end_idx &&
@@ -2588,18 +2564,17 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 				stop = 1;
 			}
 
-			u8 type  = XHCI_TRB_GET_TYPE (g_trb);
+			u8 type  = XHCI_TRB_GET_TYPE (&g_trb);
 
 			switch (type) {
 			case XHCI_TRB_TYPE_LINK:
-				patch_h_link_trb (&h_trbs[i_trb],
-						  g_trb,
+				patch_h_link_trb (h_trb, &g_trb,
 						  cur_link_meta);
 
 				current_idx = 0;
 				current_seg = cur_link_meta->next_seg;
 
-				if (XHCI_TRB_GET_TC (g_trb)) {
+				if (XHCI_TRB_GET_TC (&g_trb)) {
 					current_toggle ^= 1;
 				}
 
@@ -2612,39 +2587,21 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 			case XHCI_TRB_TYPE_SETUP_STAGE:
 			case XHCI_TRB_TYPE_DATA_STAGE:
 			case XHCI_TRB_TYPE_ISOCH:
-				patch_h_data_trb (&h_trbs[i_trb],
-						  g_trb,
-						  cur_ub);
+				patch_h_data_trb (h_trb, &g_trb, cur_ub);
 
 				cur_ub = cur_ub->next;
 				break;
 			default:
-				h_trbs[i_trb] = *g_trb;
+				*h_trb = g_trb;
 				break;
 			}
 		}
 
 	} while (!stop);
 
-first_trb:
-	switch (XHCI_TRB_GET_TYPE (first_g_trb)) {
-	case XHCI_TRB_TYPE_LINK:
-		patch_h_link_trb (first_h_trb,
-				  first_g_trb,
-				  urb_priv->link_trb_list);
-		break;
-	case XHCI_TRB_TYPE_NORMAL:
-	case XHCI_TRB_TYPE_SETUP_STAGE:
-	case XHCI_TRB_TYPE_DATA_STAGE:
-	case XHCI_TRB_TYPE_ISOCH:
-		patch_h_data_trb (first_h_trb,
-				  first_g_trb,
-				  h_urb->buffers);
-		break;
-	default:
-		*first_h_trb = *first_g_trb;
-		break;
-	}
+	/* Invert C bit of the first TRB using exclusive or after
+	 * making sure all other TRBs are written. */
+	first_h_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
 
 	/*
 	 * Clear the start of the next TD TRB. Windows gets kernel panic

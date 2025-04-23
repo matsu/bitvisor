@@ -149,7 +149,10 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 
 	u16 intr_target = host->max_intrs - 1;
 
-	/* Construct the first TRB later */
+	/* Construct Setup Stage TRB with inverted C bit */
+	struct xhci_trb *setup_trb = &trbs[h_ep_tr->current_idx];
+	set_setup_stage_trb (setup_trb, csetup, sizeof *csetup, intr_target,
+			     start_toggle ^ 0x1);
 	h_ep_tr->current_idx++;
 
 	/* Construct Data Stage TRB */
@@ -177,13 +180,8 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 
 	h_ep_tr->current_idx++;
 
-	/* Construct Setup Stage TRB lastly */
-	struct xhci_trb *setup_trb = &trbs[start_idx];
-
-	set_setup_stage_trb (setup_trb, csetup,
-			     sizeof (struct usb_ctrl_setup),
-			     intr_target,
-			     start_toggle);
+	/* Invert C bit of Setup Stage TRB lastly. */
+	setup_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
 
 	/* Setup private data */
 	struct xhci_urb_private *xhci_urb_private = XHCI_URB_PRIVATE (urb);
