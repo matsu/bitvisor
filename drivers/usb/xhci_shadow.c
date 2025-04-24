@@ -2459,6 +2459,28 @@ patch_h_data_trb (struct xhci_trb *h_data_trb, struct xhci_trb *g_data_trb,
 	h_data_trb->ctrl.value	= g_data_trb->ctrl.value;
 }
 
+void
+xhci_shadow_finalize_trb (struct usb_request_block *h_urb,
+			  struct xhci_host *host, uint slot_id, uint ep_no)
+{
+	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (h_urb->shadow);
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
+	uint start_seg	= urb_priv->start_seg;
+	uint start_idx	= urb_priv->start_idx;
+	u8 start_toggle = urb_priv->start_toggle;
+	struct xhci_trb *first_h_trb;
+	first_h_trb = tr_seg_trbs_ref (host, &h_ep_tr->tr_segs[start_seg],
+				       start_idx);
+	if (XHCI_TRB_GET_C (first_h_trb) == start_toggle)
+		ASSERT (!"Incorrect Cycle bit");
+
+	/* Invert C bit of the first TRB using exclusive or after
+	 * making sure all other TRBs are written. */
+	asm_store_barrier ();
+	first_h_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
+}
+
 int
 xhci_shadow_trbs (struct usb_host *usbhc,
 		  struct usb_request_block *g_urb, u32 clone_content)
@@ -2515,10 +2537,7 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 	u8 end_toggle = urb_priv->end_toggle;
 
 	struct xhci_trb *h_trbs;
-
-	struct xhci_trb *first_h_trb;
-	first_h_trb = tr_seg_trbs_ref (host, &h_ep_tr->tr_segs[start_seg],
-				       start_idx);
+	bool first_h_trb_flag = true;
 
 	/*
 	 * The specification says that the first TRB of a TD
@@ -2553,10 +2572,12 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 			struct xhci_trb g_trb;
 			g_trb = *tr_seg_trbs_ref (host, g_tr_seg, i_trb);
 			struct xhci_trb *h_trb = &h_trbs[i_trb];
-			if (h_trb == first_h_trb)
+			if (first_h_trb_flag) {
 				/* Invert C bit of the first TRB using
 				 * exclusive or. */
 				g_trb.ctrl.value ^= XHCI_TRB_SET_C (1);
+				first_h_trb_flag = false;
+			}
 
 			if (current_seg    == end_seg &&
 			    i_trb	   == end_idx &&
@@ -2598,10 +2619,6 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 		}
 
 	} while (!stop);
-
-	/* Invert C bit of the first TRB using exclusive or after
-	 * making sure all other TRBs are written. */
-	first_h_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
 
 	/*
 	 * Clear the start of the next TD TRB. Windows gets kernel panic

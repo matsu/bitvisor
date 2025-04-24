@@ -1012,6 +1012,9 @@ xhci_submit_interrupt (struct usb_host *host,
 					struct usb_request_block *, void *),
 		       void *arg, int ioc);
 
+void xhci_shadow_finalize_trb (struct usb_request_block *h_urb,
+			       struct xhci_host *host, uint slot_id,
+			       uint ep_no);
 int xhci_shadow_trbs (struct usb_host *usbhc,
 		      struct usb_request_block *g_urb,
 		      u32 clone_content);

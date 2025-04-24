@@ -1148,6 +1148,7 @@ handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
 			continue;
 		}
 
+		xhci_shadow_finalize_trb (h_urb, host, slot_id, ep_no);
 		xhci_append_h_urb_to_ep (h_urb, host, slot_id, ep_no);
 
 		/* Set URB status to URB_STATUS_RUN */
