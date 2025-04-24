@@ -535,6 +535,7 @@ shadow_data:
 		return USB_HOOK_PASS;
 
 	case 0xb6: /* SET STREAMING (For Vista CD format) */
+	case 0x15: /* MODE SELECT(6) */
 	case 0x55: /* MODE SELECT (For setting the device param to CD ) */
 	case 0x5d: /* SEND CUE SHEET (For writing CD as DAO )*/
 	case 0x04: /* FORMAT UNIT (For formatting CD as the packet writing ) */
