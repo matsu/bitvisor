@@ -971,15 +971,14 @@ int xhci_sync_state (void *data, int num);
 struct usb_request_block *xhci_construct_gurbs (struct xhci_host *host,
 						uint slot_id, uint ep_no);
 
-struct usb_request_block *xhci_shadow_g_urb (struct usb_request_block *g_urb);
+struct usb_request_block *xhci_shadow_g_urb (struct usb_request_block *g_urb,
+					     struct xhci_host *host,
+					     uint slot_id, uint ep_no);
 
 int xhci_ep0_shadowing (struct usb_host *usbhc,
 			struct usb_request_block *h_urb, void *arg);
 int xhci_ep0_copyback (struct usb_host *usbhc,
 		       struct usb_request_block *h_urb, void *arg);
-
-void xhci_set_no_data_trb_hook (struct xhci_host *host,
-				struct usb_device *dev);
 
 u8 xhci_check_urb_advance (struct usb_host *usbhc,
 			   struct usb_request_block *h_urb);
@@ -1015,9 +1014,10 @@ xhci_submit_interrupt (struct usb_host *host,
 void xhci_shadow_finalize_trb (struct usb_request_block *h_urb,
 			       struct xhci_host *host, uint slot_id,
 			       uint ep_no);
-int xhci_shadow_trbs (struct usb_host *usbhc,
-		      struct usb_request_block *g_urb,
-		      u32 clone_content);
+void xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
+		       uint slot_id, uint ep_no);
+int xhci_shadow_buffer (struct usb_host *usbhc,
+			struct usb_request_block *g_urb, u32 clone_content);
 
 void xhci_release_data (struct xhci_host *host);
 struct xhci_trb *xhci_tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg);

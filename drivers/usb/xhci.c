@@ -1122,7 +1122,6 @@ set_slot_owner (struct xhci_host *host, uint slot_id)
 
 	if (dev->ctrl_by_host) {
 		h_slot_meta->host_ctrl = HOST_CTRL_YES;
-		xhci_set_no_data_trb_hook (host, dev);
 	} else {
 		/*
 		 * No USB device driver takes control this slot ID.
@@ -1145,7 +1144,8 @@ handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
 	g_urb = xhci_construct_gurbs (host, slot_id, ep_no);
 
 	while (g_urb) {
-		struct usb_request_block *h_urb = xhci_shadow_g_urb (g_urb);
+		struct usb_request_block *h_urb =
+			xhci_shadow_g_urb (g_urb, host, slot_id, ep_no);
 
 		int ret = usb_hook_process (host->usb_host,
 					    h_urb,
@@ -1164,6 +1164,7 @@ handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
 			continue;
 		}
 
+		xhci_shadow_trbs (g_urb, host, slot_id, ep_no);
 		xhci_shadow_finalize_trb (h_urb, host, slot_id, ep_no);
 		xhci_append_h_urb_to_ep (h_urb, host, slot_id, ep_no);
 
@@ -1581,7 +1582,7 @@ xhci_add_hc_data (struct usb_host *usbhc,
 }
 
 static struct usb_operations xhciop = {
-	.shadow_buffer = xhci_shadow_trbs,
+	.shadow_buffer = xhci_shadow_buffer,
 	.submit_control = xhci_submit_control,
 	.submit_bulk = xhci_submit_bulk,
 	.submit_interrupt = xhci_submit_interrupt,

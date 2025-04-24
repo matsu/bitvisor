@@ -2413,11 +2413,12 @@ xhci_append_h_urb_to_ep (struct usb_request_block *h_urb,
 }
 
 struct usb_request_block *
-xhci_shadow_g_urb (struct usb_request_block *g_urb)
+xhci_shadow_g_urb (struct usb_request_block *g_urb, struct xhci_host *host,
+		   uint slot_id, uint ep_no)
 {
 	/*
 	 * h_urb is going to have its own usb_buffer_list
-	 * constructed by xhci_shadow_trbs()
+	 * constructed by xhci_shadow_buffer()
 	 */
 	struct usb_request_block *h_urb = new_urb_xhci ();
 
@@ -2481,46 +2482,12 @@ xhci_shadow_finalize_trb (struct usb_request_block *h_urb,
 	first_h_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
 }
 
-int
-xhci_shadow_trbs (struct usb_host *usbhc,
-		  struct usb_request_block *g_urb, u32 clone_content)
+void
+xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
+		  uint slot_id, uint ep_no)
 {
 	struct usb_request_block *h_urb = g_urb->shadow;
-
-	struct usb_buffer_list *g_ub, *h_ub, **next_h_ub;
-
-	/* Duplicate usb_buffer_list */
-	g_ub	  = g_urb->buffers;
-	next_h_ub = &h_urb->buffers;
-
-	while (g_ub) {
-		h_ub = zalloc (sizeof (struct usb_buffer_list));
-
-		h_ub->pid  = g_ub->pid;
-		h_ub->len  = g_ub->len;
-
-		h_ub->vadr = (virt_t)zalloc2 (h_ub->len, &h_ub->padr);
-
-		if (clone_content) {
-			void *g_vaddr;
-			g_vaddr = mapmem_as (usbhc->as_dma, g_ub->padr,
-					     g_ub->len, 0);
-
-			memcpy ((void *)h_ub->vadr, g_vaddr, g_ub->len);
-			unmapmem (g_vaddr, g_ub->len);
-		}
-
-		*next_h_ub = h_ub;
-		next_h_ub  = &h_ub->next;
-
-		g_ub = g_ub->next;
-	}
-
-	struct xhci_host *host = (struct xhci_host *)usbhc->private;
 	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (g_urb);
-
-	uint slot_id = urb_priv->slot_id;
-	uint ep_no   = urb_priv->ep_no;
 
 	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
 	struct xhci_slot_meta *g_slot_meta = &host->g_data.slot_meta[slot_id];
@@ -2552,6 +2519,7 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 	struct xhci_trb_meta *cur_link_meta = urb_priv->link_trb_list;
 
 	struct usb_buffer_list *cur_ub = h_urb->buffers;
+	bool apply_shadow_buffers = !!cur_ub;
 
 	u8 stop = 0;
 
@@ -2608,9 +2576,12 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 			case XHCI_TRB_TYPE_SETUP_STAGE:
 			case XHCI_TRB_TYPE_DATA_STAGE:
 			case XHCI_TRB_TYPE_ISOCH:
-				patch_h_data_trb (h_trb, &g_trb, cur_ub);
-
-				cur_ub = cur_ub->next;
+				*h_trb = g_trb;
+				if (apply_shadow_buffers) {
+					patch_h_data_trb (h_trb, h_trb,
+							  cur_ub);
+					cur_ub = cur_ub->next;
+				}
 				break;
 			default:
 				*h_trb = g_trb;
@@ -2639,6 +2610,42 @@ xhci_shadow_trbs (struct usb_host *usbhc,
 		next_td_trb->param.value = 0;
 		next_td_trb->sts.value	 = 0;
 		next_td_trb->ctrl.value  = next_td_toggle;
+	}
+}
+
+int
+xhci_shadow_buffer (struct usb_host *usbhc, struct usb_request_block *g_urb,
+		    u32 clone_content)
+{
+	struct usb_request_block *h_urb = g_urb->shadow;
+
+	struct usb_buffer_list *g_ub, *h_ub, **next_h_ub;
+
+	/* Duplicate usb_buffer_list */
+	g_ub	  = g_urb->buffers;
+	next_h_ub = &h_urb->buffers;
+
+	while (g_ub) {
+		h_ub = zalloc (sizeof (struct usb_buffer_list));
+
+		h_ub->pid  = g_ub->pid;
+		h_ub->len  = g_ub->len;
+
+		h_ub->vadr = (virt_t)zalloc2 (h_ub->len, &h_ub->padr);
+
+		if (clone_content) {
+			void *g_vaddr;
+			g_vaddr = mapmem_as (usbhc->as_dma, g_ub->padr,
+					     g_ub->len, 0);
+
+			memcpy ((void *)h_ub->vadr, g_vaddr, g_ub->len);
+			unmapmem (g_vaddr, g_ub->len);
+		}
+
+		*next_h_ub = h_ub;
+		next_h_ub  = &h_ub->next;
+
+		g_ub = g_ub->next;
 	}
 
 	return 0;
@@ -2692,38 +2699,6 @@ xhci_hand_eps_back_to_guest (struct xhci_host *host, uint slot_id)
 	}
 }
 
-static int
-copy_no_data_trbs (struct usb_host *usbhc,
-		   struct usb_request_block *h_urb,
-		   void *arg)
-{
-	struct xhci_host *host = (struct xhci_host *)usbhc->private;
-
-	uint slot_id = XHCI_URB_PRIVATE (h_urb->shadow)->slot_id;
-	uint ep_no   = XHCI_URB_PRIVATE (h_urb->shadow)->ep_no;
-
-	if (ep_no != 0 &&
-	    host->slot_meta[slot_id].host_ctrl == HOST_CTRL_YES &&
-	    !h_urb->shadow->buffers) {
-		xhci_shadow_trbs (host->usb_host, h_urb->shadow, 0);
-	}
-
-	return 0;
-}
-
-void
-xhci_set_no_data_trb_hook (struct xhci_host *host, struct usb_device *dev)
-{
-	struct usb_host *usbhc = host->usb_host;
-
-	/* In case when there are only TRBs with no data like NO OP TRB */
-	spinlock_lock (&usbhc->lock_hk);
-	usb_hook_register (usbhc, USB_HOOK_REQUEST,
-			   USB_HOOK_MATCH_DEV,
-			   0, 0, NULL, copy_no_data_trbs, NULL, dev);
-	spinlock_unlock (&usbhc->lock_hk);
-}
-
 int
 xhci_ep0_shadowing (struct usb_host *usbhc,
 		    struct usb_request_block *h_urb, void *arg)
@@ -2737,7 +2712,7 @@ xhci_ep0_shadowing (struct usb_host *usbhc,
 		goto end;
 	}
 
-	xhci_shadow_trbs (usbhc, h_urb->shadow, 1);
+	xhci_shadow_buffer (usbhc, h_urb->shadow, 1);
 
 end:
 	return USB_HOOK_PASS;
