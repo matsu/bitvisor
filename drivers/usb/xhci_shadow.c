@@ -40,9 +40,8 @@
 #include <usb_hook.h>
 #include "xhci.h"
 
-static struct xhci_trb *tr_seg_trbs_ref (struct xhci_host *host,
-					 struct xhci_tr_segment *tr_seg,
-					 unsigned int index);
+static struct xhci_trb *tr_seg_h_trbs_ref (struct xhci_tr_segment *tr_seg,
+					   unsigned int index);
 
 /* ---------- Start ERST shadowing related functions ---------- */
 
@@ -425,8 +424,8 @@ get_actlen_by_scan (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 	struct xhci_trb_meta *cur_link_meta = urb_priv->link_trb_list;
 
 	do {
-		trb	 = tr_seg_trbs_ref (host, &ep_tr->tr_segs[cur_seg],
-					    cur_idx);
+		trb	 = tr_seg_h_trbs_ref (&ep_tr->tr_segs[cur_seg],
+					      cur_idx);
 		trb_addr = ep_tr->tr_segs[cur_seg].trb_addr +
 			   (cur_idx * XHCI_TRB_NBYTES);
 
@@ -620,8 +619,8 @@ is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 
 		do {
 			struct xhci_trb *trb;
-			trb = tr_seg_trbs_ref (host, &ep_tr->tr_segs[cur_seg],
-					       cur_idx);
+			trb = tr_seg_h_trbs_ref (&ep_tr->tr_segs[cur_seg],
+						 cur_idx);
 
 			u64 trb_addr;
 			trb_addr = ep_tr->tr_segs[cur_seg].trb_addr +
@@ -1043,11 +1042,17 @@ xhci_tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg)
 }
 
 static struct xhci_trb *
+tr_seg_h_trbs_ref (struct xhci_tr_segment *tr_seg, unsigned int index)
+{
+	return &xhci_tr_seg_trbs_get_alloced (tr_seg)[index];
+}
+
+static struct xhci_trb *
 tr_seg_trbs_ref (struct xhci_host *host, struct xhci_tr_segment *tr_seg,
 		 unsigned int index)
 {
 	if (tr_seg->trbs_alloc)
-		return &tr_seg->trbs_alloc[index];
+		panic ("%s: trbs_alloc", __func__);
 	if (!tr_seg->trbs_map)
 		panic ("%s: !trbs_alloc && !trbs_map", __func__);
 	unsigned int offset = XHCI_TRB_NBYTES * index;
@@ -1534,8 +1539,8 @@ take_ctrl_tr_seg (struct usb_host *usbhc,
 
 		create_switch_trb (host,
 				   p_slot_id, 0,
-				   tr_seg_trbs_ref (host, p_cur_tr_seg,
-						    current_idx),
+				   tr_seg_h_trbs_ref (p_cur_tr_seg,
+						      current_idx),
 				   p_target_tr_seg->trb_addr,
 				   current_toggle);
 
@@ -1562,7 +1567,7 @@ take_ctrl_tr_seg (struct usb_host *usbhc,
 
 	create_switch_trb (host,
 			   slot_id, ep_no,
-			   tr_seg_trbs_ref (host, cur_tr_seg, start_idx),
+			   tr_seg_h_trbs_ref (cur_tr_seg, start_idx),
 			   target_tr_seg->trb_addr,
 			   toggle);
 
@@ -1617,9 +1622,8 @@ return_tr_seg (struct usb_host *usbhc,
 		p_target_tr_seg = &p_target_ep_tr->tr_segs[orig_seg];
 
 		struct xhci_trb *dest_trb;
-		dest_trb = tr_seg_trbs_ref (host,
-					    &p_target_ep_tr->tr_segs[orig_seg],
-					    orig_idx);
+		dest_trb = tr_seg_h_trbs_ref (&p_target_ep_tr->
+					      tr_segs[orig_seg], orig_idx);
 
 		/*
 		 * Clear the target position (previously the Link TRB
@@ -1632,8 +1636,8 @@ return_tr_seg (struct usb_host *usbhc,
 
 		create_switch_trb (host,
 				   p_slot_id, 0,
-				   tr_seg_trbs_ref (host, p_cur_tr_seg,
-						    current_idx),
+				   tr_seg_h_trbs_ref (p_cur_tr_seg,
+						      current_idx),
 				   p_target_tr_seg->trb_addr + offset,
 				   current_toggle);
 
@@ -1666,8 +1670,8 @@ return_tr_seg (struct usb_host *usbhc,
 	 * for taking control)
 	 */
 	struct xhci_trb *dest_trb;
-	dest_trb = tr_seg_trbs_ref (host, &target_ep_tr->tr_segs[orig_seg],
-				    orig_idx);
+	dest_trb = tr_seg_h_trbs_ref (&target_ep_tr->tr_segs[orig_seg],
+				      orig_idx);
 
 	dest_trb->ctrl.value &= ~0x1;
 	dest_trb->ctrl.value += (current_toggle ^ 0x1);
@@ -1676,7 +1680,7 @@ return_tr_seg (struct usb_host *usbhc,
 
 	create_switch_trb (host,
 			   slot_id, 0,
-			   tr_seg_trbs_ref (host, cur_tr_seg, current_idx),
+			   tr_seg_h_trbs_ref (cur_tr_seg, current_idx),
 			   target_tr_seg->trb_addr + offset,
 			   current_toggle);
 
@@ -2471,8 +2475,8 @@ xhci_shadow_finalize_trb (struct usb_request_block *h_urb,
 	uint start_idx	= urb_priv->start_idx;
 	u8 start_toggle = urb_priv->start_toggle;
 	struct xhci_trb *first_h_trb;
-	first_h_trb = tr_seg_trbs_ref (host, &h_ep_tr->tr_segs[start_seg],
-				       start_idx);
+	first_h_trb = tr_seg_h_trbs_ref (&h_ep_tr->tr_segs[start_seg],
+					 start_idx);
 	if (XHCI_TRB_GET_C (first_h_trb) == start_toggle)
 		ASSERT (!"Incorrect Cycle bit");
 
