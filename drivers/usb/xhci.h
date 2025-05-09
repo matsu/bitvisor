@@ -738,9 +738,27 @@ struct xhci_trb_meta {
 };
 #define XHCI_TRB_META_NBYTES (sizeof (struct xhci_trb_meta))
 
+struct xhci_urb_trbs_ref {
+	LIST4_DEFINE (struct xhci_urb_trbs_ref, list);
+	struct xhci_trb *trbs;
+	phys_t trbs_addr;
+	unsigned int ntrbs;
+};
+
+struct xhci_trbs_ref_cursor {
+	struct xhci_urb_trbs_ref *trbs_ref;
+	unsigned int index;
+};
+
 struct xhci_urb_private {
 	u32 slot_id;
 	u32 ep_no; /* Start from 0 */
+
+	/* TRB ranges associated to the urb. */
+	LIST4_DEFINE_HEAD (gtrbs_ref, struct xhci_urb_trbs_ref, list);
+	struct xhci_urb_trbs_ref gtrbs_ref_preallocated;
+	LIST4_DEFINE_HEAD (htrbs_ref, struct xhci_urb_trbs_ref, list);
+	struct xhci_urb_trbs_ref htrbs_ref_preallocated;
 
 	u32 start_idx;
 	u32 end_idx;
@@ -874,6 +892,20 @@ delete_urb_xhci (struct usb_request_block *urb)
 			urb_priv->link_trb_list = NULL;
 		}
 
+		struct xhci_urb_trbs_ref *trbs_ref;
+		struct xhci_urb_trbs_ref *trbs_ref_next;
+		trbs_ref = LIST4_POP (urb_priv->gtrbs_ref, list);
+		ASSERT (!trbs_ref ||
+			trbs_ref == &urb_priv->gtrbs_ref_preallocated);
+		LIST4_FOREACH_DELETABLE (urb_priv->gtrbs_ref, list, trbs_ref,
+					 trbs_ref_next)
+			free (trbs_ref);
+		trbs_ref = LIST4_POP (urb_priv->htrbs_ref, list);
+		ASSERT (!trbs_ref ||
+			trbs_ref == &urb_priv->htrbs_ref_preallocated);
+		LIST4_FOREACH_DELETABLE (urb_priv->htrbs_ref, list, trbs_ref,
+					 trbs_ref_next)
+			free (trbs_ref);
 		free (urb_priv);
 		urb->hcpriv = NULL;
 	}

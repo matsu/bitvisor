@@ -40,8 +40,10 @@
 #include <usb_hook.h>
 #include "xhci.h"
 
-static struct xhci_trb *tr_seg_h_trbs_ref (struct xhci_tr_segment *tr_seg,
-					   unsigned int index);
+static struct xhci_trbs_ref_cursor
+htrbs_ref_cursor_init (struct xhci_urb_private *urb_priv);
+static struct xhci_trb *
+trbs_ref_get_next_trb (struct xhci_trbs_ref_cursor *cursor, phys_t *trb_addr);
 
 /* ---------- Start ERST shadowing related functions ---------- */
 
@@ -402,32 +404,19 @@ end:
 static uint
 get_actlen_by_scan (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 {
-	struct xhci_host *host = (struct xhci_host *)h_urb->host->private;
 	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (h_urb->shadow);
-
-	uint slot_id = urb_priv->slot_id;
-	uint ep_no   = urb_priv->ep_no;
-
-	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
-	struct xhci_ep_tr *ep_tr = &h_slot_meta->ep_trs[ep_no];
 
 	struct xhci_trb *trb = NULL;
 	phys_t trb_addr      = 0x0;
 
-	uint cur_seg = urb_priv->start_seg;
-	uint cur_idx = urb_priv->start_idx;
-
-	u8 stop = 0;
-
 	uint actlen = 0;
 
-	struct xhci_trb_meta *cur_link_meta = urb_priv->link_trb_list;
-
-	do {
-		trb	 = tr_seg_h_trbs_ref (&ep_tr->tr_segs[cur_seg],
-					      cur_idx);
-		trb_addr = ep_tr->tr_segs[cur_seg].trb_addr +
-			   (cur_idx * XHCI_TRB_NBYTES);
+	struct xhci_trbs_ref_cursor htrbs_ref_cursor =
+		htrbs_ref_cursor_init (urb_priv);
+	for (;;) {
+		trb = trbs_ref_get_next_trb (&htrbs_ref_cursor, &trb_addr);
+		if (!trb)
+			break;
 
 		u64 param_to_cmp = XHCI_EV_IS_EVENT_DATA (h_ev_trb) ?
 				   trb->param.value :
@@ -441,28 +430,11 @@ get_actlen_by_scan (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 			actlen += XHCI_TRB_GET_TRB_LEN (trb);
 		}
 
-		if (h_ev_trb->param.value != param_to_cmp) {
-
-			/* Move to the next TRB */
-			cur_idx++;
-
-			if (XHCI_TRB_GET_TYPE (trb) == XHCI_TRB_TYPE_LINK) {
-				if (cur_link_meta) {
-					cur_seg = cur_link_meta->next_seg;
-					cur_idx = 0;
-
-					cur_link_meta = cur_link_meta->next;
-				} else {
-					stop = 1;
-				}
-			}
-		} else {
-			stop = 1;
-
+		if (h_ev_trb->param.value == param_to_cmp) {
 			actlen -= XHCI_EV_GET_TX_LEN (h_ev_trb);
+			break;
 		}
-
-	} while (!stop);
+	}
 
 	return actlen;
 }
@@ -577,11 +549,7 @@ is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 {
 	u8 ret = 0;
 
-	struct xhci_host *host = (struct xhci_host *)h_urb->host->private;
 	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (h_urb->shadow);
-
-	uint slot_id = urb_priv->slot_id;
-	uint ep_no   = urb_priv->ep_no;
 
 	u8 trb_code = h_ev_trb->sts.ev.code;
 
@@ -606,25 +574,15 @@ is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 		 * from any TRB
 		 */
 
-		uint cur_seg  = urb_priv->start_seg;
-		uint cur_idx  = urb_priv->start_idx;
-
-		struct xhci_ep_tr *ep_tr;
-		ep_tr = &host->slot_meta[slot_id].ep_trs[ep_no];
-
-		u8 stop = 0;
-
-		struct xhci_trb_meta *cur_link_meta;
-		cur_link_meta = urb_priv->link_trb_list;
-
-		do {
-			struct xhci_trb *trb;
-			trb = tr_seg_h_trbs_ref (&ep_tr->tr_segs[cur_seg],
-						 cur_idx);
-
-			u64 trb_addr;
-			trb_addr = ep_tr->tr_segs[cur_seg].trb_addr +
-				   (cur_idx * XHCI_TRB_NBYTES);
+		struct xhci_trbs_ref_cursor htrbs_ref_cursor =
+			htrbs_ref_cursor_init (urb_priv);
+		for (;;) {
+			phys_t trb_addr;
+			struct xhci_trb *trb =
+				trbs_ref_get_next_trb (&htrbs_ref_cursor,
+						       &trb_addr);
+			if (!trb)
+				break;
 
 			u64 param_to_cmp = XHCI_EV_IS_EVENT_DATA (h_ev_trb) ?
 					   trb->param.value :
@@ -632,29 +590,9 @@ is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 
 			if (h_ev_trb->param.value == param_to_cmp) {
 				ret  = 1;
-				stop = 1;
 				break;
 			}
-
-			cur_idx++;
-
-			u8 type = XHCI_TRB_GET_TYPE (trb);
-			switch (type) {
-			case XHCI_TRB_TYPE_LINK:
-				if (cur_link_meta) {
-					cur_seg = cur_link_meta->next_seg;
-					cur_idx = 0;
-
-					cur_link_meta = cur_link_meta->next;
-				} else {
-					stop = 1;
-				}
-				break;
-			default:
-				break;
-			}
-
-		} while (!stop);
+		}
 	}
 
 	return ret;
@@ -2127,6 +2065,8 @@ init_urb (struct xhci_host *host, uint slot_id, uint ep_no,
 
 	XHCI_URB_PRIVATE (g_urb)->slot_id = slot_id;
 	XHCI_URB_PRIVATE (g_urb)->ep_no   = ep_no;
+	LIST4_HEAD_INIT (XHCI_URB_PRIVATE (g_urb)->gtrbs_ref, list);
+	LIST4_HEAD_INIT (XHCI_URB_PRIVATE (g_urb)->htrbs_ref, list);
 
 	struct xhci_slot_meta *g_slot_meta = &host->g_data.slot_meta[slot_id];
 
@@ -2257,6 +2197,88 @@ process_tx_trb (const struct mm_as *as_dma, struct usb_request_block *g_urb,
 	return keep_going;
 }
 
+static void
+gtrbs_ref_add (struct xhci_urb_private *urb_priv, struct xhci_trb *gtrb,
+	       phys_t gtrb_addr)
+{
+	struct xhci_urb_trbs_ref *p = LIST4_TAIL (urb_priv->gtrbs_ref, list);
+	if (p) {
+		if (p->trbs + p->ntrbs == gtrb &&
+		    p->trbs_addr + p->ntrbs * XHCI_TRB_NBYTES == gtrb_addr) {
+			p->ntrbs++;
+			return;
+		}
+		p = alloc (sizeof *p);
+	} else {
+		p = &urb_priv->gtrbs_ref_preallocated;
+	}
+	p->trbs = gtrb;
+	p->trbs_addr = gtrb_addr;
+	p->ntrbs = 1;
+	LIST4_ADD (urb_priv->gtrbs_ref, list, p);
+}
+
+static void
+htrbs_ref_add (struct xhci_urb_private *urb_priv, struct xhci_trb *htrb,
+	       phys_t htrb_addr)
+{
+	struct xhci_urb_trbs_ref *p = LIST4_TAIL (urb_priv->htrbs_ref, list);
+	if (p) {
+		if (p->trbs + p->ntrbs == htrb &&
+		    p->trbs_addr + p->ntrbs * XHCI_TRB_NBYTES == htrb_addr) {
+			p->ntrbs++;
+			return;
+		}
+		p = alloc (sizeof *p);
+	} else {
+		p = &urb_priv->htrbs_ref_preallocated;
+	}
+	p->trbs = htrb;
+	p->trbs_addr = htrb_addr;
+	p->ntrbs = 1;
+	LIST4_ADD (urb_priv->htrbs_ref, list, p);
+}
+
+static struct xhci_trbs_ref_cursor
+gtrbs_ref_cursor_init (struct xhci_urb_private *urb_priv)
+{
+	struct xhci_trbs_ref_cursor ret = {
+		.trbs_ref = LIST4_HEAD (urb_priv->gtrbs_ref, list),
+		.index = 0,
+	};
+	return ret;
+}
+
+static struct xhci_trbs_ref_cursor
+htrbs_ref_cursor_init (struct xhci_urb_private *urb_priv)
+{
+	struct xhci_trbs_ref_cursor ret = {
+		.trbs_ref = LIST4_HEAD (urb_priv->htrbs_ref, list),
+		.index = 0,
+	};
+	return ret;
+}
+
+static struct xhci_trb *
+trbs_ref_get_next_trb (struct xhci_trbs_ref_cursor *cursor, phys_t *trb_addr)
+{
+	struct xhci_urb_trbs_ref *trbs_ref = cursor->trbs_ref;
+	if (!trbs_ref)
+		return NULL;
+	unsigned int index = cursor->index;
+	if (index == trbs_ref->ntrbs) {
+		trbs_ref = cursor->trbs_ref = LIST4_NEXT (trbs_ref, list);
+		index = cursor->index = 0;
+		if (!trbs_ref)
+			return NULL;
+		ASSERT (trbs_ref->ntrbs > 0);
+	}
+	cursor->index = index + 1;
+	if (trb_addr)
+		*trb_addr = trbs_ref->trbs_addr + index * XHCI_TRB_NBYTES;
+	return &trbs_ref->trbs[index];
+}
+
 struct usb_request_block *
 xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 {
@@ -2337,6 +2359,8 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 
 			struct xhci_urb_private *urb_priv;
 			urb_priv = XHCI_URB_PRIVATE (new_g_urb);
+			gtrbs_ref_add (urb_priv, g_trb, g_tr_seg->trb_addr +
+				       i_trb * XHCI_TRB_NBYTES);
 
 			u8 keep_going = process_tx_trb (host->usb_host->as_dma,
 							new_g_urb,
@@ -2469,14 +2493,12 @@ xhci_shadow_finalize_trb (struct usb_request_block *h_urb,
 			  struct xhci_host *host, uint slot_id, uint ep_no)
 {
 	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (h_urb->shadow);
-	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
-	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
-	uint start_seg	= urb_priv->start_seg;
-	uint start_idx	= urb_priv->start_idx;
 	u8 start_toggle = urb_priv->start_toggle;
-	struct xhci_trb *first_h_trb;
-	first_h_trb = tr_seg_h_trbs_ref (&h_ep_tr->tr_segs[start_seg],
-					 start_idx);
+	struct xhci_trbs_ref_cursor htrbs_ref_cursor =
+		htrbs_ref_cursor_init (urb_priv);
+	struct xhci_trb *first_h_trb =
+		trbs_ref_get_next_trb (&htrbs_ref_cursor, NULL);
+	ASSERT (first_h_trb);
 	if (XHCI_TRB_GET_C (first_h_trb) == start_toggle)
 		ASSERT (!"Incorrect Cycle bit");
 
@@ -2509,6 +2531,8 @@ xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
 
 	struct xhci_trb *h_trbs;
 	bool first_h_trb_flag = true;
+	struct xhci_trbs_ref_cursor gtrbs_ref_cursor =
+		gtrbs_ref_cursor_init (urb_priv);
 
 	/*
 	 * The specification says that the first TRB of a TD
@@ -2530,20 +2554,23 @@ xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
 	do { /* for stop */
 		u8 new_seg = 0;
 
-		h_trbs = xhci_tr_seg_trbs_get_alloced (&h_ep_tr->
-						       tr_segs[current_seg]);
-		struct xhci_tr_segment *g_tr_seg;
-		g_tr_seg = &g_ep_tr->tr_segs[current_seg];
-
+		struct xhci_tr_segment *h_tr_seg =
+			&h_ep_tr->tr_segs[current_seg];
+		h_trbs = xhci_tr_seg_trbs_get_alloced (h_tr_seg);
 		uint n_trbs = g_ep_tr->tr_segs[current_seg].n_trbs;
 
 		uint i_trb;
 		for (i_trb = current_idx;
 		     i_trb < n_trbs && !stop && !new_seg;
 		     i_trb++) {
-			struct xhci_trb g_trb;
-			g_trb = *tr_seg_trbs_ref (host, g_tr_seg, i_trb);
+			struct xhci_trb *gtrb_ref =
+				trbs_ref_get_next_trb (&gtrbs_ref_cursor,
+						       NULL);
+			ASSERT (gtrb_ref);
+			struct xhci_trb g_trb = *gtrb_ref;
 			struct xhci_trb *h_trb = &h_trbs[i_trb];
+			htrbs_ref_add (urb_priv, h_trb, h_tr_seg->trb_addr +
+				       i_trb * XHCI_TRB_NBYTES);
 			if (first_h_trb_flag) {
 				/* Invert C bit of the first TRB using
 				 * exclusive or. */
