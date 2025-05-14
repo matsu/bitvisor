@@ -497,6 +497,7 @@ struct xhci_ep_tr {
 	uint current_seg;
 	uint current_idx;
 	u8   current_toggle;
+	u64 dq_ptr;		/* Bit 0 is Dequeue Cycle State */
 
 	struct usb_request_block *h_urb_list;
 	struct usb_request_block *h_urb_tail;
@@ -760,6 +761,8 @@ struct xhci_urb_private {
 	LIST4_DEFINE_HEAD (htrbs_ref, struct xhci_urb_trbs_ref, list);
 	struct xhci_urb_trbs_ref htrbs_ref_preallocated;
 
+	u64 next_g_dq_ptr;
+
 	u32 start_idx;
 	u32 end_idx;
 	u32 next_td_idx;
@@ -1006,6 +1009,9 @@ struct usb_request_block *xhci_construct_gurbs (struct xhci_host *host,
 struct usb_request_block *xhci_shadow_g_urb (struct usb_request_block *g_urb,
 					     struct xhci_host *host,
 					     uint slot_id, uint ep_no);
+void xhci_shadow_advance_dq_ptr (struct usb_request_block *g_urb,
+				 struct xhci_host *host, uint slot_id,
+				 uint ep_no);
 
 int xhci_ep0_shadowing (struct usb_host *usbhc,
 			struct usb_request_block *h_urb, void *arg);

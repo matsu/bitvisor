@@ -244,76 +244,8 @@ clone_ep_to_guest (struct xhci_host *host, struct xhci_dev_ctx *h_dev_ctx,
 	 */
 	struct xhci_ep_tr *g_ep_tr;
 	g_ep_tr = &host->g_data.slot_meta[slot_id].ep_trs[ep_no];
+	tmp_ep_ctx.dq_ptr = g_ep_tr->dq_ptr;
 
-	struct xhci_ep_tr *h_ep_tr;
-	h_ep_tr = &host->slot_meta[slot_id].ep_trs[ep_no];
-
-	phys_t h_dq_ptr = h_dev_ctx->ep[ep_no].dq_ptr;
-
-	if (h_dq_ptr == 0x0) {
-		goto end;
-	}
-
-	u64 offset;
-	uint trb_nbytes;
-
-	u8 found = 0;
-
-	uint n_seg = h_ep_tr->max_size;
-
-	uint i_seg;
-	for (i_seg = 0; i_seg < n_seg; i_seg++) {
-		offset = h_dq_ptr - h_ep_tr->tr_segs[i_seg].trb_addr;
-
-		trb_nbytes = h_ep_tr->tr_segs[i_seg].n_trbs * XHCI_TRB_NBYTES;
-
-		if (offset < trb_nbytes) {
-			phys_t g_trbs_base = g_ep_tr->tr_segs[i_seg].trb_addr;
-			tmp_ep_ctx.dq_ptr = g_trbs_base + offset;
-			found = 1;
-			break;
-		}
-	}
-
-	/*
-	 * XXX: This case occurs if an error occurs when BitVisor tries to
-	 * query device info. Not sure if it is the right way to handle this.
-	 */
-	if (!found && ep_no == 0) {
-		struct xhci_ep_tr *h_ep0_only;
-		h_ep0_only = &host->slot_meta[slot_id].ep0_host_only;
-
-		offset = h_dq_ptr - h_ep0_only->tr_segs[0].trb_addr;
-		trb_nbytes = h_ep0_only->tr_segs[0].n_trbs * XHCI_TRB_NBYTES;
-
-		if (offset < trb_nbytes) {
-			tmp_ep_ctx.dq_ptr = 0x0;
-			found = 1;
-		}
-	}
-
-	/* This should not happen. Otherwise something is wrong. */
-	if (!found && n_seg != 0) {
-		/* Avoid potential address leak */
-		tmp_ep_ctx.dq_ptr = 0x0;
-
-		dprintft (0, "Clone EP error\n");
-		dprintft (0, "slot id: %u ep_no: %u\n",
-			  slot_id, ep_no);
-		dprintft (0, "g: 0x%016llX h: 0x%016llX\n",
-			  g_dev_ctx->ep[ep_no].dq_ptr,
-			  h_dev_ctx->ep[ep_no].dq_ptr);
-
-		uint i_seg;
-		for (i_seg = 0; i_seg < h_ep_tr->max_size; i_seg++) {
-			dprintft (0, "i_seg %u g:0x%016llX h:%016llX\n",
-				  i_seg,
-				  g_ep_tr->tr_segs[i_seg].trb_addr,
-				  h_ep_tr->tr_segs[i_seg].trb_addr);
-		}
-	}
-
-end:
 	g_dev_ctx->ep[ep_no] = tmp_ep_ctx;
 }
 
@@ -1257,6 +1189,8 @@ evaluate_input_ctx (struct xhci_host *host, uint slot_id)
 		}
 
 		u8 toggle = EP_CTX_DQ_PTR_GET_DCS (input_dq_ptr);
+		g_ep_tr->dq_ptr = (input_dq_ptr & EP_CTX_DQ_PTR_ADDR_MASK) |
+			toggle;
 
 		g_ep_tr->current_seg	= i_seg;
 		h_ep_tr->current_seg	= i_seg;
@@ -1295,6 +1229,8 @@ patch_tr_dq_ptr (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 
 	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
 	struct xhci_ep_tr *g_ep_tr = &g_slot_meta->ep_trs[ep_no];
+	g_ep_tr->dq_ptr = XHCI_CMD_GET_DQ_PTR (h_cmd_trb) |
+		XHCI_CMD_GET_DCS (h_cmd_trb);
 
 	/* Find segment and offset */
 	struct xhci_tr_segment *cur_seg;
@@ -2322,6 +2258,8 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 
 		uint i_trb;
 		for (i_trb = current_idx; i_trb < n_trbs; i_trb++) {
+			phys_t g_trb_addr = g_tr_seg->trb_addr +
+				i_trb * XHCI_TRB_NBYTES;
 			struct xhci_trb *g_trb = tr_seg_trbs_ref (host,
 								  g_tr_seg,
 								  i_trb);
@@ -2344,6 +2282,8 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 				struct xhci_urb_private *tail_urb_priv;
 				tail_urb_priv = XHCI_URB_PRIVATE (tail_g_urb);
 
+				tail_urb_priv->next_g_dq_ptr = g_trb_addr |
+					current_toggle;
 				tail_urb_priv->next_td_seg    = current_seg;
 				tail_urb_priv->next_td_idx    = i_trb;
 				tail_urb_priv->next_td_toggle = toggle;
@@ -2353,14 +2293,17 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 			}
 
 			if (!new_g_urb) {
+				if (tail_g_urb)
+					XHCI_URB_PRIVATE (tail_g_urb)
+						->next_g_dq_ptr = g_trb_addr |
+						current_toggle;
 				new_g_urb = init_urb (host, slot_id, ep_no,
 						      i_trb, tail_g_urb);
 			}
 
 			struct xhci_urb_private *urb_priv;
 			urb_priv = XHCI_URB_PRIVATE (new_g_urb);
-			gtrbs_ref_add (urb_priv, g_trb, g_tr_seg->trb_addr +
-				       i_trb * XHCI_TRB_NBYTES);
+			gtrbs_ref_add (urb_priv, g_trb, g_trb_addr);
 
 			u8 keep_going = process_tx_trb (host->usb_host->as_dma,
 							new_g_urb,
@@ -2465,6 +2408,18 @@ xhci_shadow_g_urb (struct usb_request_block *g_urb, struct xhci_host *host,
 	/* Not shadowing URB private, use the guest URB private */
 
 	return h_urb;
+}
+
+void
+xhci_shadow_advance_dq_ptr (struct usb_request_block *g_urb,
+			    struct xhci_host *host, uint slot_id, uint ep_no)
+{
+	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (g_urb);
+	struct xhci_slot_meta *g_slot_meta = &host->g_data.slot_meta[slot_id];
+	struct xhci_ep_tr *g_ep_tr = &g_slot_meta->ep_trs[ep_no];
+	u64 next_dq_ptr = urb_priv->next_g_dq_ptr;
+	ASSERT (next_dq_ptr);
+	g_ep_tr->dq_ptr = next_dq_ptr;
 }
 
 static void
