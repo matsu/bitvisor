@@ -1133,7 +1133,7 @@ construct_tr (struct xhci_host *host, struct xhci_slot_meta *h_slot_meta,
 
 		if (!tr_seg_trbs_is_alloced (h_tr_seg)) {
 			tr_seg_trbs_alloc (h_tr_seg, trb_nbytes);
-			h_tr_seg->n_trbs = n_trbs;
+			h_tr_seg->n_trbs = XHCI_MAX_N_TRBS;
 			g_tr_seg->n_trbs = n_trbs;
 		}
 	}
@@ -1988,7 +1988,7 @@ expand_tr_segs (struct xhci_ep_tr *h_ep_tr, struct xhci_ep_tr *g_ep_tr)
 		tr_seg_trbs_alloc (h_tr_seg, trb_nbytes);
 		g_tr_seg->trb_addr = 0x0;
 
-		h_tr_seg->n_trbs = XHCI_N_TRBS_INITIAL;
+		h_tr_seg->n_trbs = XHCI_MAX_N_TRBS;
 		g_tr_seg->n_trbs = XHCI_N_TRBS_INITIAL;
 	}
 }
@@ -2400,8 +2400,8 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 				break;
 			} else if (i_trb + 1 == n_trbs) {
 				g_tr_seg->n_trbs *= 2;
-				h_ep_tr->tr_segs[current_seg].n_trbs *= 2;
-
+				ASSERT (h_ep_tr->tr_segs[current_seg].n_trbs ==
+					XHCI_MAX_N_TRBS);
 				g_ep_tr->current_idx = n_trbs;
 				h_ep_tr->current_idx = n_trbs;
 			}
