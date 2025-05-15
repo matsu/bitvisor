@@ -416,64 +416,10 @@ get_actlen (struct usb_request_block *h_urb,
 }
 
 static void
-patch_tx_ev_trb (struct xhci_host *host, struct xhci_trb *h_ev_trb)
+patch_tx_ev_trb (struct xhci_trb *h_ev_trb, phys_t offset)
 {
-	if (XHCI_EV_IS_EVENT_DATA (h_ev_trb)) {
-		/*
-		 * For Event Data, trb_addr will contains software defined
-		 * data, not physical address for data transfer.
-		 * So, nothing do.
-		 */
-		return;
-	}
-
-	uint slot_id = XHCI_EV_GET_SLOT_ID (h_ev_trb);
-	uint ep_no   = XHCI_EV_GET_EP_NO (h_ev_trb);
-
-	struct xhci_ep_tr *g_ep_tr;
-	g_ep_tr = &host->g_data.slot_meta[slot_id].ep_trs[ep_no];
-
-	struct xhci_ep_tr *h_ep_tr;
-	h_ep_tr = &host->slot_meta[slot_id].ep_trs[ep_no];
-
-	uint n_seg = g_ep_tr->max_size;
-
-	u64 offset;
-	u64 trb_nbytes;
-
-	u8 found = 0;
-
-	uint i_seg;
-	for (i_seg = 0; i_seg < n_seg; i_seg++) {
-		offset	   = h_ev_trb->param.trb_addr -
-			     h_ep_tr->tr_segs[i_seg].trb_addr;
-
-		trb_nbytes = h_ep_tr->tr_segs[i_seg].n_trbs * XHCI_TRB_NBYTES;
-
-		if (offset < trb_nbytes) {
-			found = 1;
-			phys_t g_trb_addr;
-			g_trb_addr = g_ep_tr->tr_segs[i_seg].trb_addr + offset;
-
-			h_ev_trb->param.trb_addr = g_trb_addr;
-			break;
-		}
-	}
-
-	if (!found) {
-		dprintft (0, "Error in TRB completion EV\n");
-		dprintft (0, "status: %u\n", h_ev_trb->sts.ev.code);
-		dprintft (0, "slot id: %u ep_no:%u\n", slot_id, ep_no);
-		dprintft (0, "flags: 0x%X\n", h_ev_trb->ctrl.ev.flags);
-		dprintft (0, "tx_ev_trb->trb_addr: 0x%016llX\n",
-			  h_ev_trb->param.trb_addr);
-		for (i_seg = 0; i_seg < n_seg; i_seg++) {
-			dprintft (0, "h %u: 0x%016llX\n", i_seg,
-				  h_ep_tr->tr_segs[i_seg].trb_addr);
-			dprintft (0, "g %u: 0x%016llX\n", i_seg,
-				  g_ep_tr->tr_segs[i_seg].trb_addr);
-		}
-	}
+	if (offset)
+		h_ev_trb->param.trb_addr += offset;
 }
 
 static u8
@@ -560,9 +506,36 @@ process_urb (struct usb_request_block *h_urb)
 	return usb_hook_process (h_urb->host, h_urb, USB_HOOK_REPLY);
 }
 
-static void
+static phys_t
+gtrb_addr_from_htrb_addr (struct usb_request_block *h_urb, phys_t htrb_addr)
+{
+	for (; h_urb; h_urb = h_urb->link_next) {
+		struct xhci_urb_private *urb_priv =
+			XHCI_URB_PRIVATE (h_urb->shadow);
+		struct xhci_urb_trbs_ref *gtrbs_ref =
+			LIST4_HEAD (urb_priv->gtrbs_ref, list);
+		struct xhci_urb_trbs_ref *htrbs_ref;
+		LIST4_FOREACH (urb_priv->htrbs_ref, list, htrbs_ref) {
+			ASSERT (gtrbs_ref);
+			ASSERT (gtrbs_ref->ntrbs == htrbs_ref->ntrbs);
+			if (htrb_addr - htrbs_ref->trbs_addr <
+			    htrbs_ref->ntrbs * XHCI_TRB_NBYTES)
+				return htrb_addr - htrbs_ref->trbs_addr +
+					gtrbs_ref->trbs_addr;
+			gtrbs_ref = LIST4_NEXT (gtrbs_ref, list);
+		}
+	}
+	dprintft (0, "Error in TRB completion EV\n");
+	dprintft (0, "htrb_addr: 0x%016llX\n", htrb_addr);
+	return 0;
+}
+
+static phys_t
 process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 {
+	/* Offset will be gtrb_addr-htrb_addr to modify TRB Pointer
+	 * field in Event TRB later. */
+	phys_t offset = 0;
 	uint slot_id = XHCI_EV_GET_SLOT_ID (h_ev_trb);
 	uint ep_no   = XHCI_EV_GET_EP_NO (h_ev_trb);
 
@@ -575,6 +548,15 @@ process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 	if (!h_urb) {
 		goto end;
 	}
+	/*
+	 * For Event Data, trb_addr will contain software defined
+	 * data, not a physical address for data transfer.  So, the
+	 * offset will be zero.
+	 */
+	if (!XHCI_EV_IS_EVENT_DATA (h_ev_trb))
+		offset = gtrb_addr_from_htrb_addr (h_urb,
+						   h_ev_trb->param.trb_addr) -
+			h_ev_trb->param.trb_addr;
 
 	while (!is_target_urb (h_urb, h_ev_trb)) {
 
@@ -636,6 +618,7 @@ process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 	}
 end:
 	spinlock_unlock (&h_ep_tr->lock);
+	return offset;
 }
 
 static void
@@ -682,8 +665,8 @@ handle_ev_trb (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 		 * Otherwise, Transfer Event TRBs are pass-through. */
 		if (XHCI_IS_HOST_CTRL (host, slot_id,
 				       XHCI_EV_GET_EP_NO (h_ev_trb))) {
-			process_tx_ev (host, h_ev_trb);
-			patch_tx_ev_trb (host, h_ev_trb);
+			phys_t offset = process_tx_ev (host, h_ev_trb);
+			patch_tx_ev_trb (h_ev_trb, offset);
 		}
 		break;
 	default:
