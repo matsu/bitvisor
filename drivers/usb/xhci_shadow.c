@@ -1834,11 +1834,6 @@ create_intr_trb_meta (struct xhci_trb *g_trb, struct xhci_ep_tr *h_ep_tr,
 		goto end;
 	}
 
-	intr_trb_meta->toggle  = XHCI_TRB_GET_C (g_trb);
-	intr_trb_meta->segment = segment;
-	intr_trb_meta->idx     = idx;
-
-	intr_trb_meta->type	    = type;
 	intr_trb_meta->g_data.param = g_param;
 	intr_trb_meta->h_data.param = h_param;
 end:
@@ -1864,17 +1859,11 @@ usb_buffer_list_append (struct usb_request_block *urb,
 }
 
 static struct xhci_trb_meta *
-create_link_trb_meta (struct xhci_trb *g_trb, uint segment, uint idx,
-		      phys_t h_next_addr, uint next_seg)
+create_link_trb_meta (struct xhci_trb *g_trb, phys_t h_next_addr,
+		      uint next_seg)
 {
 	struct xhci_trb_meta *link_trb_meta = zalloc (XHCI_TRB_META_NBYTES);
 
-	link_trb_meta->toggle  = XHCI_TRB_GET_C (g_trb);
-	link_trb_meta->segment = segment;
-	link_trb_meta->idx     = idx;
-
-	link_trb_meta->type = XHCI_TRB_GET_TYPE (g_trb);
-	link_trb_meta->g_data.orig_link = g_trb->param.next_addr;
 	link_trb_meta->h_data.new_link	= h_next_addr;
 
 	link_trb_meta->next_seg = next_seg;
@@ -2061,10 +2050,7 @@ process_tx_trb (const struct mm_as *as_dma, struct usb_request_block *g_urb,
 		phys_t h_next_addr = h_ep_tr->tr_segs[next_seg].trb_addr;
 
 		struct xhci_trb_meta *link_meta;
-		link_meta = create_link_trb_meta (g_trb,
-						  current_seg,
-						  i_trb,
-						  h_next_addr,
+		link_meta = create_link_trb_meta (g_trb, h_next_addr,
 						  next_seg);
 
 		meta_list_append (urb_priv, link_meta, TYPE_LINK);

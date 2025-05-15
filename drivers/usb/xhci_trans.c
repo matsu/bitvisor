@@ -196,12 +196,10 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 
 	struct xhci_trb_meta *intr_meta = zalloc (XHCI_TRB_META_NBYTES);
 
-	intr_meta->segment = h_ep_tr->current_seg;
-	intr_meta->idx	   = h_ep_tr->current_idx - 1;
-	intr_meta->toggle  = h_ep_tr->current_toggle;
+	uint idx = h_ep_tr->current_idx - 1;
 
 	intr_meta->h_data.param = h_ep_tr->tr_segs[start_seg].trb_addr +
-				  (intr_meta->idx * XHCI_TRB_NBYTES);
+		(idx * XHCI_TRB_NBYTES);
 
 	meta_list_append (xhci_urb_private, intr_meta, TYPE_INTR);
 

@@ -713,19 +713,12 @@ struct xhci_data {
  * g_data.param, and h_data.param are the TRB's parameter value.
  *
  * === Link TRB meta ===
- * g_data.orig_link and h_data.new_link are used during cloning TR.
+ * h_data.new_link and next_seg are used during cloning TR.
  *
  */
 struct xhci_trb_meta {
-	u8   toggle;
-	uint segment;
-	uint idx;
-
-	u8  type;
-
 	union {
 		u64 param;	   /* For INTR TRB */
-		phys_t orig_link;  /* For link replacement */
 	} g_data;
 
 	union {
