@@ -120,15 +120,17 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 	struct xhci_host *host = (struct xhci_host *)usbhc->private;
 
 	u32 slot_id = xhci_get_slot_id_from_usb_device (device);
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	spinlock_lock (&h_slot_meta->xhci_trans_lock);
 
-	struct xhci_ep_tr *h_ep_tr = &host->slot_meta[slot_id].ep0_host_only;
-
-	uint start_seg	  = h_ep_tr->current_seg;
-	uint start_idx	  = h_ep_tr->current_idx;
-	u8   start_toggle = h_ep_tr->current_toggle;
-
-	struct xhci_trb *trbs;
-	trbs = xhci_tr_seg_trbs_get_alloced (&h_ep_tr->tr_segs[start_seg]);
+	u8 start_toggle = 1;
+	bool data_stage = csetup->wLength > 0;
+	phys_t trbs_addr;
+	uint ntrbs = data_stage ? 4 : 2;
+	uint ep_no = 0;
+	struct xhci_trb *trbs = xhci_allocate_htrbs (host, slot_id, ep_no,
+						     ntrbs, &trbs_addr);
+	uint trbs_idx = 0;
 
 	/* Create a URB */
 	struct usb_request_block *urb = new_urb_xhci ();
@@ -150,63 +152,43 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 	u16 intr_target = host->max_intrs - 1;
 
 	/* Construct Setup Stage TRB with inverted C bit */
-	struct xhci_trb *setup_trb = &trbs[h_ep_tr->current_idx];
+	struct xhci_trb *setup_trb = &trbs[trbs_idx++];
 	set_setup_stage_trb (setup_trb, csetup, sizeof *csetup, intr_target,
 			     start_toggle ^ 0x1);
-	h_ep_tr->current_idx++;
 
 	/* Construct Data Stage TRB */
-	if (csetup->wLength > 0) {
-		struct xhci_trb *data_trb = &trbs[h_ep_tr->current_idx];
+	if (data_stage) {
+		struct xhci_trb *data_trb = &trbs[trbs_idx++];
 
 		set_data_stage_trb (data_trb, ub->padr, csetup->wLength,
 				    intr_target, start_toggle);
 
-		h_ep_tr->current_idx++;
+		struct xhci_trb *ev_data_trb = &trbs[trbs_idx++];
 
-		struct xhci_trb *ev_data_trb = &trbs[h_ep_tr->current_idx];
-
-		/* Use URB address as signature */
-		set_ev_trb (ev_data_trb, (ulong)urb, intr_target,
-			    start_toggle);
-
-		h_ep_tr->current_idx++;
+		/* Use TRB address as signature */
+		set_ev_trb (ev_data_trb, trbs_addr + (trbs_idx - 1) *
+			    XHCI_TRB_NBYTES, intr_target, start_toggle);
 	}
 
 	/* Construct Status Stage TRB */
-	struct xhci_trb *status_trb = &trbs[h_ep_tr->current_idx];
+	struct xhci_trb *status_trb = &trbs[trbs_idx++];
 
 	set_status_stage_trb (status_trb, intr_target, start_toggle);
-
-	h_ep_tr->current_idx++;
-
-	/* Invert C bit of Setup Stage TRB lastly. */
-	setup_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
 
 	/* Setup private data */
 	struct xhci_urb_private *xhci_urb_private = XHCI_URB_PRIVATE (urb);
 	xhci_urb_private->slot_id      = slot_id;
 	xhci_urb_private->ep_no        = endpoint;
-	xhci_urb_private->start_idx    = start_idx;
-	xhci_urb_private->end_idx      = h_ep_tr->current_idx;
-	xhci_urb_private->start_seg    = start_seg;
-	xhci_urb_private->end_seg      = h_ep_tr->current_seg;
-	xhci_urb_private->start_toggle = start_toggle;
-	xhci_urb_private->end_toggle   = h_ep_tr->current_toggle;
 
-	struct xhci_trb_meta *intr_meta = zalloc (XHCI_TRB_META_NBYTES);
-
-	uint idx = h_ep_tr->current_idx - 1;
-
-	intr_meta->h_data.param = h_ep_tr->tr_segs[start_seg].trb_addr +
-		(idx * XHCI_TRB_NBYTES);
-
-	meta_list_append (xhci_urb_private, intr_meta, TYPE_INTR);
+	ASSERT (ntrbs == trbs_idx);
+	struct xhci_trans_data *xhci_trans_data =
+		alloc (sizeof *xhci_trans_data);
+	xhci_trans_data->urb = urb;
+	xhci_trans_data->trbs_addr = trbs_addr;
+	xhci_trans_data->ntrbs = ntrbs;
+	LIST4_ADD (h_slot_meta->xhci_trans_data, list, xhci_trans_data);
 
 	urb->status = URB_STATUS_RUN;
-
-	h_ep_tr->h_urb_list = urb;
-	h_ep_tr->h_urb_tail = urb;
 
 	struct xhci_regs *regs = host->regs;
 
@@ -215,9 +197,15 @@ xhci_submit_control (struct usb_host *usbhc, struct usb_device *device,
 	req.reg.padding = 0;
 	req.reg.stream_id = 0;
 
+	/* Invert the C bit of the Setup Stage TRB last. */
+	asm_store_barrier ();
+	setup_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
+
 	phys_t offset = regs->db_offset + (slot_id * sizeof req);
+	asm_store_barrier ();
 	dres_reg_write32 (regs->r, offset, req.raw_val);
 
+	spinlock_unlock (&h_slot_meta->xhci_trans_lock);
 	return urb;
 }
 
@@ -249,69 +237,60 @@ xhci_submit_interrupt (struct usb_host *host,
 static void
 handle_ev_trb (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 {
-	struct xhci_ep_tr *h_ep_tr;
-
-	uint slot_id = 0;
-
 	u8 type = XHCI_TRB_GET_TYPE (h_ev_trb);
-
-	switch (type) {
-	case XHCI_TRB_TYPE_TX_EV:
-		slot_id = XHCI_EV_GET_SLOT_ID (h_ev_trb);
-		h_ep_tr = &host->slot_meta[slot_id].ep0_host_only;
-
-		u8 status = h_ev_trb->sts.ev.code;
-
-		struct usb_request_block *h_urb = h_ep_tr->h_urb_list;
-
-		if (!h_urb) {
-			return;
-		}
-
-		struct xhci_urb_private *xhci_urb_private;
-		xhci_urb_private = XHCI_URB_PRIVATE (h_urb);
-		u64 param_to_cmp = xhci_urb_private->intr_tail->h_data.param;
-
-		if (param_to_cmp != h_ev_trb->param.trb_addr) {
-
-			if (h_ev_trb->param.value == (ulong)h_urb) {
-				h_urb->actlen = XHCI_EV_GET_TX_LEN (h_ev_trb);
-			}
-
-			if (status != XHCI_TRB_CODE_SUCCESS &&
-			    status != XHCI_TRB_CODE_SHORT_PACKET &&
-			    status != XHCI_TRB_CODE_STOPPED &&
-			    status != XHCI_TRB_CODE_STOPPED_INVALID_LEN &&
-			    status != XHCI_TRB_CODE_STOPPED_SHORT_PACKET) {
-				dprintft (0, "Status error: %u\n", status);
-				dprintft (0, "flags: 0x%X\n",
-					  h_ev_trb->ctrl.ev.flags);
-				dprintft (0, "Problem trb_addr: 0x%016llX\n",
-					  h_ev_trb->param.trb_addr);
-				h_urb->status = URB_STATUS_ERRORS;
-			}
-
+	if (type != XHCI_TRB_TYPE_TX_EV)
+		return;
+	uint slot_id = XHCI_EV_GET_SLOT_ID (h_ev_trb);
+	u8 status = h_ev_trb->sts.ev.code;
+	u8 urb_status = URB_STATUS_RUN;
+	if (status == XHCI_TRB_CODE_SUCCESS ||
+	    status == XHCI_TRB_CODE_SHORT_PACKET) {
+		urb_status = URB_STATUS_ADVANCED;
+	} else if (status == XHCI_TRB_CODE_STOPPED ||
+		   status == XHCI_TRB_CODE_STOPPED_INVALID_LEN ||
+		   status == XHCI_TRB_CODE_STOPPED_SHORT_PACKET) {
+		/* Do nothing */
+	} else {
+		dprintft (0, "Status error: %u\n", status);
+		dprintft (0, "flags: 0x%X\n", h_ev_trb->ctrl.ev.flags);
+		dprintft (0, "Problem trb_addr: 0x%016llX\n",
+			  h_ev_trb->param.trb_addr);
+		urb_status = URB_STATUS_ERRORS;
+	}
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	spinlock_lock (&h_slot_meta->xhci_trans_lock);
+	struct xhci_trans_data *xhci_trans_data;
+	phys_t trb_addr = h_ev_trb->param.trb_addr;
+	LIST4_FOREACH (h_slot_meta->xhci_trans_data, list, xhci_trans_data) {
+		if (trb_addr - xhci_trans_data->trbs_addr <
+		    xhci_trans_data->ntrbs * XHCI_TRB_NBYTES)
 			break;
-		}
-
-		if (status == XHCI_TRB_CODE_SUCCESS ||
-		    status == XHCI_TRB_CODE_SHORT_PACKET) {
-			h_ep_tr->h_urb_list->status = URB_STATUS_ADVANCED;
-		} else if (status == XHCI_TRB_CODE_STOPPED ||
-			   status == XHCI_TRB_CODE_STOPPED_INVALID_LEN ||
-			   status == XHCI_TRB_CODE_STOPPED_SHORT_PACKET) {
-			/* Do nothing */
-		} else {
-			dprintft (0, "Status error: %u\n", status);
-			dprintft (0, "flags: 0x%X\n", h_ev_trb->ctrl.ev.flags);
+	}
+	if (!xhci_trans_data) {
+		dprintft (0, "trb_addr not found: 0x%016llX\n",
+			  h_ev_trb->param.trb_addr);
+		spinlock_unlock (&h_slot_meta->xhci_trans_lock);
+		return;
+	}
+	bool completed = false;
+	if (urb_status == URB_STATUS_ERRORS ||
+	    trb_addr - xhci_trans_data->trbs_addr + XHCI_TRB_NBYTES ==
+	    xhci_trans_data->ntrbs * XHCI_TRB_NBYTES) {
+		LIST4_DEL (h_slot_meta->xhci_trans_data, list,
+			   xhci_trans_data);
+		completed = true;
+	}
+	spinlock_unlock (&h_slot_meta->xhci_trans_lock);
+	struct usb_request_block *h_urb = xhci_trans_data->urb;
+	if (XHCI_EV_IS_EVENT_DATA (h_ev_trb))
+		h_urb->actlen = XHCI_EV_GET_TX_LEN (h_ev_trb);
+	if (completed) {
+		if (urb_status == URB_STATUS_RUN) {
+			dprintft (0, "Status running\n");
 			dprintft (0, "Problem trb_addr: 0x%016llX\n",
 				  h_ev_trb->param.trb_addr);
-			h_urb->status = URB_STATUS_ERRORS;
 		}
-
-		break;
-	default:
-		break;
+		h_urb->status = urb_status;
 	}
 }
 
@@ -321,13 +300,7 @@ xhci_check_urb_advance (struct usb_host *usbhc,
 {
 	struct xhci_host *host = (struct xhci_host *)usbhc->private;
 
-	struct xhci_urb_private *xhci_urb_private = XHCI_URB_PRIVATE (h_urb);
-
 	struct xhci_erst_data *h_erst_data;
-
-	u32 slot_id = xhci_urb_private->slot_id;
-
-	struct xhci_ep_tr *h_ep_tr = &host->slot_meta[slot_id].ep0_host_only;
 
 	h_erst_data = &host->erst_data[host->max_intrs - 1];
 
@@ -415,8 +388,6 @@ xhci_check_urb_advance (struct usb_host *usbhc,
 		dres_reg_write64 (r, erdp_offset, erst_dq_ptr);
 
 		/* The URB will be freed by xhci_deactivate_urb */
-		h_ep_tr->h_urb_list = NULL;
-		h_ep_tr->h_urb_tail = NULL;
 	}
 
 	return h_urb->status;
@@ -425,18 +396,7 @@ xhci_check_urb_advance (struct usb_host *usbhc,
 u8
 xhci_deactivate_urb (struct usb_host *usbhc, struct usb_request_block *h_urb)
 {
-	struct xhci_host *host = (struct xhci_host *)usbhc->private;
-
-	struct xhci_urb_private *xhci_urb_private = XHCI_URB_PRIVATE (h_urb);
-
-	u32 slot_id = xhci_urb_private->slot_id;
-
-	struct xhci_ep_tr *h_ep_tr = &host->slot_meta[slot_id].ep0_host_only;
-
 	delete_urb_xhci (h_urb);
-
-	h_ep_tr->h_urb_list = NULL;
-	h_ep_tr->h_urb_tail = NULL;
 
 	return URB_STATUS_UNLINKED;
 }

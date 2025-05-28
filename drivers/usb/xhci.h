@@ -498,6 +498,7 @@ struct xhci_ep_tr {
 	uint current_idx;
 	u8   current_toggle;
 	u64 dq_ptr;		/* Bit 0 is Dequeue Cycle State */
+	phys_t last_trb_addr;
 
 	struct usb_request_block *h_urb_list;
 	struct usb_request_block *h_urb_tail;
@@ -505,6 +506,17 @@ struct xhci_ep_tr {
 	spinlock_t lock;
 } __attribute__ ((packed));
 #define XHCI_EP_TR_NBYTES (sizeof (struct xhci_ep_tr))
+
+/* Data used by functions in xhci_trans.c.  The xHCI driver's submit
+ * functions use contiguous memory returned by xhci_allocate_htrbs()
+ * for TRBs.  A range in this data is used when looking at an Event
+ * TRB to find which URB is completed. */
+struct xhci_trans_data {
+	LIST4_DEFINE (struct xhci_trans_data, list);
+	struct usb_request_block *urb;
+	phys_t trbs_addr;
+	uint ntrbs;
+};
 
 /*
  * Each slot has 31 tables of TRs. BitVisor uses ep0_beginning
@@ -519,13 +531,12 @@ struct xhci_slot_meta {
 	phys_t input_dev_ctx_addr;
 	struct xhci_input_dev_ctx *input_ctx;
 
-	struct xhci_ep_tr ep0_host_only;
 	struct xhci_ep_tr ep_trs[MAX_EP];
+	LIST4_DEFINE_HEAD (xhci_trans_data, struct xhci_trans_data, list);
 
-	u8 skip_clone_ep;
 	u8 host_ctrl;
 
-	spinlock_t lock;
+	spinlock_t xhci_trans_lock;
 } __attribute__ ((packed));
 #define XHCI_SLOT_META_NBYTES (sizeof (struct xhci_slot_meta))
 
@@ -707,13 +718,12 @@ struct xhci_data {
 /* === INTR TRB meta ===
  * For Link TRB and Transfer TRB
  * g_data.param is the TRB physical address on the guest side.
+ * g_data.param is used by xhci_shadow.c.
  * h_data.param is the TRB physical address on the BitVisor side.
+ * h_data.param is used by xhci_trans.c.
  *
  * For Event Data TRB
  * g_data.param, and h_data.param are the TRB's parameter value.
- *
- * === Link TRB meta ===
- * h_data.new_link and next_seg are used during cloning TR.
  *
  */
 struct xhci_trb_meta {
@@ -723,10 +733,7 @@ struct xhci_trb_meta {
 
 	union {
 		u64 param;	   /* For INTR TRB */
-		phys_t new_link;   /* For link replacement */
 	} h_data;
-
-	uint next_seg; /* For Link TRB only */
 
 	struct xhci_trb_meta *next;
 };
@@ -736,7 +743,12 @@ struct xhci_urb_trbs_ref {
 	LIST4_DEFINE (struct xhci_urb_trbs_ref, list);
 	struct xhci_trb *trbs;
 	phys_t trbs_addr;
-	unsigned int ntrbs;
+	u16 ntrbs;
+	/* For gtrbs, if end_with_link=1, trbs[ntrbs-1] is a Link TRB.
+	 * In that case, the next TRB will be in the next element of
+	 * the list even if the address is immediately following the
+	 * Link TRB. */
+	u8 end_with_link;
 };
 
 struct xhci_trbs_ref_cursor {
@@ -755,18 +767,6 @@ struct xhci_urb_private {
 	struct xhci_urb_trbs_ref htrbs_ref_preallocated;
 
 	u64 next_g_dq_ptr;
-
-	u32 start_idx;
-	u32 end_idx;
-	u32 next_td_idx;
-
-	u32 start_seg;
-	u32 end_seg;
-	u32 next_td_seg;
-
-	u8 start_toggle;
-	u8 end_toggle;
-	u8 next_td_toggle;
 
 	u8 event_data_exist;
 
@@ -791,7 +791,6 @@ struct xhci_urb_private {
 
 /* For list appending */
 #define TYPE_INTR (1)
-#define TYPE_LINK (2)
 
 static inline void
 meta_list_append (struct xhci_urb_private *xhci_urb_private,
@@ -804,10 +803,6 @@ meta_list_append (struct xhci_urb_private *xhci_urb_private,
 	case TYPE_INTR:
 		head = &xhci_urb_private->intr_list;
 		tail = &xhci_urb_private->intr_tail;
-		break;
-	case TYPE_LINK:
-		head = &xhci_urb_private->link_trb_list;
-		tail = &xhci_urb_private->link_trb_tail;
 		break;
 	default:
 		return;
@@ -996,6 +991,9 @@ void xhci_update_er_and_dev_ctx (struct xhci_host *host);
 
 int xhci_sync_state (void *data, int num);
 
+struct xhci_trb *xhci_allocate_htrbs (struct xhci_host *host, uint slot_id,
+				      uint ep_no, uint ntrbs,
+				      phys_t *trbs_addr);
 struct usb_request_block *xhci_construct_gurbs (struct xhci_host *host,
 						uint slot_id, uint ep_no);
 

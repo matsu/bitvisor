@@ -450,8 +450,8 @@ create_h_dev_ctx (struct xhci_host *host, u64 g_dev_ctx, void *handler_data)
 		h_slot_meta = &host->slot_meta[i];
 		g_slot_meta = &host->g_data.slot_meta[i];
 
-		spinlock_init (&h_slot_meta->lock);
-		spinlock_init (&g_slot_meta->lock);
+		LIST4_HEAD_INIT (h_slot_meta->xhci_trans_data, list);
+		spinlock_init (&h_slot_meta->xhci_trans_lock);
 
 		/* This will be used during slot initialization */
 		struct xhci_input_dev_ctx *input_ctx;

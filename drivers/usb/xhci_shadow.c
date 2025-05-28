@@ -40,10 +40,15 @@
 #include <usb_hook.h>
 #include "xhci.h"
 
+/* NTRBS_END_WITH_LINK_BIT is an internal flag used by some
+ * functions. */
+#define NTRBS_END_WITH_LINK_BIT 0x80000000
+
 static struct xhci_trbs_ref_cursor
 htrbs_ref_cursor_init (struct xhci_urb_private *urb_priv);
 static struct xhci_trb *
 trbs_ref_get_next_trb (struct xhci_trbs_ref_cursor *cursor, phys_t *trb_addr);
+static phys_t htrbs_ref_last_trb_addr (struct xhci_urb_private *urb_priv);
 
 /* ---------- Start ERST shadowing related functions ---------- */
 
@@ -231,11 +236,6 @@ clone_ep_to_guest (struct xhci_host *host, struct xhci_dev_ctx *h_dev_ctx,
 		return;
 	}
 
-	/* If skip_clone_ep is not set, the current ep_tr is ep0_host_only */
-	if (ep_no == 0 && host->slot_meta[slot_id].skip_clone_ep) {
-		return;
-	}
-
 	struct xhci_ep_ctx tmp_ep_ctx = h_dev_ctx->ep[ep_no];
 
 	/*
@@ -289,8 +289,8 @@ clone_dev_ctx_to_guest (struct xhci_host *host, uint slot_id)
 /* ---------- Start Event Ring copyback related functions ---------- */
 
 static u8
-check_last_intr (struct usb_request_block *h_urb,
-		 struct xhci_trb *h_ev_trb, u8 *trb_code)
+check_last_intr (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb,
+		 u8 *trb_code, phys_t offset)
 {
 	struct xhci_host *host = (struct xhci_host *)h_urb->host->private;
 
@@ -324,9 +324,9 @@ check_last_intr (struct usb_request_block *h_urb,
 			ret = 1;
 		}
 	} else {
-		u64 param_to_cmp = last_intr_meta->h_data.param;
+		u64 param_to_cmp = last_intr_meta->g_data.param;
 
-		ret = (h_ev_trb->param.value == param_to_cmp) ? 1 : 0;
+		ret = (h_ev_trb->param.value + offset == param_to_cmp) ? 1 : 0;
 	}
 
 end:
@@ -423,7 +423,8 @@ patch_tx_ev_trb (struct xhci_trb *h_ev_trb, phys_t offset)
 }
 
 static u8
-is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
+is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb,
+	       phys_t offset)
 {
 	u8 ret = 0;
 
@@ -437,9 +438,9 @@ is_target_urb (struct usb_request_block *h_urb, struct xhci_trb *h_ev_trb)
 		struct xhci_trb_meta *intr_meta = urb_priv->intr_list;
 
 		while (intr_meta) {
-			u64 param_to_cmp = intr_meta->h_data.param;
+			u64 param_to_cmp = intr_meta->g_data.param;
 
-			if (h_ev_trb->param.value == param_to_cmp) {
+			if (h_ev_trb->param.value + offset == param_to_cmp) {
 				ret = 1;
 				break;
 			}
@@ -558,7 +559,7 @@ process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 						   h_ev_trb->param.trb_addr) -
 			h_ev_trb->param.trb_addr;
 
-	while (!is_target_urb (h_urb, h_ev_trb)) {
+	while (!is_target_urb (h_urb, h_ev_trb, offset)) {
 
 		struct xhci_urb_private *urb_priv;
 		urb_priv = XHCI_URB_PRIVATE (h_urb->shadow);
@@ -576,6 +577,9 @@ process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 
 		}
 
+		/* last_trb_addr will be used for finding reusable
+		 * segments. */
+		h_ep_tr->last_trb_addr = htrbs_ref_last_trb_addr (urb_priv);
 		remove_h_urb_head_from_ep (host, slot_id, ep_no);
 
 		delete_urb_xhci (h_urb->shadow);
@@ -593,7 +597,7 @@ process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 	}
 
 	u8 trb_code;
-	u8 is_last_intr = check_last_intr (h_urb, h_ev_trb, &trb_code);
+	u8 is_last_intr = check_last_intr (h_urb, h_ev_trb, &trb_code, offset);
 
 	if (trb_code != XHCI_TRB_CODE_SUCCESS &&
 	    trb_code != XHCI_TRB_CODE_SHORT_PACKET) {
@@ -611,6 +615,11 @@ process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 
 		}
 
+		/* last_trb_addr will be used for finding reusable
+		 * segments. */
+		struct xhci_urb_private *urb_priv =
+			XHCI_URB_PRIVATE (h_urb->shadow);
+		h_ep_tr->last_trb_addr = htrbs_ref_last_trb_addr (urb_priv);
 		remove_h_urb_head_from_ep (host, slot_id, ep_no);
 
 		delete_urb_xhci (h_urb->shadow);
@@ -781,13 +790,6 @@ alloc_tr_segments (struct xhci_slot_meta *h_slot_meta,
 		   struct xhci_slot_meta *g_slot_meta,
 		   uint ep_no)
 {
-	struct xhci_tr_segment *tr_segs;
-	if (!h_slot_meta->ep0_host_only.tr_segs) {
-		tr_segs = zalloc (XHCI_TR_SEGMENT_NBYTES);
-		h_slot_meta->ep0_host_only.tr_segs  = tr_segs;
-		h_slot_meta->ep0_host_only.max_size = 1;
-	}
-
 	/* Pre-allocate segment tables */
 	struct xhci_ep_tr *g_ep_tr = &g_slot_meta->ep_trs[ep_no];
 	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
@@ -852,10 +854,7 @@ alloc_slot (struct xhci_host *host, uint slot_id)
 	h_slot_meta = &host->slot_meta[slot_id];
 	g_slot_meta = &host->g_data.slot_meta[slot_id];
 
-	h_slot_meta->skip_clone_ep = 0;
 	h_slot_meta->host_ctrl = HOST_CTRL_INITIAL;
-
-	g_slot_meta->skip_clone_ep = 0;
 	g_slot_meta->host_ctrl = HOST_CTRL_INITIAL;
 
 }
@@ -1058,17 +1057,6 @@ construct_tr (struct xhci_host *host, struct xhci_slot_meta *h_slot_meta,
 	g_tr_seg->trb_addr = tr_base;
 	tr_seg_trbs_map (host->usb_host->as_dma, g_tr_seg);
 
-	if (ep_no == 0) {
-		n_trbs	   = XHCI_HOST_N_TRBS;
-		trb_nbytes = XHCI_TRB_NBYTES * n_trbs;
-
-		h_tr_seg = &h_slot_meta->ep0_host_only.tr_segs[0];
-		if (!tr_seg_trbs_is_alloced (h_tr_seg)) {
-			tr_seg_trbs_alloc (h_tr_seg, trb_nbytes);
-			h_tr_seg->n_trbs = n_trbs;
-		}
-	}
-
 	return h_ep_tr->tr_segs[0].trb_addr;
 }
 
@@ -1085,22 +1073,6 @@ clone_input_ctx (struct xhci_host *host, uint slot_id, phys_t g_input_ctx_addr)
 	*h_slot_meta->input_ctx = *g_input_ctx;
 
 	unmapmem (g_input_ctx, XHCI_INPUT_DEV_CTX_NBYTES);
-}
-
-static void
-clean_ep0_host_only (struct xhci_ep_tr *ep0_host_only, u8 toggle)
-{
-	ep0_host_only->current_seg    = 0;
-	ep0_host_only->current_idx    = 0;
-	ep0_host_only->current_toggle = toggle;
-
-	struct xhci_trb *trbs;
-	trbs = xhci_tr_seg_trbs_get_alloced (&ep0_host_only->tr_segs[0]);
-	memset (trbs, 0, XHCI_HOST_N_TRBS * XHCI_TRB_NBYTES);
-
-	uint i;
-	for (i = 0; i < XHCI_HOST_N_TRBS; i++)
-		trbs[i].ctrl.value = toggle ^ 0x1;
 }
 
 static void
@@ -1168,7 +1140,7 @@ evaluate_input_ctx (struct xhci_host *host, uint slot_id)
 						   addr);
 
 		} else {
-			new_dq_ptr = h_ep_tr->tr_segs[i_seg].trb_addr + offset;
+			new_dq_ptr = h_ep_tr->tr_segs[0].trb_addr;
 		}
 
 		u8 toggle = EP_CTX_DQ_PTR_GET_DCS (input_dq_ptr);
@@ -1176,25 +1148,25 @@ evaluate_input_ctx (struct xhci_host *host, uint slot_id)
 			toggle;
 
 		g_ep_tr->current_seg	= i_seg;
-		h_ep_tr->current_seg	= i_seg;
+		h_ep_tr->current_seg	= 0;
 
 		g_ep_tr->current_idx	= offset / XHCI_TRB_NBYTES;
-		h_ep_tr->current_idx	= offset / XHCI_TRB_NBYTES;
+		h_ep_tr->current_idx	= 0;
 
 		g_ep_tr->current_toggle = toggle;
-		h_ep_tr->current_toggle = toggle;
-
-		if (ep_no == 0) {
-			clean_ep0_host_only (&h_slot_meta->ep0_host_only,
-					     toggle);
-		}
+		h_ep_tr->current_toggle = 1;
+		h_ep_tr->last_trb_addr = 0;
 
 		if (ep_no != 0 &&
 		    host->slot_meta[slot_id].host_ctrl == HOST_CTRL_NO) {
 			continue;
 		}
 
-		h_input_ctx->dev_ctx.ep[ep_no].dq_ptr = new_dq_ptr | flags;
+		/* Always set Dequeue Cycle State (DCS) bit. */
+		h_input_ctx->dev_ctx.ep[ep_no].dq_ptr = new_dq_ptr | flags |
+			0x1;
+		/* Clear the Cycle (C) bit of the first TRB. */
+		tr_seg_h_trbs_ref (&h_ep_tr->tr_segs[0], 0)->ctrl.value = 0;
 
 		dprintft (CMD_DEBUG_LEVEL, "new input dq ptr: %016llX\n",
 			  h_input_ctx->dev_ctx.ep[ep_no].dq_ptr);
@@ -1233,14 +1205,15 @@ patch_tr_dq_ptr (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 	}
 
 	g_ep_tr->current_seg = i_seg;
-	h_ep_tr->current_seg = i_seg;
+	h_ep_tr->current_seg = 0;
 
 	g_ep_tr->current_idx = offset / XHCI_TRB_NBYTES;
-	h_ep_tr->current_idx = offset / XHCI_TRB_NBYTES;
+	h_ep_tr->current_idx = 0;
 
 	u8 toggle = XHCI_CMD_GET_DCS (h_cmd_trb);
 	g_ep_tr->current_toggle = toggle;
-	h_ep_tr->current_toggle = toggle;
+	h_ep_tr->current_toggle = 1;
+	h_ep_tr->last_trb_addr = 0;
 
 	/* Remove remaining URBs */
 	delete_urb_list_xhci (h_ep_tr->h_urb_list);
@@ -1255,7 +1228,10 @@ patch_tr_dq_ptr (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 	phys_t h_new_dq_ptr;
 
 	h_new_dq_ptr  = h_ep_tr->tr_segs[i_seg].trb_addr + offset;
-	h_new_dq_ptr |= XHCI_CMD_GET_SCT_DCS (h_cmd_trb);
+	/* Always set Dequeue Cycle State (DCS) bit. */
+	h_new_dq_ptr |= 0x1;
+	/* Clear the Cycle (C) bit of the first TRB. */
+	tr_seg_h_trbs_ref (&h_ep_tr->tr_segs[0], 0)->ctrl.value = 0;
 
 	dprintft (CMD_DEBUG_LEVEL, "Host new dq ptr: %016llX\n", h_new_dq_ptr);
 
@@ -1288,6 +1264,7 @@ reset_dev (struct xhci_host *host, uint slot_id)
 
 		g_ep_tr->current_toggle = 1;
 		h_ep_tr->current_toggle = 1;
+		h_ep_tr->last_trb_addr = 0;
 
 		/* Remove remaining URBs */
 		delete_urb_list_xhci (h_ep_tr->h_urb_list);
@@ -1310,238 +1287,6 @@ disable_slot_cb (struct xhci_host *host, uint slot_id, uint cmd_idx)
 	free_slot (host, slot_id);
 
 	dprintft (CMD_DEBUG_LEVEL, "Slot %u disabled\n", slot_id);
-}
-
-static void
-create_switch_trb (struct xhci_host *host,
-		   uint slot_id, uint ep_no,
-		   struct xhci_trb *trb,
-		   phys_t dest_phys_addr,
-		   u8 toggle)
-{
-	/* Create a Link TRB based on the given info */
-	trb->param.next_addr = dest_phys_addr;
-	trb->sts.value	     = XHCI_TRB_SET_INTR_TARGET (host->max_intrs - 1);
-	trb->ctrl.value	     = XHCI_TRB_SET_TRB_TYPE (XHCI_TRB_TYPE_LINK) |
-			       XHCI_TRB_SET_C (toggle);
-}
-
-static void
-ring_doorbell (struct xhci_regs *regs, uint p_slot_id)
-{
-	union xhci_db_reg req;
-	req.reg.db_target = 0 + 1;
-	req.reg.padding = 0;
-	req.reg.stream_id = 0;
-
-	phys_t offset = regs->db_offset + (p_slot_id * sizeof req);
-	dres_reg_write32 (regs->r, offset, req.raw_val);
-}
-
-static void
-take_ctrl_tr_seg (struct usb_host *usbhc,
-		  struct usb_request_block *h_urb)
-{
-	struct xhci_host *host = (struct xhci_host *)usbhc->private;
-	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (h_urb->shadow);
-
-	uint slot_id = urb_priv->slot_id;
-	uint ep_no   = urb_priv->ep_no;
-
-	/*
-	 * In case a device is connected through a USB hub, we need to
-	 * take control over the USB hub also.
-	 */
-
-	struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];
-
-	u64 hub_port = xhci_get_portno (h_dev_ctx) >> USB_HUB_SHIFT;
-
-	if (hub_port) {
-		struct usb_device *dev = get_device_by_port (usbhc, hub_port);
-
-		uint p_slot_id = xhci_get_slot_id_from_usb_device (dev);
-
-		struct xhci_slot_meta *p_slot_meta;
-		p_slot_meta = &host->slot_meta[p_slot_id];
-
-		struct xhci_ep_tr *p_cur_ep_tr;
-		p_cur_ep_tr = &p_slot_meta->ep_trs[0];
-
-		uint current_seg  = p_cur_ep_tr->current_seg;
-		uint current_idx  = p_cur_ep_tr->current_idx;
-		u8 current_toggle = p_cur_ep_tr->current_toggle;
-
-		struct xhci_tr_segment *p_cur_tr_seg;
-		p_cur_tr_seg = &p_cur_ep_tr->tr_segs[current_seg];
-
-		struct xhci_ep_tr *p_target_ep0_host_only;
-		p_target_ep0_host_only = &p_slot_meta->ep0_host_only;
-
-		struct xhci_tr_segment *p_target_tr_seg;
-		p_target_tr_seg = &p_target_ep0_host_only->tr_segs[0];
-
-		/* Clear the BitVisor's owned TR segment */
-		struct xhci_trb *trbs;
-		trbs = xhci_tr_seg_trbs_get_alloced (p_target_tr_seg);
-		memset (trbs, 0, XHCI_HOST_N_TRBS * XHCI_TRB_NBYTES);
-
-		uint i;
-		for (i = 0; i < XHCI_HOST_N_TRBS; i++)
-			trbs[i].ctrl.value = current_toggle ^ 0x1;
-
-		/* Reset index and toggle */
-		p_target_ep0_host_only->current_idx = 0;
-		p_target_ep0_host_only->current_toggle = current_toggle;
-
-		create_switch_trb (host,
-				   p_slot_id, 0,
-				   tr_seg_h_trbs_ref (p_cur_tr_seg,
-						      current_idx),
-				   p_target_tr_seg->trb_addr,
-				   current_toggle);
-
-		host->slot_meta[p_slot_id].skip_clone_ep = 1;
-
-		ring_doorbell (host->regs, p_slot_id);
-	}
-
-	uint start_seg = urb_priv->start_seg;
-	uint start_idx = urb_priv->start_idx;
-	uint toggle    = urb_priv->start_toggle;
-
-	struct xhci_ep_tr *current_ep_tr;
-	current_ep_tr = &host->slot_meta[slot_id].ep_trs[ep_no];
-
-	struct xhci_tr_segment *cur_tr_seg;
-	cur_tr_seg = &current_ep_tr->tr_segs[start_seg];
-
-	struct xhci_ep_tr *target_ep_tr;
-	target_ep_tr  = &host->slot_meta[slot_id].ep0_host_only;
-
-	struct xhci_tr_segment *target_tr_seg;
-	target_tr_seg = &target_ep_tr->tr_segs[0];
-
-	create_switch_trb (host,
-			   slot_id, ep_no,
-			   tr_seg_h_trbs_ref (cur_tr_seg, start_idx),
-			   target_tr_seg->trb_addr,
-			   toggle);
-
-	host->slot_meta[slot_id].skip_clone_ep = 1;
-}
-
-static void
-return_tr_seg (struct usb_host *usbhc,
-	       struct usb_request_block *h_urb)
-{
-	struct xhci_host *host = (struct xhci_host *)usbhc->private;
-	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (h_urb->shadow);
-
-	uint slot_id = urb_priv->slot_id;
-	uint ep_no   = urb_priv->ep_no;
-
-	/*
-	 * In case a device is connected through a USB hub, we need to switch
-	 * back to the shadow TR seg.
-	 */
-
-	struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];
-
-	u64 hub_port = xhci_get_portno (h_dev_ctx) >> USB_HUB_SHIFT;
-
-	if (hub_port) {
-		struct usb_device *dev = get_device_by_port (usbhc, hub_port);
-
-		uint p_slot_id = xhci_get_slot_id_from_usb_device (dev);
-
-		struct xhci_slot_meta *p_slot_meta;
-		p_slot_meta = &host->slot_meta[p_slot_id];
-
-		struct xhci_ep_tr *p_cur_ep_tr;
-		p_cur_ep_tr = &p_slot_meta->ep0_host_only;
-
-		uint current_seg  = p_cur_ep_tr->current_seg;
-		uint current_idx  = p_cur_ep_tr->current_idx;
-		u8 current_toggle = p_cur_ep_tr->current_toggle;
-
-		struct xhci_tr_segment *p_cur_tr_seg;
-		p_cur_tr_seg = &p_cur_ep_tr->tr_segs[current_seg];
-
-		struct xhci_ep_tr *p_target_ep_tr;
-		p_target_ep_tr = &p_slot_meta->ep_trs[0];
-
-		uint orig_seg  = p_target_ep_tr->current_seg;
-		uint orig_idx  = p_target_ep_tr->current_idx;
-		u8 orig_toggle = p_target_ep_tr->current_toggle;
-
-		struct xhci_tr_segment *p_target_tr_seg;
-		p_target_tr_seg = &p_target_ep_tr->tr_segs[orig_seg];
-
-		struct xhci_trb *dest_trb;
-		dest_trb = tr_seg_h_trbs_ref (&p_target_ep_tr->
-					      tr_segs[orig_seg], orig_idx);
-
-		/*
-		 * Clear the target position (previously the Link TRB
-		 * for taking control)
-		 */
-		dest_trb->ctrl.value &= ~0x1;
-		dest_trb->ctrl.value += (orig_toggle ^ 0x1);
-
-		u64 offset = orig_idx * XHCI_TRB_NBYTES;
-
-		create_switch_trb (host,
-				   p_slot_id, 0,
-				   tr_seg_h_trbs_ref (p_cur_tr_seg,
-						      current_idx),
-				   p_target_tr_seg->trb_addr + offset,
-				   current_toggle);
-
-		host->slot_meta[p_slot_id].skip_clone_ep = 0;
-
-		ring_doorbell (host->regs, p_slot_id);
-	}
-
-	struct xhci_ep_tr *current_ep_tr;
-	current_ep_tr = &host->slot_meta[slot_id].ep0_host_only;
-
-	uint current_seg  = current_ep_tr->current_seg;
-	uint current_idx  = current_ep_tr->current_idx;
-	u8 current_toggle = current_ep_tr->current_toggle;
-
-	struct xhci_tr_segment *cur_tr_seg;
-	cur_tr_seg = &current_ep_tr->tr_segs[current_seg];
-
-	struct xhci_ep_tr *target_ep_tr;
-	target_ep_tr  = &host->slot_meta[slot_id].ep_trs[ep_no];
-
-	uint orig_seg  = urb_priv->start_seg;
-	uint orig_idx  = urb_priv->start_idx;
-
-	struct xhci_tr_segment *target_tr_seg;
-	target_tr_seg = &target_ep_tr->tr_segs[orig_seg];
-
-	/*
-	 * Clear the target position (previously the Link TRB
-	 * for taking control)
-	 */
-	struct xhci_trb *dest_trb;
-	dest_trb = tr_seg_h_trbs_ref (&target_ep_tr->tr_segs[orig_seg],
-				      orig_idx);
-
-	dest_trb->ctrl.value &= ~0x1;
-	dest_trb->ctrl.value += (current_toggle ^ 0x1);
-
-	u64 offset = orig_idx * XHCI_TRB_NBYTES;
-
-	create_switch_trb (host,
-			   slot_id, 0,
-			   tr_seg_h_trbs_ref (cur_tr_seg, current_idx),
-			   target_tr_seg->trb_addr + offset,
-			   current_toggle);
-
-	host->slot_meta[slot_id].skip_clone_ep = 0;
 }
 
 static void
@@ -1591,7 +1336,6 @@ before_init_device (struct usb_host *usbhc,
 		    void *arg)
 {
 	correct_last_changed_port (usbhc, h_urb);
-	take_ctrl_tr_seg (usbhc, h_urb);
 	return 0;
 }
 
@@ -1601,7 +1345,6 @@ after_init_device (struct usb_host *usbhc,
 		   void *arg)
 {
 	update_urb_info (usbhc, h_urb);
-	return_tr_seg (usbhc, h_urb);
 	return 0;
 }
 
@@ -1798,19 +1541,17 @@ fix_usb_pid (struct usb_buffer_list *ub)
 }
 
 static struct xhci_trb_meta *
-create_intr_trb_meta (struct xhci_trb *g_trb, struct xhci_ep_tr *h_ep_tr,
-		      struct xhci_ep_tr *g_ep_tr, uint segment, uint idx)
+create_intr_trb_meta (struct xhci_trb *g_trb, struct xhci_ep_tr *g_ep_tr,
+		      uint segment, uint idx)
 {
-	struct xhci_tr_segment *g_tr_seg, *h_tr_seg;
+	struct xhci_tr_segment *g_tr_seg;
 	g_tr_seg = &g_ep_tr->tr_segs[segment];
-	h_tr_seg = &h_ep_tr->tr_segs[segment];
 
 	struct xhci_trb_meta *intr_trb_meta = zalloc (XHCI_TRB_META_NBYTES);
 
 	u8 type = XHCI_TRB_GET_TYPE (g_trb);
 
 	u64 g_param;
-	u64 h_param;
 
 	switch (type) {
 	case XHCI_TRB_TYPE_NORMAL:
@@ -1822,11 +1563,9 @@ create_intr_trb_meta (struct xhci_trb *g_trb, struct xhci_ep_tr *h_ep_tr,
 	case XHCI_TRB_TYPE_NO_OP:
 		/* Get physical address */
 		g_param = g_tr_seg->trb_addr + (idx * XHCI_TRB_NBYTES);
-		h_param = h_tr_seg->trb_addr + (idx * XHCI_TRB_NBYTES);
 		break;
 	case XHCI_TRB_TYPE_EV_DATA:
 		g_param = g_trb->param.value;
-		h_param = g_param;
 		break;
 	default:
 		free (intr_trb_meta);
@@ -1835,7 +1574,6 @@ create_intr_trb_meta (struct xhci_trb *g_trb, struct xhci_ep_tr *h_ep_tr,
 	}
 
 	intr_trb_meta->g_data.param = g_param;
-	intr_trb_meta->h_data.param = h_param;
 end:
 	return intr_trb_meta;
 }
@@ -1856,19 +1594,6 @@ usb_buffer_list_append (struct usb_request_block *urb,
 		(*tail)->next = new_ub;
 		*tail	      = new_ub;
 	}
-}
-
-static struct xhci_trb_meta *
-create_link_trb_meta (struct xhci_trb *g_trb, phys_t h_next_addr,
-		      uint next_seg)
-{
-	struct xhci_trb_meta *link_trb_meta = zalloc (XHCI_TRB_META_NBYTES);
-
-	link_trb_meta->h_data.new_link	= h_next_addr;
-
-	link_trb_meta->next_seg = next_seg;
-
-	return link_trb_meta;
 }
 
 static void
@@ -1956,8 +1681,7 @@ get_next_seg (const struct mm_as *as, struct xhci_trb *link_trb,
 }
 
 static struct usb_request_block *
-init_urb (struct xhci_host *host, uint slot_id, uint ep_no,
-	  uint start_i_trb, struct usb_request_block *prev_urb)
+init_urb (struct xhci_host *host, uint slot_id, uint ep_no)
 {
 	struct usb_request_block *g_urb = new_urb_xhci ();
 
@@ -1975,23 +1699,6 @@ init_urb (struct xhci_host *host, uint slot_id, uint ep_no,
 	XHCI_URB_PRIVATE (g_urb)->ep_no   = ep_no;
 	LIST4_HEAD_INIT (XHCI_URB_PRIVATE (g_urb)->gtrbs_ref, list);
 	LIST4_HEAD_INIT (XHCI_URB_PRIVATE (g_urb)->htrbs_ref, list);
-
-	struct xhci_slot_meta *g_slot_meta = &host->g_data.slot_meta[slot_id];
-
-	struct xhci_ep_tr *g_ep_tr = &g_slot_meta->ep_trs[ep_no];
-
-	uint current_seg  = g_ep_tr->current_seg;
-	u8 current_toggle = g_ep_tr->current_toggle;
-
-	XHCI_URB_PRIVATE (g_urb)->start_seg    = current_seg;
-	XHCI_URB_PRIVATE (g_urb)->start_idx    = start_i_trb;
-	XHCI_URB_PRIVATE (g_urb)->start_toggle = current_toggle;
-
-	if (prev_urb) {
-		XHCI_URB_PRIVATE (prev_urb)->next_td_seg = current_seg;
-		XHCI_URB_PRIVATE (prev_urb)->next_td_idx = start_i_trb;
-		XHCI_URB_PRIVATE (prev_urb)->next_td_toggle = current_toggle;
-	}
 
 	return g_urb;
 }
@@ -2021,7 +1728,6 @@ process_tx_trb (const struct mm_as *as_dma, struct usb_request_block *g_urb,
 	if (intr) {
 		struct xhci_trb_meta *intr_meta = NULL;
 		intr_meta = create_intr_trb_meta (g_trb,
-						  h_ep_tr,
 						  g_ep_tr,
 						  current_seg,
 						  i_trb);
@@ -2047,32 +1753,17 @@ process_tx_trb (const struct mm_as *as_dma, struct usb_request_block *g_urb,
 					 h_ep_tr,
 					 g_ep_tr);
 
-		phys_t h_next_addr = h_ep_tr->tr_segs[next_seg].trb_addr;
-
-		struct xhci_trb_meta *link_meta;
-		link_meta = create_link_trb_meta (g_trb, h_next_addr,
-						  next_seg);
-
-		meta_list_append (urb_priv, link_meta, TYPE_LINK);
-
 		g_ep_tr->current_seg = next_seg;
 
-		h_ep_tr->current_seg = next_seg;
-
 		/* Change toggle value if TC flag is set */
-		if (XHCI_TRB_GET_TC (g_trb)) {
+		if (XHCI_TRB_GET_TC (g_trb))
 			g_ep_tr->current_toggle ^= 1;
-
-			h_ep_tr->current_toggle ^= 1;
-		}
 
 		/*
 		 * Set current_idx to 0 as we are going to traverse
 		 * the next segment
 		 */
 		g_ep_tr->current_idx = 0;
-
-		h_ep_tr->current_idx = 0;
 		break;
 	case XHCI_TRB_TYPE_SETUP_STAGE:
 		keep_going = 1;
@@ -2104,44 +1795,125 @@ process_tx_trb (const struct mm_as *as_dma, struct usb_request_block *g_urb,
 
 static void
 gtrbs_ref_add (struct xhci_urb_private *urb_priv, struct xhci_trb *gtrb,
-	       phys_t gtrb_addr)
+	       phys_t gtrb_addr, bool is_link_trb)
 {
 	struct xhci_urb_trbs_ref *p = LIST4_TAIL (urb_priv->gtrbs_ref, list);
 	if (p) {
-		if (p->trbs + p->ntrbs == gtrb &&
+		if (!p->end_with_link && p->trbs + p->ntrbs == gtrb &&
 		    p->trbs_addr + p->ntrbs * XHCI_TRB_NBYTES == gtrb_addr) {
+			/* 64K byte boundary check */
+			ASSERT ((p->trbs_addr & 65535) +
+				p->ntrbs * XHCI_TRB_NBYTES < 65536);
 			p->ntrbs++;
+			if (is_link_trb)
+				p->end_with_link = 1;
 			return;
 		}
 		p = alloc (sizeof *p);
 	} else {
 		p = &urb_priv->gtrbs_ref_preallocated;
 	}
+	p->end_with_link = !!is_link_trb;
 	p->trbs = gtrb;
 	p->trbs_addr = gtrb_addr;
 	p->ntrbs = 1;
 	LIST4_ADD (urb_priv->gtrbs_ref, list, p);
 }
 
-static void
-htrbs_ref_add (struct xhci_urb_private *urb_priv, struct xhci_trb *htrb,
-	       phys_t htrb_addr)
+static struct xhci_trb *
+htrbs_allocate_next (struct xhci_ep_tr *h_ep_tr, uint ntrbs, phys_t *trbs_addr,
+		     uint *seg, uint *idx, struct xhci_ep_tr *g_ep_tr,
+		     phys_t *next_trbs_addr, uint *next_seg)
 {
-	struct xhci_urb_trbs_ref *p = LIST4_TAIL (urb_priv->htrbs_ref, list);
-	if (p) {
-		if (p->trbs + p->ntrbs == htrb &&
-		    p->trbs_addr + p->ntrbs * XHCI_TRB_NBYTES == htrb_addr) {
-			p->ntrbs++;
-			return;
-		}
-		p = alloc (sizeof *p);
-	} else {
-		p = &urb_priv->htrbs_ref_preallocated;
+	/* NTRBS_END_WITH_LINK_BIT means caller will write Link TRB at
+	 * the last element of allocated TRBs.  In that case, caller
+	 * can allocate XHCI_MAX_N_TRBS TRBs. */
+	uint max_n_trbs = ntrbs & NTRBS_END_WITH_LINK_BIT ?
+		XHCI_MAX_N_TRBS :
+		XHCI_MAX_N_TRBS - 1;
+	ntrbs &= ~NTRBS_END_WITH_LINK_BIT;
+	ASSERT (h_ep_tr->current_toggle == 1);
+	struct xhci_tr_segment *h_tr_seg = &h_ep_tr->tr_segs[*seg];
+	ASSERT (h_tr_seg->n_trbs == XHCI_MAX_N_TRBS);
+	ASSERT (*idx < XHCI_MAX_N_TRBS);
+	ASSERT (ntrbs <= max_n_trbs);
+	struct xhci_trb *h_trb = tr_seg_h_trbs_ref (h_tr_seg, *idx);
+	if (*idx + ntrbs <= max_n_trbs) {
+		/* Allocate from current segment. */
+		*trbs_addr = h_tr_seg->trb_addr + *idx * XHCI_TRB_NBYTES;
+		*idx += ntrbs;
+		if (*seg + 1 == h_ep_tr->max_size)
+			expand_tr_segs (h_ep_tr, g_ep_tr);
+		*next_trbs_addr = h_ep_tr->tr_segs[*seg + 1].trb_addr;
+		*next_seg = *seg + 1;
+		return h_trb;
 	}
-	p->trbs = htrb;
-	p->trbs_addr = htrb_addr;
-	p->ntrbs = 1;
+	/* Allocate from next segment. */
+	struct xhci_trb *h_trb_cur = h_trb;
+	++*seg;
+	if (*seg == h_ep_tr->max_size)
+		expand_tr_segs (h_ep_tr, g_ep_tr);
+	*idx = 0;
+	h_tr_seg = &h_ep_tr->tr_segs[*seg];
+	h_trb = tr_seg_h_trbs_ref (h_tr_seg, 0);
+	*trbs_addr = h_tr_seg->trb_addr;
+	if (*seg + 1 == h_ep_tr->max_size)
+		expand_tr_segs (h_ep_tr, g_ep_tr);
+	*next_trbs_addr = h_ep_tr->tr_segs[*seg + 1].trb_addr;
+	*next_seg = *seg + 1;
+	/* Clear the Cycle (C) bit of the TRB. */
+	h_trb->ctrl.value = 0;
+	/* Create a Link TRB at the current TRB. */
+	h_trb_cur->param.next_addr = h_tr_seg->trb_addr;
+	h_trb_cur->sts.value = 0;
+	asm_store_barrier ();
+	h_trb_cur->ctrl.value = XHCI_TRB_SET_TRB_TYPE (XHCI_TRB_TYPE_LINK) |
+		XHCI_TRB_SET_C (1);
+	*idx += ntrbs;
+	return h_trb;
+}
+
+struct xhci_trb *
+xhci_allocate_htrbs (struct xhci_host *host, uint slot_id, uint ep_no,
+		     uint ntrbs, phys_t *trbs_addr)
+{
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	struct xhci_slot_meta *g_slot_meta = &host->g_data.slot_meta[slot_id];
+	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
+	struct xhci_ep_tr *g_ep_tr = &g_slot_meta->ep_trs[ep_no];
+	phys_t next_trbs_addr;
+	uint next_seg;
+	struct xhci_trb *ret =
+		htrbs_allocate_next (h_ep_tr, ntrbs, trbs_addr,
+				     &h_ep_tr->current_seg,
+				     &h_ep_tr->current_idx, g_ep_tr,
+				     &next_trbs_addr, &next_seg);
+	/* Clear the Cycle (C) bit of the next TD TRB. */
+	struct xhci_trb *next_td_trb =
+		tr_seg_h_trbs_ref (&h_ep_tr->tr_segs[h_ep_tr->current_seg],
+				   h_ep_tr->current_idx);
+	next_td_trb->ctrl.value = 0;
+	return ret;
+}
+
+static struct xhci_trbs_ref_cursor
+htrbs_ref_cursor_new (struct xhci_urb_private *urb_priv, uint ntrbs,
+		      struct xhci_ep_tr *h_ep_tr, uint *seg, uint *idx,
+		      struct xhci_ep_tr *g_ep_tr, phys_t *next_trbs_addr,
+		      uint *next_seg)
+{
+	struct xhci_urb_trbs_ref *p = LIST4_HEAD (urb_priv->htrbs_ref, list) ?
+		alloc (sizeof *p) :
+		&urb_priv->htrbs_ref_preallocated;
+	p->trbs = htrbs_allocate_next (h_ep_tr, ntrbs, &p->trbs_addr, seg, idx,
+				       g_ep_tr, next_trbs_addr, next_seg);
+	p->ntrbs = ntrbs;
 	LIST4_ADD (urb_priv->htrbs_ref, list, p);
+	struct xhci_trbs_ref_cursor ret = {
+		.trbs_ref = p,
+		.index = 0,
+	};
+	return ret;
 }
 
 static struct xhci_trbs_ref_cursor
@@ -2182,6 +1954,39 @@ trbs_ref_get_next_trb (struct xhci_trbs_ref_cursor *cursor, phys_t *trb_addr)
 	if (trb_addr)
 		*trb_addr = trbs_ref->trbs_addr + index * XHCI_TRB_NBYTES;
 	return &trbs_ref->trbs[index];
+}
+
+static unsigned int
+gtrbs_ref_get_ntrbs_until_link (const struct xhci_trbs_ref_cursor *cursor)
+{
+	struct xhci_urb_trbs_ref *gtrbs_ref = cursor->trbs_ref;
+	if (!gtrbs_ref)
+		return 0;
+	unsigned int ntrbs = 0;
+	unsigned int index = cursor->index;
+	for (;;) {
+		if (index == gtrbs_ref->ntrbs) {
+			gtrbs_ref = LIST4_NEXT (gtrbs_ref, list);
+			index = 0;
+			if (!gtrbs_ref)
+				break;
+			ASSERT (gtrbs_ref->ntrbs > 0);
+		}
+		ntrbs += gtrbs_ref->ntrbs - index;
+		index = gtrbs_ref->ntrbs;
+		if (gtrbs_ref->end_with_link)
+			return ntrbs | NTRBS_END_WITH_LINK_BIT;
+	}
+	return ntrbs;
+}
+
+static phys_t
+htrbs_ref_last_trb_addr (struct xhci_urb_private *urb_priv)
+{
+	struct xhci_urb_trbs_ref *trbs_ref = LIST4_TAIL (urb_priv->htrbs_ref,
+							 list);
+	ASSERT (trbs_ref);
+	return trbs_ref->trbs_addr + (trbs_ref->ntrbs - 1) * XHCI_TRB_NBYTES;
 }
 
 struct usb_request_block *
@@ -2240,22 +2045,13 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 			    type == XHCI_TRB_TYPE_INVALID) {
 				/* end of scan */
 				g_ep_tr->current_seg = current_seg;
-				h_ep_tr->current_seg = current_seg;
-
 				g_ep_tr->current_idx = i_trb;
-				h_ep_tr->current_idx = i_trb;
-
 				g_ep_tr->current_toggle = current_toggle;
-				h_ep_tr->current_toggle = current_toggle;
 
 				struct xhci_urb_private *tail_urb_priv;
 				tail_urb_priv = XHCI_URB_PRIVATE (tail_g_urb);
-
 				tail_urb_priv->next_g_dq_ptr = g_trb_addr |
 					current_toggle;
-				tail_urb_priv->next_td_seg    = current_seg;
-				tail_urb_priv->next_td_idx    = i_trb;
-				tail_urb_priv->next_td_toggle = toggle;
 
 				stop = 1;
 				break;
@@ -2266,13 +2062,13 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 					XHCI_URB_PRIVATE (tail_g_urb)
 						->next_g_dq_ptr = g_trb_addr |
 						current_toggle;
-				new_g_urb = init_urb (host, slot_id, ep_no,
-						      i_trb, tail_g_urb);
+				new_g_urb = init_urb (host, slot_id, ep_no);
 			}
 
 			struct xhci_urb_private *urb_priv;
 			urb_priv = XHCI_URB_PRIVATE (new_g_urb);
-			gtrbs_ref_add (urb_priv, g_trb, g_trb_addr);
+			gtrbs_ref_add (urb_priv, g_trb, g_trb_addr,
+				       type == XHCI_TRB_TYPE_LINK);
 
 			u8 keep_going = process_tx_trb (host->usb_host->as_dma,
 							new_g_urb,
@@ -2282,11 +2078,6 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 							g_ep_tr);
 
 			if (ch == 0 && !keep_going) {
-				/* Record ending position */
-				urb_priv->end_seg    = current_seg;
-				urb_priv->end_idx    = i_trb;
-				urb_priv->end_toggle = current_toggle;
-
 				if (ep_no == 0) {
 					fix_usb_pid (new_g_urb->buffers);
 				}
@@ -2315,7 +2106,6 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 				ASSERT (h_ep_tr->tr_segs[current_seg].n_trbs ==
 					XHCI_MAX_N_TRBS);
 				g_ep_tr->current_idx = n_trbs;
-				h_ep_tr->current_idx = n_trbs;
 			}
 		}
 
@@ -2393,9 +2183,9 @@ xhci_shadow_advance_dq_ptr (struct usb_request_block *g_urb,
 
 static void
 patch_h_link_trb (struct xhci_trb *h_link_trb, struct xhci_trb *g_link_trb,
-		  struct xhci_trb_meta *link_meta)
+		  phys_t trb_addr)
 {
-	h_link_trb->param.value = link_meta->h_data.new_link;
+	h_link_trb->param.value = trb_addr;
 	h_link_trb->sts.value	= g_link_trb->sts.value;
 	h_link_trb->ctrl.value	= g_link_trb->ctrl.value;
 }
@@ -2417,7 +2207,7 @@ xhci_shadow_finalize_trb (struct usb_request_block *h_urb,
 			  struct xhci_host *host, uint slot_id, uint ep_no)
 {
 	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (h_urb->shadow);
-	u8 start_toggle = urb_priv->start_toggle;
+	u8 start_toggle = 1;
 	struct xhci_trbs_ref_cursor htrbs_ref_cursor =
 		htrbs_ref_cursor_init (urb_priv);
 	struct xhci_trb *first_h_trb =
@@ -2430,6 +2220,38 @@ xhci_shadow_finalize_trb (struct usb_request_block *h_urb,
 	 * making sure all other TRBs are written. */
 	asm_store_barrier ();
 	first_h_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
+}
+
+static void
+h_ep_tr_rotate_completed_segs (struct xhci_ep_tr *h_ep_tr)
+{
+	phys_t last_trb_addr = h_ep_tr->last_trb_addr;
+	if (!last_trb_addr)
+		return;
+	uint complete_segs;
+	for (uint i_seg = 0; i_seg < h_ep_tr->max_size; i_seg++) {
+		if (last_trb_addr - h_ep_tr->tr_segs[i_seg].trb_addr <
+		    XHCI_MAX_N_TRBS * XHCI_TRB_NBYTES) {
+			complete_segs = i_seg;
+			goto found;
+		}
+	}
+	printf ("last_trb_addr=0x%llx\n", last_trb_addr);
+	for (uint i_seg = 0; i_seg < h_ep_tr->max_size; i_seg++)
+		printf ("h_ep_tr->tr_segs[%u].trb_addr=0x%llx\n", i_seg,
+			h_ep_tr->tr_segs[i_seg].trb_addr);
+	ASSERT (!"complete_segs not found");
+	return;
+found:
+	if (!complete_segs)
+		return;
+	h_ep_tr->current_seg -= complete_segs;
+	uint remaining = h_ep_tr->max_size - complete_segs;
+	struct xhci_tr_segment tmp[complete_segs];
+	memcpy (tmp, h_ep_tr->tr_segs, sizeof tmp);
+	memmove (h_ep_tr->tr_segs, h_ep_tr->tr_segs + complete_segs,
+		 XHCI_TR_SEGMENT_NBYTES * remaining);
+	memcpy (h_ep_tr->tr_segs + remaining, tmp, sizeof tmp);
 }
 
 void
@@ -2445,15 +2267,6 @@ xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
 	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
 	struct xhci_ep_tr *g_ep_tr = &g_slot_meta->ep_trs[ep_no];
 
-	uint start_seg	= urb_priv->start_seg;
-	uint start_idx	= urb_priv->start_idx;
-	u8 start_toggle = urb_priv->start_toggle;
-
-	uint end_seg  = urb_priv->end_seg;
-	uint end_idx  = urb_priv->end_idx;
-	u8 end_toggle = urb_priv->end_toggle;
-
-	struct xhci_trb *h_trbs;
 	bool first_h_trb_flag = true;
 	struct xhci_trbs_ref_cursor gtrbs_ref_cursor =
 		gtrbs_ref_cursor_init (urb_priv);
@@ -2464,37 +2277,37 @@ xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
 	 */
 	/* Write inverted C bit first, then write non-inverted C bit
 	 * after all other TRBs are written for simplicity. */
-	uint current_seg    = start_seg;
-	uint current_idx    = start_idx;
-	u8   current_toggle = start_toggle;
-
-	struct xhci_trb_meta *cur_link_meta = urb_priv->link_trb_list;
 
 	struct usb_buffer_list *cur_ub = h_urb->buffers;
 	bool apply_shadow_buffers = !!cur_ub;
 
-	u8 stop = 0;
-
-	do { /* for stop */
-		u8 new_seg = 0;
-
-		struct xhci_tr_segment *h_tr_seg =
-			&h_ep_tr->tr_segs[current_seg];
-		h_trbs = xhci_tr_seg_trbs_get_alloced (h_tr_seg);
-		uint n_trbs = g_ep_tr->tr_segs[current_seg].n_trbs;
-
-		uint i_trb;
-		for (i_trb = current_idx;
-		     i_trb < n_trbs && !stop && !new_seg;
-		     i_trb++) {
+	h_ep_tr_rotate_completed_segs (h_ep_tr);
+	uint current_seg = h_ep_tr->current_seg;
+	uint current_idx = h_ep_tr->current_idx;
+	for (;;) {
+		uint ntrbs =
+			gtrbs_ref_get_ntrbs_until_link (&gtrbs_ref_cursor);
+		if (!ntrbs)
+			break;
+		phys_t next_trbs_addr;
+		uint next_seg;
+		struct xhci_trbs_ref_cursor htrbs_ref_cursor =
+			htrbs_ref_cursor_new (urb_priv, ntrbs, h_ep_tr,
+					      &current_seg, &current_idx,
+					      g_ep_tr, &next_trbs_addr,
+					      &next_seg);
+		ntrbs &= ~NTRBS_END_WITH_LINK_BIT;
+		while (ntrbs-- > 0) {
 			struct xhci_trb *gtrb_ref =
 				trbs_ref_get_next_trb (&gtrbs_ref_cursor,
 						       NULL);
 			ASSERT (gtrb_ref);
+			struct xhci_trb *h_trb =
+				trbs_ref_get_next_trb (&htrbs_ref_cursor,
+						       NULL);
+			ASSERT (h_trb);
 			struct xhci_trb g_trb = *gtrb_ref;
-			struct xhci_trb *h_trb = &h_trbs[i_trb];
-			htrbs_ref_add (urb_priv, h_trb, h_tr_seg->trb_addr +
-				       i_trb * XHCI_TRB_NBYTES);
+			g_trb.ctrl.value |= XHCI_TRB_SET_C (1);
 			if (first_h_trb_flag) {
 				/* Invert C bit of the first TRB using
 				 * exclusive or. */
@@ -2502,30 +2315,20 @@ xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
 				first_h_trb_flag = false;
 			}
 
-			if (current_seg    == end_seg &&
-			    i_trb	   == end_idx &&
-			    current_toggle == end_toggle) {
-				stop = 1;
-			}
-
 			u8 type  = XHCI_TRB_GET_TYPE (&g_trb);
 
 			switch (type) {
 			case XHCI_TRB_TYPE_LINK:
+				/* Clear Toggle Cycle bit.  Cycle bit
+				 * of host Transfer Ring is always
+				 * one. */
+				g_trb.ctrl.value &= ~XHCI_TRB_SET_TC (1);
 				patch_h_link_trb (h_trb, &g_trb,
-						  cur_link_meta);
-
+						  next_trbs_addr);
+				ASSERT (current_seg != next_seg);
+				ASSERT (!ntrbs);
 				current_idx = 0;
-				current_seg = cur_link_meta->next_seg;
-
-				if (XHCI_TRB_GET_TC (&g_trb)) {
-					current_toggle ^= 1;
-				}
-
-				cur_link_meta = cur_link_meta->next;
-
-				new_seg = 1;
-
+				current_seg = next_seg;
 				break;
 			case XHCI_TRB_TYPE_NORMAL:
 			case XHCI_TRB_TYPE_SETUP_STAGE:
@@ -2543,29 +2346,17 @@ xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
 				break;
 			}
 		}
-
-	} while (!stop);
-
-	/*
-	 * Clear the start of the next TD TRB. Windows gets kernel panic
-	 * if we don't do this.
-	 */
-	uint next_td_seg    = XHCI_URB_PRIVATE (g_urb)->next_td_seg;
-	uint next_td_idx    = XHCI_URB_PRIVATE (g_urb)->next_td_idx;
-	u8   next_td_toggle = XHCI_URB_PRIVATE (g_urb)->next_td_toggle;
-
-	struct xhci_trb *next_td_trb;
-	h_trbs = xhci_tr_seg_trbs_get_alloced (&h_ep_tr->tr_segs[next_td_seg]);
-	next_td_trb = &h_trbs[next_td_idx];
-
-	/* Make sure that it is not the start TRB. Unlikely to happen */
-	if (next_td_seg    != start_seg ||
-	    next_td_idx    != start_idx ||
-	    next_td_toggle != start_toggle) {
-		next_td_trb->param.value = 0;
-		next_td_trb->sts.value	 = 0;
-		next_td_trb->ctrl.value  = next_td_toggle;
 	}
+
+	ASSERT (current_idx < XHCI_MAX_N_TRBS);
+	struct xhci_trb *next_td_trb =
+		tr_seg_h_trbs_ref (&h_ep_tr->tr_segs[current_seg],
+				   current_idx);
+	/* Clear the Cycle (C) bit of the next TD TRB. */
+	next_td_trb->ctrl.value = 0;
+
+	h_ep_tr->current_seg = current_seg;
+	h_ep_tr->current_idx = current_idx;
 }
 
 int
