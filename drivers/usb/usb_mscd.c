@@ -41,6 +41,7 @@
 #include <storage.h>
 #include "usb.h"
 #include "usb_device.h"
+#include "usb_driver.h"
 #include "usb_hook.h"
 #include "usb_log.h"
 #include "usb_mscd.h"
@@ -1101,8 +1102,8 @@ usbmsc_init_bulkmon(struct usb_host *usbhc,
 	return USB_HOOK_PASS;
 }
 
-void 
-usbmsc_init_handle(struct usb_host *host)
+static void
+usb_mscd_new (struct usb_host *host, struct usb_device *dev)
 {
 	static const struct usb_hook_pattern pat_setconf = {
 		.pid = USB_PID_SETUP,
@@ -1113,11 +1114,27 @@ usbmsc_init_handle(struct usb_host *host)
 	};
 
 	/* Look a device class whenever SetConfigration() issued. */
-	usb_hook_register(host, USB_HOOK_REPLY, 
-			  USB_HOOK_MATCH_ENDP | USB_HOOK_MATCH_DATA,
-			  0, 0, &pat_setconf, usbmsc_init_bulkmon, 
-			  NULL, NULL);
-	printf("USB Mass Storage Class handler registered.\n");
-
-	return;
+	spinlock_lock (&host->lock_hk);
+	usb_hook_register (host, USB_HOOK_REPLY, USB_HOOK_MATCH_ENDP |
+			   USB_HOOK_MATCH_DATA | USB_HOOK_MATCH_DEV,
+			   0, 0, &pat_setconf, usbmsc_init_bulkmon,
+			   NULL, dev);
+	spinlock_unlock (&host->lock_hk);
+	printf ("USB Mass Storage Class handler registered.\n");
 }
+
+static struct usb_driver usb_mscd_driver = {
+	.name = "mscd",
+	.longname = "USB Mass Storage Class Device (MSCD) Driver",
+	.device = "class=08",
+	.new = usb_mscd_new,
+	.compat = true,
+};
+
+static void
+usb_mscd_init (void)
+{
+	usb_register_driver (&usb_mscd_driver);
+}
+
+USB_DRIVER_INIT (usb_mscd_init);

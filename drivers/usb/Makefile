@@ -18,3 +18,4 @@ objs-$(CONFIG_HANDLE_USBMSC) += usb_mscd.o
 objs-$(CONFIG_HANDLE_USBHUB) += usb_hub.o
 objs-$(CONFIG_CONCEAL_USBCCID) += usb_ccid.o
 objs-y += usb.o usb_device.o usb_hid.o usb_hook.o usb_log.o
+objs-y += usb_driver.o usb_match.o

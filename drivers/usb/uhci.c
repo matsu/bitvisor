@@ -77,12 +77,6 @@ uhci_new(struct pci_device *pci_device)
 {
 	int i;
 	struct uhci_host *host;
-#if defined(HANDLE_USBMSC)
-	extern void usbmsc_init_handle(struct usb_host *host);
-#endif
-#if defined(HANDLE_USBHUB)
-	extern void usbhub_init_handle(struct usb_host *host);
-#endif
 
 	pci_system_disconnect (pci_device);
 	pci_enable_device (pci_device,
@@ -111,12 +105,6 @@ uhci_new(struct pci_device *pci_device)
 				      pci_device->as_dma, USB_HOST_TYPE_UHCI);
 	ASSERT(host->hc != NULL);
 	usb_init_device_monitor(host->hc);
-#if defined(HANDLE_USBMSC)
-	usbmsc_init_handle(host->hc);
-#endif
-#if defined(HANDLE_USBHUB)
-	usbhub_init_handle(host->hc);
-#endif
 
 	return;
 }

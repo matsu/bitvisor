@@ -67,12 +67,6 @@ ehci_new(struct pci_device *pci_device)
 {
 	int i;
 	struct ehci_host *host;
-#if defined(HANDLE_USBMSC)
-	extern void usbmsc_init_handle(struct usb_host *host);
-#endif
-#if defined(HANDLE_USBHUB)
-	extern void usbhub_init_handle(struct usb_host *host);
-#endif
 
 	pci_system_disconnect (pci_device);
 	pci_enable_device (pci_device,
@@ -92,12 +86,6 @@ ehci_new(struct pci_device *pci_device)
 					    USB_HOST_TYPE_EHCI);
 	ASSERT(host->usb_host != NULL);
 	usb_init_device_monitor(host->usb_host);
-#if defined(HANDLE_USBMSC)
-	usbmsc_init_handle(host->usb_host);
-#endif
-#if defined(HANDLE_USBHUB)
-	usbhub_init_handle(host->usb_host);
-#endif
 
 	return;
 }

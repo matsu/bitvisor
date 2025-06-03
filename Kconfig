@@ -291,8 +291,6 @@ config SHADOW_EHCI
 config SHADOW_XHCI
 	bool
 	default y
-	select HANDLE_USBMSC
-	select HANDLE_USBHUB
 	prompt "Shadow xHCI(USB3) transfers"
 
 config HANDLE_USBMSC

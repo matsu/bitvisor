@@ -167,8 +167,8 @@ init_hub_device(struct usb_host *usbhc,
 	return USB_HOOK_PASS;
 }
 
-void 
-usbhub_init_handle(struct usb_host *host)
+void
+usbhub_init_handle (struct usb_host *host, struct usb_device *dev)
 {
 	static const struct usb_hook_pattern pat_setconf = {
 		.pid = USB_PID_SETUP,
@@ -180,13 +180,11 @@ usbhub_init_handle(struct usb_host *host)
 
 	/* check a device class whenever SetConfigration() issued. */
 	spinlock_lock(&host->lock_hk);
-	usb_hook_register(host, USB_HOOK_REPLY, 
-			  USB_HOOK_MATCH_ENDP | USB_HOOK_MATCH_DATA,
-			  0, 0, &pat_setconf, init_hub_device,
-			  NULL, NULL);
+	usb_hook_register (host, USB_HOOK_REPLY, USB_HOOK_MATCH_ENDP |
+			   USB_HOOK_MATCH_DATA | USB_HOOK_MATCH_DEV,
+			   0, 0, &pat_setconf, init_hub_device,
+			   NULL, dev);
 	spinlock_unlock(&host->lock_hk);
-
-	printf("USB HUB Class handler registered.\n");
 
 	return;
 }

@@ -1855,14 +1855,6 @@ xhci_new (struct pci_device *pci_device)
 	/* Set up spinlock for state synchronization */
 	spinlock_init (&host->sync_lock);
 
-	extern void usbmsc_init_handle (struct usb_host *host);
-
-	usbmsc_init_handle (host->usb_host);
-
-	extern void usbhub_init_handle (struct usb_host *host);
-
-	usbhub_init_handle (host->usb_host);
-
 	pci_register_intr_callback (xhci_sync_state, xhci_data);
 
 	printf ("xHCI controller initialized\n");

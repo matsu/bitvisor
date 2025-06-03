@@ -31,12 +31,11 @@
 #include "uhci.h"
 #include "usb.h"
 #include "usb_device.h"
+#include "usb_driver.h"
 #include "usb_hook.h"
 #include "usb_log.h"
 
 extern int prohibit_iccard_init;
-
-#define USB_ICLASS_CCID 0x0b
 
 static struct descriptor_data {
 	u8 data[255];
@@ -289,11 +288,9 @@ terminated:
    in transfer buffer. So it must be initialized *AFTER* 
    the device management has been initialized. 
 */
-void
-usbccid_init_handle (struct usb_host *host, struct usb_device *dev)
+static void
+usb_ccid_new (struct usb_host *host, struct usb_device *dev)
 {
-	u8 class;
-
 	/* the current implementation supports only UHCI. */
 	if (host->type != USB_HOST_TYPE_UHCI)
 		return;
@@ -304,10 +301,6 @@ usbccid_init_handle (struct usb_host *host, struct usb_device *dev)
 			 dev->devnum);
 		return;
 	}
-
-	class = dev->config->interface->altsetting->bInterfaceClass;
-	if (class != USB_ICLASS_CCID)
-		return;
 
 	dprintft(1, "CCID(%02x): a CCID device found.\n", dev->devnum);
 	
@@ -326,3 +319,18 @@ usbccid_init_handle (struct usb_host *host, struct usb_device *dev)
 	return;
 }
 
+static struct usb_driver usb_ccid_driver = {
+	.name = "ccid",
+	.longname = "CCID Class Conceal Driver",
+	.device = "class=0b",
+	.new = usb_ccid_new,
+	.compat = true,
+};
+
+static void
+usb_ccid_init (void)
+{
+	usb_register_driver (&usb_ccid_driver);
+}
+
+USB_DRIVER_INIT (usb_ccid_init);

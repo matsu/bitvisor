@@ -2,8 +2,7 @@
 #include <core.h>
 #include "uhci.h"
 
-void
-usbhub_init_handle(struct usb_host *host);
+void usbhub_init_handle (struct usb_host *host, struct usb_device *dev);
 void
 hub_portdevice_register(struct usb_host *host, u64 hub_port, 
 			struct usb_device *dev);

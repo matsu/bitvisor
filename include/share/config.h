@@ -195,6 +195,7 @@ struct config_data_vmm_driver {
 	char pci_conceal[1024];
 	char pci[2048];
 	char pci_virtual[1024];
+	char usb[2048];
 };
 
 struct config_data_vmm_iccard {

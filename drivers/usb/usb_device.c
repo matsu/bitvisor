@@ -35,6 +35,7 @@
 #include <core.h>
 #include "usb.h"
 #include "usb_device.h"
+#include "usb_driver.h"
 #include "usb_hook.h"
 #if defined(HANDLE_USBHUB)
 #include "usb_hub.h"
@@ -733,10 +734,6 @@ new_usb_device_sub (struct usb_host *usbhc, int devadr)
 		.offset = 0,
 		.next = NULL
 	};
-#if defined(CONCEAL_USBCCID)
-	extern void usbccid_init_handle(struct usb_host *host,
-					struct usb_device *dev);
-#endif
 	void usbhid_init_handle (struct usb_host *, struct usb_device *);
 
 	dprintft(1, "SetAddress(%d) found.\n", devadr);
@@ -904,11 +901,15 @@ new_usb_device_sub (struct usb_host *usbhc, int devadr)
 			  device_iface_change, NULL, dev);
 	spinlock_unlock(&usbhc->lock_hk);
 
-#if defined(CONCEAL_USBCCID)
-	usbccid_init_handle(usbhc, dev);
+	struct usb_driver *driver = usb_find_driver (usbhc, dev);
+	if (driver) {
+		driver->new (usbhc, dev);
+	} else {
+#ifdef HANDLE_USBHUB
+		usbhub_init_handle (usbhc, dev);
 #endif
-
-	usbhid_init_handle(usbhc, dev);
+		usbhid_init_handle (usbhc, dev);
+	}
 	return dev;
 }
 
