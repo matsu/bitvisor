@@ -151,12 +151,8 @@ static void
 pci_match_compat_init (void)
 {
 	convert_pci_conceal (config.vmm.driver.pci_conceal);
-	if (config.vmm.driver.usb.uhci)
-		pci_match_add_compat ("driver=uhci");
 	if (config.vmm.driver.concealEHCI)
 		pci_match_add_compat ("driver=ehci_conceal");
-	else if (config.vmm.driver.usb.ehci)
-		pci_match_add_compat ("driver=ehci");
 	if (config.vmm.driver.vga_intel)
 		pci_match_add_compat ("driver=vga_intel");
 	if (config.vmm.driver.conceal1394 && !config.vmm.tty_ieee1394)

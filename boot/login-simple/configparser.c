@@ -448,8 +448,6 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (uintnum, &name, &src, &len, "vmm.tty_x540", "vmm.tty_x540");
 	ss (uintnum, &name, &src, &len, "vmm.tty_ieee1394", "vmm.tty_ieee1394");
 	ss (uintnum, &name, &src, &len, "vmm.driver.ata", "vmm.driver.ata");
-	ss (uintnum, &name, &src, &len, "vmm.driver.usb.uhci", "vmm.driver.usb.uhci");
-	ss (uintnum, &name, &src, &len, "vmm.driver.usb.ehci", "vmm.driver.usb.ehci");
 	ss (uintnum, &name, &src, &len, "vmm.driver.concealEHCI",
 	    "vmm.driver.concealEHCI");
 	ss (uintnum, &name, &src, &len, "vmm.driver.conceal1394",
@@ -637,8 +635,6 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.tty_x540);
 	CONF (vmm.tty_ieee1394);
 	CONF (vmm.driver.ata);
-	CONF (vmm.driver.usb.uhci);
-	CONF (vmm.driver.usb.ehci);
 	CONF (vmm.driver.concealEHCI);
 	CONF (vmm.driver.conceal1394);
 	CONF (vmm.driver.concealPRO1000);

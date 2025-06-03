@@ -185,14 +185,8 @@ struct config_data_vmm_driver_vpn {
 	int ve;
 };
 
-struct config_data_vmm_driver_usb {
-	int uhci;
-	int ehci;
-};
-
 struct config_data_vmm_driver {
 	int ata;
-	struct config_data_vmm_driver_usb usb;
 	int concealEHCI;
 	int conceal1394;
 	int concealPRO1000;
