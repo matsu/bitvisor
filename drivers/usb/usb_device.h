@@ -274,7 +274,6 @@ struct usb_device {
 	u8 serial_len;
 
 	u8 ctrl_by_host;
-	u32 hc_specific_data[2];
 };
 
 int

@@ -142,9 +142,6 @@ struct usb_operations {
 
 struct usb_init_dev_operations {
 	u8 (*dev_addr) (struct usb_host *host, struct usb_request_block *urb);
-	void (*add_hc_specific_data) (struct usb_host *host,
-				      struct usb_device *dev,
-				      struct usb_request_block *urb);
 };
 
 struct usb_host {

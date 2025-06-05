@@ -704,6 +704,7 @@ struct xhci_host {
 	u32 *portsc;
 
 	spinlock_t sync_lock;
+	u8 dev_addr_to_slot[256];
 };
 #define XHCI_HOST_NBYTES (sizeof (struct xhci_host))
 
@@ -965,7 +966,8 @@ xhci_get_portno (struct xhci_dev_ctx *dev_ctx)
 static inline u32
 xhci_get_slot_id_from_usb_device (struct usb_device *dev)
 {
-	return dev->hc_specific_data[0];
+	struct xhci_host *host = dev->host->private;
+	return host->dev_addr_to_slot[dev->devnum];
 }
 
 /* g_erst_data->erst_size should be verified before using them */

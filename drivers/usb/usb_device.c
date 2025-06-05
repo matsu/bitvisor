@@ -780,9 +780,6 @@ new_usb_device(struct usb_host *usbhc,
 
 	dev->bStatus = UD_STATUS_ADDRESSED;
 
-	if (usbhc->init_op->add_hc_specific_data)
-		usbhc->init_op->add_hc_specific_data (usbhc, dev, urb);
-
 	spinlock_unlock(&dev->lock_dev);
 
 #if defined(HANDLE_USBHUB)

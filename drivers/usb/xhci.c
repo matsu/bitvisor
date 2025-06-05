@@ -1570,16 +1570,9 @@ xhci_dev_addr (struct usb_host *usb_host, struct usb_request_block *h_urb)
 	u32 slot_id = XHCI_URB_PRIVATE (h_urb->shadow)->slot_id;
 
 	struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];
-
-	return XHCI_SLOT_CTX_USB_ADDR (h_dev_ctx->ctx);
-}
-
-static void
-xhci_add_hc_data (struct usb_host *usbhc,
-		  struct usb_device *dev,
-		  struct usb_request_block *h_urb)
-{
-	dev->hc_specific_data[0] = XHCI_URB_PRIVATE (h_urb->shadow)->slot_id;
+	u8 dev_addr = XHCI_SLOT_CTX_USB_ADDR (h_dev_ctx->ctx);
+	host->dev_addr_to_slot[dev_addr] = slot_id;
+	return dev_addr;
 }
 
 static struct usb_operations xhciop = {
@@ -1593,7 +1586,6 @@ static struct usb_operations xhciop = {
 
 static struct usb_init_dev_operations xhci_init_dev_op = {
 	.dev_addr = xhci_dev_addr,
-	.add_hc_specific_data = xhci_add_hc_data
 };
 
 /* Read all capability registers using 32-bit aligned access.  This is
