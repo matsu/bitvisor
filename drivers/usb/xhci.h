@@ -535,6 +535,7 @@ struct xhci_slot_meta {
 	LIST4_DEFINE_HEAD (xhci_trans_data, struct xhci_trans_data, list);
 
 	u8 host_ctrl;
+	u8 new_device;
 
 	spinlock_t xhci_trans_lock;
 } __attribute__ ((packed));
@@ -980,6 +981,7 @@ void xhci_create_shadow_erst (const struct mm_as *as,
 void xhci_reset_erst_current (struct xhci_erst_data *erst_data);
 void xhci_initialize_event_ring (struct xhci_erst_data *erst_data);
 
+void xhci_shadow_new_device (struct xhci_host *host, uint slot_id);
 u8 xhci_process_cmd_trb (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 			 uint idx);
 

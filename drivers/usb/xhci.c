@@ -1133,6 +1133,18 @@ set_slot_owner (struct xhci_host *host, uint slot_id)
 }
 
 static void
+handle_new_device (struct xhci_host *host, uint slot_id)
+{
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	struct xhci_ep_tr     *h_ep_tr	   = &h_slot_meta->ep_trs[0];
+
+	spinlock_lock (&h_ep_tr->lock);
+	h_slot_meta->new_device = 0;
+	xhci_shadow_new_device (host, slot_id);
+	spinlock_unlock (&h_ep_tr->lock);
+}
+
+static void
 handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
 {
 	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
@@ -1200,6 +1212,8 @@ xhci_db_reg_write (struct xhci_host *host, const struct dres_reg *r,
 		    host->slot_meta[slot_id].host_ctrl == HOST_CTRL_INITIAL) {
 			set_slot_owner (host, slot_id);
 		}
+		if (host->slot_meta[slot_id].new_device)
+			handle_new_device (host, slot_id);
 
 		/* Hooks are called for host controlled endpoint only.
 		 * Otherwise, Transfer Ring is pass-through. */
@@ -1561,20 +1575,6 @@ xhci_set_erst_data (struct xhci_host *host)
 	h_last_erst_data->erst_dq_ptr = h_last_erst_data->erst[0].trb_addr;
 }
 
-static u8
-xhci_dev_addr (struct usb_host *usb_host, struct usb_request_block *h_urb)
-{
-	struct usb_host *usbhc = h_urb->host;
-	struct xhci_host *host = (struct xhci_host *)usbhc->private;
-
-	u32 slot_id = XHCI_URB_PRIVATE (h_urb->shadow)->slot_id;
-
-	struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];
-	u8 dev_addr = XHCI_SLOT_CTX_USB_ADDR (h_dev_ctx->ctx);
-	host->dev_addr_to_slot[dev_addr] = slot_id;
-	return dev_addr;
-}
-
 static struct usb_operations xhciop = {
 	.shadow_buffer = xhci_shadow_buffer,
 	.submit_control = xhci_submit_control,
@@ -1582,10 +1582,6 @@ static struct usb_operations xhciop = {
 	.submit_interrupt = xhci_submit_interrupt,
 	.check_advance = xhci_check_urb_advance,
 	.deactivate_urb = xhci_deactivate_urb
-};
-
-static struct usb_init_dev_operations xhci_init_dev_op = {
-	.dev_addr = xhci_dev_addr,
 };
 
 /* Read all capability registers using 32-bit aligned access.  This is
@@ -1721,7 +1717,6 @@ xhci_new (struct pci_device *pci_device)
 	xhci_set_reg_range (host);
 
 	host->usb_host = usb_register_host ((void *)host, &xhciop,
-					    &xhci_init_dev_op,
 					    pci_device->as_dma,
 					    USB_HOST_TYPE_XHCI);
 	ASSERT (host->usb_host != NULL);

@@ -1290,12 +1290,9 @@ disable_slot_cb (struct xhci_host *host, uint slot_id, uint cmd_idx)
 }
 
 static void
-correct_last_changed_port (struct usb_host *usbhc,
-			   struct usb_request_block *h_urb)
+correct_last_changed_port (struct usb_host *usbhc, uint slot_id)
 {
 	struct xhci_host *host = (struct xhci_host *)usbhc->private;
-
-	uint slot_id = XHCI_URB_PRIVATE (h_urb->shadow)->slot_id;
 
 	/*
 	 * Last chaged port from intercepting PORTSC is not reliable
@@ -1309,53 +1306,24 @@ correct_last_changed_port (struct usb_host *usbhc,
 	usb_sc_unlock (usbhc);
 }
 
-static void
-update_urb_info (struct usb_host *usbhc,
-		 struct usb_request_block *h_urb)
+void
+xhci_shadow_new_device (struct xhci_host *host, uint slot_id)
 {
-	struct xhci_host *host = (struct xhci_host *)usbhc->private;
-
-	uint slot_id = XHCI_URB_PRIVATE (h_urb->shadow)->slot_id;
-	u64 portno   = xhci_get_portno (host->dev_ctx[slot_id]);
-
-	struct usb_device *dev = get_device_by_port (usbhc, portno);
-
-	if (!dev) {
+	correct_last_changed_port (host->usb_host, slot_id);
+	struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];
+	u8 dev_addr = XHCI_SLOT_CTX_USB_ADDR (h_dev_ctx->ctx);
+	host->dev_addr_to_slot[dev_addr] = slot_id;
+	struct usb_device *dev = usb_init_new_device (host->usb_host,
+						      dev_addr);
+	if (!dev)
 		dprintf (0, "Potential bug in %s\n", __FUNCTION__);
-		h_urb->status = URB_STATUS_ERRORS;
-		return;
-	}
-
-	h_urb->dev = dev;
-	h_urb->shadow->dev = dev;
-}
-
-static int
-before_init_device (struct usb_host *usbhc,
-		    struct usb_request_block *h_urb,
-		    void *arg)
-{
-	correct_last_changed_port (usbhc, h_urb);
-	return 0;
-}
-
-static int
-after_init_device (struct usb_host *usbhc,
-		   struct usb_request_block *h_urb,
-		   void *arg)
-{
-	update_urb_info (usbhc, h_urb);
-	return 0;
 }
 
 static void
 setup_usb_dev (struct xhci_host *host, uint slot_id, uint cmd_idx)
 {
-	struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];
-
-	usb_init_device (host->usb_host,
-			 XHCI_SLOT_CTX_USB_ADDR (h_dev_ctx->ctx),
-			 before_init_device, after_init_device);
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	h_slot_meta->new_device = 1;
 }
 
 u8

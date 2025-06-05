@@ -699,15 +699,8 @@ is_same_device (struct usb_device *dev1, struct usb_device *dev2)
 	return 1;
 }
 
-/**
- * @brief new usb device 
- * @params usbhc usb host controller data
- * @params urb usb request block
- * @params arg callback argument
- */
-static int 
-new_usb_device(struct usb_host *usbhc, 
-	       struct usb_request_block *urb, void *arg)
+static struct usb_device *
+new_usb_device_sub (struct usb_host *usbhc, int devadr)
 {
 	struct usb_device *dev;
 	struct usb_device *dev_same_addr = NULL, *dev_same_port = NULL;
@@ -716,7 +709,7 @@ new_usb_device(struct usb_host *usbhc,
 	struct usb_device *hubdev;
 	u8 buf[255];
 	u16 pktsz;
-	int devadr, ret;
+	int ret;
 	static const struct usb_hook_pattern pat_setinf = {
 		.pid = USB_PID_SETUP,
 		.mask = 0x000000000000ffffULL,
@@ -736,9 +729,6 @@ new_usb_device(struct usb_host *usbhc,
 					struct usb_device *dev);
 #endif
 	void usbhid_init_handle (struct usb_host *, struct usb_device *);
-
-	/* get a device address */
-	devadr = usbhc->init_op->dev_addr (usbhc, urb);
 
 	dprintft(1, "SetAddress(%d) found.\n", devadr);
 
@@ -845,7 +835,7 @@ new_usb_device(struct usb_host *usbhc,
 		dprintft(0, "WARNING: Can't get a DEVICE descriptor.\n");
 		usb_close(udev);
 		free_device(usbhc, dev);
-		return USB_HOOK_DISCARD;
+		return NULL;
 	}
 
 	/* GetDescriptor(DEVICE, 255) for config and other descriptors */
@@ -881,7 +871,7 @@ new_usb_device(struct usb_host *usbhc,
 			free_device (usbhc, dev);
 			dprintft (1, "Reuse the previous device data"
 				  " of address(%d).\n", devadr);
-			return USB_HOOK_PASS;
+			return dev_same_port;
 		} else {
 			dprintft (1, "Free the previous device data"
 				  " of address(%d).\n", devadr);
@@ -910,7 +900,20 @@ new_usb_device(struct usb_host *usbhc,
 #endif
 
 	usbhid_init_handle(usbhc, dev);
-	return USB_HOOK_PASS;
+	return dev;
+}
+
+/* SetAddress handler for UHCI and EHCI. */
+static int
+new_usb_device (struct usb_host *usbhc, struct usb_request_block *urb,
+		void *arg)
+{
+	/* get a device address */
+	int devadr = get_wValue_from_setup (usbhc, urb->shadow->buffers) &
+		0x7FU;
+	struct usb_device *dev = new_usb_device_sub (usbhc, devadr);
+
+	return dev ? USB_HOOK_PASS : USB_HOOK_DISCARD;
 }
 
 /**
@@ -940,25 +943,14 @@ usb_init_device_monitor(struct usb_host *host)
 }
 
 /*
- * Use this function when HC is responsible for SET_ADDRESS(). This should be
- * called after SET_ADDRESS() is complete.
+ * Use this function when HC is responsible for SET_ADDRESS().  This
+ * should be called after SET_ADDRESS() is complete and submit_control
+ * is ready to use.
  */
-void
-usb_init_device (struct usb_host *host, u8 usb_addr,
-		 int (*before_init) (struct usb_host *usbhc,
-				     struct usb_request_block *urb,
-				     void *arg),
-		 int (*after_init) (struct usb_host *host,
-				    struct usb_request_block *urb,
-				    void *arg))
+struct usb_device *
+usb_init_new_device (struct usb_host *host, u8 usb_addr)
 {
-	spinlock_lock (&host->lock_hk);
-	usb_hook_register_ex (host, USB_HOOK_REQUEST,
-			      USB_HOOK_MATCH_ADDR | USB_HOOK_MATCH_ENDP,
-			      usb_addr, 0, NULL,
-			      new_usb_device, NULL, NULL,
-			      before_init, after_init, 1, 1);
-	spinlock_unlock (&host->lock_hk);
+	return new_usb_device_sub (host, usb_addr);
 }
 
 void *

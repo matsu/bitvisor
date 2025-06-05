@@ -59,17 +59,6 @@ static struct usb_operations ehciop = {
 
 DEFINE_GET_U16_FROM_SETUP_FUNC (wValue)
 
-static u8
-ehci_dev_addr (struct usb_host *host, struct usb_request_block *h_urb)
-{
-	return (u8)get_wValue_from_setup (host, h_urb->shadow->buffers) &
-		0x7fU;
-}
-
-static struct usb_init_dev_operations ehci_init_dev_op = {
-	.dev_addr = ehci_dev_addr,
-};
-
 static void 
 ehci_new(struct pci_device *pci_device)
 {
@@ -96,7 +85,6 @@ ehci_new(struct pci_device *pci_device)
 	LIST2_HEAD_INIT (host->need_shadow, need_shadow);
 	LIST2_HEAD_INIT (host->update, update);
 	host->usb_host = usb_register_host ((void *)host, &ehciop,
-					    &ehci_init_dev_op,
 					    pci_device->as_dma,
 					    USB_HOST_TYPE_EHCI);
 	ASSERT(host->usb_host != NULL);
