@@ -132,24 +132,27 @@ int
 usb_hook_process(struct usb_host *host, 
 		 struct usb_request_block *urb, int phase)
 {
-	struct usb_hook *hook, *next_hook;
+	struct usb_hook *hook;
 	int ret = USB_HOOK_PASS; /* default */
 	u8 endpt;
+	struct usb_hook **phook;
+	struct usb_hook **phook2 = NULL;
 
-	for (hook = host->hook[phase - 1]; hook; hook = next_hook) {
-		next_hook = hook->next;
+	if (urb->dev)
+		phook2 = &urb->dev->dev_hook[phase - 1];
+	for (phook = &host->hook[phase - 1]; *phook; phook = &hook->next) {
+	process_hook:
+		hook = *phook;
 		if (hook->delete) {
 			spinlock_lock (&host->lock_hk);
-			usb_hook_delete (&host->hook[phase - 1], hook);
+			*phook = hook->next;
 			spinlock_unlock (&host->lock_hk);
 			free (hook);
-			continue;
+			if (*phook)
+				goto process_hook;
+			break;
 		}
 
-		/* dev */
-		if ((hook->match & USB_HOOK_MATCH_DEV) &&
-		    (hook->dev != urb->dev))
-			continue;
 		/* device address */
 		if ((hook->match & USB_HOOK_MATCH_ADDR) &&
 		    (hook->devadr != urb->address))
@@ -175,9 +178,6 @@ usb_hook_process(struct usb_host *host,
 		/* reach here if the urb content 
 		   fit all patterns specified by a hook */
 		ret = hook->callback(host, urb, hook->cbarg);
-		/* New hook might be registered during the hook
-		 * callback. */
-		next_hook = hook->next;
 
 		/* USB_HOOK_PENDING is not usable for USB_HOOK_REPLY. */
 		ASSERT (!(phase == USB_HOOK_REPLY && ret == USB_HOOK_PENDING));
@@ -186,6 +186,15 @@ usb_hook_process(struct usb_host *host,
 
 		if (ret == USB_HOOK_DISCARD || ret == USB_HOOK_PENDING)
 			break;
+	}
+	if (!*phook && phook2 && *phook2) {
+		/* New hook might be registered during the hook
+		 * callback.  Swap and continue until both lists
+		 * end. */
+		struct usb_hook **phook_tmp = phook;
+		phook = phook2;
+		phook2 = phook_tmp;
+		goto process_hook;
 	}
 
 	return ret;
@@ -231,7 +240,10 @@ usb_hook_register(struct usb_host *host,
 	hook->dev = dev;
 	hook->next = NULL;
 
-	usb_hook_append (&host->hook[phase - 1], hook);
+	if (match & USB_HOOK_MATCH_DEV)
+		usb_hook_append (&dev->dev_hook[phase - 1], hook);
+	else
+		usb_hook_append (&host->hook[phase - 1], hook);
 
 	return hook;
 }

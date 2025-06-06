@@ -166,10 +166,14 @@ free_device(struct usb_host *host, struct usb_device *dev)
 	struct usb_hook *hook, *next_hook;
 	int phase;
 
-	/* remove hooks which are related with the device */
+	/* Remove hooks that are related to the device, even if
+	 * USB_HOOK_MATCH_DEV flag was not specified when registering
+	 * hooks. */
 	for (phase = 0; phase < USB_HOOK_NUM_PHASE; phase++) {
 		hook = host->hook[phase];
+		struct usb_hook *dev_hook = dev->dev_hook[phase];
 		while (hook) {
+		remove_dev_hook:
 			next_hook = hook->next;
 			if (hook->dev == dev) {
 				spinlock_lock(&host->lock_hk);
@@ -177,6 +181,11 @@ free_device(struct usb_host *host, struct usb_device *dev)
 				spinlock_unlock(&host->lock_hk);
 			}
 			hook = next_hook;
+		}
+		if (!hook && dev_hook) {
+			hook = dev_hook;
+			dev_hook = NULL;
+			goto remove_dev_hook;
 		}
 	}
 			

@@ -250,6 +250,7 @@ struct usb_device {
 	u64 portno;
 	struct usb_device *parent;	/* for HUB cascade */
 	struct usb_host *host;
+	struct usb_hook *dev_hook[USB_HOOK_NUM_PHASE];
 	u8 bStatus;
 #define UD_STATUS_POWERED       0x00U
 #define UD_STATUS_ADDRESSED     0x01U
