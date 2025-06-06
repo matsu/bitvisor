@@ -138,6 +138,13 @@ usb_hook_process(struct usb_host *host,
 
 	for (hook = host->hook[phase - 1]; hook; hook = next_hook) {
 		next_hook = hook->next;
+		if (hook->delete) {
+			spinlock_lock (&host->lock_hk);
+			usb_hook_delete (&host->hook[phase - 1], hook);
+			spinlock_unlock (&host->lock_hk);
+			free (hook);
+			continue;
+		}
 
 		/* dev */
 		if ((hook->match & USB_HOOK_MATCH_DEV) &&
@@ -168,6 +175,9 @@ usb_hook_process(struct usb_host *host,
 		/* reach here if the urb content 
 		   fit all patterns specified by a hook */
 		ret = hook->callback(host, urb, hook->cbarg);
+		/* New hook might be registered during the hook
+		 * callback. */
+		next_hook = hook->next;
 
 		/* USB_HOOK_PENDING is not usable for USB_HOOK_REPLY. */
 		ASSERT (!(phase == USB_HOOK_REPLY && ret == USB_HOOK_PENDING));
@@ -212,6 +222,7 @@ usb_hook_register(struct usb_host *host,
 	hook = alloc_usb_hook ();
 	ASSERT (hook != NULL);
 	hook->match = match;
+	hook->delete = 0;
 	hook->devadr = devadr;
 	hook->endpt = endpt;
 	hook->data = data;
@@ -228,9 +239,6 @@ usb_hook_register(struct usb_host *host,
 void
 usb_hook_unregister(struct usb_host *host, int phase, void *handle)
 {
-	ASSERT(phase <= USB_HOOK_NUM_PHASE);
-	usb_hook_delete(&host->hook[phase - 1], handle);
-	free(handle);
-
-	return;
+	struct usb_hook *hook = handle;
+	hook->delete = 1;
 }

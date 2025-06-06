@@ -29,6 +29,7 @@ struct usb_hook_pattern {
 struct usb_hook {
 	/* flags */
 	u8         match;
+	u8         delete;
 
 	/* match patterns */
 	u8         devadr;
