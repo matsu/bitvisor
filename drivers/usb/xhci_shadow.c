@@ -1016,6 +1016,7 @@ free_slot (struct xhci_host *host, uint slot_id)
 
 	unmapmem (host->g_data.dev_ctx[slot_id], XHCI_DEV_CTX_NBYTES);
 	host->g_data.dev_ctx[slot_id] = NULL;
+	h_slot_meta->device = NULL;
 }
 
 static phys_t
@@ -1317,6 +1318,8 @@ xhci_shadow_new_device (struct xhci_host *host, uint slot_id)
 						      dev_addr);
 	if (!dev)
 		dprintf (0, "Potential bug in %s\n", __FUNCTION__);
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	h_slot_meta->device = dev;
 }
 
 static void
@@ -1649,15 +1652,15 @@ get_next_seg (const struct mm_as *as, struct xhci_trb *link_trb,
 }
 
 static struct usb_request_block *
-init_urb (struct xhci_host *host, uint slot_id, uint ep_no)
+init_urb (struct xhci_host *host, uint slot_id, uint ep_no,
+	  struct usb_device *dev)
 {
 	struct usb_request_block *g_urb = new_urb_xhci ();
 
 	g_urb->address = XHCI_SLOT_CTX_USB_ADDR (host->dev_ctx[slot_id]->ctx);
 
 	g_urb->host = host->usb_host;
-	g_urb->dev  = get_device_by_address (g_urb->host,
-					     g_urb->address);
+	g_urb->dev  = dev;
 
 	uint bEndpointAddress = xhci_ep_no_to_bEndpointAddress (ep_no);
 	g_urb->endpoint = get_edesc_by_address (g_urb->dev,
@@ -1988,6 +1991,7 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 	struct usb_request_block *new_g_urb = NULL;
 
 	u8 stop = 0;
+	struct usb_device *dev = h_slot_meta->device;
 
 	do { /* for stop */
 		uint current_seg  = g_ep_tr->current_seg;
@@ -2030,7 +2034,8 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 					XHCI_URB_PRIVATE (tail_g_urb)
 						->next_g_dq_ptr = g_trb_addr |
 						current_toggle;
-				new_g_urb = init_urb (host, slot_id, ep_no);
+				new_g_urb = init_urb (host, slot_id, ep_no,
+						      dev);
 			}
 
 			struct xhci_urb_private *urb_priv;

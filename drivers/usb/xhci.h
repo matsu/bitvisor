@@ -530,6 +530,7 @@ struct xhci_trans_data {
 struct xhci_slot_meta {
 	phys_t input_dev_ctx_addr;
 	struct xhci_input_dev_ctx *input_ctx;
+	struct usb_device *device;
 
 	struct xhci_ep_tr ep_trs[MAX_EP];
 	LIST4_DEFINE_HEAD (xhci_trans_data, struct xhci_trans_data, list);
