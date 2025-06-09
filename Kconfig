@@ -455,22 +455,24 @@ config DUMP_PCI_DEV_LIST
 	default n
 	prompt "Dump list of PCI devices"
 
-config IP
+menuconfig IP
 	bool
 	default y
 	prompt "Enable TCP/IP stack"
 
+if IP
+
 config WIREGUARD
 	bool
 	default n
-	depends on IP
 	prompt "Wireguard for vmm"
 
 config TLS
 	bool
 	default n
-	depends on IP
 	prompt "Enable TLS connection with Mbed-TLS"
+
+endif
 
 config PCI_MONITOR
 	bool
