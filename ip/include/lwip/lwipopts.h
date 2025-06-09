@@ -55,6 +55,15 @@
 #define ALTCP_MBEDTLS_USE_SESSION_CACHE		1
 #endif
 
+#ifdef LWIP_TUNE_OPTS
+#	define TCP_MSS		1460
+#	define TCP_WND		(16 * TCP_MSS)
+#	define TCP_SND_BUF	65535
+#	define TCP_SND_QUEUELEN	(16 * (TCP_SND_BUF / TCP_MSS))
+#	define MEMP_NUM_TCP_SEG	TCP_SND_QUEUELEN
+#	define MEMP_NUM_PBUF	48
+#endif
+
 /* --- DHCP --- */
 #define DHCP_DOES_ARP_CHECK             0 /* Don't Check Binded Addr */
 

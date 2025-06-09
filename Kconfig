@@ -462,6 +462,11 @@ menuconfig IP
 
 if IP
 
+config LWIP_TUNE_OPTS
+	bool
+	default y
+	prompt "Use tuned lwIP settings (higher throughput, higher memory usage)"
+
 config WIREGUARD
 	bool
 	default n
