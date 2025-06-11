@@ -46,6 +46,7 @@ config CPU_MMU_SPT_1
 
 config CPU_MMU_SPT_2
 	bool
+	select DEPRECATED
 	select CPU_MMU_SPT_USE_PAE
 	prompt "Shadow type 2 (faster and unstable)"
 
@@ -67,6 +68,7 @@ config CPU_MMU_SPT_USE_PAE
 
 config CPU_MMU_SPT_DISABLE
 	bool
+	select EXPERIMENTAL
 	prompt "Disable SPT (fast, insecure and no MMIO)"
 	help
 	  CPU_MMU_SPT_DISABLE avoids using shadow page tables as much as
@@ -86,6 +88,7 @@ config USE_SYSCALL64
 
 config DEBUG_GDB
 	bool
+	select DEPRECATED
 	default n
 	depends on !64
 	prompt "gdb remote debug support (32bit only)"
@@ -144,6 +147,7 @@ config DMAR_PASS_THROUGH
 
 config VTD_TRANS
 	bool
+	select EXPERIMENTAL
 	default n
 	prompt "Enable VT-d translation"
 	help
@@ -189,6 +193,21 @@ config TTY_VGA
 	prompt "VMM output using VGA driver"
 
 endmenu
+
+config DEPRECATED
+	bool
+
+config WARN_DEPRECATED
+	bool
+	default y
+	prompt "Enable warnings for deprecated configuration options"
+
+config EXPERIMENTAL
+	bool
+
+config WARN_EXPERIMENTAL
+	bool
+	prompt "Enable warnings for experimental configuration options"
 
 config DBGSH
 	bool
@@ -322,6 +341,7 @@ config ENABLE_ASSERT
 
 config IDMAN
 	bool
+	select EXPERIMENTAL
 	default y
 	select CRYPTO
 	prompt "IDMAN"
@@ -358,6 +378,7 @@ if NET_DRIVER
 
 config NET_PRO100
 	bool
+	select DEPRECATED
 	default n
 	prompt "Intel PRO/100 driver"
 
@@ -368,6 +389,7 @@ config NET_PRO1000
 
 config NET_RTL8169
 	bool
+	select DEPRECATED
 	default n
 	prompt "Realtek RTL8169 driver"
 
