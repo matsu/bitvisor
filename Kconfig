@@ -358,7 +358,7 @@ if NET_DRIVER
 
 config NET_PRO100
 	bool
-	default y
+	default n
 	prompt "Intel PRO/100 driver"
 
 config NET_PRO1000
