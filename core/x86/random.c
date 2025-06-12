@@ -34,6 +34,7 @@
 #include <core/printf.h>
 #include <core/string.h>
 #include <tcg.h>
+#include "ap.h"
 #include "asm.h"
 #include "constants.h"
 #include "convert.h"
@@ -180,6 +181,10 @@ support_rdrand_check (void)
 void
 random_arch_init (void)
 {
+	/* Use sync_all_processors() here to ensure that
+	 * get_epoch_time() will work in random_init_general() during
+	 * parallel initialization on BIOS-based systems. */
+	sync_all_processors ();
 	currentcpu->support_rdrand = support_rdrand_check ();
 }
 
