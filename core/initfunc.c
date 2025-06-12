@@ -28,6 +28,7 @@
  */
 
 #include <core/initfunc.h>
+#include <core/panic.h>
 #include <core/printf.h>
 #include <core/qsort.h>
 #include <core/string.h>
@@ -35,6 +36,8 @@
 #include "initfunc.h"
 
 extern struct initfunc_data __initfunc_start[], __initfunc_end[];
+
+static bool panic_ready;
 
 static void
 debug_print1 (struct initfunc_data *p)
@@ -59,9 +62,13 @@ call_initfunc (char *id)
 	struct initfunc_data *p;
 
 	l = strlen (id);
-	for (p = __initfunc_start; p != __initfunc_end; p++)
-		if (memcmp (p->id, id, l) == 0)
+	for (p = __initfunc_start; p != __initfunc_end; p++) {
+		if (memcmp (p->id, id, l) == 0) {
 			p->func ();
+			if (panic_ready)
+				panic_test ();
+		}
+	}
 }
 
 static int
@@ -85,3 +92,14 @@ initfunc_init (void)
 	if (false)
 		debug_print ();
 }
+
+static void
+initfunc_global_complete (void)
+{
+	/* After the "global" call, multiprocessing may be started.
+	 * Set panic_ready to make call_initfunc() stop if panic() is
+	 * called by another processor. */
+	panic_ready = true;
+}
+
+INITFUNC ("global9", initfunc_global_complete);
