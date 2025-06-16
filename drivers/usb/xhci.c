@@ -455,7 +455,8 @@ create_h_dev_ctx (struct xhci_host *host, u64 g_dev_ctx, void *handler_data)
 
 		/* This will be used during slot initialization */
 		struct xhci_input_dev_ctx *input_ctx;
-		input_ctx = zalloc2_align (XHCI_INPUT_DEV_CTX_NBYTES,
+		input_ctx = zalloc2_align (XHCI_INPUT_DEV_CTX_NBYTES (host->
+								      csz),
 					   &h_slot_meta->input_dev_ctx_addr,
 					   XHCI_ALIGN_64);
 
@@ -1788,6 +1789,8 @@ xhci_new (struct pci_device *pci_device)
 	/* For recording port status */
 	host->portsc = zalloc (sizeof (u32) * last_port_number);
 
+	host->csz = CAP_CPARAM1_GET_CSZ (cap_reg->hc_cparams1);
+	dprintft (REG_DEBUG_LEVEL, "CSZ flag: %u\n", host->csz);
 	/* Read PAE flag, necessary for URB completion check */
 	host->pae = CAP_CPARAM1_GET_PAE (cap_reg->hc_cparams1);
 	dprintft (REG_DEBUG_LEVEL, "PAE flag: %u\n", host->pae);

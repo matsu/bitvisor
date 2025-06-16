@@ -110,6 +110,7 @@ zalloc (uint nbytes)
 	(CAP_SPARAM2_GET_MAX_SCRATCHPAD_HI (sparam2) << 5) | \
 	CAP_SPARAM2_GET_MAX_SCRATCHPAD_LO (sparam2)
 
+#define CAP_CPARAM1_GET_CSZ(cparam1) (((cparam1) & 0x00000004U) >> 2)
 #define CAP_CPARAM1_GET_PAE(cparam1) (((cparam1) & 0x00000100U) >> 8)
 /*
  * To get ext offset, value in the register must be shift to the right by 2.
@@ -245,7 +246,8 @@ union xhci_db_reg {
 struct xhci_slot_ctx {
 	u32 field[8];
 } __attribute__ ((packed));
-#define XHCI_SLOT_CTX_NBYTES (sizeof (struct xhci_slot_ctx))
+#define XHCI_SLOT_CTX_NBYTES(csz) \
+	(sizeof (struct xhci_slot_ctx) * (1 + !!(csz)))
 
 #define XHCI_MAX_ROUTE_STR_TIER   (5)
 
@@ -261,7 +263,7 @@ struct xhci_ep_ctx {
 	phys_t dq_ptr;
 	u32 field2[4];
 } __attribute__ ((packed));
-#define XHCI_EP_CTX_NBYTES (sizeof (struct xhci_ep_ctx))
+#define XHCI_EP_CTX_NBYTES(csz) (sizeof (struct xhci_ep_ctx) * (1 + !!(csz)))
 
 #define XHCI_EP_CTX_EP_STATE(ep_ctx)	(ep_ctx.field1[0] & 0x7)
 
@@ -289,21 +291,38 @@ struct xhci_input_ctrl_ctx {
 	u32 add_flags;
 	u32 field[6];
 } __attribute__ ((packed));
-#define XHCI_INPUT_CTX_NBYTES (sizeof (struct xhci_input_ctrl_ctx))
+#define XHCI_INPUT_CTX_NBYTES(csz) \
+	(sizeof (struct xhci_input_ctrl_ctx) * (1 + !!(csz)))
 
 #define MAX_EP (31)
 
 struct xhci_dev_ctx {
 	struct xhci_slot_ctx ctx;
-	struct xhci_ep_ctx ep[MAX_EP];
+	struct xhci_ep_ctx _ep[MAX_EP];
 } __attribute__ ((packed));
-#define XHCI_DEV_CTX_NBYTES (sizeof (struct xhci_dev_ctx))
+#define XHCI_DEV_CTX_NBYTES(csz) (sizeof (struct xhci_dev_ctx) * (1 + !!(csz)))
+#define XHCI_DEV_CTX_EP(ctx, ep_no, csz) \
+	(ctx)->_ep[(csz) ? (ep_no) * 2 + 1 : (ep_no)]
 
 struct xhci_input_dev_ctx {
 	struct xhci_input_ctrl_ctx input_ctrl;
-	struct xhci_dev_ctx dev_ctx;
+	union {
+		struct xhci_dev_ctx csz0_dev_ctx[1];
+		struct {
+			u32 extra[8]; /* Extra 32 bytes */
+			/* Note: the following struct is not included
+			 * in sizeof (struct xhci_input_dev_ctx). */
+			struct xhci_dev_ctx csz1_dev_ctx[];
+		} __attribute__ ((packed)) csz1;
+	} __attribute__ ((packed)) _dev_ctx;
 } __attribute__ ((packed));
-#define XHCI_INPUT_DEV_CTX_NBYTES (sizeof (struct xhci_input_dev_ctx))
+#define XHCI_INPUT_DEV_CTX_NBYTES(csz) \
+	(sizeof (struct xhci_input_dev_ctx) * (1 + !!(csz)))
+#define XHCI_INPUT_DEV_CTX_DEV_CTX(ctx, csz) \
+	(*((csz) ? (ctx)->_dev_ctx.csz1.csz1_dev_ctx : \
+	   (ctx)->_dev_ctx.csz0_dev_ctx))
+#define XHCI_INPUT_DEV_CTX_DEV_CTX_EP(ctx, ep, csz) \
+	XHCI_DEV_CTX_EP (&XHCI_INPUT_DEV_CTX_DEV_CTX (ctx, csz), ep, csz)
 
 struct xhci_trb {
 
@@ -693,6 +712,7 @@ struct xhci_host {
 
 	enum xhci_hc_state hc_state;
 
+	u8 csz;			/* Context Size flag */
 	/* Parse All Events flag, necessary for URB completion check */
 	u8  pae;
 

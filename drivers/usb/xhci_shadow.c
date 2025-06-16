@@ -224,7 +224,8 @@ static void
 clone_ep_to_guest (struct xhci_host *host, struct xhci_dev_ctx *h_dev_ctx,
 		   struct xhci_dev_ctx *g_dev_ctx, uint slot_id, uint ep_no)
 {
-	u8 ep_state = XHCI_EP_CTX_EP_STATE (h_dev_ctx->ep[ep_no]);
+	u8 ep_state = XHCI_EP_CTX_EP_STATE (XHCI_DEV_CTX_EP (h_dev_ctx, ep_no,
+							     host->csz));
 
 	if (ep_state == XHCI_EP_STATE_DISABLE) {
 		return;
@@ -232,11 +233,13 @@ clone_ep_to_guest (struct xhci_host *host, struct xhci_dev_ctx *h_dev_ctx,
 
 	/* If BitVisor does not own the EP, just copy */
 	if (ep_no != 0 && host->slot_meta[slot_id].host_ctrl == HOST_CTRL_NO) {
-		g_dev_ctx->ep[ep_no] = h_dev_ctx->ep[ep_no];
+		XHCI_DEV_CTX_EP (g_dev_ctx, ep_no, host->csz) =
+			XHCI_DEV_CTX_EP (h_dev_ctx, ep_no, host->csz);
 		return;
 	}
 
-	struct xhci_ep_ctx tmp_ep_ctx = h_dev_ctx->ep[ep_no];
+	struct xhci_ep_ctx tmp_ep_ctx = XHCI_DEV_CTX_EP (h_dev_ctx, ep_no,
+							 host->csz);
 
 	/*
 	 * For EPs ownd by BitVisor, replace dequeue pointer
@@ -246,7 +249,7 @@ clone_ep_to_guest (struct xhci_host *host, struct xhci_dev_ctx *h_dev_ctx,
 	g_ep_tr = &host->g_data.slot_meta[slot_id].ep_trs[ep_no];
 	tmp_ep_ctx.dq_ptr = g_ep_tr->dq_ptr;
 
-	g_dev_ctx->ep[ep_no] = tmp_ep_ctx;
+	XHCI_DEV_CTX_EP (g_dev_ctx, ep_no, host->csz) = tmp_ep_ctx;
 }
 
 static void
@@ -268,7 +271,8 @@ clone_dev_ctx_to_guest (struct xhci_host *host, uint slot_id)
 		struct xhci_dev_ctx *g_dev_ctx;
 		g_dev_ctx = (struct xhci_dev_ctx *)
 			mapmem_as (host->usb_host->as_dma, dev_ctx_addr,
-				   XHCI_DEV_CTX_NBYTES, MAPMEM_WRITE);
+				   XHCI_DEV_CTX_NBYTES (host->csz),
+				   MAPMEM_WRITE);
 
 		host->g_data.dev_ctx[slot_id] = g_dev_ctx;
 	}
@@ -909,7 +913,7 @@ alloc_slot (struct xhci_host *host, uint slot_id)
 	h_dev_ctx_addr = &host->dev_ctx_array[slot_id];
 
 	if (!h_dev_ctx || !*h_dev_ctx_addr) {
-		h_dev_ctx = zalloc2_align (XHCI_DEV_CTX_NBYTES,
+		h_dev_ctx = zalloc2_align (XHCI_DEV_CTX_NBYTES (host->csz),
 					   h_dev_ctx_addr,
 					   XHCI_ALIGN_64);
 
@@ -1086,7 +1090,8 @@ free_slot (struct xhci_host *host, uint slot_id)
 	host->dev_ctx[slot_id] = NULL;
 	*h_dev_ctx_addr = 0;
 
-	unmapmem (host->g_data.dev_ctx[slot_id], XHCI_DEV_CTX_NBYTES);
+	unmapmem (host->g_data.dev_ctx[slot_id], XHCI_DEV_CTX_NBYTES (host->
+								      csz));
 	host->g_data.dev_ctx[slot_id] = NULL;
 	h_slot_meta->device = NULL;
 }
@@ -1141,11 +1146,12 @@ clone_input_ctx (struct xhci_host *host, uint slot_id, phys_t g_input_ctx_addr)
 	struct xhci_input_dev_ctx *g_input_ctx;
 	g_input_ctx = (struct xhci_input_dev_ctx *)
 		mapmem_as (host->usb_host->as_dma, g_input_ctx_addr,
-			   XHCI_INPUT_DEV_CTX_NBYTES, 0);
+			   XHCI_INPUT_DEV_CTX_NBYTES (host->csz), 0);
 
-	*h_slot_meta->input_ctx = *g_input_ctx;
+	memcpy (h_slot_meta->input_ctx, g_input_ctx,
+		XHCI_INPUT_DEV_CTX_NBYTES (host->csz));
 
-	unmapmem (g_input_ctx, XHCI_INPUT_DEV_CTX_NBYTES);
+	unmapmem (g_input_ctx, XHCI_INPUT_DEV_CTX_NBYTES (host->csz));
 }
 
 static void
@@ -1159,10 +1165,13 @@ evaluate_input_ctx (struct xhci_host *host, uint slot_id)
 	struct xhci_input_dev_ctx *h_input_ctx = h_slot_meta->input_ctx;
 
 	u32 add_flags = h_input_ctx->input_ctrl.add_flags;
+	u8 csz = host->csz;
 
 	uint ep_no;
 	for (ep_no = 0; ep_no < MAX_EP; ep_no++) {
-		phys_t input_dq_ptr = h_input_ctx->dev_ctx.ep[ep_no].dq_ptr;
+		phys_t input_dq_ptr =
+			XHCI_INPUT_DEV_CTX_DEV_CTX_EP (h_input_ctx, ep_no,
+						       csz).dq_ptr;
 		u8 flags = EP_CTX_DQ_PTR_GET_FLAGS (input_dq_ptr);
 
 		/* EP context bit starts at bit 1 (The second bit) */
@@ -1237,13 +1246,14 @@ evaluate_input_ctx (struct xhci_host *host, uint slot_id)
 		}
 
 		/* Always set Dequeue Cycle State (DCS) bit. */
-		h_input_ctx->dev_ctx.ep[ep_no].dq_ptr = new_dq_ptr | flags |
-			0x1;
+		XHCI_INPUT_DEV_CTX_DEV_CTX_EP (h_input_ctx, ep_no, csz)
+			.dq_ptr = new_dq_ptr | flags | 0x1;
 		/* Clear the Cycle (C) bit of the first TRB. */
 		tr_seg_h_trbs_ref (&h_ep_tr->tr_segs[0], 0)->ctrl.value = 0;
 
 		dprintft (CMD_DEBUG_LEVEL, "new input dq ptr: %016llX\n",
-			  h_input_ctx->dev_ctx.ep[ep_no].dq_ptr);
+			  XHCI_INPUT_DEV_CTX_DEV_CTX_EP (h_input_ctx, ep_no,
+							 csz).dq_ptr);
 	}
 }
 
@@ -2724,7 +2734,8 @@ xhci_reply_td (struct usb_host *usbhc, struct usb_request_block *gurb,
 	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
 	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
 	struct xhci_input_dev_ctx *h_input_ctx = h_slot_meta->input_ctx;
-	u8 ep_type = XHCI_EP_CTX_EP_TYPE (h_input_ctx->dev_ctx.ep[ep_no]);
+	u8 ep_type = XHCI_EP_CTX_EP_TYPE (XHCI_INPUT_DEV_CTX_DEV_CTX_EP
+					  (h_input_ctx, ep_no, host->csz));
 
 	if (h_ep_tr->vhalt_ep)
 		return;
