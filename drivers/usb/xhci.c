@@ -1269,13 +1269,9 @@ xhci_reg_handler (const struct dres_reg *r, void *handle, phys_t offset,
 		u8 condition;
 		u8 deny_wr = 0;
 		while (blacklist_ext_cap) {
-			/* With in the range */
-			condition = acc_start >= blacklist_ext_cap->start &&
-				    acc_start < blacklist_ext_cap->end;
-
-			/* acc_end happens to be more than the start addr */
-			condition = condition ||
-				    acc_end > blacklist_ext_cap->start;
+			/* Within the range */
+			condition = acc_end > blacklist_ext_cap->start &&
+				acc_start < blacklist_ext_cap->end;
 
 			if (condition) {
 				deny_wr = 1;
