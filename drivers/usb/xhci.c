@@ -1062,6 +1062,7 @@ handle_cmd_write (struct xhci_host *host)
 	struct xhci_trb *h_cmd_trbs = host->cmd_trbs;
 
 	struct xhci_trb *g_current_trb, *h_current_trb;
+	struct xhci_trb *h_first_trb = NULL;
 
 	struct xhci_trb tmp_trb;
 
@@ -1076,6 +1077,12 @@ handle_cmd_write (struct xhci_host *host)
 						  &tmp_trb,
 						  host->cmd_current_idx);
 
+		if (!h_first_trb) {
+			/* Invert C bit of the first TRB using
+			 * exclusive or. */
+			tmp_trb.ctrl.value ^= XHCI_TRB_SET_C (1);
+			h_first_trb = h_current_trb;
+		}
 		*h_current_trb = tmp_trb;
 
 		host->cmd_current_idx++;
@@ -1084,6 +1091,15 @@ handle_cmd_write (struct xhci_host *host)
 			host->cmd_current_idx  = 0;
 			host->cmd_toggle      ^= 1;
 		}
+	}
+	if (h_first_trb) {
+		/* Invert C bit of the first TRB using exclusive or
+		 * after making sure all other TRBs are written. */
+		asm_store_barrier ();
+		h_first_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
+		/* Make sure the correct C bit is written before
+		 * ringing the doorbell. */
+		asm_store_barrier ();
 	}
 }
 
