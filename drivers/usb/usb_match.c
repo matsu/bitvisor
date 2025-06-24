@@ -73,6 +73,12 @@ struct usb_match_number_list {
      vmm.driver.usb=driver=mscd
    - Enable MSCD driver for vendor_id=0x1234 only
      vmm.driver.usb=device=mscd, id=1234:*, driver=mscd
+   - Conceal vendor_id=0x1234 devices, except port 1-1
+     vmm.driver.usb=port=1-1*, driver=none, and, id=1234:*, driver=conceal
+   - Conceal human interface devices
+     vmm.driver.usb=class=03, driver=conceal
+   - Conceal all devices except human interface devices
+     vmm.driver.usb=class=03, driver=none, and, id=*, driver=conceal
 */
 static enum match_ret
 match_value (struct token *tname, struct token *tvalue, struct usb_host *host,

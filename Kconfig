@@ -309,6 +309,15 @@ config CONCEAL_USBCCID
 	default y
 	prompt "Conceal USB ccid class device"
 
+config CONCEAL_USBDEV
+	bool
+	select EXPERIMENTAL
+	default y
+	prompt "Conceal USB device"
+	help
+	  See drivers/usb/usb_match.c for configuration examples.
+	  Currently this works with xHCI driver and Linux guest only.
+
 endif
 
 config IEEE1394_CONCEALER
