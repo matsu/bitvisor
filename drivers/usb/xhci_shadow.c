@@ -1503,6 +1503,17 @@ xhci_process_cmd_trb (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 
 		break;
 	case XHCI_TRB_TYPE_LINK:
+		/* Note: currently a Link TRB in Command Ring is
+		 * expected to meet all of the following conditions:
+		 * - Toggle Cycle flag is set.
+		 * - Ring Segment Pointer points to the beginning of
+		 *   the Command Ring.
+		 * Drivers in EDK II, Linux and Windows appear to
+		 * comply with these conditions. */
+		if (!XHCI_TRB_GET_TC (h_cmd_trb))
+			panic ("%s: Link TC=0", __func__);
+		if (h_cmd_trb->param.next_addr != host->g_data.cmd_ring_addr)
+			panic ("%s: Link unsupported pointer", __func__);
 		h_cmd_trb->param.next_addr = host->cmd_ring_addr;
 		ret = 1;
 
