@@ -263,7 +263,8 @@ ehci_register_handler (const struct dres_reg *r, void *handle, phys_t offset,
 					usb_sc_unlock(host->usb_host);
 				} else {
 					usb_sc_lock(host->usb_host);
-					if (host->doorbell)
+					if (host->doorbell && (cmd & 0x20) &&
+					    (cmd & 0x01))
 						buf32 |= 0x00000040U;
 					usb_sc_unlock(host->usb_host);
 				}
