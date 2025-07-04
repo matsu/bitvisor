@@ -116,9 +116,9 @@ ehci_register_handler (const struct dres_reg *r, void *handle, phys_t offset,
 		       bool wr, void *buf, uint len)
 {
 	struct ehci_host *host = handle;
-	u32 reg, val;
+	u32 val;
 	u64 portno = 0;
-	enum dres_reg_ret_t ret = DRES_REG_RET_PASSTHROUGH;
+	bool io_done = false;
 	u32 buf32 = 0;
 
 	if (!host)
@@ -127,7 +127,14 @@ ehci_register_handler (const struct dres_reg *r, void *handle, phys_t offset,
 	ASSERT (len <= sizeof buf32);
 	if (wr)
 		memcpy (&buf32, buf, len);
-	dres_reg_read32 (r, offset, &reg);
+	else
+		dres_reg_read32 (r, offset, &buf32);
+	/* In the case of wr == false: The following code uses the reg
+	 * variable for the value that was read from the register.  It
+	 * may be shifted to handle unaligned access.  The buf32
+	 * variable will be returned to the guest, so modifying it
+	 * should be done carefully. */
+	u32 reg = buf32;
 
 #define REGPRN(_level, _wr, _regname) {			    \
 		if (_wr)				    \
@@ -182,7 +189,6 @@ ehci_register_handler (const struct dres_reg *r, void *handle, phys_t offset,
 				/* FIXME: The ehci driver does not
 				   support the 64-bit addressing yet. */
 				buf32 = reg & ~0x00000001;
-				ret = DRES_REG_RET_DONE;
 			}
 			dprintf(3, "\n");
 			break;
@@ -368,7 +374,7 @@ ehci_register_handler (const struct dres_reg *r, void *handle, phys_t offset,
 				usb_sc_unlock(host->usb_host);
 				dres_reg_read32 (r, offset, &val);
 				dprintf(3, " -> %08x\n", val);
-				ret = DRES_REG_RET_DONE;
+				io_done = true;
 #else
 				dprintf(3, "\n");
 #endif
@@ -378,7 +384,6 @@ ehci_register_handler (const struct dres_reg *r, void *handle, phys_t offset,
 				usb_sc_unlock(host->usb_host);
 				dprintf(3, ": %08x == %08x\n", 
 					buf32, reg);
-				ret = DRES_REG_RET_DONE;
 			}
 			break;
 		case 0x40: /* CONFIGFLAG */
@@ -481,9 +486,13 @@ ehci_register_handler (const struct dres_reg *r, void *handle, phys_t offset,
 		}
 	}
 
-	if (ret == DRES_REG_RET_DONE && !wr)
-		memcpy (buf, &buf32, len);
-	return ret;
+	if (!io_done) {
+		if (!wr)
+			memcpy (buf, &buf32, len);
+		else
+			dres_reg_write (r, offset, &buf32, len);
+	}
+	return DRES_REG_RET_DONE;
 }
 
 static int
