@@ -341,6 +341,26 @@ static const struct virtio_pci_regs32 vnet_pci_initial_val[] = {
 	{ 0x00000000 }, { 0x00000000 }, { 0x00000000 }, { 0x00000000 },
 };
 
+inline static u16
+get_queue_size (struct virtio_net *vnet, u32 index)
+{
+	if (index >= VIRTIO_N_QUEUES) {
+		return 0;
+	}
+	u16 queue_size = vnet->queue_size[index];
+	/* queue size 0 means the queue is unavailable. In our case, the queue
+	 * is always available */
+	if (!(0 < queue_size && queue_size <= VIRTIO_NET_QUEUE_SIZE)) {
+		return 0;
+	}
+	/* If VIRTIO_F_RING_PACKED is not negotiated, the queue size must be a
+	 * power of 2 */
+	if ((queue_size & (queue_size - 1)) != 0) {
+		return 0;
+	}
+	return queue_size;
+}
+
 static void
 handle_io_with_default (struct virtio_net *vnet, bool wr, u32 iosize,
 			u32 offset, void *buf, const struct handle_io_data *d,
@@ -567,8 +587,8 @@ virtio_net_untrigger_interrupt (struct virtio_net *vnet)
 
 static void
 do_net_send (struct virtio_net *vnet, struct vr_desc *desc,
-	     struct vr_avail *avail, struct vr_used *used, bool legacy_hdr,
-	     unsigned int num_packets, void **packets,
+	     struct vr_avail *avail, struct vr_used *used, u16 queue_size,
+	     bool legacy_hdr, unsigned int num_packets, void **packets,
 	     unsigned int *packet_sizes, bool print_ok)
 {
 	u16 idx_a, idx_u, ring;
@@ -616,13 +636,13 @@ loop:
 	}
 	used->flags = VIRTQ_USED_F_NO_NOTIFY;
 	virtio_net_suppress_interrupt (vnet, false);
-	idx_u %= vnet->queue_size[0];
+	idx_u %= queue_size;
 	ring = avail->ring[idx_u];
 	ring_tmp = ((u32)ring << 16) | 1;
 	len = 0;
 	while (ring_tmp & 1) {
 		ring_tmp >>= 16;
-		d = ring_tmp % vnet->queue_size[0];
+		d = ring_tmp % queue_size;
 		desc_len = desc[d].len;
 		buf_ring = mapmem_as (vnet->as_dma, desc[d].addr, desc_len,
 				      MAPMEM_WRITE);
@@ -696,11 +716,14 @@ virtio_net_send (void *handle, unsigned int num_packets, void **packets,
 	if (!vnet->ready)
 		return;
 
+	queue_size = get_queue_size (vnet, 0);
+	if (queue_size == 0) {
+		return;
+	}
+
 	if (vnet->v1) {
 		if (!vnet->queue_enable[0])
 			return;
-
-		queue_size = vnet->queue_size[0];
 
 		desc = mapmem_as (vnet->as_dma, vnet->desc[0],
 				  sizeof *desc * queue_size, MAPMEM_WRITE);
@@ -709,8 +732,9 @@ virtio_net_send (void *handle, unsigned int num_packets, void **packets,
 		used = mapmem_as (vnet->as_dma, vnet->used[0],
 				  USED_MAP_SIZE (queue_size), MAPMEM_WRITE);
 
-		do_net_send (vnet, desc, avail, used, vnet->v1_legacy,
-			     num_packets, packets, packet_sizes, print_ok);
+		do_net_send (vnet, desc, avail, used, queue_size,
+			     vnet->v1_legacy, num_packets, packets,
+			     packet_sizes, print_ok);
 
 		unmapmem (used, USED_MAP_SIZE (queue_size));
 		unmapmem (avail, AVAIL_MAP_SIZE (queue_size));
@@ -719,8 +743,9 @@ virtio_net_send (void *handle, unsigned int num_packets, void **packets,
 		p = mapmem_as (vnet->as_dma, (u64)vnet->queue[0] << 12,
 			       sizeof *p, MAPMEM_WRITE);
 
-		do_net_send (vnet, p->desc, &p->avail, &p->used, true,
-			     num_packets, packets, packet_sizes, print_ok);
+		do_net_send (vnet, p->desc, &p->avail, &p->used, queue_size,
+			     true, num_packets, packets, packet_sizes,
+			     print_ok);
 
 		unmapmem (p, sizeof *p);
 	}
@@ -728,7 +753,8 @@ virtio_net_send (void *handle, unsigned int num_packets, void **packets,
 
 static void
 do_net_recv (struct virtio_net *vnet, struct vr_desc *desc,
-	     struct vr_avail *avail, struct vr_used *used, bool legacy_hdr)
+	     struct vr_avail *avail, struct vr_used *used, u16 queue_size,
+	     bool legacy_hdr)
 {
 	u16 idx_a, idx_u, ring;
 	u32 len, desc_len, count = 0, pkt_sizes[VIRTIO_NET_PKT_BATCH];
@@ -740,14 +766,14 @@ do_net_recv (struct virtio_net *vnet, struct vr_desc *desc,
 
 	idx_a = avail->idx;
 	while (idx_a != used->idx) {
-		idx_u = used->idx % vnet->queue_size[1];
+		idx_u = used->idx % queue_size;
 		ring = avail->ring[idx_u];
 		ring_tmp = ((u32)ring << 16) | 1;
 		len = 0;
 		buf = vnet->buf[count];
 		while (ring_tmp & 1) {
 			ring_tmp >>= 16;
-			d = ring_tmp % vnet->queue_size[1];
+			d = ring_tmp % queue_size;
 			desc_len = desc[d].len;
 			/* Detect unsupported MTU setting or corrupted
 			 * case like 0xFFFFFFFF. */
@@ -806,17 +832,19 @@ virtio_net_recv (struct virtio_net *vnet)
 	struct vr_desc *desc;
 	struct vr_avail *avail;
 	struct vr_used *used;
+	uint queue_size;
 
 	if (!vnet->ready)
 		return;
 
-	if (vnet->v1) {
-		uint queue_size;
+	queue_size = get_queue_size (vnet, 1);
+	if (queue_size == 0) {
+		return;
+	}
 
+	if (vnet->v1) {
 		if (!vnet->queue_enable[1])
 			return;
-
-		queue_size = vnet->queue_size[1];
 
 		desc = mapmem_as (vnet->as_dma, vnet->desc[1],
 				  sizeof *desc * queue_size, MAPMEM_WRITE);
@@ -825,7 +853,8 @@ virtio_net_recv (struct virtio_net *vnet)
 		used = mapmem_as (vnet->as_dma, vnet->used[1],
 				  USED_MAP_SIZE (queue_size), MAPMEM_WRITE);
 
-		do_net_recv (vnet, desc, avail, used, vnet->v1_legacy);
+		do_net_recv (vnet, desc, avail, used, queue_size,
+			     vnet->v1_legacy);
 
 		unmapmem (used, USED_MAP_SIZE (queue_size));
 		unmapmem (avail, AVAIL_MAP_SIZE (queue_size));
@@ -834,7 +863,8 @@ virtio_net_recv (struct virtio_net *vnet)
 		p = mapmem_as (vnet->as_dma, (u64)vnet->queue[1] << 12,
 			       sizeof *p, MAPMEM_WRITE);
 
-		do_net_recv (vnet, p->desc, &p->avail, &p->used, true);
+		do_net_recv (vnet, p->desc, &p->avail, &p->used, queue_size,
+			     true);
 
 		unmapmem (p, sizeof *p);
 	}
@@ -998,15 +1028,14 @@ end:
 
 static void
 do_net_ctrl (struct virtio_net *vnet, struct vr_desc *desc,
-	     struct vr_avail *avail, struct vr_used *used)
+	     struct vr_avail *avail, struct vr_used *used, u16 queue_size)
 {
-	u16 idx_a, idx_u, ring, queue_size;
+	u16 idx_a, idx_u, ring;
 	u32 len, desc_len, copied;
 	u32 ring_tmp, d;
 	u8 *buf_ring, *cmd, ack;
 	bool intr = false, last;
 
-	queue_size = vnet->queue_size[2];
 	idx_a = avail->idx;
 	while (idx_a != used->idx) {
 		idx_u = used->idx % queue_size;
@@ -1073,6 +1102,7 @@ virtio_net_ctrl (struct virtio_net *vnet)
 	struct vr_desc *desc;
 	struct vr_avail *avail;
 	struct vr_used *used;
+	uint queue_size;
 
 	if (!vnet->ready)
 		return;
@@ -1080,13 +1110,14 @@ virtio_net_ctrl (struct virtio_net *vnet)
 	if (!(vnet->driver_feature & VIRTIO_NET_F_CTRL_VQ))
 		return;
 
-	if (vnet->v1) {
-		uint queue_size;
+	queue_size = get_queue_size (vnet, 2);
+	if (queue_size == 0) {
+		return;
+	}
 
+	if (vnet->v1) {
 		if (!vnet->queue_enable[2])
 			return;
-
-		queue_size = vnet->queue_size[2];
 
 		desc = mapmem_as (vnet->as_dma, vnet->desc[2],
 				  sizeof *desc * queue_size, MAPMEM_WRITE);
@@ -1095,7 +1126,7 @@ virtio_net_ctrl (struct virtio_net *vnet)
 		used = mapmem_as (vnet->as_dma, vnet->used[2],
 				  USED_MAP_SIZE (queue_size), MAPMEM_WRITE);
 
-		do_net_ctrl (vnet, desc, avail, used);
+		do_net_ctrl (vnet, desc, avail, used, queue_size);
 
 		unmapmem (used, USED_MAP_SIZE (queue_size));
 		unmapmem (avail, AVAIL_MAP_SIZE (queue_size));
@@ -1104,7 +1135,7 @@ virtio_net_ctrl (struct virtio_net *vnet)
 		p = mapmem_as (vnet->as_dma, (u64)vnet->queue[2] << 12,
 			       sizeof *p, MAPMEM_WRITE);
 
-		do_net_ctrl (vnet, p->desc, &p->avail, &p->used);
+		do_net_ctrl (vnet, p->desc, &p->avail, &p->used, queue_size);
 
 		unmapmem (p, sizeof *p);
 	}
@@ -1275,12 +1306,11 @@ ccfg_queue_size (struct virtio_net *vnet, bool wr, union mem *data,
 	if (n >= VIRTIO_N_QUEUES)
 		return;
 	if (wr) {
-		vnet->queue_size[n] = data->word;
-		if (vnet->queue_size[n] != VIRTIO_NET_QUEUE_SIZE)
-			printf ("virtio_net: queue %u size is %u\n",
-				n, vnet->queue_size[n]);
+		if (0 < data->word && data->word <= VIRTIO_NET_QUEUE_SIZE) {
+			vnet->queue_size[n] = data->word;
+		}
 	} else {
-		data->word = vnet->queue_size[n];
+		data->word = get_queue_size (vnet, n);
 	}
 }
 
