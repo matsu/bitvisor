@@ -904,6 +904,13 @@ process_ctrl_mac_cmd (struct virtio_net *vnet, u8 *cmd, unsigned int cmd_size)
 	}
 	uni_table_size = sizeof vnet->unicast_filter[0] * uni_n_entries;
 
+	if (cmd_size < 2 + 4 + uni_table_size + 4) {
+		printf ("virtio_net: invalid command size for "
+			"VIRTIO_NET_CTRL_MAC_TABLE_SET\n");
+		ack = VIRTIO_NET_ACK_ERR;
+		goto end;
+	}
+
 	multi_n_entries = *(u32 *)&cmd[2 + 4 + uni_table_size];
 	if (multi_n_entries > VIRTIO_NET_CTRL_MAC_TABLE_MAX_ENTRIES) {
 		printf ("virtio_net: multicast filtering table too large, "
@@ -912,6 +919,13 @@ process_ctrl_mac_cmd (struct virtio_net *vnet, u8 *cmd, unsigned int cmd_size)
 		goto end;
 	}
 	multi_table_size = sizeof vnet->multicast_filter[0] * multi_n_entries;
+
+	if (cmd_size < 2 + 4 + uni_table_size + 4 + multi_table_size) {
+		printf ("virtio_net: invalid command size for "
+			"VIRTIO_NET_CTRL_MAC_TABLE_SET\n");
+		ack = VIRTIO_NET_ACK_ERR;
+		goto end;
+	}
 
 	virtio_net_reset_ctrl_mac (vnet);
 	c = &cmd[2 + 4];
