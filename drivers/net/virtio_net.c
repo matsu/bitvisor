@@ -1048,6 +1048,11 @@ do_net_ctrl (struct virtio_net *vnet, struct vr_desc *desc,
 			d = ring_tmp % queue_size;
 			desc_len = desc[d].len;
 			len += desc_len;
+			if (len < desc_len) {
+				printf ("virtio_net: ctrl command size "
+					"overflow, skip processing\n");
+				goto skip;
+			}
 			ring_tmp = desc[d].flags_next;
 		}
 		if (len > PAGESIZE) {
@@ -1069,6 +1074,7 @@ do_net_ctrl (struct virtio_net *vnet, struct vr_desc *desc,
 			    (last && copied + desc_len != len)) {
 				printf ("virtio_net: strange ctrl command "
 					"buffers, skip processing\n");
+				break;
 			}
 			buf_ring = mapmem_as (vnet->as_dma, desc[d].addr,
 					      desc_len, MAPMEM_WRITE);
