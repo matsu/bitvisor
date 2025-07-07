@@ -408,9 +408,34 @@ usbmsc_outbuf_halt_ehci (struct usb_host *usbhc, struct usb_request_block *urb,
 }
 
 static void
+usbmsc_outbuf_halt_generic (struct usb_host *usbhc,
+			    struct usb_request_block *urb,
+			    struct usbmsc_device *mscdev)
+{
+	phys_t padr;
+	size_t len;
+	u8 pid;
+	if (!usbhc->op->get_td (usbhc, urb->shadow, 0, &padr, &len, &pid)) {
+		dprintft (0, "MSCD(%02x:%d): WARNING:"
+			  " No TD found\n", urb->address, mscdev->lun);
+		return;
+	}
+	if (pid != USB_PID_OUT) {
+		dprintft (0, "MSCD(%02x:%d): WARNING:"
+			  " PID is not OUT\n", urb->address, mscdev->lun);
+		return;
+	}
+	usbhc->op->reply_td (usbhc, urb->shadow, 0, REPLY_TD_STALL);
+}
+
+static void
 usbmsc_outbuf_halt (struct usb_host *usbhc, struct usb_request_block *urb,
 		    struct usbmsc_device *mscdev, struct usbmsc_unit *mscunit)
 {
+	if (usbhc->op->get_td && usbhc->op->reply_td) {
+		usbmsc_outbuf_halt_generic (usbhc, urb, mscdev);
+		return;
+	}
 	switch (usbhc->type) {
 	case USB_HOST_TYPE_UHCI:
 		usbmsc_outbuf_halt_uhci (usbhc, urb, mscdev, mscunit,
@@ -552,6 +577,7 @@ shadow_data:
 			 "because of unknown command(%02x).\n",
 			 devadr, mscdev->lun,
 			 mscunit->length, mscunit->command);
+		usbmsc_outbuf_halt (usbhc, urb, mscdev, mscunit);
 		mscunit->length = 0;
 		break;
 	}

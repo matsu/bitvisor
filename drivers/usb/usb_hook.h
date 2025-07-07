@@ -5,9 +5,12 @@
 
 #define USB_HOOK_PASS         0x00010000U
 #define USB_HOOK_DISCARD      0x00020000U
+#define USB_HOOK_PENDING      0x00040000U
 
 #define USB_HOOK_REQUEST      0x01U
 #define USB_HOOK_REPLY        0x02U
+#define USB_HOOK_PRESHADOW    0x03U
+#define USB_HOOK_MAX_PHASE    0x03U
 
 #define USB_HOOK_MATCH_NONE   0x00U
 #define USB_HOOK_MATCH_ADDR   0x10U

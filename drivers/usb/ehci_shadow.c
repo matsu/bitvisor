@@ -351,6 +351,7 @@ register_qtdm (const struct mm_as *as, phys_t qtd_phys)
 
 	qtdm = alloc_ehci_qtd_meta();
 	ASSERT(qtdm != NULL);
+	qtdm->total_len = 0;
 	qtdm->qtd_phys = qtd_phys;
 	qtdm->qtd = (struct ehci_qtd *)
 		mapmem_as (as, qtdm->qtd_phys, sizeof (struct ehci_qtd),
@@ -743,11 +744,20 @@ shadow_and_activate_urb(struct ehci_host *host, struct usb_request_block *gurb)
 
 	/* check up hook patterns */
 	ret = usb_hook_process(host->usb_host, hurb, USB_HOOK_REQUEST);
-	if (ret == USB_HOOK_DISCARD) {
+	ASSERT (!URB_EHCI (gurb)->pending_cleared || ret == USB_HOOK_PENDING);
+	switch (ret) {
+	case USB_HOOK_PENDING:
+		gurb->mark |= URB_MARK_PENDING;
+		/* Fall through */
+	case USB_HOOK_DISCARD:
 		hurb->status = URB_STATUS_UNLINKED;
 		LIST4_PUSH (host->unlink_messages, list, hurb);
 		gurb->shadow = NULL;
 		return;
+	case USB_HOOK_PASS:
+		break;
+	default:
+		ASSERT (!"Bad return value of USB_HOOK_REQUEST");
 	}
 
 	/* show ping for debug */
@@ -826,6 +836,9 @@ deactivate_and_delete_urb(struct ehci_host *host,
 	phys32_t qh_phys;
 
 	qh_phys = URB_EHCI(gurb)->qh_phys;
+	if (gurb->mark & URB_MARK_PENDING)
+		gurb->cease_pending (host->usb_host, gurb,
+				     gurb->cease_pending_arg);
 
 #if defined(ENABLE_SHADOW)
 #if 0
@@ -910,9 +923,30 @@ update_marked_gurbs (struct ehci_host *host)
 				gurb->inlink = host->inlink_counter;
 				gurb->status = is_active_urb(gurb);
 				if (gurb->status == 1) {
-					gurb->mark |= URB_MARK_NEED_SHADOW;
-					LIST2_ADD (host->need_shadow,
-						   need_shadow, gurb);
+					int ret = usb_hook_process
+						(host->usb_host, gurb,
+						 USB_HOOK_PRESHADOW);
+					ASSERT (!URB_EHCI (gurb)->
+						pending_cleared ||
+						ret == USB_HOOK_PENDING);
+					switch (ret) {
+					case USB_HOOK_PENDING:
+						gurb->mark |= URB_MARK_PENDING;
+						break;
+					case USB_HOOK_DISCARD:
+						/* gurb will be swept
+						 * since mark is 0. */
+						break;
+					case USB_HOOK_PASS:
+						gurb->mark |=
+							URB_MARK_NEED_SHADOW;
+						LIST2_ADD (host->need_shadow,
+							   need_shadow, gurb);
+						break;
+					default:
+						ASSERT (!"Bad return value of"
+							" USB_HOOK_PRESHADOW");
+					}
 				}
 			} while (gurb->status == 2);
 		}
@@ -920,6 +954,262 @@ update_marked_gurbs (struct ehci_host *host)
 
 	return;
 }		  
+
+void
+ehci_clear_pending (struct usb_host *host, struct usb_request_block *gurb)
+{
+	/* This routine can be called at any time.  Possibly,
+	 * sweep_unmarked_gurbs() is running.  Keep the pending flag
+	 * to prevent this gurb from being swept. */
+
+	ASSERT (gurb);
+	ASSERT (!URB_EHCI (gurb)->pending_cleared);
+	URB_EHCI (gurb)->pending_cleared = 1;
+}
+
+static void
+update_qtd_ovlay (struct usb_request_block *gurb, struct ehci_qtd_meta *qtdm)
+{
+	struct ehci_qh *qh = URB_EHCI(gurb)->qh;
+	u32 token = qh->qtd_ovlay.token;
+	qh->qtd_ovlay = *qtdm->qtd;
+	if (!(qh->epcap[1] & EHCI_QH_EPCAP1_DTC_BIT) &&
+	    (token & EHCI_QTD_TOKEN_DT_BIT) !=
+	    (qh->qtd_ovlay.token & EHCI_QTD_TOKEN_DT_BIT))
+		qh->qtd_ovlay.token ^= EHCI_QTD_TOKEN_DT_BIT;
+	qh->qtd_cur = (phys32_t)qtdm->qtd_phys;
+	URB_EHCI (gurb)->qh_copy = *qh;
+}
+
+static struct ehci_qtd_meta *
+advance_qtdm (struct usb_request_block *gurb, struct ehci_qtd_meta *qtdm)
+{
+	struct ehci_qh *qh = URB_EHCI(gurb)->qh;
+	ASSERT (qh->qtd_cur == qtdm->qtd_phys);
+	ASSERT (!is_active (qtdm->qtd->token));
+	bool alt = ehci_token_len (qh->qtd_ovlay.token) > 0;
+	if (qtdm->qtd->altnext & EHCI_LINK_TE)
+		alt = false;
+	if (!alt && (qtdm->qtd->next & EHCI_LINK_TE))
+		return NULL;
+	qtdm = alt ? qtdm->altnext : qtdm->next;
+	if (!qtdm)
+		return NULL;
+	if (qtdm->qtd->token & EHCI_QTD_STAT_HL)
+		return NULL;
+	update_qtd_ovlay (gurb, qtdm);
+	return qtdm;
+}
+
+static struct ehci_qtd_meta *
+get_cur_active_qtdm (struct usb_request_block *gurb)
+{
+	if (!gurb)
+		return NULL;
+	/* Find a qtdm of the current qTD pointer. */
+	struct ehci_qtd_meta *qtdm = URB_EHCI (gurb)->qtdm_head;
+	if (is_active (qtdm->qtd->token)) {
+		/* If the qtdm_head is active, there are two cases:
+		   1. QH overlay is active.  qtdm_head points to it.
+		   2. QH overlay is not active and next qTD is active.
+		      qtdm_head points to the next one.
+		   (See register_qtdm_list() for details.)
+		   If the 2nd case, update the overlay to the next qTD
+		   and continue.
+		 */
+		if (!is_active (URB_EHCI(gurb)->qh->qtd_ovlay.token))
+			update_qtd_ovlay (gurb, qtdm);
+		return qtdm;
+	}
+	for (;;) {
+		if (!qtdm)
+			return NULL;
+		if (URB_EHCI(gurb)->qh->qtd_cur == qtdm->qtd_phys)
+			break;
+		qtdm = qtdm->next;
+	}
+	/* If it is not active and not halted, advance the queue. */
+	while (!is_active (qtdm->qtd->token)) {
+		if (is_halt (qtdm->qtd->token))
+			return NULL;
+		qtdm = advance_qtdm (gurb, qtdm);
+		if (!qtdm)
+			return NULL;
+	}
+	return qtdm;
+}
+
+bool
+ehci_get_td (struct usb_host *host, struct usb_request_block *gurb,
+	     size_t offset, phys_t *padr, size_t *len, u8 *pid)
+{
+	struct ehci_qtd_meta *qtdm = get_cur_active_qtdm (gurb);
+	if (!qtdm)
+		return false;
+	struct ehci_qh *qh = URB_EHCI(gurb)->qh;
+	unsigned int c_page = (qh->qtd_ovlay.token >> 12) & 0x7;
+	unsigned int c_offset = qh->qtd_ovlay.buffer[0] & 0xFFF;
+	unsigned int remaining = ehci_token_len (qh->qtd_ovlay.token);
+	ASSERT (c_page <= 4);
+	ASSERT (remaining <= 0x5000);
+	ASSERT (c_page * 0x1000 + c_offset <= 0x5000 - remaining);
+
+	while (offset > 0 && remaining <= offset) {
+		offset -= remaining;
+		qtdm = qtdm->next;
+		if (!qtdm)
+			return false;
+		if (!is_active (qtdm->qtd->token))
+			return false;
+		c_page = (qtdm->qtd->token >> 12) & 0x7;
+		c_offset = qtdm->qtd->buffer[0] & 0xFFF;
+		remaining = (qtdm->qtd->token >> 16) & 0x7FFF;
+		ASSERT (c_page <= 4);
+		ASSERT (remaining <= 0x5000);
+		ASSERT (c_page * 0x1000 + c_offset <= 0x5000 - remaining);
+	}
+	while (offset >= 0x1000 - c_offset) {
+		offset -= 0x1000 - c_offset;
+		ASSERT (remaining >= 0x1000 - c_offset);
+		remaining -= 0x1000 - c_offset;
+		if (!remaining)
+			return false;
+		c_offset = 0;
+		c_page++;
+		ASSERT (c_page <= 4);
+	}
+	if (offset > 0) {
+		c_offset += offset;
+		ASSERT (remaining >= offset);
+		remaining -= offset;
+		if (!remaining)
+			return false;
+	}
+	if (is_setup_qtd (qtdm->qtd))
+		*pid = USB_PID_SETUP;
+	else if (is_in_qtd (qtdm->qtd))
+		*pid = USB_PID_IN;
+	else if (is_out_qtd (qtdm->qtd))
+		*pid = USB_PID_OUT;
+	else
+		ASSERT (!"Incorrect qTD PID");
+	*padr = (qtdm->qtd->buffer[c_page] & ~0xFFF) | c_offset;
+	if (0x1000 - c_offset >= remaining) {
+		*len = remaining;
+		return true;
+	}
+	*len = 0x1000 - c_offset;
+	remaining -= 0x1000 - c_offset;
+	c_offset = 0;
+	c_page++;
+	ASSERT (c_page <= 4);
+	while (remaining > 0x1000) {
+		if (*padr + *len != (qtdm->qtd->buffer[c_page] & ~0xFFF))
+			return true;
+		*len += 0x1000;
+		remaining -= 0x1000;
+		/* increase the c_page to get consecutive buffer */
+		c_page++;
+	}
+	if (*padr + *len != (qtdm->qtd->buffer[c_page] & ~0xFFF))
+		return true;
+	*len += remaining;
+	return true;
+}
+
+static int
+interrupt_cb (struct usb_host *usbhc, struct usb_request_block *h_urb,
+	      void *arg)
+{
+	ehci_deactivate_urb (usbhc, h_urb);
+	return 1;
+}
+
+/* Issue an interrupt using ehci_submit_control */
+static void
+issue_interrupt (struct usb_host *usbhc, struct usb_device *dev)
+{
+	struct usb_ctrl_setup setup = {
+		.bRequestType = 0x80,
+		.bRequest = 0x00, /* GET_STATUS */
+		.wValue = 0x0000,
+		.wIndex = 0x0000,
+		.wLength = 0x0002,
+	};
+	ehci_submit_control (usbhc, dev, 0, sizeof setup, &setup, interrupt_cb,
+			     NULL, 1);
+}
+
+void
+ehci_reply_td (struct usb_host *host, struct usb_request_block *gurb,
+	       size_t len, enum reply_td_error error)
+{
+	struct ehci_qtd_meta *qtdm = get_cur_active_qtdm (gurb);
+	if (!qtdm)
+		return;
+	struct ehci_qh *qh = URB_EHCI(gurb)->qh;
+	u32 token = qh->qtd_ovlay.token;
+	ASSERT (token & EHCI_QTD_STAT_AC);
+	unsigned int c_page = (token >> 12) & 0x7;
+	unsigned int c_offset = qh->qtd_ovlay.buffer[0] & 0xFFF;
+	unsigned int remaining = ehci_token_len (token);
+	ASSERT (c_page <= 4);
+	ASSERT (remaining <= 0x5000);
+	ASSERT (c_page * 0x1000 + c_offset <= 0x5000 - remaining);
+	if (len > remaining)
+		ASSERT (error == REPLY_TD_BABBLE);
+	if (error == REPLY_TD_BABBLE || error == REPLY_TD_STALL) {
+		qh->qtd_ovlay.token = EHCI_QTD_STAT_HL |
+			(error == REPLY_TD_BABBLE ? EHCI_QTD_STAT_BB : 0) |
+			(token & ~EHCI_QTD_STAT_AC);
+		*qtdm->qtd = qh->qtd_ovlay;
+		qtdm->status = token & EHCI_QTD_STAT_MASK;
+		URB_EHCI (gurb)->qh_copy = *qh;
+		return;
+	}
+	while (len > 0) {
+		ASSERT (c_page <= 4);
+		if (0x1000 - c_offset > len) {
+			c_offset += len;
+			remaining -= len;
+			len = 0;
+			qh->qtd_ovlay.buffer[0] = c_offset |
+				(qh->qtd_ovlay.buffer[0] & ~0xFFF);
+		} else {
+			remaining -= 0x1000 - c_offset;
+			len -= 0x1000 - c_offset;
+			c_offset = 0;
+			c_page++;
+			qh->qtd_ovlay.buffer[0] &= ~0xFFF;
+			token = c_page << 12 | (token & ~0x7000);
+		}
+	}
+	token = remaining << 16 | (token & ~0x7FFF0000);
+	token ^= 0x80000000;
+	qh->qtd_ovlay.token = token;
+	switch (error) {
+	case REPLY_TD_SHORT_PACKET:
+		ASSERT (remaining > 0);
+		break;
+	case REPLY_TD_NO_ERROR:
+		if (remaining > 0)
+			return;
+		break;
+	case REPLY_TD_BABBLE:
+	case REPLY_TD_STALL:
+	default:
+		ASSERT (!"Incorrect error value");
+	}
+	token &= ~EHCI_QTD_STAT_AC;
+	qh->qtd_ovlay.token = token;
+	*qtdm->qtd = qh->qtd_ovlay;
+	qtdm->status = qtdm->qtd->token & EHCI_QTD_STAT_MASK;
+	qtdm = advance_qtdm (gurb, qtdm);
+	if (!qtdm)
+		URB_EHCI (gurb)->qh_copy = *qh;
+	if (token & EHCI_QTD_TOKEN_IOC_BIT)
+		issue_interrupt (host, gurb->dev);
+}
 
 static void
 mark_inlinked_urbs(struct ehci_host *host, 
@@ -945,8 +1235,44 @@ mark_inlinked_urbs(struct ehci_host *host,
 				gurb->mark |= URB_MARK_UPDATE_REPLACED;
 				LIST2_ADD (host->update, update, gurb);
 			}
+		} else if (gurb->mark & URB_MARK_PENDING) {
+			if (URB_EHCI (gurb)->pending_cleared) {
+				URB_EHCI (gurb)->pending_cleared = 0;
+				gurb->mark &= ~URB_MARK_PENDING;
+				int ret = usb_hook_process
+					(host->usb_host, gurb,
+					 USB_HOOK_PRESHADOW);
+				ASSERT (!URB_EHCI (gurb)->pending_cleared ||
+					ret == USB_HOOK_PENDING);
+				switch (ret) {
+				case USB_HOOK_PENDING:
+					gurb->mark |= URB_MARK_PENDING;
+					break;
+				case USB_HOOK_DISCARD:
+					/* gurb will be swept
+					 * since mark is 0. */
+					break;
+				case USB_HOOK_PASS:
+					gurb->mark |= URB_MARK_NEED_SHADOW;
+					LIST2_ADD (host->need_shadow,
+						   need_shadow, gurb);
+					break;
+				default:
+					ASSERT (!"Bad return value of"
+						" USB_HOOK_PRESHADOW");
+				}
+			}
 		} else if ((gurb->shadow == NULL) && (status == 1)) {
-			if (!(gurb->mark & URB_MARK_NEED_SHADOW)) {
+
+			int ret = usb_hook_process (host->usb_host, gurb,
+						    USB_HOOK_PRESHADOW);
+			ASSERT (!URB_EHCI (gurb)->pending_cleared ||
+				ret == USB_HOOK_PENDING);
+			if (ret == USB_HOOK_PENDING)
+				gurb->mark |= URB_MARK_PENDING;
+			if (!(gurb->mark & URB_MARK_NEED_SHADOW) &&
+			    (ret != USB_HOOK_DISCARD &&
+			     ret != USB_HOOK_PENDING)) {
 				gurb->mark |= URB_MARK_NEED_SHADOW;
 				LIST2_ADD (host->need_shadow, need_shadow,
 					   gurb);

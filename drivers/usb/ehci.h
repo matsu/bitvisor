@@ -55,6 +55,8 @@ struct ehci_qtd {
 	phys32_t next;
 	phys32_t altnext;
 	u32      token;
+#define EHCI_QTD_TOKEN_DT_BIT 0x80000000
+#define EHCI_QTD_TOKEN_IOC_BIT 0x8000
 #define EHCI_QTD_PID_MASK (0x00000300U)
 #define EHCI_QTD_PID_OUT (0 << 8)
 #define EHCI_QTD_PID_IN (1 << 8)
@@ -97,6 +99,7 @@ struct ehci_qh {
 #define EHCI_QH_EPCP_EPSPD_SHIFT	(12)
 #define EHCI_QH_EPCP_POTNM_SHIFT	(23)
 #define EHCI_QH_EPCP_HUBAD_SHIFT	(16)
+#define EHCI_QH_EPCAP1_DTC_BIT		(1 << 14)
 	u32      qtd_cur;
  	struct ehci_qtd qtd_ovlay;
  
@@ -153,6 +156,7 @@ struct urb_private_ehci {
 	/* cache of qTD overlay */
 	struct ehci_qh          qh_copy;
 	u32 check_advance_count;
+	u8 pending_cleared;
 };
 
 #define URB_EHCI(_urb)					\
@@ -355,5 +359,11 @@ ehci_submit_interrupt(struct usb_host *host,
 				      struct usb_request_block *, 
 				      void *), 
 		      void *arg, int ioc);
+void ehci_clear_pending (struct usb_host *host,
+			 struct usb_request_block *gurb);
+bool ehci_get_td (struct usb_host *host, struct usb_request_block *gurb,
+		  size_t offset, phys_t *padr, size_t *len, u8 *pid);
+void ehci_reply_td (struct usb_host *host, struct usb_request_block *gurb,
+		    size_t len, enum reply_td_error error);
 
 #endif /* _EHCI_H */

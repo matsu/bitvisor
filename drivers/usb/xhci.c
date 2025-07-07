@@ -469,6 +469,7 @@ create_h_dev_ctx (struct xhci_host *host, u64 g_dev_ctx, void *handler_data)
 
 			spinlock_init (&h_ep_tr->lock);
 			spinlock_init (&g_ep_tr->lock);
+			spinlock_init (&h_ep_tr->pending_lock);
 		}
 	}
 
@@ -1144,42 +1145,68 @@ handle_new_device (struct xhci_host *host, uint slot_id)
 	spinlock_unlock (&h_ep_tr->lock);
 }
 
-static void
-handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
+static bool
+handle_gurbs (struct usb_request_block *g_urb, struct xhci_ep_tr *h_ep_tr,
+	      struct xhci_host *host, uint slot_id, uint ep_no,
+	      struct usb_request_block **g_urb_pending)
 {
-	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
-	struct xhci_ep_tr     *h_ep_tr	   = &h_slot_meta->ep_trs[ep_no];
-
-	spinlock_lock (&h_ep_tr->lock);
-
-	struct usb_request_block *g_urb;
-	g_urb = xhci_construct_gurbs (host, slot_id, ep_no);
-
+	bool doorbell = false;
 	while (g_urb) {
-		struct usb_request_block *h_urb =
-			xhci_shadow_g_urb (g_urb, host, slot_id, ep_no);
+		int ret;
+		struct usb_request_block *h_urb = g_urb->shadow;
+		if (h_ep_tr->vhalt_ep) {
+		discard_urb:;
+			struct usb_request_block *next_urb = g_urb->link_next;
+			if (h_urb)
+				delete_urb_xhci (h_urb);
+			delete_urb_xhci (g_urb);
+			g_urb = next_urb;
+			continue;
+		}
+		if (h_urb)
+			goto hook_request_phase;
 
-		int ret = usb_hook_process (host->usb_host,
-					    h_urb,
-					    USB_HOOK_REQUEST);
+		/* USB_HOOK_PRESHADOW phase: h_urb == NULL */
+		ret = usb_hook_process (host->usb_host, g_urb,
+					USB_HOOK_PRESHADOW);
+		if (xhci_shadow_write_dummy_trb (host, slot_id, ep_no))
+			doorbell = true;
+		if (h_ep_tr->vhalt_ep)
+			goto discard_urb;
+		if (ret == USB_HOOK_PENDING) {
+			*g_urb_pending = g_urb;
+			break;
+		}
+		if (ret == USB_HOOK_DISCARD) {
+			xhci_shadow_advance_dq_ptr (g_urb, host, slot_id,
+						    ep_no);
+			goto discard_urb;
+		}
+		h_urb = xhci_shadow_g_urb (g_urb, host, slot_id, ep_no);
+
+		/* USB_HOOK_REQUEST phase: h_urb != NULL */
+	hook_request_phase:
+		ret = usb_hook_process (host->usb_host, h_urb,
+					USB_HOOK_REQUEST);
+		if (xhci_shadow_write_dummy_trb (host, slot_id, ep_no))
+			doorbell = true;
+		if (h_ep_tr->vhalt_ep)
+			goto discard_urb;
+		if (ret == USB_HOOK_PENDING) {
+			*g_urb_pending = g_urb;
+			break;
+		}
 		xhci_shadow_advance_dq_ptr (g_urb, host, slot_id, ep_no);
-
 		if (ret == USB_HOOK_DISCARD) {
 			dprintft (1, "slot: %u ep_no: %u Request discarded\n",
 				  slot_id, ep_no);
-
-			struct usb_request_block *next_urb = g_urb->link_next;
-
-			delete_urb_xhci (h_urb);
-			delete_urb_xhci (g_urb);
-
-			g_urb = next_urb;
-			continue;
+			goto discard_urb;
 		}
 
 		xhci_shadow_trbs (g_urb, host, slot_id, ep_no);
 		xhci_shadow_finalize_trb (h_urb, host, slot_id, ep_no);
 		xhci_append_h_urb_to_ep (h_urb, host, slot_id, ep_no);
+		doorbell = true;
 
 		/* Set URB status to URB_STATUS_RUN */
 		g_urb->status = URB_STATUS_RUN;
@@ -1187,8 +1214,94 @@ handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
 
 		g_urb = g_urb->link_next;
 	}
+	return doorbell;
+}
 
+static bool
+handle_gurbs_run (struct xhci_host *host, struct usb_request_block *g_urb,
+		  uint slot_id, uint ep_no, struct xhci_ep_tr *h_ep_tr)
+{
+	bool doorbell = false;
+again:
+	ASSERT (!h_ep_tr->g_urb_pending);
+	ASSERT (!h_ep_tr->g_urb_pending_cleared);
+	spinlock_unlock (&h_ep_tr->pending_lock);
+
+	spinlock_lock (&h_ep_tr->lock);
+	struct usb_request_block *g_urb_pending = NULL;
+	if (!g_urb)
+		g_urb = xhci_construct_gurbs (host, slot_id, ep_no);
+	doorbell = handle_gurbs (g_urb, h_ep_tr, host, slot_id, ep_no,
+				 &g_urb_pending) || doorbell;
 	spinlock_unlock (&h_ep_tr->lock);
+
+	spinlock_lock (&h_ep_tr->pending_lock);
+	if (g_urb_pending) {
+		if (h_ep_tr->g_urb_pending_cleared) {
+			ASSERT (h_ep_tr->g_urb_pending_cleared ==
+				g_urb_pending);
+			h_ep_tr->g_urb_pending_cleared = NULL;
+			g_urb = g_urb_pending;
+			goto again;
+		}
+		h_ep_tr->g_urb_pending = g_urb_pending;
+	} else if (h_ep_tr->handle_slot_write_need) {
+		h_ep_tr->handle_slot_write_need = false;
+		g_urb = NULL;
+		goto again;
+	}
+	return doorbell;
+}
+
+static void
+xhci_clear_pending (struct usb_host *usbhc, struct usb_request_block *g_urb)
+{
+	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (g_urb);
+	struct xhci_host *host = usbhc->private;
+	uint slot_id = urb_priv->slot_id;
+	uint ep_no = urb_priv->ep_no;
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
+	bool doorbell = false;
+	spinlock_lock (&h_ep_tr->pending_lock);
+	if (!h_ep_tr->handle_gurbs_cs) {
+		ASSERT (h_ep_tr->g_urb_pending == g_urb);
+		h_ep_tr->g_urb_pending = NULL;
+		h_ep_tr->handle_gurbs_cs = true;
+		doorbell = handle_gurbs_run (host, g_urb, slot_id, ep_no,
+					     h_ep_tr);
+		h_ep_tr->handle_gurbs_cs = false;
+	} else {
+		ASSERT (!h_ep_tr->g_urb_pending_cleared);
+		h_ep_tr->g_urb_pending_cleared = g_urb;
+	}
+	spinlock_unlock (&h_ep_tr->pending_lock);
+	if (doorbell) {
+		union xhci_db_reg req = {
+			.reg.db_target = ep_no + 1,
+		};
+		dres_reg_write32 (host->regs->r, host->regs->db_offset +
+				  slot_id * sizeof req, req.raw_val);
+	}
+}
+
+static bool
+handle_slot_write (struct xhci_host *host, uint slot_id, uint ep_no)
+{
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	struct xhci_ep_tr     *h_ep_tr	   = &h_slot_meta->ep_trs[ep_no];
+	bool doorbell = false;
+	spinlock_lock (&h_ep_tr->pending_lock);
+	if (!h_ep_tr->handle_gurbs_cs && !h_ep_tr->g_urb_pending) {
+		h_ep_tr->handle_gurbs_cs = true;
+		doorbell = handle_gurbs_run (host, NULL, slot_id, ep_no,
+					     h_ep_tr);
+		h_ep_tr->handle_gurbs_cs = false;
+	} else {
+		h_ep_tr->handle_slot_write_need = true;
+	}
+	spinlock_unlock (&h_ep_tr->pending_lock);
+	return doorbell;
 }
 
 static void
@@ -1218,7 +1331,8 @@ xhci_db_reg_write (struct xhci_host *host, const struct dres_reg *r,
 		/* Hooks are called for host controlled endpoint only.
 		 * Otherwise, Transfer Ring is pass-through. */
 		if (XHCI_IS_HOST_CTRL (host, slot_id, ep_no))
-			handle_slot_write (host, slot_id, ep_no);
+			if (!handle_slot_write (host, slot_id, ep_no))
+				return;
 		break;
 	}
 
@@ -1581,7 +1695,10 @@ static struct usb_operations xhciop = {
 	.submit_bulk = xhci_submit_bulk,
 	.submit_interrupt = xhci_submit_interrupt,
 	.check_advance = xhci_check_urb_advance,
-	.deactivate_urb = xhci_deactivate_urb
+	.deactivate_urb = xhci_deactivate_urb,
+	.clear_pending = xhci_clear_pending,
+	.get_td = xhci_get_td,
+	.reply_td = xhci_reply_td,
 };
 
 /* Read all capability registers using 32-bit aligned access.  This is

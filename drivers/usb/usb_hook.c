@@ -39,6 +39,10 @@
 #include "usb_hook.h"
 #include "usb_log.h"
 
+#if USB_HOOK_NUM_PHASE != USB_HOOK_MAX_PHASE
+#	error Incorrect USB_HOOK_NUM_PHASE defined in usb.h
+#endif
+
 static int
 usb_match_buffers (const struct mm_as *as, const struct usb_hook_pattern *data,
 		   struct usb_buffer_list *buffers)
@@ -151,18 +155,26 @@ usb_hook_process(struct usb_host *host,
 		/* buffer data */
 		/* MEMO: buffer data is not shadowed by default,
 		   so guest urb buffers can be used for the pattern match. */
-		ASSERT(urb->shadow);
+		if (phase != USB_HOOK_PRESHADOW)
+			ASSERT (urb->buffers || urb->shadow);
 		if ((hook->match & USB_HOOK_MATCH_DATA) &&
 		    usb_match_buffers (host->as_dma, hook->data,
 				       (urb->buffers != NULL) ?
 				       urb->buffers : urb->shadow->buffers))
 			continue;
 
+		/* Clear cease_pending callback. */
+		urb->cease_pending = NULL;
 		/* reach here if the urb content 
 		   fit all patterns specified by a hook */
 		ret = hook->callback(host, urb, hook->cbarg);
 
-		if (ret == USB_HOOK_DISCARD)
+		/* USB_HOOK_PENDING is not usable for USB_HOOK_REPLY. */
+		ASSERT (!(phase == USB_HOOK_REPLY && ret == USB_HOOK_PENDING));
+		/* USB_HOOK_PENDING needs to set cease_pending callback. */
+		ASSERT (!(ret == USB_HOOK_PENDING && !urb->cease_pending));
+
+		if (ret == USB_HOOK_DISCARD || ret == USB_HOOK_PENDING)
 			break;
 	}
 
@@ -193,7 +205,8 @@ usb_hook_register(struct usb_host *host,
 {
 	struct usb_hook *hook;
 
-	if (phase != USB_HOOK_REQUEST && phase != USB_HOOK_REPLY)
+	if (phase != USB_HOOK_REQUEST && phase != USB_HOOK_REPLY &&
+	    phase != USB_HOOK_PRESHADOW)
 		return NULL;
 
 	hook = alloc_usb_hook ();

@@ -271,6 +271,15 @@ struct xhci_ep_ctx {
 #define XHCI_EP_STATE_STOPPED (3)
 #define XHCI_EP_STATE_ERROR   (4)
 
+#define XHCI_EP_CTX_EP_TYPE(ep_ctx)	((ep_ctx.field1[1] >> 3) & 0x7)
+#define XHCI_EP_TYPE_ISOCH_OUT	1
+#define XHCI_EP_TYPE_BULK_OUT	2
+#define XHCI_EP_TYPE_INTR_OUT	3
+#define XHCI_EP_TYPE_CONTROL	4
+#define XHCI_EP_TYPE_ISOCH_IN	5
+#define XHCI_EP_TYPE_BULK_IN	6
+#define XHCI_EP_TYPE_INTR_IN	7
+
 #define EP_CTX_DQ_PTR_ADDR_MASK		(~0xF)
 #define EP_CTX_DQ_PTR_GET_DCS(dq_ptr)	((dq_ptr) & 0x1)
 #define EP_CTX_DQ_PTR_GET_FLAGS(dq_ptr) ((dq_ptr) & 0xF)
@@ -443,6 +452,7 @@ struct xhci_trb {
 	(((ev_trb)->ctrl.ev.specific.endpoint_id & 0x1F) - 1)
 #define XHCI_EV_IS_EVENT_DATA(ev_trb) ((ev_trb)->ctrl.ev.flags & 0x4)
 #define XHCI_EV_GET_TX_LEN(ev_trb)    ((ev_trb)->sts.value & 0xFFFFFF)
+#define XHCI_EV_SET_STS(code, len) ((code) * 0x1000000 + ((len) & 0xFFFFFF))
 
 #define XHCI_TRB_GET_TRB_LEN(trb) ((trb)->sts.value & 0x1FFFF)
 
@@ -455,6 +465,7 @@ struct xhci_trb {
 #define XHCI_TRB_GET_IDT(trb)  (((trb)->ctrl.value >> 6)  & 0x1)
 #define XHCI_TRB_GET_TYPE(trb) (((trb)->ctrl.value >> 10) & 0x3F)
 #define XHCI_TRB_GET_DIR(trb)  (((trb)->ctrl.value >> 16) & 0x1)
+#define XHCI_TRB_GET_INTR_TARGET(trb) (((trb)->sts.value >> 22) & 0x3FF)
 
 /* For TRB status part. To use, concatenate them. */
 #define XHCI_TRB_SET_INTR_TARGET(value) (((value) & 0x3FF)   << 22)
@@ -471,6 +482,7 @@ struct xhci_trb {
 #define XHCI_TRB_SET_CH(value)	     (((value) & 0x1)  <<  4)
 #define XHCI_TRB_SET_NS(value)	     (((value) & 0x1)  <<  3)
 #define XHCI_TRB_SET_ISP(value)      (((value) & 0x1)  <<  2)
+#define XHCI_TRB_SET_EV(value)       (((value) & 0x1)  <<  2)
 #define XHCI_TRB_SET_ENT(value)      (((value) & 0x1)  <<  1)
 #define XHCI_TRB_SET_TC(value)	     (((value) & 0x1)  <<  1)
 #define XHCI_TRB_SET_C(value)	     (((value) & 0x1)  <<  0)
@@ -490,6 +502,15 @@ struct xhci_tr_segment {
 } __attribute__ ((packed));
 #define XHCI_TR_SEGMENT_NBYTES (sizeof (struct xhci_tr_segment))
 
+struct xhci_dummy_trb {
+	LIST4_DEFINE (struct xhci_dummy_trb, list);
+	phys_t htrb_addr;
+	u64 gtrb_param;
+	u32 gtrb_sts;
+	u16 intr_target;
+	u8 gtrb_ev;
+};
+
 /* Each EP is associated with a table of TR segment */
 struct xhci_ep_tr {
 	struct xhci_tr_segment *tr_segs;
@@ -499,11 +520,19 @@ struct xhci_ep_tr {
 	u8   current_toggle;
 	u64 dq_ptr;		/* Bit 0 is Dequeue Cycle State */
 	phys_t last_trb_addr;
+	bool vhalt_ep;		/* Virtual Haled state */
+	bool handle_gurbs_cs; /* gurbs critical section.  Use pending_lock */
+	bool handle_slot_write_need; /* Use pending_lock */
+	struct usb_request_block *g_urb_pending; /* Use pending_lock */
+	struct usb_request_block *g_urb_pending_cleared; /* Use pending_lock */
+	LIST4_DEFINE_HEAD (pre_dummy_trb, struct xhci_dummy_trb, list);
+	LIST4_DEFINE_HEAD (post_dummy_trb, struct xhci_dummy_trb, list);
 
 	struct usb_request_block *h_urb_list;
 	struct usb_request_block *h_urb_tail;
 
 	spinlock_t lock;
+	spinlock_t pending_lock;
 } __attribute__ ((packed));
 #define XHCI_EP_TR_NBYTES (sizeof (struct xhci_ep_tr))
 
@@ -768,6 +797,10 @@ struct xhci_urb_private {
 	struct xhci_urb_trbs_ref gtrbs_ref_preallocated;
 	LIST4_DEFINE_HEAD (htrbs_ref, struct xhci_urb_trbs_ref, list);
 	struct xhci_urb_trbs_ref htrbs_ref_preallocated;
+
+	struct xhci_trbs_ref_cursor current_cursor;
+	uint current_cursor_offset;
+	uint edtla;
 
 	u64 next_g_dq_ptr;
 
@@ -1055,6 +1088,12 @@ int xhci_shadow_buffer (struct usb_host *usbhc,
 
 void xhci_release_data (struct xhci_host *host);
 struct xhci_trb *xhci_tr_seg_trbs_get_alloced (struct xhci_tr_segment *tr_seg);
+bool xhci_get_td (struct usb_host *host, struct usb_request_block *gurb,
+		  size_t offset, phys_t *padr, size_t *len, u8 *pid);
+void xhci_reply_td (struct usb_host *usbhc, struct usb_request_block *gurb,
+		    size_t len, enum reply_td_error error);
+bool xhci_shadow_write_dummy_trb (struct xhci_host *host, uint slot_id,
+				  uint ep_no);
 
 void xhci_update_vmm_hc_state (struct xhci_host *host);
 bool xhci_hc_halted (struct xhci_host *host);

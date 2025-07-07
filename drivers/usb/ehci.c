@@ -55,6 +55,9 @@ static struct usb_operations ehciop = {
 	.submit_interrupt = ehci_submit_interrupt,
 	.check_advance = ehci_check_urb_advance,
 	.deactivate_urb = ehci_deactivate_urb,
+	.clear_pending = ehci_clear_pending,
+	.get_td = ehci_get_td,
+	.reply_td = ehci_reply_td,
 };
 
 DEFINE_GET_U16_FROM_SETUP_FUNC (wValue)

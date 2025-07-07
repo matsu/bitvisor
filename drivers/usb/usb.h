@@ -36,6 +36,13 @@
 #include <core/list.h>
 #include <core/spinlock.h>
 
+enum reply_td_error {
+	REPLY_TD_NO_ERROR,
+	REPLY_TD_SHORT_PACKET,
+	REPLY_TD_BABBLE,
+	REPLY_TD_STALL,
+};
+
 struct usb_ctrl_setup {
 	u8  bRequestType;
 	u8  bRequest;
@@ -138,6 +145,21 @@ struct usb_operations {
 	(*check_advance)(struct usb_host *, struct usb_request_block *);
 	u8
 	(*deactivate_urb)(struct usb_host *, struct usb_request_block *urb);
+	/* clear_pending is used after returning USB_HOOK_PENDING to
+	 * allow calling the hook again. */
+	void (*clear_pending) (struct usb_host *host,
+			       struct usb_request_block *gurb);
+	/* get_td returns false if no more active TDs/qTDs/TRBs exist
+	 * at the specified offset.  Otherwise, *padr, *len and *pid
+	 * are set based on the specified host, gurb and offset.
+	 * Offset 0 points to the current TD/qTD/TRB. */
+	bool (*get_td) (struct usb_host *host, struct usb_request_block *gurb,
+			size_t offset, phys_t *padr, size_t *len, u8 *pid);
+	/* reply_td replies to the current TD/qTD/TRB.  len is the
+	 * transfer length.  error is one of the error states. */
+	void (*reply_td) (struct usb_host *host,
+			  struct usb_request_block *gurb, size_t len,
+			  enum reply_td_error error);
 };
 
 struct usb_host {
@@ -153,7 +175,7 @@ struct usb_host {
 	const struct mm_as *as_dma;
 	struct usb_device *device;
 	struct usb_operations *op;
-#define USB_HOOK_NUM_PHASE     2
+#define USB_HOOK_NUM_PHASE     3
 	spinlock_t lock_hk;
 	struct usb_hook *hook[USB_HOOK_NUM_PHASE];
 	unsigned int host_id;
@@ -217,6 +239,7 @@ struct usb_request_block {
 	u8 mark;
 #define URB_MARK_NEED_SHADOW     0x10U
 #define URB_MARK_UPDATE_REPLACED 0x20U
+#define URB_MARK_PENDING         0x40U
 #define URB_MARK_NEED_UPDATE     URB_MARK_UPDATE_REPLACED
 	u16 inlink;
 	/* host controller */
@@ -236,6 +259,11 @@ struct usb_request_block {
 			struct usb_request_block *urb, void *arg);
 	void *cb_arg;
 
+	/* Callback when guest urb is freed, for usb_hook handlers
+	 * returning USB_HOOK_PENDING. */
+	void (*cease_pending) (struct usb_host *host,
+			       struct usb_request_block *urb, void *arg);
+	void *cease_pending_arg;
 	/* shadow urb */
 	struct usb_request_block *shadow;
 

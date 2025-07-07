@@ -531,6 +531,29 @@ gtrb_addr_from_htrb_addr (struct usb_request_block *h_urb, phys_t htrb_addr)
 	return 0;
 }
 
+static bool
+handle_dummy_ev (struct xhci_ep_tr *h_ep_tr, struct xhci_trb *h_ev_trb)
+{
+	if (XHCI_EV_IS_EVENT_DATA (h_ev_trb))
+		return false;
+	struct xhci_dummy_trb *p = LIST4_HEAD (h_ep_tr->post_dummy_trb, list);
+	if (!p)
+		return false;
+	if (h_ev_trb->param.trb_addr != p->htrb_addr)
+		return false;
+	LIST4_DEL (h_ep_tr->post_dummy_trb, list, p);
+	/* last_trb_addr will be used for finding reusable
+	 * segments. */
+	h_ep_tr->last_trb_addr = p->htrb_addr;
+	h_ev_trb->param.value = p->gtrb_param;
+	h_ev_trb->sts.value = p->gtrb_sts;
+	h_ev_trb->ctrl.ev.flags = XHCI_TRB_SET_C (XHCI_TRB_GET_C (h_ev_trb)) |
+		XHCI_TRB_SET_TRB_TYPE (XHCI_TRB_TYPE_TX_EV) |
+		XHCI_TRB_SET_EV (p->gtrb_ev);
+	free (p);
+	return true;
+}
+
 static phys_t
 process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 {
@@ -543,6 +566,8 @@ process_tx_ev (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 	struct xhci_ep_tr *h_ep_tr = &host->slot_meta[slot_id].ep_trs[ep_no];
 
 	spinlock_lock (&h_ep_tr->lock);
+	if (handle_dummy_ev (h_ep_tr, h_ev_trb))
+		goto end;
 
 	struct usb_request_block *h_urb = h_ep_tr->h_urb_list;
 
@@ -807,12 +832,58 @@ alloc_tr_segments (struct xhci_slot_meta *h_slot_meta,
 }
 
 static void
+reset_ep (struct xhci_ep_tr *h_ep_tr, struct xhci_trb *h_cmd_trb)
+{
+	/* If the endpoint is virtually in Halted state while
+	 * physically in Running state, replace the command type with
+	 * Stop Endpoint Command to avoid Context State Error. */
+	if (h_ep_tr->vhalt_ep && h_cmd_trb)
+		h_cmd_trb->ctrl.cmd.flags =
+			XHCI_TRB_SET_C (XHCI_TRB_GET_C (h_cmd_trb)) |
+			XHCI_TRB_SET_TRB_TYPE (XHCI_TRB_TYPE_STOP_EP_CMD);
+	h_ep_tr->vhalt_ep = false;
+
+	spinlock_lock (&h_ep_tr->pending_lock);
+	/* Reset Endpoint during handling Slot write or clear_pending
+	 * is not allowed */
+	ASSERT (!h_ep_tr->handle_gurbs_cs);
+	struct usb_request_block *g_urb = h_ep_tr->g_urb_pending;
+	h_ep_tr->g_urb_pending = NULL;
+	spinlock_unlock (&h_ep_tr->pending_lock);
+
+	if (g_urb) {
+		g_urb->cease_pending (g_urb->host, g_urb,
+				      g_urb->cease_pending_arg);
+		do {
+			struct usb_request_block *h_urb = g_urb->shadow;
+			struct usb_request_block *next_urb = g_urb->link_next;
+			if (h_urb)
+				delete_urb_xhci (h_urb);
+			delete_urb_xhci (g_urb);
+			g_urb = next_urb;
+		} while (g_urb);
+	}
+
+	struct xhci_dummy_trb *dummy_trb;
+	while ((dummy_trb = LIST4_POP (h_ep_tr->pre_dummy_trb, list)))
+		free (dummy_trb);
+	while ((dummy_trb = LIST4_POP (h_ep_tr->post_dummy_trb, list)))
+		free (dummy_trb);
+
+	delete_urb_list_xhci (h_ep_tr->h_urb_list);
+	h_ep_tr->h_urb_list = NULL;
+	h_ep_tr->h_urb_tail = NULL;
+}
+
+static void
 free_tr_segments (struct xhci_slot_meta *h_slot_meta,
 		  struct xhci_slot_meta *g_slot_meta,
 		  uint ep_no)
 {
 	struct xhci_ep_tr *g_ep_tr = &g_slot_meta->ep_trs[ep_no];
 	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
+
+	reset_ep (h_ep_tr, NULL);
 
 	if (h_ep_tr->tr_segs) {
 		free (h_ep_tr->tr_segs);
@@ -823,10 +894,6 @@ free_tr_segments (struct xhci_slot_meta *h_slot_meta,
 		free (g_ep_tr->tr_segs);
 		g_ep_tr->tr_segs = NULL;
 	}
-
-	delete_urb_list_xhci (h_ep_tr->h_urb_list);
-	h_ep_tr->h_urb_list = NULL;
-	h_ep_tr->h_urb_tail = NULL;
 
 	memset (h_ep_tr, 0, XHCI_EP_TR_NBYTES);
 	memset (g_ep_tr, 0, XHCI_EP_TR_NBYTES);
@@ -857,6 +924,11 @@ alloc_slot (struct xhci_host *host, uint slot_id)
 	h_slot_meta->host_ctrl = HOST_CTRL_INITIAL;
 	g_slot_meta->host_ctrl = HOST_CTRL_INITIAL;
 
+	for (uint ep_no = 0; ep_no < MAX_EP; ep_no++) {
+		struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
+		LIST4_HEAD_INIT (h_ep_tr->pre_dummy_trb, list);
+		LIST4_HEAD_INIT (h_ep_tr->post_dummy_trb, list);
+	}
 }
 
 static void
@@ -1157,6 +1229,7 @@ evaluate_input_ctx (struct xhci_host *host, uint slot_id)
 		g_ep_tr->current_toggle = toggle;
 		h_ep_tr->current_toggle = 1;
 		h_ep_tr->last_trb_addr = 0;
+		h_ep_tr->vhalt_ep = false;
 
 		if (ep_no != 0 &&
 		    host->slot_meta[slot_id].host_ctrl == HOST_CTRL_NO) {
@@ -1215,6 +1288,7 @@ patch_tr_dq_ptr (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 	g_ep_tr->current_toggle = toggle;
 	h_ep_tr->current_toggle = 1;
 	h_ep_tr->last_trb_addr = 0;
+	h_ep_tr->vhalt_ep = false;
 
 	/* Remove remaining URBs */
 	delete_urb_list_xhci (h_ep_tr->h_urb_list);
@@ -1266,6 +1340,7 @@ reset_dev (struct xhci_host *host, uint slot_id)
 		g_ep_tr->current_toggle = 1;
 		h_ep_tr->current_toggle = 1;
 		h_ep_tr->last_trb_addr = 0;
+		h_ep_tr->vhalt_ep = false;
 
 		/* Remove remaining URBs */
 		delete_urb_list_xhci (h_ep_tr->h_urb_list);
@@ -1384,7 +1459,10 @@ xhci_process_cmd_trb (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 			  "Reset EP command slot_id: %u ep_no: %u\n",
 			  XHCI_CMD_GET_SLOT_ID (h_cmd_trb),
 			  XHCI_CMD_GET_EP_NO (h_cmd_trb));
-
+		slot_id = XHCI_CMD_GET_SLOT_ID (h_cmd_trb);
+		h_slot_meta = &host->slot_meta[slot_id];
+		reset_ep (&h_slot_meta->ep_trs[XHCI_CMD_GET_EP_NO (h_cmd_trb)],
+			  h_cmd_trb);
 		break;
 	case XHCI_TRB_TYPE_STOP_EP_CMD:
 		dprintft (CMD_DEBUG_LEVEL,
@@ -1437,8 +1515,8 @@ create_usb_buffer_list (struct xhci_trb *g_trb, phys_t g_trb_addr, uint ep_no)
 
 	if (type != XHCI_TRB_TYPE_NORMAL &&
 	    type != XHCI_TRB_TYPE_SETUP_STAGE &&
-	    type != XHCI_TRB_TYPE_DATA_STAGE &&
-	    type != XHCI_TRB_TYPE_ISOCH) {
+	    type != XHCI_TRB_TYPE_DATA_STAGE && type != XHCI_TRB_TYPE_ISOCH &&
+	    type != XHCI_TRB_TYPE_STATUS_STAGE) {
 		return NULL;
 	}
 
@@ -1458,6 +1536,7 @@ create_usb_buffer_list (struct xhci_trb *g_trb, phys_t g_trb_addr, uint ep_no)
 		ub->pid  = USB_PID_SETUP;
 		break;
 	case XHCI_TRB_TYPE_DATA_STAGE:
+	case XHCI_TRB_TYPE_STATUS_STAGE:
 		ub->pid  = XHCI_TRB_GET_DIR (g_trb) ?
 			   USB_PID_IN : /* 1 */
 			   USB_PID_OUT; /* 0 */
@@ -1737,10 +1816,11 @@ process_tx_trb (const struct mm_as *as_dma, struct usb_request_block *g_urb,
 		g_ep_tr->current_idx = 0;
 		break;
 	case XHCI_TRB_TYPE_SETUP_STAGE:
+	case XHCI_TRB_TYPE_DATA_STAGE:
 		keep_going = 1;
 	case XHCI_TRB_TYPE_NORMAL:
-	case XHCI_TRB_TYPE_DATA_STAGE:
 	case XHCI_TRB_TYPE_ISOCH:
+	case XHCI_TRB_TYPE_STATUS_STAGE:
 		g_trb_addr = g_ep_tr->tr_segs[current_seg].trb_addr +
 			     (i_trb * XHCI_TRB_NBYTES);
 
@@ -1991,6 +2071,7 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 	struct usb_request_block *new_g_urb = NULL;
 
 	u8 stop = 0;
+	u8 keep_going_next = 0;
 	struct usb_device *dev = h_slot_meta->device;
 
 	do { /* for stop */
@@ -2024,19 +2105,24 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 				tail_urb_priv = XHCI_URB_PRIVATE (tail_g_urb);
 				tail_urb_priv->next_g_dq_ptr = g_trb_addr |
 					current_toggle;
+				tail_urb_priv->current_cursor =
+					gtrbs_ref_cursor_init (tail_urb_priv);
 
 				stop = 1;
 				break;
 			}
 
-			if (!new_g_urb) {
-				if (tail_g_urb)
-					XHCI_URB_PRIVATE (tail_g_urb)
-						->next_g_dq_ptr = g_trb_addr |
-						current_toggle;
+			if (!new_g_urb && tail_g_urb) {
+				struct xhci_urb_private *tail_urb_priv =
+					XHCI_URB_PRIVATE (tail_g_urb);
+				tail_urb_priv->next_g_dq_ptr = g_trb_addr |
+					current_toggle;
+				tail_urb_priv->current_cursor =
+					gtrbs_ref_cursor_init (tail_urb_priv);
+			}
+			if (!new_g_urb)
 				new_g_urb = init_urb (host, slot_id, ep_no,
 						      dev);
-			}
 
 			struct xhci_urb_private *urb_priv;
 			urb_priv = XHCI_URB_PRIVATE (new_g_urb);
@@ -2050,7 +2136,15 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 							h_ep_tr,
 							g_ep_tr);
 
-			if (ch == 0 && !keep_going) {
+			/* keep_going is set in case of Setup Stage
+			 * TRB or Data Stage TRB.  Normal TRB or Event
+			 * Data TRB might follow Data Stage TRB.
+			 * keep_going_next tracks that. */
+			if (ch && keep_going) {
+				keep_going_next = 1;
+			} else if (!ch && !keep_going && keep_going_next) {
+				keep_going_next = 0;
+			} else if (!ch && !keep_going) {
 				if (ep_no == 0) {
 					fix_usb_pid (new_g_urb->buffers);
 				}
@@ -2505,3 +2599,280 @@ xhci_release_data (struct xhci_host *host)
 }
 
 /* ---------- End HC reset related functions ---------- */
+
+/* Virtual USB device functions */
+
+static u8
+status_to_comp_code (enum reply_td_error status_code)
+{
+	switch (status_code) {
+	case REPLY_TD_NO_ERROR:
+		return XHCI_TRB_CODE_SUCCESS;
+	case REPLY_TD_BABBLE:
+		return XHCI_TRB_CODE_BUBBLE_ERR;
+	case REPLY_TD_STALL:
+		return XHCI_TRB_CODE_STALL_ERR;
+	case REPLY_TD_SHORT_PACKET:
+		return XHCI_TRB_CODE_SHORT_PACKET;
+	}
+	dprintf (1, "need to handle the status code %u\n", status_code);
+	return XHCI_TRB_CODE_INVALID;
+}
+
+bool
+xhci_get_td (struct usb_host *usbhc, struct usb_request_block *gurb,
+	     size_t offset, phys_t *padr, size_t *len, u8 *pid)
+{
+	struct xhci_host *host = usbhc->private;
+	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (gurb);
+	uint slot_id = urb_priv->slot_id;
+	uint ep_no = urb_priv->ep_no;
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
+
+	if (h_ep_tr->vhalt_ep)
+		return false;
+	struct xhci_trbs_ref_cursor cursor = urb_priv->current_cursor;
+	size_t cursor_offset = urb_priv->current_cursor_offset;
+	u8 ret_pid = 0;
+	bool found = false;
+	for (;;) {
+		phys_t trb_addr;
+		struct xhci_trb *trb = trbs_ref_get_next_trb (&cursor,
+							      &trb_addr);
+		if (!trb)
+			break;
+		u8 type = XHCI_TRB_GET_TYPE (trb);
+		u8 trb_pid;
+		switch (type) {
+		case XHCI_TRB_TYPE_SETUP_STAGE:
+			trb_pid = USB_PID_SETUP;
+			break;
+		case XHCI_TRB_TYPE_DATA_STAGE:
+		case XHCI_TRB_TYPE_STATUS_STAGE:
+			trb_pid = XHCI_TRB_GET_DIR (trb) ?
+				USB_PID_IN : USB_PID_OUT;
+			break;
+		case XHCI_TRB_TYPE_NORMAL:
+		case XHCI_TRB_TYPE_ISOCH:
+			trb_pid = (ep_no & 1) ? USB_PID_OUT : USB_PID_IN;
+			break;
+		default:
+			continue;
+		}
+		phys_t data_addr = XHCI_TRB_GET_IDT (trb) ?
+			trb_addr : trb->param.value;
+		uint data_len = type != XHCI_TRB_TYPE_STATUS_STAGE ?
+			XHCI_TRB_GET_TRB_LEN (trb) : 0;
+		if (cursor_offset > 0) {
+			if (cursor_offset >= data_len) {
+				cursor_offset -= data_len;
+				continue;
+			}
+			data_addr += cursor_offset;
+			data_len -= cursor_offset;
+			cursor_offset = 0;
+		}
+		if (!ret_pid)
+			ret_pid = trb_pid;
+		else if (ret_pid != trb_pid)
+			break;
+		if (offset > 0) {
+			if (offset >= data_len) {
+				offset -= data_len;
+				continue;
+			}
+			data_addr += offset;
+			data_len -= offset;
+			offset = 0;
+		}
+		if (!found) {
+			*pid = ret_pid;
+			*padr = data_addr;
+			*len = data_len;
+			found = true;
+		} else {
+			if (*padr + *len != data_addr)
+				break;
+			*len += data_len;
+		}
+	}
+	return found;
+}
+
+static void
+dummy_trb (struct xhci_ep_tr *h_ep_tr, u64 gtrb_param, u16 intr_target,
+	   u8 comp_code, u32 transfer_len, u8 event_data)
+{
+	struct xhci_dummy_trb *p = alloc (sizeof *p);
+	p->htrb_addr = 0;
+	p->gtrb_param = gtrb_param;
+	p->gtrb_sts = XHCI_EV_SET_STS (comp_code, transfer_len);
+	p->intr_target = intr_target;
+	p->gtrb_ev = event_data;
+	LIST4_ADD (h_ep_tr->pre_dummy_trb, list, p);
+}
+
+void
+xhci_reply_td (struct usb_host *usbhc, struct usb_request_block *gurb,
+	       size_t len, enum reply_td_error error)
+{
+	struct xhci_host *host = usbhc->private;
+	struct xhci_urb_private *urb_priv = XHCI_URB_PRIVATE (gurb);
+	uint slot_id = urb_priv->slot_id;
+	uint ep_no = urb_priv->ep_no;
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
+	struct xhci_input_dev_ctx *h_input_ctx = h_slot_meta->input_ctx;
+	u8 ep_type = XHCI_EP_CTX_EP_TYPE (h_input_ctx->dev_ctx.ep[ep_no]);
+
+	if (h_ep_tr->vhalt_ep)
+		return;
+	struct xhci_trbs_ref_cursor cursor = urb_priv->current_cursor;
+	uint offset = urb_priv->current_cursor_offset;
+	offset += len;
+	bool skip = false;
+	bool skip2 = false;
+	bool end_with_transfer = false;
+	static const u8 tt_is_transfer = 1 << 0;
+	static const u8 tt_has_isp = 1 << 1;
+	static const u8 tt_has_len = 1 << 2;
+	static const u8 tt_all = tt_is_transfer | tt_has_isp | tt_has_len;
+	static const u8 typetest[XHCI_TRB_TYPE_ISOCH + 1] = {
+		[XHCI_TRB_TYPE_NORMAL] = tt_all,
+		[XHCI_TRB_TYPE_SETUP_STAGE] = tt_is_transfer | tt_has_len,
+		[XHCI_TRB_TYPE_DATA_STAGE] = tt_all,
+		[XHCI_TRB_TYPE_STATUS_STAGE] = tt_is_transfer,
+		[XHCI_TRB_TYPE_ISOCH] = tt_all,
+	};
+	for (;;) {
+		phys_t trb_addr;
+		struct xhci_trb *trb = trbs_ref_get_next_trb (&cursor,
+							      &trb_addr);
+		if (!trb)
+			goto end;
+		u8 type = XHCI_TRB_GET_TYPE (trb);
+		bool is_ev_data = type == XHCI_TRB_TYPE_EV_DATA;
+		u8 tt = type < XHCI_TRB_TYPE_ISOCH + 1 ? typetest[type] : 0;
+		/* Link TRB, Event Data TRB or possibly No Op TRB is
+		 * consumed even if end_with_transfer is true. */
+		if ((tt & tt_is_transfer) && end_with_transfer)
+			goto end;
+		/* After error on isochronous endpoint or Short
+		 * Packet, skip TRBs until next TD except Event Data
+		 * TRB. */
+		if (skip) {
+			if (is_ev_data && !skip2) {
+				/* If Parse All Event Data (PAE) is 0,
+				 * only the first Event Data TRB is
+				 * parsed. */
+				if (!host->pae)
+					skip2 = true;
+				if (XHCI_TRB_GET_IOC (trb))
+					goto ev_data_intr;
+			}
+			goto skip_to_next_td;
+		}
+		bool isp = tt & tt_has_isp ? !!XHCI_TRB_GET_ISP (trb) : false;
+		uint trb_len =
+			tt & tt_has_len ? XHCI_TRB_GET_TRB_LEN (trb) : 0;
+		uint consume_len = MIN (trb_len, offset);
+		uint trb_len_remaining = trb_len - consume_len;
+		offset -= consume_len;
+		urb_priv->edtla += consume_len;
+		bool intr = false;
+		bool halt = false;
+		/* FIXME: Need to look at BEI flag. */
+		switch (error) {
+		case REPLY_TD_NO_ERROR:
+			if (trb_len_remaining)
+				goto end;
+			intr = !!XHCI_TRB_GET_IOC (trb);
+			break;
+		case REPLY_TD_BABBLE:
+		case REPLY_TD_STALL:
+			intr = true;
+			if (ep_type == XHCI_EP_TYPE_ISOCH_OUT &&
+			    ep_type == XHCI_EP_TYPE_ISOCH_IN)
+				skip = true;
+			else
+				halt = true;
+			break;
+		case REPLY_TD_SHORT_PACKET:
+			if (!trb_len_remaining) {
+				/* Short Packet will happen later, not
+				 * this TRB. */
+				intr = !!XHCI_TRB_GET_IOC (trb);
+				break;
+			}
+			ASSERT (!offset);
+			intr = !!(XHCI_TRB_GET_IOC (trb) || isp);
+			skip = true;
+			break;
+		}
+		if (intr) {
+			if (is_ev_data) {
+			ev_data_intr:
+				dummy_trb (h_ep_tr, trb->param.value,
+					   XHCI_TRB_GET_INTR_TARGET (trb),
+					   status_to_comp_code (error),
+					   urb_priv->edtla, 1);
+			} else {
+				dummy_trb (h_ep_tr, trb_addr,
+					   XHCI_TRB_GET_INTR_TARGET (trb),
+					   status_to_comp_code (error),
+					   trb_len_remaining, 0);
+			}
+		}
+		if (halt) {
+			h_ep_tr->vhalt_ep = true;
+			h_ep_tr->dq_ptr = trb_addr | XHCI_TRB_GET_C (trb);
+			goto end;
+		}
+	skip_to_next_td:
+		if (is_ev_data)
+			urb_priv->edtla = 0;
+		if (!XHCI_TRB_GET_CH (trb)) {
+			/* Setup/Data Stage/Status Stage TRB are in
+			 * one urb. */
+			urb_priv->edtla = 0;
+			skip = false;
+			skip2 = false;
+		}
+		urb_priv->current_cursor = cursor;
+		if (!offset && !skip)
+			end_with_transfer = true;
+	}
+end:
+	urb_priv->current_cursor_offset = offset;
+}
+
+bool
+xhci_shadow_write_dummy_trb (struct xhci_host *host, uint slot_id, uint ep_no)
+{
+	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
+	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
+	struct xhci_dummy_trb *p = LIST4_POP (h_ep_tr->pre_dummy_trb, list);
+	if (!p)
+		return false;
+	struct xhci_trb *first_h_trb = NULL;
+	do {
+		ASSERT (!p->htrb_addr);
+		struct xhci_trb *trb = xhci_allocate_htrbs (host, slot_id,
+							    ep_no, 1,
+							    &p->htrb_addr);
+		trb->param.value = 0;
+		trb->sts.value = XHCI_TRB_SET_INTR_TARGET (p->intr_target);
+		trb->ctrl.value = XHCI_TRB_SET_TRB_TYPE (XHCI_TRB_TYPE_NO_OP) |
+			XHCI_TRB_SET_IOC (1);
+		if (first_h_trb)
+			trb->ctrl.value |= XHCI_TRB_SET_C (1);
+		else
+			first_h_trb = trb;
+		LIST4_ADD (h_ep_tr->post_dummy_trb, list, p);
+	} while ((p = LIST4_POP (h_ep_tr->pre_dummy_trb, list)));
+	ASSERT (first_h_trb);
+	asm_store_barrier ();
+	first_h_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
+	return true;
+}
