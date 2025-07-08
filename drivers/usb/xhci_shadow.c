@@ -1285,7 +1285,17 @@ patch_tr_dq_ptr (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 	}
 
 	if (i_seg == g_ep_tr->max_size) {
-		panic ("Error in patch_tr_dq_ptr().");
+		/* Unfortunately the specified dequeue pointer was not
+		 * used before in the Transfer Ring.  Using segment 0
+		 * for the pointer. */
+		dprintft (CMD_DEBUG_LEVEL,
+			  "Map new segment in patch_tr_dq_ptr().\n");
+		i_seg = 0;
+		tr_seg_trbs_unmap (&g_ep_tr->tr_segs[i_seg]);
+		g_ep_tr->tr_segs[i_seg].trb_addr =
+			XHCI_CMD_GET_DQ_PTR (h_cmd_trb);
+		tr_seg_trbs_map (host->usb_host->as_dma,
+				 &g_ep_tr->tr_segs[i_seg]);
 	}
 
 	g_ep_tr->current_seg = i_seg;
