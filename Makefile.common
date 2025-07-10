@@ -9,6 +9,7 @@ SED = sed
 SIZE = $(CROSS_COMPILE)size
 STRIP = $(CROSS_COMPILE)strip
 PYTHON = python3
+TOUCH = touch
 
 # files
 CONFIG = .config
