@@ -2437,7 +2437,7 @@ void Se6IPToStr(char *str, SE_IPV6_ADDR a)
 	{
 		USHORT v = (i != 8 ? values[i] : 1);
 
-		if (values[i] == 0)
+		if (v == 0)
 		{
 			if (zero_started_index == INFINITE)
 			{
