@@ -116,7 +116,7 @@ do_mmio_access_memory (phys_t gphysaddr, bool wr, void *buf, uint len, u32 f)
 		void *buf;
 		uint len;
 		u32 flags;
-	} unlocked_handler;
+	} unlocked_handler = unlocked_handler; /* Make gcc happy */
 
 	unlocked_handler.found = false;
 	if (gphysaddr <= 0xFFFFFFFFULL)

@@ -95,7 +95,7 @@ make_buffer_list(struct usb_request_block *urb)
 {
 	struct usb_buffer_list *ub, *ub_head, **ub_next_p;
 	struct ehci_qtd_meta *qtdm;
-	size_t offset, remain, s_off;
+	size_t offset = 0, remain, s_off;
 	phys_t bufp;
 	int i, n = 0;
 	u8 pid, last_pid;
