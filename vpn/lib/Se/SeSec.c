@@ -39,6 +39,7 @@
 
 #define SE_INTERNAL
 #include <Se/Se.h>
+#include <core/panic.h>
 
 //Main mode
 bool SeSecSendMain1(SE_SEC *s)
@@ -2165,6 +2166,8 @@ bool SeSecSendAggr(SE_SEC *s)
 
 			SeAdd(payload_list, cert_request_payload);
 		}
+		else
+			panic ("Invalid config->VpnAuthMethod");
 
 		// ベンダ ID ペイロードの追加
 		SeAdd(payload_list, SeIkeNewDataPayload(SE_IKE_PAYLOAD_VENDOR_ID,
