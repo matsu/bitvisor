@@ -1610,9 +1610,9 @@ long IDMan_CmCheckCRL(void *pInData, long lInLen, void * data,unsigned long int 
 	}
 
 	/** CRLのシリアル番号をソートする。 */
-	if (!sk_is_sorted(x509crl->crl->revoked)) 
+	if (!sk_X509_REVOKED_is_sorted (x509crl->crl->revoked))
 	{
-		sk_sort(x509crl->crl->revoked);
+		sk_X509_REVOKED_sort (x509crl->crl->revoked);
 	}
 	/** CRLのシリアル番号を検索する。 */
 	idx = sk_X509_REVOKED_find(x509crl->crl->revoked, &rtmp);
