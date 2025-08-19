@@ -461,7 +461,7 @@ void Se6SendRawIp(SE_IPV6 *p, void *data, UINT size, UCHAR *dest_mac)
 	UCHAR *buf;
 	SE_IPV6_HEADER *ip;
 	SE_IPV6_ADDR dest_ip_local, dest_ip, src_ip;
-	char dest_mac_tmp[6];
+	UCHAR dest_mac_tmp[6];
 	// 引数チェック
 	if (p == NULL || data == NULL || size == 0)
 	{
