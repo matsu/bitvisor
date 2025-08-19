@@ -70,6 +70,9 @@ enum vt__status {
 	VT__NMI,
 };
 
+static void make_gp_fault (u32 errcode);
+static void make_ud_fault (void);
+
 static u32 stat_intcnt = 0;
 static u32 stat_hwexcnt = 0;
 static u32 stat_swexcnt = 0;
@@ -86,15 +89,40 @@ do_mov_cr (void)
 		struct exit_qual_cr s;
 		ulong v;
 	} eqc;
+	enum vmmerr err;
 
 	asm_vmread (VMCS_EXIT_QUALIFICATION, &eqc.v);
 	switch (eqc.s.type) {
 	case EXIT_QUAL_CR_TYPE_MOV_TO_CR:
 		vt_read_general_reg (eqc.s.reg, &val);
-		vt_write_control_reg (eqc.s.num, val);
+		err = cpu_emul_mov_to_cr (eqc.s.num, val);
+		switch (err) {
+		case VMMERR_SUCCESS:
+			break;
+		case VMMERR_EXCEPTION_GP:
+			make_gp_fault (0);
+			return;
+		case VMMERR_EXCEPTION_UD:
+			make_ud_fault ();
+			return;
+		default:
+			panic ("cpu_emul_mov_to_cr err %d", err);
+		}
 		break;
 	case EXIT_QUAL_CR_TYPE_MOV_FROM_CR:
-		vt_read_control_reg (eqc.s.num, &val);
+		err = cpu_emul_mov_from_cr (eqc.s.num, &val);
+		switch (err) {
+		case VMMERR_SUCCESS:
+			break;
+		case VMMERR_EXCEPTION_GP:
+			make_gp_fault (0);
+			return;
+		case VMMERR_EXCEPTION_UD:
+			make_ud_fault ();
+			return;
+		default:
+			panic ("cpu_emul_mov_from_cr err %d", err);
+		}
 		vt_write_general_reg (eqc.s.reg, val);
 		break;
 	case EXIT_QUAL_CR_TYPE_CLTS:

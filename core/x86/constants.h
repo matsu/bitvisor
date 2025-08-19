@@ -769,6 +769,7 @@
 #define CR4_PCIDE_BIT			0x20000
 #define CR4_OSXSAVE_BIT			0x40000
 #define CR4_PKE_BIT			0x400000
+#define CR4_CET_BIT			0x800000
 
 #define XCR0_X87_STATE_BIT		0x1
 #define XCR0_SSE_STATE_BIT		0x2

@@ -1651,7 +1651,7 @@ opcode_mov_to_cr (struct op *op)
 	if (!op->longmode)
 		cr &= 0xFFFFFFFF;
 	n = op->modrm_rreg;
-	current->vmctl.write_control_reg (n, cr);
+	RET_IF_ERR (cpu_emul_mov_to_cr (n, cr));
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1664,7 +1664,7 @@ opcode_mov_from_cr (struct op *op)
 
 	/* Ignore op->modrm.mod */
 	n = op->modrm_rreg;
-	current->vmctl.read_control_reg (n, &cr);
+	RET_IF_ERR (cpu_emul_mov_from_cr (n, &cr));
 	if (!op->longmode)
 		cr &= 0xFFFFFFFF;
 	set_reg (op, op->modrm_brm, cr);
@@ -1717,7 +1717,7 @@ static enum vmmerr
 opcode_rdmsr (struct op *op)
 {
 	if (cpu_emul_rdmsr ())
-		return VMMERR_MSR_FAULT;
+		return VMMERR_EXCEPTION_GP;
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }
@@ -1726,7 +1726,7 @@ static enum vmmerr
 opcode_wrmsr (struct op *op)
 {
 	if (cpu_emul_wrmsr ())
-		return VMMERR_MSR_FAULT;
+		return VMMERR_EXCEPTION_GP;
 	UPDATE_IP (op);
 	return VMMERR_SUCCESS;
 }

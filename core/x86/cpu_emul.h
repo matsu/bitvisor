@@ -33,6 +33,8 @@
 #include <core/types.h>
 #include "vmmerr.h"
 
+enum control_reg;
+
 void cpu_emul_cpuid (void);
 bool cpu_emul_rdmsr (void);
 bool cpu_emul_wrmsr (void);
@@ -41,5 +43,7 @@ void cpu_emul_cli (void);
 void cpu_emul_sti (void);
 enum vmmerr cpu_emul_realmode_int (u8 num);
 bool cpu_emul_xsetbv (void);
+enum vmmerr cpu_emul_mov_to_cr (enum control_reg reg, ulong val);
+enum vmmerr cpu_emul_mov_from_cr (enum control_reg reg, ulong *val);
 
 #endif

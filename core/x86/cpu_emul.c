@@ -169,3 +169,102 @@ cpu_emul_xsetbv (void)
 	id = ld;
 	return current->vmctl.xsetbv (ic, ia, id);
 }
+
+static u64
+get_efer (void)
+{
+	u64 efer;
+	if (current->vmctl.read_msr (MSR_IA32_EFER, &efer))
+		return 0;
+	return efer;
+}
+
+static bool
+get_efer_lma (void)
+{
+	return !!(get_efer () & MSR_IA32_EFER_LMA_BIT);
+}
+
+static bool
+get_efer_lme (void)
+{
+	return !!(get_efer () & MSR_IA32_EFER_LME_BIT);
+}
+
+enum vmmerr
+cpu_emul_mov_to_cr (enum control_reg reg, ulong val)
+{
+	ulong cr0;
+	const ulong cr0_mask = (CR0_PE_BIT | CR0_MP_BIT | CR0_EM_BIT |
+				CR0_TS_BIT | CR0_ET_BIT | CR0_NE_BIT |
+				CR0_WP_BIT | CR0_AM_BIT | CR0_NW_BIT |
+				CR0_CD_BIT | CR0_PG_BIT);
+	const ulong cr0_32bit_mask = 0xFFFFFFFFul;
+	ulong cr4;
+	switch (reg) {
+	case CONTROL_REG_CR0:
+		/* CR0 reserved bits are checked. */
+		if (val & ~cr0_32bit_mask)
+			return VMMERR_EXCEPTION_GP;
+		current->vmctl.read_control_reg (CONTROL_REG_CR0, &cr0);
+		val = (val & cr0_mask) | (cr0 & ~cr0_mask);
+		current->vmctl.read_control_reg (CONTROL_REG_CR4, &cr4);
+		if (!(val & CR0_WP_BIT) && (cr4 & CR4_CET_BIT))
+			return VMMERR_EXCEPTION_GP;
+		if ((val & CR0_PG_BIT) && !(val & CR0_PE_BIT))
+			return VMMERR_EXCEPTION_GP;
+		if (!(val & CR0_CD_BIT) && (val & CR0_NW_BIT))
+			return VMMERR_EXCEPTION_GP;
+		if ((val & CR0_PG_BIT) && !(cr4 & CR4_PAE_BIT) &&
+		    get_efer_lme ())
+			return VMMERR_EXCEPTION_GP;
+		if (!(val & CR0_PG_BIT) && (cr4 & CR4_PCIDE_BIT))
+			return VMMERR_EXCEPTION_GP;
+		break;
+	case CONTROL_REG_CR2:
+		break;
+	case CONTROL_REG_CR3:
+		/* CR3 reserved bits are not checked because they are
+		 * complex. */
+		break;
+	case CONTROL_REG_CR4:
+		/* CR4 reserved bits are not checked because they
+		 * depend on processor model. */
+		if (val & CR4_CET_BIT) {
+			current->vmctl.read_control_reg (CONTROL_REG_CR0,
+							 &cr0);
+			if (!(cr0 & CR0_WP_BIT))
+				return VMMERR_EXCEPTION_GP;
+		}
+		if (!(val & CR4_PAE_BIT) && get_efer_lma ())
+			return VMMERR_EXCEPTION_GP;
+		if ((val & CR4_PCIDE_BIT) && !get_efer_lma ())
+			return VMMERR_EXCEPTION_GP;
+		break;
+	case CONTROL_REG_CR8:
+		if (val & ~0xF)
+			return VMMERR_EXCEPTION_GP;
+		break;
+	default:
+		return VMMERR_EXCEPTION_UD;
+	}
+	current->vmctl.write_control_reg (reg, val);
+	return VMMERR_SUCCESS;
+}
+
+enum vmmerr
+cpu_emul_mov_from_cr (enum control_reg reg, ulong *val)
+{
+	switch (reg) {
+	case CONTROL_REG_CR0:
+	case CONTROL_REG_CR2:
+	case CONTROL_REG_CR3:
+	case CONTROL_REG_CR4:
+	case CONTROL_REG_CR8:
+		break;
+	default:
+		return VMMERR_EXCEPTION_UD;
+	}
+	current->vmctl.read_control_reg (reg, val);
+	return VMMERR_SUCCESS;
+}

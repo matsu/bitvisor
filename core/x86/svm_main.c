@@ -468,6 +468,27 @@ do_pagefault (void)
 }
 
 static void
+make_gp_fault (struct svm *svm, u32 errcode)
+{
+	svm->intr.vmcb_intr_info.v = 0;
+	svm->intr.vmcb_intr_info.s.vector = EXCEPTION_GP;
+	svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_EXCEPTION;
+	svm->intr.vmcb_intr_info.s.ev = 1;
+	svm->intr.vmcb_intr_info.s.v = 1;
+	svm->intr.vmcb_intr_info.s.errorcode = errcode;
+}
+
+static void
+make_ud_fault (struct svm *svm)
+{
+	svm->intr.vmcb_intr_info.v = 0;
+	svm->intr.vmcb_intr_info.s.vector = EXCEPTION_UD;
+	svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_EXCEPTION;
+	svm->intr.vmcb_intr_info.s.ev = 0;
+	svm->intr.vmcb_intr_info.s.v = 1;
+}
+
+static void
 do_readwrite_cr (enum control_reg creg, bool write)
 {
 	enum vmmerr err;
@@ -482,9 +503,35 @@ do_readwrite_cr (enum control_reg creg, bool write)
 			ulong val;
 			if (write) {
 				svm_read_general_reg (greg, &val);
-				svm_write_control_reg (creg, val);
+				err = cpu_emul_mov_to_cr (creg, val);
+				switch (err) {
+				case VMMERR_SUCCESS:
+					break;
+				case VMMERR_EXCEPTION_GP:
+					make_gp_fault (&current->u.svm, 0);
+					return;
+				case VMMERR_EXCEPTION_UD:
+					make_ud_fault (&current->u.svm);
+					return;
+				default:
+					panic ("cpu_emul_mov_to_cr err %d",
+					       err);
+				}
 			} else {
-				svm_read_control_reg (creg, &val);
+				err = cpu_emul_mov_from_cr (creg, &val);
+				switch (err) {
+				case VMMERR_SUCCESS:
+					break;
+				case VMMERR_EXCEPTION_GP:
+					make_gp_fault (&current->u.svm, 0);
+					return;
+				case VMMERR_EXCEPTION_UD:
+					make_ud_fault (&current->u.svm);
+					return;
+				default:
+					panic ("cpu_emul_mov_from_cr err %d",
+					       err);
+				}
 				svm_write_general_reg (greg, val);
 			}
 			vmcb->rip = vmcb->nrip;
@@ -493,8 +540,18 @@ do_readwrite_cr (enum control_reg creg, bool write)
 		/* Use cpu_interpreter for LMSW and CLTS. */
 	}
 	err = cpu_interpreter ();
-	if (err != VMMERR_SUCCESS)
+	switch (err) {
+	case VMMERR_SUCCESS:
+		break;
+	case VMMERR_EXCEPTION_GP:
+		make_gp_fault (&current->u.svm, 0);
+		return;
+	case VMMERR_EXCEPTION_UD:
+		make_ud_fault (&current->u.svm);
+		return;
+	default:
 		panic ("ERR %d", err);
+	}
 }
 
 static void
@@ -540,21 +597,15 @@ do_readwrite_msr (void)
 		case VMMERR_SUCCESS:
 			msr_fault = false;
 			break;
-		case VMMERR_MSR_FAULT:
+		case VMMERR_EXCEPTION_GP:
 			msr_fault = true;
 			break;
 		default:
 			panic ("ERR %d", err);
 		}
 	}
-	if (msr_fault && v == svm->intr.vmcb_intr_info.v) {
-		svm->intr.vmcb_intr_info.v = 0;
-		svm->intr.vmcb_intr_info.s.vector = EXCEPTION_GP;
-		svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_EXCEPTION;
-		svm->intr.vmcb_intr_info.s.ev = 1;
-		svm->intr.vmcb_intr_info.s.v = 1;
-		svm->intr.vmcb_intr_info.s.errorcode = 0;
-	}
+	if (msr_fault && v == svm->intr.vmcb_intr_info.v)
+		make_gp_fault (svm, 0);
 }
 
 static void
@@ -624,11 +675,7 @@ do_vmrun (void)
 	struct svm *svm = &current->u.svm;
 
 	if (!current->u.svm.svme) {
-		svm->intr.vmcb_intr_info.v = 0;
-		svm->intr.vmcb_intr_info.s.vector = EXCEPTION_UD;
-		svm->intr.vmcb_intr_info.s.type = VMCB_EVENTINJ_TYPE_EXCEPTION;
-		svm->intr.vmcb_intr_info.s.ev = 0;
-		svm->intr.vmcb_intr_info.s.v = 1;
+		make_ud_fault (svm);
 		return;
 	}
 	svm_read_general_reg (GENERAL_REG_RAX, &vmcb_phys);
