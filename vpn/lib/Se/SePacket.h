@@ -297,8 +297,10 @@ struct SE_IPV6_FRAGMENT_HEADER
 
 // IPv6 フラグメントヘッダ操作用マクロ
 #define SE_IPV6_GET_FRAGMENT_OFFSET(h)		(((((h)->FlagmentOffset1) << 5) & 0x1fe0) | (((h)->FlagmentOffset2AndFlags >> 3) & 0x1f))
-#define SE_IPV6_SET_FRAGMENT_OFFSET(h, v)	((h)->FlagmentOffset1 = (v / 32) & 0xff,	\
-											((h)->FlagmentOffset2AndFlags = ((v % 256) << 3) & 0xf8) | ((h)->FlagmentOffset2AndFlags & 0x07))
+#define SE_IPV6_SET_FRAGMENT_OFFSET(h, v) \
+	((h)->FlagmentOffset1 = (v / 32) & 0xff, \
+	 ((h)->FlagmentOffset2AndFlags = \
+	  (((v % 256) << 3) & 0xf8) | ((h)->FlagmentOffset2AndFlags & 0x07)))
 #define SE_IPV6_GET_FLAGS(h)				((h)->FlagmentOffset2AndFlags & 0x0f)
 #define SE_IPV6_SET_FLAGS(h, v)				((h)->FlagmentOffset2AndFlags = (((h)->FlagmentOffset2AndFlags & 0xf8) | (v & 0x07)))
 
