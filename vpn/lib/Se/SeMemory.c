@@ -467,7 +467,7 @@ UINT SeGetNextInt(SE_QUEUE *q)
 	ret = *p;
 	SeFree(p);
 
-	return *p;
+	return ret;
 }
 
 // キューに挿入
