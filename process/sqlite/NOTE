@@ -1,0 +1,10 @@
+This directory includes the SQLite source code in the form of the
+official "amalgamation".
+
+The files "sqlite3.c" and "sqlite3.h" were obtained from the SQLite
+project:
+ Source: https://github.com/sqlite/sqlite/releases/tag/version-3.33.0
+ Amalgamation created with: ./configure && make sqlite3.c
+
+Note: The GitHub repository is a mirror of the official SQLite source,
+which is maintained via Fossil at https://sqlite.org.

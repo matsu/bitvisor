@@ -1,0 +1,5 @@
+Origin: https://github.com/tianocore/edk2/releases/tag/edk2-stable202202
+
+Due to the large size of the full source tree, only the license text
+files and essential header files have been extracted from the above
+repository.
