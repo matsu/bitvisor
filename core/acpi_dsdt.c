@@ -45,8 +45,8 @@
 #include <string.h>
 #include <assert.h>
 #include <err.h>
+#include <stdbool.h>
 
-typedef enum { false, true } bool;
 #define alloc malloc
 #define u64 uint64_t
 #define u32 uint32_t

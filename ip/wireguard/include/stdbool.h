@@ -3,6 +3,10 @@
 
 #include <arch/cc.h>
 
-typedef enum { false, true } bool;
+#if __STDC_VERSION__ < 202311L
+#	define bool _Bool
+#	define false 0
+#	define true 1
+#endif
 
 #endif

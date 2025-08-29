@@ -33,12 +33,13 @@
 #include <share/vmm_types.h>
 
 #define NULL			((void *)0)
+#if __STDC_VERSION__ < 202311L
+#	define bool _Bool
+#	define false 0
+#	define true 1
+#endif
 
 typedef unsigned long int	size_t;
-typedef enum {
-	false = 0,
-	true = 1,
-} bool;
 union mem {
 	u8 byte;
 	u16 word;
