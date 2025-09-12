@@ -268,6 +268,16 @@ struct config_data_tls {
 	char srv_key[4096];
 };
 
+struct config_data_usbr {
+	char img_path[256];
+	char usbr_img[256];
+	u8 server_ip[4];
+	u16 server_port;
+	char uid[5];
+	char uname[32];
+	u32 data_limit_9p;
+};
+
 struct config_data {
 	int len;
 	struct config_data_idman idman;
@@ -278,6 +288,7 @@ struct config_data {
 	struct config_data_vmm vmm;
 	struct config_data_wireguard wg;
 	struct config_data_wg_guest_os wg_gos;
+	struct config_data_usbr usbr;
 } __attribute__ ((packed));
 
 #endif

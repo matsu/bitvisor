@@ -44,8 +44,18 @@
 #define MEM_ALIGNMENT                   4 /* 4-byte alignment */
 #define MEM_SIZE                        (16*1024*1024) /* Heap size (16MB) */
 #ifdef WIREGUARD_VMM
-#define MEMP_NUM_SYS_TIMEOUT		(LWIP_NUM_SYS_TIMEOUT_INTERNAL + 1)
+#	define WG_TIMEOUT 1
+#else
+#	define WG_TIMEOUT 0
 #endif
+#ifdef LW9P
+#	define LW9P_TIMEOUT 1
+#else
+#	define LW9P_TIMEOUT 0
+#endif
+#define MEMP_NUM_SYS_TIMEOUT \
+	(LWIP_NUM_SYS_TIMEOUT_INTERNAL + WG_TIMEOUT + LW9P_TIMEOUT)
+
 #ifdef MBEDTLS_VMM
 #define LWIP_ALTCP_TLS				1
 #define LWIP_ALTCP_TLS_MBEDTLS			1

@@ -490,6 +490,15 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (file, &name, &src, &len, "tls.ca_certFile", "tls.ca_cert");
 	ss (file, &name, &src, &len, "tls.srv_certFile", "tls.srv_cert");
 	ss (file, &name, &src, &len, "tls.srv_keyFile", "tls.srv_key");
+	/* usbr */
+	ss (noconv, &name, &src, &len, "usbr.img_path", "usbr.img_path");
+	ss (noconv, &name, &src, &len, "usbr.usbr_img", "usbr.usbr_img");
+	ss (ipv4_addr, &name, &src, &len, "usbr.server_ip", "usbr.server_ip");
+	ss (u16num, &name, &src, &len, "usbr.server_port", "usbr.server_port");
+	ss (noconv, &name, &src, &len, "usbr.uid", "usbr.uid");
+	ss (noconv, &name, &src, &len, "usbr.uname", "usbr.uname");
+	ss (uintnum, &name, &src, &len, "usbr.data_limit_9p",
+	    "usbr.data_limit_9p");
 	/* idman */
 	CONF (idman.crl01);
 	CONF (idman.crl02);
@@ -668,6 +677,14 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (tls.ca_cert);
 	CONF (tls.srv_cert);
 	CONF (tls.srv_key);
+	/* usbr */
+	CONF (usbr.img_path);
+	CONF (usbr.usbr_img);
+	CONF (usbr.server_ip);
+	CONF (usbr.server_port);
+	CONF (usbr.uid);
+	CONF (usbr.uname);
+	CONF (usbr.data_limit_9p);
 	if (!dst) {
 		fprintf (stderr, "unknown config \"%s\"\n", name);
 		exit (EXIT_FAILURE);

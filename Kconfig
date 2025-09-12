@@ -318,6 +318,12 @@ config CONCEAL_USBDEV
 	  See drivers/usb/usb_match.c for configuration examples.
 	  Currently this works with xHCI driver and Linux guest only.
 
+config USB_MSCD_REDIRECT
+	bool
+	default n
+	select LW9P
+	prompt "Redirect USB mass storage class devices transfers"
+
 endif
 
 config IEEE1394_CONCEALER
@@ -476,6 +482,11 @@ config TLS
 	bool
 	default n
 	prompt "Enable TLS connection with Mbed-TLS"
+
+config LW9P
+	bool
+	default n
+	prompt "Enable the lwIP-based 9P client"
 
 endif
 

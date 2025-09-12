@@ -3,6 +3,7 @@ MBEDTLS_VERSION=2.28.6
 CONSTANTS-$(CONFIG_TLS) += -DMBEDTLS_VMM
 CONSTANTS-$(CONFIG_WIREGUARD) += -DWIREGUARD_VMM
 CONSTANTS-$(CONFIG_LWIP_TUNE_OPTS) += -DLWIP_TUNE_OPTS
+CONSTANTS-$(CONFIG_LW9P) += -DLW9P
 
 CFLAGS += -I$(DIR)/include -I$(DIR)/include/arch -I$(DIR)/include/lwip \
 	-I$(DIR)/lwip-$(LWIP_VERSION)/src/include \
@@ -56,6 +57,7 @@ objs-y += ip_main.o net_main.o
 objs-$(CONFIG_WIREGUARD) += net_main_wg.o
 objs-y += echo-server.o echo-client.o echoctl.o
 objs-y += telnet-server.o telnet-dbgsh.o
+objs-$(CONFIG_LW9P) += lw9p/lw9p.o lw9p/lw9p_helper.o lw9p/lw9p_entry.o
 objs-$(CONFIG_WIREGUARD) += wireguard/wg_main.o \
 wireguard/wireguard-lwip/src/crypto/refc/blake2s.o \
 wireguard/wireguard-lwip/src/crypto/refc/chacha20.o \
