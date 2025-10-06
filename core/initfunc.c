@@ -33,6 +33,7 @@
 #include <core/string.h>
 #include <core/types.h>
 #include "initfunc.h"
+#include "panic.h"
 
 extern struct initfunc_data __initfunc_start[], __initfunc_end[];
 
@@ -52,6 +53,14 @@ debug_print (void)
 		debug_print1 (p);
 }
 
+static void
+do_call (struct initfunc_data *p)
+{
+	p->func ();
+	/* Detect panic on other processors during initialization. */
+	panic_test_for_initfunc ();
+}
+
 void
 call_initfunc (char *id)
 {
@@ -61,7 +70,7 @@ call_initfunc (char *id)
 	l = strlen (id);
 	for (p = __initfunc_start; p != __initfunc_end; p++)
 		if (memcmp (p->id, id, l) == 0)
-			p->func ();
+			do_call (p);
 }
 
 static int

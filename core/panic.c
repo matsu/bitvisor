@@ -220,6 +220,17 @@ panic (char *format, ...)
 		state = panic_main (state, panicdat.msg);
 }
 
+static void
+panic_dump_other_processors (void)
+{
+	set_panic_state (0x10);
+	panicdat.cpunum = currentcpu_get_id ();
+	panicdat.fail = 0xFF;
+	u8 state = 0x10;
+	for (;;)
+		state = panic_main (state, NULL);
+}
+
 /* stop if there is panic on other processors */
 void
 panic_test (void)
@@ -231,13 +242,21 @@ panic_test (void)
 			for (;;)
 				schedule ();
 		}
-		set_panic_state (0x10);
-		panicdat.cpunum = currentcpu_get_id ();
-		panicdat.fail = 0xFF;
-		u8 state = 0x10;
-		for (;;)
-			state = panic_main (state, NULL);
+		panic_dump_other_processors ();
 	}
+}
+
+void
+panic_test_for_initfunc (void)
+{
+	/* Unlike panic_test(), which is called by the main thread's
+	 * main loop, this function is invoked by call_initfunc()
+	 * during initialization, panic, suspend, resume, etc.
+	 * Therefore, if get_panic_state() != 0xFF -- that is, the
+	 * current processor is already in a panic state -- this
+	 * routine returns immediately without doing anything. */
+	if (panicmsg[0] != '\0' && get_panic_state () == 0xFF)
+		panic_dump_other_processors ();
 }
 
 static void

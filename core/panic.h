@@ -38,5 +38,6 @@ extern char panicmsg[1024];
 void auto_reboot (void);
 
 void panic_wait_for_dump_completion (u64 timeout);
+void panic_test_for_initfunc (void);
 
 #endif
