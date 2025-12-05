@@ -35,9 +35,7 @@
 #include <limits.h>
 
 #define CHAR_BIT	8
-#define UINT32_MAX	0xFFFFFFFFU
 #define SIZE_MAX	0xFFFFFFFFU
-#define INT_MAX		0x7FFFFFFF
 #define NULL		((void *)0)
 #define RAND_RETRY	20
 
