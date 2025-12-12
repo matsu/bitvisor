@@ -1322,7 +1322,7 @@ patch_tr_dq_ptr (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 
 	phys_t h_new_dq_ptr;
 
-	h_new_dq_ptr  = h_ep_tr->tr_segs[i_seg].trb_addr + offset;
+	h_new_dq_ptr  = h_ep_tr->tr_segs[0].trb_addr;
 	/* Always set Dequeue Cycle State (DCS) bit. */
 	h_new_dq_ptr |= 0x1;
 	/* Clear the Cycle (C) bit of the first TRB. */
