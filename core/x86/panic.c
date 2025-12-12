@@ -414,7 +414,6 @@ panic_arch_panic_shell (void)
 		usleep (1000000);
 		asm_rdcr0 (&cr0);
 		cr0 = (cr0 & ~CR0_NW_BIT) | CR0_CD_BIT;
-		asm_wridtr (0, 0);
 		asm_wrcr0 (cr0);
 		asm_wbinvd ();
 		do_panic_reboot ();
