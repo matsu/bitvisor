@@ -84,7 +84,11 @@ reboot_arch_reboot (void)
 	if (apic_available ()) {
 		usleep (1 * 1000000);
 		printf ("shutdown\n");
-		asm_wridtr (0, 0);
+		ulong idtbase, idtlimit;
+		/* Keep the panic state in IDTR base. */
+		asm_rdidtr (&idtbase, &idtlimit);
+		if (idtlimit)
+			asm_wridtr (idtlimit, 0);
 		asm volatile ("int3");
 	} else {
 		printf ("call reboot\n");

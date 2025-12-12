@@ -531,6 +531,9 @@ panic_arch_get_panic_state (void)
 {
 	ulong idtbase, idtlimit;
 	asm_rdidtr (&idtbase, &idtlimit);
+	/* If IDTR limit is zero, IDTR base is used instead. */
+	if (!idtlimit && idtbase < 0xFFFF)
+		idtlimit = idtbase;
 	if (idtlimit < 0xFF00)
 		return 0xFF;
 	return idtlimit & 0xFF;
@@ -541,7 +544,11 @@ panic_arch_set_panic_state (u8 state)
 {
 	ulong idtbase, idtlimit;
 	asm_rdidtr (&idtbase, &idtlimit);
-	asm_wridtr (idtbase, 0xFF00 + state);
+	/* If IDTR limit is zero, IDTR base is used instead. */
+	if (!idtlimit)
+		asm_wridtr (0xFF00 + state, 0);
+	else
+		asm_wridtr (idtbase, 0xFF00 + state);
 }
 
 void
