@@ -38,6 +38,7 @@
 #include <core/thread.h>
 #include <net/netapi.h>
 #include "ip_main.h"
+#include "net_main.h"
 #include "net_main_wg.h"
 #include "net_main_internal.h"
 
