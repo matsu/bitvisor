@@ -2086,6 +2086,7 @@ xhci_construct_gurbs (struct xhci_host *host, uint slot_id, uint ep_no)
 
 	/* Check if it should really construct a list of guest URBs */
 	struct xhci_trb *start_trb;
+	ASSERT (g_ep_tr->tr_segs);
 	start_trb = tr_seg_trbs_ref (host, &g_ep_tr->tr_segs[start_seg],
 				     start_idx);
 
@@ -2621,6 +2622,7 @@ xhci_release_data (struct xhci_host *host)
 	uint slots = xhci_get_max_slots (host);
 
 	uint slot_id;
+	ASSERT (host->dev_ctx);
 	for (slot_id = 1; slot_id <= slots; slot_id++) {
 		if (host->dev_ctx[slot_id]) {
 			clone_dev_ctx_to_guest (host, slot_id);

@@ -1005,6 +1005,7 @@ xhci_ep_no_to_bEndpointAddress (uint ep_no)
 static inline u64
 xhci_get_portno (struct xhci_dev_ctx *dev_ctx)
 {
+	ASSERT (dev_ctx);
 	u64 port	 = XHCI_SLOT_CTX_ROOT_PORTNO (dev_ctx->ctx);
 	u32 route_string = XHCI_SLOT_CTX_ROUTE_STR (dev_ctx->ctx);
 
