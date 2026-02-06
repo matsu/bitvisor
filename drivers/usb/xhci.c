@@ -528,6 +528,7 @@ take_control_erst (struct xhci_host *host)
 		}
 
 		xhci_create_shadow_erst (as, h_erst_data, g_erst_data);
+		xhci_initialize_event_ring (h_erst_data);
 
 		erdp_offset = INTR_REG_OFFSET (regs, i) + RTS_ERDP_OFFSET;
 		erst_offset = INTR_REG_OFFSET (regs, i) + RTS_ERSTBA_OFFSET;

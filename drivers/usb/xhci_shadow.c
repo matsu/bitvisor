@@ -171,8 +171,6 @@ xhci_create_shadow_erst (const struct mm_as *as,
 			h_erst_data->erst[i].n_trbs = g_erst[i].n_trbs;
 		}
 
-		xhci_initialize_event_ring (h_erst_data);
-
 		phys_t offset = g_erst_data->erst_dq_ptr - g_erst[i].trb_addr;
 		if (offset < trb_nbytes)
 			found = 1;
