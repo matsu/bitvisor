@@ -493,9 +493,9 @@ create_h_dev_ctx (struct xhci_host *host, u64 g_dev_ctx, void *handler_data)
 	return host->dev_ctx_addr;
 }
 
-static phys_t get_host_erdp (struct xhci_host *host,
-			     phys_t g_erst_dq_ptr,
-			     void *handler_data);
+static phys_t get_host_erdp_detail (struct xhci_host *host,
+				    phys_t g_erst_dq_ptr, void *handler_data,
+				    uint *current_seg, uint *current_idx);
 
 struct erst_data {
 	struct xhci_erst_data *h_erst_data;
@@ -533,8 +533,10 @@ take_control_erst (struct xhci_host *host)
 		erdp_offset = INTR_REG_OFFSET (regs, i) + RTS_ERDP_OFFSET;
 		erst_offset = INTR_REG_OFFSET (regs, i) + RTS_ERSTBA_OFFSET;
 
-		erdp = get_host_erdp (host, g_erst_data->erst_dq_ptr,
-				      &erst_data);
+		erdp = get_host_erdp_detail (host, g_erst_data->erst_dq_ptr,
+					     &erst_data,
+					     &h_erst_data->current_seg,
+					     &h_erst_data->current_idx);
 		dres_reg_write64 (r, erdp_offset, erdp);
 		dres_reg_write64 (r, erst_offset, h_erst_data->erst_addr);
 	}
@@ -788,9 +790,8 @@ xhci_opr_reg_write (struct xhci_host *host, const struct dres_reg *r,
 /* ---------- Start runtime related functions ---------- */
 
 static phys_t
-get_host_erdp (struct xhci_host *host,
-	       phys_t g_erst_dq_ptr,
-	       void *handler_data)
+get_host_erdp_detail (struct xhci_host *host, phys_t g_erst_dq_ptr,
+		      void *handler_data, uint *current_seg, uint *current_idx)
 {
 	struct erst_data *er_dq_data = (struct erst_data *)handler_data;
 
@@ -823,6 +824,10 @@ get_host_erdp (struct xhci_host *host,
 			new_er_dq_ptr = h_erst_data->erst[i].trb_addr + offset;
 
 			h_erst_data->erst_dq_ptr = new_er_dq_ptr;
+			if (current_seg)
+				*current_seg = i;
+			if (current_idx)
+				*current_idx = offset / XHCI_TRB_NBYTES;
 			break;
 		}
 	}
@@ -831,6 +836,14 @@ get_host_erdp (struct xhci_host *host,
 		dprintft (0, "Fatal error in %s()\n", __func__);
 
 	return new_er_dq_ptr;
+}
+
+static phys_t
+get_host_erdp (struct xhci_host *host, phys_t g_erst_dq_ptr,
+	       void *handler_data)
+{
+	return get_host_erdp_detail (host, g_erst_dq_ptr, handler_data, NULL,
+				     NULL);
 }
 
 static void
