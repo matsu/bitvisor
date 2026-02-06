@@ -133,68 +133,14 @@ end:
 #define CHECK_LEN_VALID (valid = (len != 4) ? 0 : 1)
 
 static bool
-hc_running (struct xhci_host *host)
-{
-	struct xhci_regs *regs;
-	u32 usbcmd;
-	u64 offset;
-
-	regs = host->regs;
-	offset = regs->opr_offset + OPR_USBCMD_OFFSET;
-	dres_reg_read32 (regs->r, offset, &usbcmd);
-	return !!(usbcmd & USBCMD_RUN);
-}
-
-static bool
-hc_halted (struct xhci_host *host)
-{
-	struct xhci_regs *regs;
-	u32 usbsts;
-	u64 offset;
-
-	regs = host->regs;
-	offset = regs->opr_offset + OPR_USBSTS_OFFSET;
-	dres_reg_read32 (regs->r, offset, &usbsts);
-	return !!(usbsts & USBSTS_HCH);
-}
-
-static void
-reflect_state_if_halted (struct xhci_host *host)
-{
-	if (host->hc_state == XHCI_HC_STATE_SHUTTING_DOWN && hc_halted (host))
-		host->hc_state = XHCI_HC_STATE_HALTED;
-}
-
-void
-xhci_update_vmm_hc_state (struct xhci_host *host)
-{
-	switch (host->hc_state) {
-	case XHCI_HC_STATE_RUNNING:
-		if (hc_running (host))
-			break;
-		host->hc_state = XHCI_HC_STATE_SHUTTING_DOWN;
-		/* Fallthrough */
-	case XHCI_HC_STATE_SHUTTING_DOWN:
-		if (!hc_halted (host))
-			break;
-		host->hc_state = XHCI_HC_STATE_HALTED;
-		/* Fallthrough */
-	case XHCI_HC_STATE_HALTED:
-		break;
-	}
-}
-
-bool
 xhci_hc_halted (struct xhci_host *host)
 {
-	reflect_state_if_halted (host);
 	return host->hc_state == XHCI_HC_STATE_HALTED;
 }
 
-bool
+static bool
 xhci_hc_running (struct xhci_host *host)
 {
-	reflect_state_if_halted (host);
 	return host->hc_state == XHCI_HC_STATE_RUNNING;
 }
 
@@ -584,12 +530,29 @@ handle_usb_cmd_write (struct xhci_host *host, u64 cmd)
 		panic ("CRS handling is not implemented yet.");
 	}
 
+	/* Handle Host Controller Reset or Light Host Controller
+	 * Reset. */
+	if (cmd & (USBCMD_HCRST | USBCMD_LHCRST)) {
+		dprintft (CMD_DEBUG_LEVEL, "Host Controller %sReset\n",
+			  cmd & USBCMD_HCRST ? "" : "Light ");
+		/* Panic if Light Host Controller Reset (LHCRST) bit
+		 * is 1 but Light HC Reset Capability (LHRC) is 0. */
+		if ((cmd & USBCMD_LHCRST) && !host->lhrc)
+			panic ("LHCRST=1 but LHRC=0");
+		if (!xhci_hc_halted (host))
+			panic ("Reset while running");
+		if (host->dev_ctx_array)
+			xhci_release_data (host);
+		host->erst_shadow_active = false;
+	}
+
 	if (cmd & USBCMD_RUN) {
 		if (!xhci_hc_running (host)) {
-			xhci_release_data (host);
-
 			host->hc_state = XHCI_HC_STATE_RUNNING;
-			take_control_erst (host);
+			if (!host->erst_shadow_active) {
+				take_control_erst (host);
+				host->erst_shadow_active = true;
+			}
 		}
 	} else {
 		if (xhci_hc_running (host)) {
@@ -1017,7 +980,7 @@ xhci_rts_reg_write (struct xhci_host *host, const struct dres_reg *r,
 				 &g_erst_data->erst_addr,
 				 &g_erst_data->erst_addr_written,
 				 NULL, NULL);
-
+		host->erst_shadow_active = false;
 		break;
 	case RTS_ERDP_OFFSET:
 	case RTS_ERDP_OFFSET + 4:
@@ -1805,6 +1768,8 @@ xhci_new (struct pci_device *pci_device)
 
 	host->csz = CAP_CPARAM1_GET_CSZ (cap_reg->hc_cparams1);
 	dprintft (REG_DEBUG_LEVEL, "CSZ flag: %u\n", host->csz);
+	host->lhrc = CAP_CPARAM1_GET_LHRC (cap_reg->hc_cparams1);
+	dprintft (REG_DEBUG_LEVEL, "LHRC flag: %u\n", host->lhrc);
 	/* Read PAE flag, necessary for URB completion check */
 	host->pae = CAP_CPARAM1_GET_PAE (cap_reg->hc_cparams1);
 	dprintft (REG_DEBUG_LEVEL, "PAE flag: %u\n", host->pae);

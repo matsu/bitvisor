@@ -111,6 +111,7 @@ zalloc (uint nbytes)
 	CAP_SPARAM2_GET_MAX_SCRATCHPAD_LO (sparam2)
 
 #define CAP_CPARAM1_GET_CSZ(cparam1) (((cparam1) & 0x00000004U) >> 2)
+#define CAP_CPARAM1_GET_LHRC(cparam1) (((cparam1) >> 5) & 1)
 #define CAP_CPARAM1_GET_PAE(cparam1) (((cparam1) & 0x00000100U) >> 8)
 /*
  * To get ext offset, value in the register must be shift to the right by 2.
@@ -150,13 +151,12 @@ zalloc (uint nbytes)
 #define USBCMD_HCRST  (0x1 <<  1)
 #define USBCMD_INTE   (0x1 <<  2)
 #define USBCMD_HSEE   (0x1 <<  3)
-#define USBCMD_LHCRST (0x1 <<  8)
-#define USBCMD_CSS    (0x1 <<  9)
-#define USBCMD_CRS    (0x1 << 10)
-#define USBCMD_EWE    (0x1 << 11)
-#define USBCMD_EU3S   (0x1 << 12)
-#define USBCMD_SPE    (0x1 << 13)
-#define USBCMD_CME    (0x1 << 14)
+#define USBCMD_LHCRST (0x1 <<  7)
+#define USBCMD_CSS    (0x1 <<  8)
+#define USBCMD_CRS    (0x1 <<  9)
+#define USBCMD_EWE    (0x1 << 10)
+#define USBCMD_EU3S   (0x1 << 11)
+#define USBCMD_CME    (0x1 << 13)
 
 /* USBSTS mask */
 #define USBSTS_HCH  (0x1 << 0)
@@ -711,8 +711,10 @@ struct xhci_host {
 	struct xhci_regs *regs;
 
 	enum xhci_hc_state hc_state;
+	bool erst_shadow_active;
 
 	u8 csz;			/* Context Size flag */
+	bool lhrc;		/* Light HC Reset Capability */
 	/* Parse All Events flag, necessary for URB completion check */
 	u8  pae;
 
@@ -1116,9 +1118,6 @@ void xhci_reply_td (struct usb_host *usbhc, struct usb_request_block *gurb,
 bool xhci_shadow_write_dummy_trb (struct xhci_host *host, uint slot_id,
 				  uint ep_no);
 
-void xhci_update_vmm_hc_state (struct xhci_host *host);
-bool xhci_hc_halted (struct xhci_host *host);
-bool xhci_hc_running (struct xhci_host *host);
 void xhci_update_er_dev_ctx_eint (struct xhci_host *host, bool eint);
 
 #endif /* _XHCI_H */
