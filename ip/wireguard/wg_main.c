@@ -3,7 +3,7 @@
 #include "wireguard-setup.h"
 
 struct netif *
-net_wg_init (struct config_data_wireguard *config_wg)
+net_wg_init (struct config_data_wireguard *config_wg, bool set_default)
 {
 	struct wireguard_setup_arg arg = {
 		.ipaddr = config_wg->ipaddr,
@@ -18,6 +18,6 @@ net_wg_init (struct config_data_wireguard *config_wg)
 		.peer_endpoint_port = config_wg->peer_endpoint_port,
 	};
 	if (arg.wg_private_key[0] != '\0')
-		return wireguard_setup (&arg);
+		return wireguard_setup (&arg, set_default);
 	return NULL;
 }

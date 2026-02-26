@@ -16,6 +16,11 @@ struct wireguard_setup_data {
 	char *peer_public_key;
 };
 
+static struct netif *default_netif;
+static ip_addr_t default_allowed_ip;
+static ip_addr_t default_allowed_mask;
+static ip_addr_t default_endpoint_addr;
+
 static void
 parse_wireguard_config (struct wireguard_setup_data *wg_config,
 			struct wireguard_setup_arg *arg)
@@ -48,7 +53,7 @@ parse_wireguard_config (struct wireguard_setup_data *wg_config,
 }
 
 struct netif *
-wireguard_setup (struct wireguard_setup_arg *arg)
+wireguard_setup (struct wireguard_setup_arg *arg, int set_default)
 {
 	struct wireguardif_init_data wg;
 	struct wireguardif_peer peer;
@@ -102,9 +107,39 @@ wireguard_setup (struct wireguard_setup_arg *arg)
 		/* Start outbound connection to peer */
 		ret = wireguardif_connect (wg_netif, peer_index);
 	}
-	if (ret == ERR_OK)
+	if (ret == ERR_OK) {
+		if (set_default) {
+			default_netif = wg_netif;
+			default_allowed_ip = wg_config.peer_allowed_ip;
+			default_allowed_mask = wg_config.peer_allowed_mask;
+			default_endpoint_addr = wg_config.ipaddr_end_point;
+		}
 		return wg_netif;
+	}
 	netif_remove (wg_netif);
 	mem_free (netif_new);
 	return NULL;
+}
+
+/* There are no routing tables in lwIP.  This hook function handles
+ * outgoing packets routing to AllowedIPs range. */
+struct netif *
+wg_ip4_route_src_hook (const ip4_addr_t *src, const ip4_addr_t *dest)
+{
+	if (default_netif == NULL || dest == NULL)
+		return NULL;
+	/* Is dest in AllowedIPs? */
+	if (!ip_addr_netcmp (dest, &default_allowed_ip, &default_allowed_mask))
+		return NULL;
+	if (src != NULL) {
+		/* Is src default_netif? */
+		if (!ip_addr_cmp (src, &default_netif->ip_addr))
+			return NULL;
+	} else {
+		/* Isn't dest Endpoint? */
+		if (!ip_addr_isany (&default_endpoint_addr) &&
+		    ip_addr_cmp (dest, &default_endpoint_addr))
+			return NULL;
+	}
+	return default_netif;
 }

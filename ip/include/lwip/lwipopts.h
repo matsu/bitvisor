@@ -103,7 +103,11 @@
 #endif /* __LWIPOPTS_H__ */
 #ifdef WIREGUARD_VMM
 #define LWIP_HOOK_IP4_INPUT(p, inp) wg_ip4_input_hook (p, inp)
+#define LWIP_HOOK_IP4_ROUTE_SRC(src, dest) wg_ip4_route_src_hook (src, dest)
 struct pbuf;
 struct netif;
+typedef struct ip4_addr ip4_addr_t;
 int wg_ip4_input_hook (struct pbuf *p, struct netif *inp);
+struct netif *wg_ip4_route_src_hook (const ip4_addr_t *src,
+				     const ip4_addr_t *dest);
 #endif /* WIREGUARD_VMM */
