@@ -67,10 +67,18 @@ struct dhcp_data {
 
 struct wg_gos_data {
 	union {
-		u8 guest_mac[6];
+		struct {
+			u8 guest_mac[6];
+			u8 mac_gateway[6];
+		};
 		u8 fake_eth[14];
 	};
-	ip_addr_t gateway_ip;
+	ip_addr_t wg_gos_ip;
+	const u8 *gateway;
+	const u8 *netmask;
+	const u8 *gos_ipaddr;
+	const u8 *gos_dns;
+	bool wg_gos_ip_cmp;
 };
 
 static struct netif *netif_vm;
@@ -93,9 +101,6 @@ wg_gos_new (u8 guest_mac[6])
 	memcpy (&(wg_gos_data->fake_eth[6]), config.wg_gos.mac_gateway, 6);
 	wg_gos_data->fake_eth[12] = ETHTYPE_IP >> 8;
 	wg_gos_data->fake_eth[13] = (u8)ETHTYPE_IP;
-	IP4_ADDR (&wg_gos_data->gateway_ip, config.wg.gateway[0],
-		  config.wg.gateway[1], config.wg.gateway[2],
-		  config.wg.gateway[3]);
 	return wg_gos_data;
 }
 
@@ -124,7 +129,11 @@ arp_checker (void *packet, int size, struct wg_gos_data *wg_gos_data)
 	printf ("Destination IP: %d.%d.%d.%d\n", dest_ip[0], dest_ip[1],
 		dest_ip[2], dest_ip[3]);
 #endif
-	if (ip_addr_cmp (&dest_ip, &wg_gos_data->gateway_ip))
+	ip_addr_t gateway_ip;
+	IP4_ADDR (&gateway_ip, wg_gos_data->gateway[0],
+		  wg_gos_data->gateway[1], wg_gos_data->gateway[2],
+		  wg_gos_data->gateway[3]);
+	if (ip_addr_cmp (&dest_ip, &gateway_ip))
 		return ARP_ASK_GATEWAY;
 	else
 		return ARP_ASK_OTHERS;
@@ -143,28 +152,30 @@ arp_maker (void *packet, struct arp_data *arp_packet,
 				      wg_gos_data->guest_mac[3],
 				      wg_gos_data->guest_mac[4],
 				      wg_gos_data->guest_mac[5] },
-		.ethhdr.src.addr = { config.wg_gos.mac_gateway[0],
-				     config.wg_gos.mac_gateway[1],
-				     config.wg_gos.mac_gateway[2],
-				     config.wg_gos.mac_gateway[3],
-				     config.wg_gos.mac_gateway[4],
-				     config.wg_gos.mac_gateway[5] },
+		.ethhdr.src.addr = { wg_gos_data->mac_gateway[0],
+				     wg_gos_data->mac_gateway[1],
+				     wg_gos_data->mac_gateway[2],
+				     wg_gos_data->mac_gateway[3],
+				     wg_gos_data->mac_gateway[4],
+				     wg_gos_data->mac_gateway[5] },
 		.ethhdr.type = PP_HTONS (ETHTYPE_ARP),
 		.etharphdr.hwtype = PP_HTONS (LWIP_IANA_HWTYPE_ETHERNET),
 		.etharphdr.proto = NETIF_FLAG_ETHARP,
 		.etharphdr.hwlen = ETH_HWADDR_LEN,
 		.etharphdr.protolen = 0x04,
 		.etharphdr.opcode = PP_HTONS (ARP_REPLY),
-		.etharphdr.shwaddr.addr = { config.wg_gos.mac_gateway[0],
-					    config.wg_gos.mac_gateway[1],
-					    config.wg_gos.mac_gateway[2],
-					    config.wg_gos.mac_gateway[3],
-					    config.wg_gos.mac_gateway[4],
-					    config.wg_gos.mac_gateway[5] },
-		.etharphdr.sipaddr.addrw[0] = (u16)config.wg.gateway[1] << 8 |
-			config.wg.gateway[0],
-		.etharphdr.sipaddr.addrw[1] = (u16)config.wg.gateway[3] << 8 |
-			config.wg.gateway[2],
+		.etharphdr.shwaddr.addr = { wg_gos_data->mac_gateway[0],
+					    wg_gos_data->mac_gateway[1],
+					    wg_gos_data->mac_gateway[2],
+					    wg_gos_data->mac_gateway[3],
+					    wg_gos_data->mac_gateway[4],
+					    wg_gos_data->mac_gateway[5] },
+		.etharphdr.sipaddr.addrw[0] =
+			(u16)wg_gos_data->gateway[1] << 8 |
+			wg_gos_data->gateway[0],
+		.etharphdr.sipaddr.addrw[1] =
+			(u16)wg_gos_data->gateway[3] << 8 |
+			wg_gos_data->gateway[2],
 		.etharphdr.dhwaddr.addr = { wg_gos_data->guest_mac[0],
 					    wg_gos_data->guest_mac[1],
 					    wg_gos_data->guest_mac[2],
@@ -172,11 +183,11 @@ arp_maker (void *packet, struct arp_data *arp_packet,
 					    wg_gos_data->guest_mac[4],
 					    wg_gos_data->guest_mac[5] },
 		.etharphdr.dipaddr.addrw[0] =
-			(u16)config.wg_gos.ipaddr[1] << 8 |
-			config.wg_gos.ipaddr[0],
+			(u16)wg_gos_data->gos_ipaddr[1] << 8 |
+			wg_gos_data->gos_ipaddr[0],
 		.etharphdr.dipaddr.addrw[1] =
-			(u16)config.wg_gos.ipaddr[3] << 8 |
-			config.wg_gos.ipaddr[2],
+			(u16)wg_gos_data->gos_ipaddr[3] << 8 |
+			wg_gos_data->gos_ipaddr[2],
 	};
 }
 
@@ -220,12 +231,12 @@ dhcp_maker (struct dhcp_data *d, u32 x_id, u8 type,
 				      wg_gos_data->guest_mac[4],
 				      wg_gos_data->guest_mac[5] },
 		/* Fake MAC */
-		.ethhdr.src.addr = { config.wg_gos.mac_gateway[0],
-				     config.wg_gos.mac_gateway[1],
-				     config.wg_gos.mac_gateway[2],
-				     config.wg_gos.mac_gateway[3],
-				     config.wg_gos.mac_gateway[4],
-				     config.wg_gos.mac_gateway[5] },
+		.ethhdr.src.addr = { wg_gos_data->mac_gateway[0],
+				     wg_gos_data->mac_gateway[1],
+				     wg_gos_data->mac_gateway[2],
+				     wg_gos_data->mac_gateway[3],
+				     wg_gos_data->mac_gateway[4],
+				     wg_gos_data->mac_gateway[5] },
 		.ethhdr.type = PP_HTONS (ETHTYPE_IP),
 		/* IP Header */
 		.iphdr._v_hl = 0x45,
@@ -236,7 +247,7 @@ dhcp_maker (struct dhcp_data *d, u32 x_id, u8 type,
 		.iphdr._ttl = 0x40,
 		.iphdr._proto = IP_PROTO_UDP,
 		.iphdr._chksum = 0,
-		.iphdr.src.addr = PACK_IP_ADDR (config.wg.gateway),
+		.iphdr.src.addr = PACK_IP_ADDR (wg_gos_data->gateway),
 		.iphdr.dest.addr = IPADDR_BROADCAST,
 		/* UDP protocol */
 		.udphdr.src = PP_HTONS (LWIP_IANA_PORT_DHCP_SERVER),
@@ -252,8 +263,8 @@ dhcp_maker (struct dhcp_data *d, u32 x_id, u8 type,
 		.dhcpmsg.secs = 0,
 		.dhcpmsg.flags = 0,
 		.dhcpmsg.ciaddr.addr = 0,
-		.dhcpmsg.yiaddr.addr = PACK_IP_ADDR (config.wg_gos.ipaddr),
-		.dhcpmsg.siaddr.addr = PACK_IP_ADDR (config.wg.gateway),
+		.dhcpmsg.yiaddr.addr = PACK_IP_ADDR (wg_gos_data->gos_ipaddr),
+		.dhcpmsg.siaddr.addr = PACK_IP_ADDR (wg_gos_data->gateway),
 		.dhcpmsg.giaddr.addr = 0,
 		.dhcpmsg.chaddr = { wg_gos_data->guest_mac[0],
 				    wg_gos_data->guest_mac[1],
@@ -269,28 +280,28 @@ dhcp_maker (struct dhcp_data *d, u32 x_id, u8 type,
 				     type,
 				     DHCP_OPTION_SERVER_ID,
 				     4,
-				     config.wg.gateway[0],
-				     config.wg.gateway[1],
-				     config.wg.gateway[2],
-				     config.wg.gateway[3],
+				     wg_gos_data->gateway[0],
+				     wg_gos_data->gateway[1],
+				     wg_gos_data->gateway[2],
+				     wg_gos_data->gateway[3],
 				     DHCP_OPTION_SUBNET_MASK,
 				     4,
-				     config.wg.netmask[0],
-				     config.wg.netmask[1],
-				     config.wg.netmask[2],
-				     config.wg.netmask[3],
+				     wg_gos_data->netmask[0],
+				     wg_gos_data->netmask[1],
+				     wg_gos_data->netmask[2],
+				     wg_gos_data->netmask[3],
 				     DHCP_OPTION_ROUTER,
 				     4,
-				     config.wg.gateway[0],
-				     config.wg.gateway[1],
-				     config.wg.gateway[2],
-				     config.wg.gateway[3],
+				     wg_gos_data->gateway[0],
+				     wg_gos_data->gateway[1],
+				     wg_gos_data->gateway[2],
+				     wg_gos_data->gateway[3],
 				     DHCP_OPTION_DNS_SERVER,
 				     4,
-				     config.wg_gos.dns[0],
-				     config.wg_gos.dns[1],
-				     config.wg_gos.dns[2],
-				     config.wg_gos.dns[3],
+				     wg_gos_data->gos_dns[0],
+				     wg_gos_data->gos_dns[1],
+				     wg_gos_data->gos_dns[2],
+				     wg_gos_data->gos_dns[3],
 				     DHCP_OPTION_LEASE_TIME,
 				     4,
 				     0x00,
@@ -339,14 +350,11 @@ send_to_wg (void *packet, int size)
 }
 
 static int
-send_to_vm_guest (struct pbuf *pbuf)
+send_to_vm_guest (struct pbuf *pbuf, struct net_ip_data *p)
 {
-	struct net_ip_data *p;
 	unsigned int total_size;
 	void *buffer;
-	struct netif *netif = netif_vm;
 
-	p = netif->state;
 	if (pbuf->tot_len == pbuf->len &&
 	    pbuf_header (pbuf, sizeof p->wg_gos_data->fake_eth) == 0) {
 		/* Fast path: use pbuf->payload directly. */
@@ -373,24 +381,20 @@ send_to_vm_guest (struct pbuf *pbuf)
 }
 
 int
-wg_ip4_input_hook (struct pbuf *p, struct netif *inp)
+wg_ip4_input_hook (struct pbuf *pbuf, struct netif *inp)
 {
 	if (netif_vm == NULL || netif_wg == NULL)
 		return 0;
 	if (inp == netif_wg) {
-		if (p != NULL) {
+		if (pbuf != NULL) {
+			struct net_ip_data *p = netif_vm->state;
+			if (!p->wg_gos_data->wg_gos_ip_cmp)
+				return send_to_vm_guest (pbuf, p);
 			ip_addr_t dest_ip;
-			ip_addr_t wg_gos_ip;
-			struct ip_hdr *ip_header = p->payload;
-
-			ip4_addr_set_u32 (&dest_ip,
-					  ip4_addr_get_u32 (&ip_header->dest));
-			IP_ADDR4 (&wg_gos_ip, config.wg_gos.ipaddr[0],
-				  config.wg_gos.ipaddr[1],
-				  config.wg_gos.ipaddr[2],
-				  config.wg_gos.ipaddr[3]);
-			if (ip_addr_cmp (&dest_ip, &wg_gos_ip))
-				return send_to_vm_guest (p);
+			struct ip_hdr *ip_header = pbuf->payload;
+			ip_addr_copy_from_ip4 (dest_ip, ip_header->dest);
+			if (ip_addr_cmp (&dest_ip, &p->wg_gos_data->wg_gos_ip))
+				return send_to_vm_guest (pbuf, p);
 		} else {
 			printf ("wg_ip4_input_hook : pbuf is NULL\n");
 		}
@@ -490,11 +494,26 @@ wg_gos_task_add (u32 num_packets, void **packets, u32 *packet_sizes,
 }
 
 void
-wg_gos_init (struct net_ip_data *p)
+wg_gos_init (struct net_ip_data *p, struct netif *wg1, struct netif *wg2)
 {
-	LWIP_ASSERT ("p->wg_gos_data != NULL", p->wg_gos_data != NULL);
+	struct wg_gos_data *wg_gos_data = p->wg_gos_data;
+	LWIP_ASSERT ("wg_gos_data != NULL", wg_gos_data != NULL);
 	netif_vm = netif_find ("vm0");
 	LWIP_ASSERT ("netif_vm != NULL", netif_vm != NULL);
-	netif_wg = netif_find ("wg1");
+	netif_wg = wg2 == NULL ? wg1 : wg2;
 	LWIP_ASSERT ("netif_wg != NULL", netif_wg != NULL);
+	if (wg2 == NULL) {
+		wg_gos_data->wg_gos_ip_cmp = true;
+		IP_ADDR4 (&wg_gos_data->wg_gos_ip, config.wg_gos.ipaddr[0],
+			  config.wg_gos.ipaddr[1], config.wg_gos.ipaddr[2],
+			  config.wg_gos.ipaddr[3]);
+		wg_gos_data->gateway = config.wg.gateway;
+		wg_gos_data->netmask = config.wg.netmask;
+	} else {
+		wg_gos_data->wg_gos_ip_cmp = false;
+		wg_gos_data->gateway = config.wg_gos.wg.gateway;
+		wg_gos_data->netmask = config.wg_gos.wg.netmask;
+	}
+	wg_gos_data->gos_ipaddr = config.wg_gos.ipaddr;
+	wg_gos_data->gos_dns = config.wg_gos.dns;
 }

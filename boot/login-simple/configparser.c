@@ -486,6 +486,22 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (ipv4_addr, &name, &src, &len, "wg_gos.ipaddr", "wg_gos.ipaddr");
 	ss (mac_addr, &name, &src, &len, "wg_gos.mac_gateway",
 	    "wg_gos.mac_gateway");
+	ss (ipv4_addr, &name, &src, &len, "wg_gos.wg.ipaddr",
+	    "wg_gos.wg.ipaddr");
+	ss (ipv4_addr, &name, &src, &len, "wg_gos.wg.netmask",
+	    "wg_gos.wg.netmask");
+	ss (ipv4_addr, &name, &src, &len, "wg_gos.wg.gateway",
+	    "wg_gos.wg.gateway");
+	ss (ipv4_addr, &name, &src, &len, "wg_gos.wg.ipaddr_end_point",
+	    "wg_gos.wg.ipaddr_end_point");
+	ss (ipv4_addr, &name, &src, &len, "wg_gos.wg.peer_allowed_ip",
+	    "wg_gos.wg.peer_allowed_ip");
+	ss (ipv4_addr, &name, &src, &len, "wg_gos.wg.peer_allowed_mask",
+	    "wg_gos.wg.peer_allowed_mask");
+	ss (uintnum, &name, &src, &len, "wg_gos.wg.peer_endpoint_port",
+	    "wg_gos.wg.peer_endpoint_port");
+	ss (uintnum, &name, &src, &len, "wg_gos.wg.wg_listen_port",
+	    "wg_gos.wg.wg_listen_port");
 	/* Mbed-TLS */
 	ss (file, &name, &src, &len, "tls.ca_certFile", "tls.ca_cert");
 	ss (file, &name, &src, &len, "tls.srv_certFile", "tls.srv_cert");
@@ -673,6 +689,16 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (wg_gos.dns);
 	CONF (wg_gos.ipaddr);
 	CONF (wg_gos.mac_gateway);
+	CONF (wg_gos.wg.ipaddr);
+	CONF (wg_gos.wg.netmask);
+	CONF (wg_gos.wg.gateway);
+	CONF (wg_gos.wg.ipaddr_end_point);
+	CONF (wg_gos.wg.peer_allowed_ip);
+	CONF (wg_gos.wg.peer_allowed_mask);
+	CONF (wg_gos.wg.peer_endpoint_port);
+	CONF (wg_gos.wg.wg_listen_port);
+	CONF (wg_gos.wg.wg_private_key);
+	CONF (wg_gos.wg.peer_public_key);
 	/* Mbed-TLS */
 	CONF (tls.ca_cert);
 	CONF (tls.srv_cert);

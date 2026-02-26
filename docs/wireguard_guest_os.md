@@ -102,6 +102,7 @@ The values of `.wg_gos` structure:
 - `ipaddr` (192.168.3.3) is used to assign an IP address to the guest OS, ensuring that it can communicate with the WireGuard server.
 - `dns` (8.8.8.8) is used to specify the DNS server for the guest OS, allowing it to resolve domain names to IP addresses. This setting is crucial for enabling the guest OS to access the internet and other network services correctly.
 - `mac_gateway` (02-48-84-76-71-00) This is the Ethernet MAC address of the virtual gateway network card. You can set it to the same MAC Address as the Linux server, or you can define it yourself according to the situation.
+- `wg` in `wg_gos` is optional.  If `wg_gos.wg.wg_private_key` is set, another WireGuard interface will be created for using a different tunnel for the guest OS communication.  With this feature, network of the VMM and the guest OS can be separated.  The following example does not use this feature.
 ```
 	.wg = {
 		.ipaddr = {192, 168, 3, 2},

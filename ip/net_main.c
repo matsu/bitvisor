@@ -100,9 +100,11 @@ net_thread (void *arg)
 	netif_arg[0].gateway = config.ip.gateway;
 	ip_main_init (netif_arg, 1);
 #ifdef WIREGUARD_VMM
-	net_wg_init ();
-	if (p->wg_gos)
-		wg_gos_init (p);
+	struct netif *wg1 = net_wg_init (&config.wg);
+	if (p->wg_gos) {
+		struct netif *wg2 = net_wg_init (&config.wg_gos.wg);
+		wg_gos_init (p, wg1, wg2);
+	}
 #endif
 	for (;;) {
 		ip_main_task ();

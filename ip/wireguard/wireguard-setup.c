@@ -16,10 +16,6 @@ struct wireguard_setup_data {
 	char *peer_public_key;
 };
 
-static struct netif wg_netif_struct = { 0 };
-static struct netif *wg_netif = NULL;
-static uint8_t wireguard_peer_index = WIREGUARDIF_INVALID_INDEX;
-
 static void
 parse_wireguard_config (struct wireguard_setup_data *wg_config,
 			struct wireguard_setup_arg *arg)
@@ -51,14 +47,13 @@ parse_wireguard_config (struct wireguard_setup_data *wg_config,
 	wg_config->peer_public_key = arg->peer_public_key;
 }
 
-int
+struct netif *
 wireguard_setup (struct wireguard_setup_arg *arg)
 {
 	struct wireguardif_init_data wg;
 	struct wireguardif_peer peer;
 	struct wireguard_setup_data wg_config;
 	char lwip_netif_name[] = "vm0";
-	int ret;
 
 	/* Setup the WireGuard device structure */
 	parse_wireguard_config (&wg_config, arg);
@@ -72,14 +67,19 @@ wireguard_setup (struct wireguard_setup_arg *arg)
 	}
 	wg.bind_netif = netif_find (lwip_netif_name);
 	if (wg.bind_netif == NULL)
-		return ERR_IF;
+		return NULL;
 	/* Register the new WireGuard network interface with lwIP */
-	wg_netif = netif_add (&wg_netif_struct, &wg_config.ipaddr,
-			      &wg_config.netmask,
-			      &wg_config.gateway, &wg,
-			      &wireguardif_init, &ip_input);
-	if (!wg_netif)
-		return ERR_IF;
+	struct netif *netif_new = mem_calloc (1, sizeof *netif_new);
+	if (netif_new == NULL)
+		return NULL;
+	struct netif *wg_netif = netif_add (netif_new, &wg_config.ipaddr,
+					    &wg_config.netmask,
+					    &wg_config.gateway, &wg,
+					    &wireguardif_init, &ip_input);
+	if (!wg_netif) {
+		mem_free (netif_new);
+		return NULL;
+	}
 	/* Mark the interface as administratively up, link up flag is set */
 	/* automatically when peer connects */
 	netif_set_up (wg_netif);
@@ -94,12 +94,17 @@ wireguard_setup (struct wireguard_setup_arg *arg)
 	peer.endpoint_ip = wg_config.ipaddr_end_point;
 	peer.endport_port = wg_config.peer_endpoint_port;
 	/* Register the new WireGuard peer with the netwok interface */
-	ret = wireguardif_add_peer (wg_netif, &peer, &wireguard_peer_index);
+	uint8_t peer_index = WIREGUARDIF_INVALID_INDEX;
+	err_t ret = wireguardif_add_peer (wg_netif, &peer, &peer_index);
 
-	if ((wireguard_peer_index != WIREGUARDIF_INVALID_INDEX) &&
+	if (peer_index != WIREGUARDIF_INVALID_INDEX &&
 	    !ip_addr_isany (&peer.endpoint_ip)) {
 		/* Start outbound connection to peer */
-		ret = wireguardif_connect (wg_netif, wireguard_peer_index);
+		ret = wireguardif_connect (wg_netif, peer_index);
 	}
-	return ret;
+	if (ret == ERR_OK)
+		return wg_netif;
+	netif_remove (wg_netif);
+	mem_free (netif_new);
+	return NULL;
 }

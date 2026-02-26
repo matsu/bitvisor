@@ -33,12 +33,13 @@
 #include <core/types.h>
 
 struct net_ip_data;
+struct netif;
 
 #ifdef WIREGUARD_VMM
 void wg_gos_task_add (u32 num_packets, void **packets, u32 *packet_sizes,
 		      void *param);
 struct wg_gos_data *wg_gos_new (u8 guest_mac[6]);
-void wg_gos_init (struct net_ip_data *p);
+void wg_gos_init (struct net_ip_data *p, struct netif *wg1, struct netif *wg2);
 #else
 static inline void
 wg_gos_task_add (u32 num_packets, void **packets, u32 *packet_sizes,
@@ -53,7 +54,7 @@ wg_gos_new (u8 guest_mac[6])
 }
 
 static inline void
-wg_gos_init (struct net_ip_data *p)
+wg_gos_init (struct net_ip_data *p, struct netif *wg1, struct netif *wg2)
 {
 }
 #endif /* WIREGUARD_VMM */

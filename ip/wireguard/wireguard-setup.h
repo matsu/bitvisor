@@ -14,6 +14,6 @@ struct wireguard_setup_arg {
 	int peer_endpoint_port;
 };
 
-int wireguard_setup (struct wireguard_setup_arg *arg);
+struct netif *wireguard_setup (struct wireguard_setup_arg *arg);
 
 #endif

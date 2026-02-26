@@ -260,6 +260,7 @@ struct config_data_wg_guest_os {
 	u8 ipaddr[4];
 	u8 dns[4];
 	char mac_gateway[6];
+	struct config_data_wireguard wg;
 };
 
 struct config_data_tls {
