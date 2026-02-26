@@ -17,5 +17,6 @@ net_wg_init (void)
 		.wg_listen_port = config.wg.wg_listen_port,
 		.peer_endpoint_port = config.wg.peer_endpoint_port,
 	};
-	wireguard_setup (&arg);
+	if (arg.wg_private_key[0] != '\0')
+		wireguard_setup (&arg);
 }
