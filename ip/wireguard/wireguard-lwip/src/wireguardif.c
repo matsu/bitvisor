@@ -311,7 +311,7 @@ static void wireguardif_process_data_message(struct wireguard_device *device, st
 							// Also check packet length!
 #if LWIP_IPV4
 							if (IPH_V(iphdr) == 4) {
-								ip_addr_copy_from_ip4(dest, iphdr->dest);
+								ip_addr_copy_from_ip4(dest, iphdr->src);
 								for (x=0; x < WIREGUARD_MAX_SRC_IPS; x++) {
 									if (peer->allowed_source_ips[x].valid) {
 										if (ip_addr_netcmp(&dest, &peer->allowed_source_ips[x].ip, &peer->allowed_source_ips[x].mask)) {

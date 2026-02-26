@@ -1,1 +1,16 @@
 Origin: https://github.com/smartalock/wireguard-lwip/tree/0c44df308984abfb9c9df628002cdf8154c55506
+
+With the following fix:
+
+diff --git a/ip/wireguard/wireguard-lwip/src/wireguardif.c b/ip/wireguard/wireguard-lwip/src/wireguardif.c
+--- a/ip/wireguard/wireguard-lwip/src/wireguardif.c
++++ b/ip/wireguard/wireguard-lwip/src/wireguardif.c
+@@ -311,7 +311,7 @@ static void wireguardif_process_data_mes
+ 							// Also check packet length!
+ #if LWIP_IPV4
+ 							if (IPH_V(iphdr) == 4) {
+-								ip_addr_copy_from_ip4(dest, iphdr->dest);
++								ip_addr_copy_from_ip4(dest, iphdr->src);
+ 								for (x=0; x < WIREGUARD_MAX_SRC_IPS; x++) {
+ 									if (peer->allowed_source_ips[x].valid) {
+ 										if (ip_addr_netcmp(&dest, &peer->allowed_source_ips[x].ip, &peer->allowed_source_ips[x].mask)) {
