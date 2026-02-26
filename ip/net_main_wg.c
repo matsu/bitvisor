@@ -329,7 +329,11 @@ send_to_wg (void *packet, int size)
 	LWIP_ASSERT ("send_to_wg: pbuf_alloced_custom", q != NULL);
 	u8_t pbuf_header_ret = pbuf_header (q, -SIZEOF_ETH_HDR);
 	LWIP_ASSERT ("send_to_wg: pbuf_header", pbuf_header_ret == 0);
-	ipaddr.addr = 0;
+	struct ip_hdr *ip_header = q->payload;
+	if (q->len >= sizeof *ip_header)
+		ip4_addr_copy (ipaddr, ip_header->dest);
+	else
+		ipaddr.addr = 0;
 	netif->output (netif, q, &ipaddr);
 	pbuf_free (q);
 }
