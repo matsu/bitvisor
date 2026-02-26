@@ -41,6 +41,7 @@
 #include "net_main.h"
 #include "net_main_wg.h"
 #include "net_main_internal.h"
+#include "wireguard/wg_main.h"
 
 struct net_task {
 	LIST1_DEFINE (struct net_task);
@@ -98,6 +99,11 @@ net_thread (void *arg)
 	netif_arg[0].netmask = config.ip.netmask;
 	netif_arg[0].gateway = config.ip.gateway;
 	ip_main_init (netif_arg, 1);
+#ifdef WIREGUARD_VMM
+	net_wg_init ();
+	if (p->wg_gos)
+		wg_gos_init (p);
+#endif
 	for (;;) {
 		ip_main_task ();
 		net_task_call ();

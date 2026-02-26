@@ -72,6 +72,9 @@ struct wg_gos_data {
 	ip_addr_t gateway_ip;
 };
 
+static struct netif *netif_vm;
+static struct netif *netif_wg;
+
 struct wg_gos_data *
 wg_gos_new (u8 guest_mac[6])
 {
@@ -299,14 +302,9 @@ send_to_wg (void *packet, int size)
 {
 	struct pbuf *q;
 	ip4_addr_t ipaddr;
-	struct netif *netif;
+	struct netif *netif = netif_wg;
 
-	netif = netif_find ("wg1");
-	if (netif == NULL) {
-		printf ("wg1 network interface not found\n");
-		return;
-	}
-
+	LWIP_ASSERT ("netif != NULL", netif != NULL);
 	q = pbuf_alloc (PBUF_RAW, size - SIZEOF_ETH_HDR, PBUF_POOL);
 	pbuf_take (q, packet + SIZEOF_ETH_HDR, size - SIZEOF_ETH_HDR);
 	ipaddr.addr = 0;
@@ -320,13 +318,8 @@ send_to_vm_guest (struct pbuf *pbuf)
 	struct net_ip_data *p;
 	unsigned int total_size;
 	void *buffer;
-	struct netif *netif;
+	struct netif *netif = netif_vm;
 
-	netif = netif_find ("vm0");
-	if (netif == NULL) {
-		printf ("vm0 network interface not found and retain pbuf\n");
-		return 0;
-	}
 	p = netif->state;
 	total_size = pbuf->len + sizeof p->wg_gos_data->fake_eth;
 	buffer = mem_calloc (1, total_size);
@@ -347,7 +340,9 @@ send_to_vm_guest (struct pbuf *pbuf)
 int
 wg_ip4_input_hook (struct pbuf *p, struct netif *inp)
 {
-	if (inp->name[0] == 'w' && inp->name[1] == 'g') {
+	if (netif_vm == NULL || netif_wg == NULL)
+		return 0;
+	if (inp == netif_wg) {
 		if (p != NULL) {
 			ip_addr_t dest_ip;
 			ip_addr_t wg_gos_ip;
@@ -455,4 +450,14 @@ wg_gos_task_add (u32 num_packets, void **packets, u32 *packet_sizes,
 	}
 	task->param = param;
 	tcpip_begin (wg_gos_routing, task);
+}
+
+void
+wg_gos_init (struct net_ip_data *p)
+{
+	LWIP_ASSERT ("p->wg_gos_data != NULL", p->wg_gos_data != NULL);
+	netif_vm = netif_find ("vm0");
+	LWIP_ASSERT ("netif_vm != NULL", netif_vm != NULL);
+	netif_wg = netif_find ("wg1");
+	LWIP_ASSERT ("netif_wg != NULL", netif_wg != NULL);
 }
