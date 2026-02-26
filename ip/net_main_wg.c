@@ -67,8 +67,10 @@ struct dhcp_data {
 };
 
 struct wg_gos_data {
-	u8 guest_mac[6];
-	u8 fake_eth[14];
+	union {
+		u8 guest_mac[6];
+		u8 fake_eth[14];
+	};
 	ip_addr_t gateway_ip;
 };
 
@@ -321,18 +323,27 @@ send_to_vm_guest (struct pbuf *pbuf)
 	struct netif *netif = netif_vm;
 
 	p = netif->state;
-	total_size = pbuf->len + sizeof p->wg_gos_data->fake_eth;
-	buffer = mem_calloc (1, total_size);
-	if (buffer == NULL) {
-		panic ("No memory to alloc");
+	if (pbuf->tot_len == pbuf->len &&
+	    pbuf_header (pbuf, sizeof p->wg_gos_data->fake_eth) == 0) {
+		/* Fast path: use pbuf->payload directly. */
+		total_size = pbuf->tot_len;
+		buffer = pbuf->payload;
+		memcpy (buffer, p->wg_gos_data->fake_eth,
+			sizeof p->wg_gos_data->fake_eth);
+		net_main_send_virt (p, 1, &buffer, &total_size, true);
+	} else {
+		total_size = pbuf->tot_len + sizeof p->wg_gos_data->fake_eth;
+		buffer = mem_malloc (total_size);
+		if (buffer == NULL)
+			panic ("No memory to alloc");
+		memcpy (buffer, p->wg_gos_data->fake_eth,
+			sizeof p->wg_gos_data->fake_eth);
+		pbuf_copy_partial (pbuf,
+				   buffer + sizeof p->wg_gos_data->fake_eth,
+				   pbuf->tot_len, 0);
+		net_main_send_virt (p, 1, &buffer, &total_size, true);
+		mem_free (buffer);
 	}
-	memcpy (buffer, p->wg_gos_data->fake_eth,
-		sizeof p->wg_gos_data->fake_eth);
-	memcpy (buffer, p->wg_gos_data->guest_mac, ETH_HWADDR_LEN);
-	memcpy (buffer + sizeof p->wg_gos_data->fake_eth, pbuf->payload,
-		pbuf->len);
-	net_main_send_virt (p, 1, &buffer, &total_size, true);
-	mem_free (buffer);
 	pbuf_free (pbuf);
 	return total_size;
 }
