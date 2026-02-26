@@ -56,7 +56,6 @@ struct wg_gos_task {
 struct arp_data {
 	struct eth_hdr ethhdr;
 	struct etharp_hdr etharphdr;
-	u8 padding[18];
 };
 
 struct dhcp_data {
@@ -172,11 +171,12 @@ arp_maker (void *packet, struct arp_data *arp_packet,
 					    wg_gos_data->guest_mac[3],
 					    wg_gos_data->guest_mac[4],
 					    wg_gos_data->guest_mac[5] },
-		.etharphdr.dipaddr.addrw[0] = (u16)config.wg.ipaddr[1] << 8 |
-			config.wg.ipaddr[0],
-		.etharphdr.dipaddr.addrw[1] = (u16)config.wg.ipaddr[3] << 8 |
-			config.wg.ipaddr[2],
-		.padding = { 0 },
+		.etharphdr.dipaddr.addrw[0] =
+			(u16)config.wg_gos.ipaddr[1] << 8 |
+			config.wg_gos.ipaddr[0],
+		.etharphdr.dipaddr.addrw[1] =
+			(u16)config.wg_gos.ipaddr[3] << 8 |
+			config.wg_gos.ipaddr[2],
 	};
 }
 
