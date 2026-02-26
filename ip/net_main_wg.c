@@ -77,6 +77,11 @@ struct wg_gos_data {
 static struct netif *netif_vm;
 static struct netif *netif_wg;
 
+struct send_to_wg_pbuf {
+	struct pbuf_custom pc;
+	void *buffer;
+};
+
 struct wg_gos_data *
 wg_gos_new (u8 guest_mac[6])
 {
@@ -300,6 +305,14 @@ dhcp_maker (struct dhcp_data *d, u32 x_id, u8 type,
 }
 
 static void
+send_to_wg_pbuf_free (struct pbuf *q)
+{
+	struct send_to_wg_pbuf *p = (void *)q;
+	free (p->buffer);
+	mem_free (p);
+}
+
+static void
 send_to_wg (void *packet, int size)
 {
 	struct pbuf *q;
@@ -307,8 +320,15 @@ send_to_wg (void *packet, int size)
 	struct netif *netif = netif_wg;
 
 	LWIP_ASSERT ("netif != NULL", netif != NULL);
-	q = pbuf_alloc (PBUF_RAW, size - SIZEOF_ETH_HDR, PBUF_POOL);
-	pbuf_take (q, packet + SIZEOF_ETH_HDR, size - SIZEOF_ETH_HDR);
+	struct send_to_wg_pbuf *p = mem_malloc (sizeof *p);
+	LWIP_ASSERT ("send_to_wg: mem_malloc", p != NULL);
+	p->buffer = packet;
+	p->pc.custom_free_function = send_to_wg_pbuf_free;
+	q = pbuf_alloced_custom (PBUF_RAW, size, PBUF_REF, &p->pc, packet,
+				 size);
+	LWIP_ASSERT ("send_to_wg: pbuf_alloced_custom", q != NULL);
+	u8_t pbuf_header_ret = pbuf_header (q, -SIZEOF_ETH_HDR);
+	LWIP_ASSERT ("send_to_wg: pbuf_header", pbuf_header_ret == 0);
 	ipaddr.addr = 0;
 	netif->output (netif, q, &ipaddr);
 	pbuf_free (q);
@@ -427,17 +447,19 @@ wg_gos_routing (void *arg)
 		switch (PP_HTONS (ethhdr->type)) {
 		case ETHTYPE_ARP:
 			reply_arp (ethhdr, packet, p->wg_gos_data, size, p);
+			free (packet);
 			break;
 		case ETHTYPE_IP:
 			if (!reply_dhcp (packet, p->wg_gos_data, size, p))
 				send_to_wg (packet, size);
+			else
+				free (packet);
 			break;
 		default:
+			free (packet);
 			break;
 		}
 	}
-	for (u32 i = 0; i < task->num_packets; i++)
-		free (task->packets[i]);
 	free (task->packets);
 	free (task->packet_sizes);
 	free (task);
