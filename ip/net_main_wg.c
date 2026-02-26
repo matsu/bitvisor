@@ -369,7 +369,7 @@ send_to_vm_guest (struct pbuf *pbuf)
 		mem_free (buffer);
 	}
 	pbuf_free (pbuf);
-	return total_size;
+	return 1;
 }
 
 int
