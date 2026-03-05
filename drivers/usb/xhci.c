@@ -506,6 +506,90 @@ take_control_erst (struct xhci_host *host)
 	dres_reg_write64 (r, erst_offset, h_erst_data->erst_addr);
 }
 
+struct xhci_css_data {
+	struct {
+		u32 dnctrl;
+		u32 dcbaap_l;
+		u32 dcbaap_h;
+		u32 config;
+	} opr;
+	struct {
+		u32 erstsz;
+		u32 erstba_l;
+		u32 erstba_h;
+		u32 erdp_l;
+		u32 erdp_h;
+		u32 iman;
+		u32 imod;
+	} rts[];
+};
+
+static struct xhci_css_data *
+do_css (struct xhci_host *host)
+{
+	struct xhci_css_data *p =
+		alloc (sizeof *p + sizeof p->rts[0] * host->max_intrs);
+	struct xhci_regs *regs = host->regs;
+	struct dres_reg *r = regs->r;
+	dres_reg_read32 (r, regs->opr_offset + OPR_DNCTRL_OFFSET,
+			 &p->opr.dnctrl);
+	dres_reg_read32 (r, regs->opr_offset + OPR_DCBAAP_OFFSET,
+			 &p->opr.dcbaap_l);
+	dres_reg_read32 (r, regs->opr_offset + OPR_DCBAAP_OFFSET + 4,
+			 &p->opr.dcbaap_h);
+	dres_reg_read32 (r, regs->opr_offset + OPR_CONFIG_OFFSET,
+			 &p->opr.config);
+	for (u16 i = 0; i < host->max_intrs; i++) {
+		dres_reg_read32 (r, INTR_REG_OFFSET (regs, i) +
+				 RTS_ERSTSZ_OFFSET, &p->rts[i].erstsz);
+		dres_reg_read32 (r, INTR_REG_OFFSET (regs, i) +
+				 RTS_ERSTBA_OFFSET, &p->rts[i].erstba_l);
+		dres_reg_read32 (r, INTR_REG_OFFSET (regs, i) +
+				 RTS_ERSTBA_OFFSET + 4, &p->rts[i].erstba_h);
+		dres_reg_read32 (r, INTR_REG_OFFSET (regs, i) +
+				 RTS_ERDP_OFFSET, &p->rts[i].erdp_l);
+		dres_reg_read32 (r, INTR_REG_OFFSET (regs, i) +
+				 RTS_ERDP_OFFSET + 4, &p->rts[i].erdp_h);
+		dres_reg_read32 (r, INTR_REG_OFFSET (regs, i) +
+				 RTS_IMAN_OFFSET, &p->rts[i].iman);
+		dres_reg_read32 (r, INTR_REG_OFFSET (regs, i) +
+				 RTS_IMOD_OFFSET, &p->rts[i].imod);
+	}
+	return p;
+}
+
+static void
+do_crs (struct xhci_host *host, struct xhci_css_data *p)
+{
+	struct xhci_regs *regs = host->regs;
+	struct dres_reg *r = regs->r;
+	dres_reg_write32 (r, regs->opr_offset + OPR_DNCTRL_OFFSET,
+			  p->opr.dnctrl);
+	dres_reg_write32 (r, regs->opr_offset + OPR_DCBAAP_OFFSET,
+			  p->opr.dcbaap_l);
+	dres_reg_write32 (r, regs->opr_offset + OPR_DCBAAP_OFFSET + 4,
+			  p->opr.dcbaap_h);
+	dres_reg_write32 (r, regs->opr_offset + OPR_CONFIG_OFFSET,
+			  p->opr.config);
+	for (u16 i = 0; i < host->max_intrs; i++) {
+		dres_reg_write32 (r, INTR_REG_OFFSET (regs, i) +
+				  RTS_ERSTSZ_OFFSET, p->rts[i].erstsz);
+		dres_reg_write32 (r, INTR_REG_OFFSET (regs, i) +
+				  RTS_ERSTBA_OFFSET, p->rts[i].erstba_l);
+		dres_reg_write32 (r, INTR_REG_OFFSET (regs, i) +
+				  RTS_ERSTBA_OFFSET + 4, p->rts[i].erstba_h);
+		dres_reg_write32 (r, INTR_REG_OFFSET (regs, i) +
+				  RTS_ERDP_OFFSET, p->rts[i].erdp_l);
+		dres_reg_write32 (r, INTR_REG_OFFSET (regs, i) +
+				  RTS_ERDP_OFFSET + 4, p->rts[i].erdp_h);
+		dres_reg_write32 (r, INTR_REG_OFFSET (regs, i) +
+				  RTS_IMAN_OFFSET, p->rts[i].iman);
+		dres_reg_write32 (r, INTR_REG_OFFSET (regs, i) +
+				  RTS_IMOD_OFFSET, p->rts[i].imod);
+	}
+	free (p);
+}
+
 static u8
 handle_usb_cmd_write (struct xhci_host *host, u64 cmd)
 {
@@ -523,17 +607,45 @@ handle_usb_cmd_write (struct xhci_host *host, u64 cmd)
 		u64 erdp_offset = INTR_REG_OFFSET (regs, i) + RTS_ERDP_OFFSET;
 		dres_reg_read64 (regs->r, erdp_offset,
 				 &h_erst_data->erst_dq_ptr);
+		dprintft (1, "[%02X:%02X.%X] CSS: Save registers.\n",
+			  host->dev->address.bus_no,
+			  host->dev->address.device_no,
+			  host->dev->address.func_no);
+		ASSERT (!host->css_data);
+		host->css_data = do_css (host);
 	}
 
 	/* The guest wants xHC to restore its state */
 	if (cmd & USBCMD_CRS) {
-		panic ("CRS handling is not implemented yet.");
+		if (host->css_data) {
+			dprintft (1,
+				  "[%02X:%02X.%X] CRS: Restore registers.\n",
+				  host->dev->address.bus_no,
+				  host->dev->address.device_no,
+				  host->dev->address.func_no);
+			do_crs (host, host->css_data);
+			host->css_data = NULL;
+			/* Clear Configure Register to force Windows
+			 * driver to reset the host controller before
+			 * setting R/S=1.  This is a workaround of
+			 * unexpected behavior (port status change) in
+			 * another Intel xHC on the same host after
+			 * CRS=1 and R/S=1. */
+			dres_reg_write32 (regs->r, regs->opr_offset +
+					  OPR_CONFIG_OFFSET, 0);
+		} else {
+			panic ("CRS handling is not implemented yet.");
+		}
 	}
 
 	/* Handle Host Controller Reset or Light Host Controller
 	 * Reset. */
 	if (cmd & (USBCMD_HCRST | USBCMD_LHCRST)) {
-		dprintft (CMD_DEBUG_LEVEL, "Host Controller %sReset\n",
+		dprintft (CMD_DEBUG_LEVEL, "[%02X:%02X.%X]"
+			  " Host Controller %sReset\n",
+			  host->dev->address.bus_no,
+			  host->dev->address.device_no,
+			  host->dev->address.func_no,
 			  cmd & USBCMD_HCRST ? "" : "Light ");
 		/* Panic if Light Host Controller Reset (LHCRST) bit
 		 * is 1 but Light HC Reset Capability (LHRC) is 0. */
@@ -682,6 +794,22 @@ xhci_opr_reg_write (struct xhci_host *host, const struct dres_reg *r,
 
 	struct write_info wr_info = {buf64, len, NULL, NULL, NULL, NULL};
 
+	if (host->css_data) {
+		switch (field_offset) {
+		case OPR_DNCTRL_OFFSET:
+		case OPR_DCBAAP_OFFSET:
+		case OPR_DCBAAP_OFFSET + 4:
+		case OPR_CONFIG_OFFSET:
+			dprintft (REG_DEBUG_LEVEL, "[%02X:%02X.%X]"
+				  " Until CRS, ignore OPR write"
+				  " 0x%llX, 0x%llX.\n",
+				  host->dev->address.bus_no,
+				  host->dev->address.device_no,
+				  host->dev->address.func_no,
+				  field_offset, buf64);
+			return;
+		}
+	}
 	switch (field_offset) {
 	case OPR_USBCMD_OFFSET: /* USB command */
 		buf64 &= 0xFFFFFFFF;
@@ -941,6 +1069,25 @@ xhci_rts_reg_write (struct xhci_host *host, const struct dres_reg *r,
 		}
 	}
 
+	if (host->css_data) {
+		switch (field_offset) {
+		case RTS_ERSTSZ_OFFSET:
+		case RTS_ERSTBA_OFFSET:
+		case RTS_ERSTBA_OFFSET + 4:
+		case RTS_ERDP_OFFSET:
+		case RTS_ERDP_OFFSET + 4:
+		case RTS_IMAN_OFFSET:
+		case RTS_IMOD_OFFSET:
+			dprintft (REG_DEBUG_LEVEL, "[%02X:%02X.%X]"
+				  " Until CRS, ignore RTS write"
+				  " 0x%llX, 0x%llX.\n",
+				  host->dev->address.bus_no,
+				  host->dev->address.device_no,
+				  host->dev->address.func_no,
+				  field_offset, buf64);
+			return;
+		}
+	}
 	switch (field_offset) {
 	case RTS_IMAN_OFFSET:
 		CHECK_LEN_VALID;

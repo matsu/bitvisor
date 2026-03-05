@@ -710,6 +710,8 @@ struct xhci_host {
 	struct pci_device *dev;
 	struct xhci_regs *regs;
 
+	struct xhci_css_data *css_data;
+
 	enum xhci_hc_state hc_state;
 	bool erst_shadow_active;
 
