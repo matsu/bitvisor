@@ -44,7 +44,7 @@
 #define MEM_ALIGNMENT                   4 /* 4-byte alignment */
 #define MEM_SIZE                        (16*1024*1024) /* Heap size (16MB) */
 #ifdef WIREGUARD_VMM
-#	define WG_TIMEOUT 1
+#	define WG_TIMEOUT 2
 #else
 #	define WG_TIMEOUT 0
 #endif
