@@ -28,11 +28,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <builtin.h>
 #include <core/config.h>
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mm.h>
 #include <core/panic.h>
+#include <core/printf.h>
 #include <core/spinlock.h>
 #include <core/string.h>
 #include <core/thread.h>
@@ -43,6 +45,8 @@
 #include "net_main_internal.h"
 #include "wireguard/wg_main.h"
 
+#define INPUT_QUEUE_MAX 1000
+
 struct net_task {
 	LIST1_DEFINE (struct net_task);
 	void (*func) (void *arg);
@@ -50,6 +54,7 @@ struct net_task {
 };
 
 struct net_ip_input_data {
+	struct net_ip_data *p;
 	void *arg;
 	unsigned int len;
 	u8 buf[];
@@ -135,6 +140,9 @@ net_ip_new_nic (char *arg, void *param)
 	p->wg_gos = 0;
 	p->pass = !!param;
 	p->input_ok = false;
+	p->input_count = 0;
+	p->input_done_count = 0;
+	p->input_drop_count = 0;
 	if (param && param_str[0] == 'f') {
 		p->pass = -1;
 		p->filter_count = param_str[1] == 'f' ? 1 : 0;
@@ -176,7 +184,17 @@ net_ip_virt_recv (void *handle, unsigned int num_packets, void **packets,
 static void
 net_main_input_free (void *arg)
 {
-	free (arg);
+	struct net_ip_input_data *data = arg;
+	struct net_ip_data *p = data->p;
+	free (data);
+	u32 input_done_count = atomic_fetch_add32 (&p->input_done_count, 1);
+	if (p->input_count - input_done_count == 1 &&
+	    p->input_drop_count > 0) {
+		u32 input_drop_count = atomic_xchg32 (&p->input_drop_count, 0);
+		if (input_drop_count > 0)
+			printf ("Dropped %u incoming packets.\n",
+				input_drop_count);
+	}
 }
 
 static void
@@ -189,11 +207,18 @@ net_main_input_direct (void *arg)
 }
 
 static void
-net_main_input_queue (void *arg, void *packet, unsigned int packet_size)
+net_main_input_queue (struct net_ip_data *p, void *arg, void *packet,
+		      unsigned int packet_size)
 {
 	struct net_ip_input_data *data;
-
+	u32 input_count_diff = p->input_count - p->input_done_count;
+	if (input_count_diff > INPUT_QUEUE_MAX) {
+		atomic_fetch_add32 (&p->input_drop_count, 1);
+		return;
+	}
+	atomic_fetch_add32 (&p->input_count, 1);
 	data = alloc (sizeof *data + packet_size);
+	data->p = p;
 	data->arg = arg;
 	data->len = packet_size;
 	memcpy (data->buf, packet, packet_size);
@@ -226,7 +251,7 @@ net_ip_phys_recv (void *handle, unsigned int num_packets, void **packets,
 			packet = packets[i];
 			size = packet_sizes[i];
 			if (ip_main_input_test (arg, packet, size))
-				net_main_input_queue (arg, packet, size);
+				net_main_input_queue (p, arg, packet, size);
 		}
 	}
 }
@@ -273,7 +298,7 @@ net_ip_phys_recv_passfilter (void *handle, unsigned int num_packets,
 		dest = ip_main_input_test_destination (arg, packet, size);
 		apply_filter_rate (p, &dest);
 		if (dest != IP_MAIN_DESTINATION_OTHERS)
-			net_main_input_queue (arg, packet, size);
+			net_main_input_queue (p, arg, packet, size);
 		if (dest == IP_MAIN_DESTINATION_ME) {
 			if (~s) {
 				p->virt_func->send (p->virt_handle, i - s,

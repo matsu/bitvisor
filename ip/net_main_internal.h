@@ -10,6 +10,9 @@ struct net_ip_data {
 	void *input_arg;
 	u8 wg_gos;
 	struct wg_gos_data *wg_gos_data;
+	u32 input_count;
+	u32 input_done_count;
+	u32 input_drop_count;
 };
 
 void net_main_send_virt (struct net_ip_data *handle, unsigned int num_packets,
