@@ -63,14 +63,21 @@ net_task_call (void)
 {
 	struct net_task *p;
 
+	/* net_task_list might be extended during this function.  Get
+	 * the list head and initialize before looking at the list to
+	 * prevent this function from eating CPU resource too long and
+	 * reduce holding spinlock time. */
 	spinlock_lock (&net_task_lock);
-	while ((p = LIST1_POP (net_task_list))) {
-		spinlock_unlock (&net_task_lock);
+	p = net_task_list.next;
+	if (p != NULL)
+		LIST1_HEAD_INIT (net_task_list);
+	spinlock_unlock (&net_task_lock);
+	while (p != NULL) {
+		struct net_task *pnext = p->next;
 		p->func (p->arg);
 		free (p);
-		spinlock_lock (&net_task_lock);
+		p = pnext;
 	}
-	spinlock_unlock (&net_task_lock);
 }
 
 void
