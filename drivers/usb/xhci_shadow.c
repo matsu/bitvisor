@@ -2509,15 +2509,18 @@ xhci_shadow_buffer (struct usb_host *usbhc, struct usb_request_block *g_urb,
 		h_ub->pid  = g_ub->pid;
 		h_ub->len  = g_ub->len;
 
-		h_ub->vadr = (virt_t)zalloc2 (h_ub->len, &h_ub->padr);
+		if (h_ub->len > 0) {
+			h_ub->vadr = (virt_t)zalloc2 (h_ub->len, &h_ub->padr);
 
-		if (clone_content) {
-			void *g_vaddr;
-			g_vaddr = mapmem_as (usbhc->as_dma, g_ub->padr,
-					     g_ub->len, 0);
+			if (clone_content) {
+				void *g_vaddr;
+				g_vaddr = mapmem_as (usbhc->as_dma, g_ub->padr,
+						     g_ub->len, 0);
 
-			memcpy ((void *)h_ub->vadr, g_vaddr, g_ub->len);
-			unmapmem (g_vaddr, g_ub->len);
+				memcpy ((void *)h_ub->vadr, g_vaddr,
+					g_ub->len);
+				unmapmem (g_vaddr, g_ub->len);
+			}
 		}
 
 		*next_h_ub = h_ub;
