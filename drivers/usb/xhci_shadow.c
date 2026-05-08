@@ -1185,7 +1185,7 @@ clone_input_ctx (struct xhci_host *host, uint slot_id, phys_t g_input_ctx_addr)
 }
 
 static void
-evaluate_input_ctx (struct xhci_host *host, uint slot_id)
+evaluate_input_ctx (struct xhci_host *host, uint slot_id, bool eval_dqptr)
 {
 	struct xhci_slot_meta *h_slot_meta, *g_slot_meta;
 
@@ -1196,6 +1196,11 @@ evaluate_input_ctx (struct xhci_host *host, uint slot_id)
 
 	u32 add_flags = h_input_ctx->input_ctrl.add_flags;
 	u8 csz = host->csz;
+
+	/* Currently only the TR Dequeue Pointer is handled in this
+	 * function.  If eval_dqptr is false, do nothing. */
+	if (!eval_dqptr)
+		return;
 
 	uint ep_no;
 	for (ep_no = 0; ep_no < MAX_EP; ep_no++) {
@@ -1496,7 +1501,8 @@ xhci_process_cmd_trb (struct xhci_host *host, struct xhci_trb *h_cmd_trb,
 		clone_input_ctx (host, slot_id, h_cmd_trb->param.input_ctx);
 
 		if (!skip_eval) {
-			evaluate_input_ctx (host, slot_id);
+			bool eval_dqptr = (type != XHCI_TRB_TYPE_EVAL_CTX_CMD);
+			evaluate_input_ctx (host, slot_id, eval_dqptr);
 		}
 
 		h_slot_meta = &host->slot_meta[slot_id];
