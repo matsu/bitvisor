@@ -2750,9 +2750,9 @@ xhci_reply_td (struct usb_host *usbhc, struct usb_request_block *gurb,
 	uint ep_no = urb_priv->ep_no;
 	struct xhci_slot_meta *h_slot_meta = &host->slot_meta[slot_id];
 	struct xhci_ep_tr *h_ep_tr = &h_slot_meta->ep_trs[ep_no];
-	struct xhci_input_dev_ctx *h_input_ctx = h_slot_meta->input_ctx;
-	u8 ep_type = XHCI_EP_CTX_EP_TYPE (XHCI_INPUT_DEV_CTX_DEV_CTX_EP
-					  (h_input_ctx, ep_no, host->csz));
+	struct xhci_dev_ctx *h_dev_ctx = host->dev_ctx[slot_id];
+	u8 ep_type = XHCI_EP_CTX_EP_TYPE (XHCI_DEV_CTX_EP (h_dev_ctx, ep_no,
+							   host->csz));
 
 	if (h_ep_tr->vhalt_ep)
 		return;
