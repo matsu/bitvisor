@@ -667,6 +667,7 @@ handle_ev_trb (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 
 	switch (XHCI_TRB_GET_TYPE (h_ev_trb)) {
 	case XHCI_TRB_TYPE_CMD_COMP_EV:
+		host->slot_meta[slot_id].update_dev_ctx = true;
 		offset = h_ev_trb->param.trb_addr - host->cmd_ring_addr;
 
 		if (offset < host->cmd_n_trbs * XHCI_TRB_NBYTES) {
@@ -697,6 +698,7 @@ handle_ev_trb (struct xhci_host *host, struct xhci_trb *h_ev_trb)
 
 		break;
 	case XHCI_TRB_TYPE_TX_EV:
+		host->slot_meta[slot_id].update_dev_ctx = true;
 		/* Hooks are called for host controlled endpoint only.
 		 * Otherwise, Transfer Event TRBs are pass-through. */
 		if (XHCI_IS_HOST_CTRL (host, slot_id,
@@ -818,7 +820,9 @@ xhci_update_er_and_dev_ctx (struct xhci_host *host)
 
 	uint slot_id;
 	for (slot_id = 1; slot_id <= slots; slot_id++) {
-		if (host->dev_ctx[slot_id]) {
+		if (host->dev_ctx[slot_id] &&
+		    host->slot_meta[slot_id].update_dev_ctx) {
+			host->slot_meta[slot_id].update_dev_ctx = false;
 			clone_dev_ctx_to_guest (host, slot_id);
 		}
 	}

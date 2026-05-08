@@ -585,6 +585,7 @@ struct xhci_slot_meta {
 
 	u8 host_ctrl;
 	u8 new_device;
+	bool update_dev_ctx;
 
 	spinlock_t xhci_trans_lock;
 } __attribute__ ((packed));
