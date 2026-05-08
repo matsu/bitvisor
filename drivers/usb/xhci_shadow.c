@@ -2320,15 +2320,19 @@ patch_h_link_trb (struct xhci_trb *h_link_trb, struct xhci_trb *g_link_trb,
 }
 
 static void
-patch_h_data_trb (struct xhci_trb *h_data_trb, struct xhci_trb *g_data_trb,
-		  struct usb_buffer_list *h_ub)
+patch_h_data_trb (struct xhci_trb *h_data_trb, struct usb_buffer_list *h_ub)
 {
-	h_data_trb->param.value = XHCI_TRB_GET_IDT (g_data_trb) ?
-				  g_data_trb->param.value :
-				  h_ub->padr;
-
-	h_data_trb->sts.value	= g_data_trb->sts.value;
-	h_data_trb->ctrl.value	= g_data_trb->ctrl.value;
+	ASSERT (h_ub != NULL);
+	if (XHCI_TRB_GET_IDT (h_data_trb)) {
+		if (h_ub->len > 0) {
+			ASSERT (h_ub->vadr != 0);
+			ASSERT (h_ub->len <= sizeof h_data_trb->param.value);
+			memcpy (&h_data_trb->param.value, (void *)h_ub->vadr,
+				h_ub->len);
+		}
+	} else {
+		h_data_trb->param.value = h_ub->padr;
+	}
 }
 
 void
@@ -2465,8 +2469,7 @@ xhci_shadow_trbs (struct usb_request_block *g_urb, struct xhci_host *host,
 			case XHCI_TRB_TYPE_ISOCH:
 				*h_trb = g_trb;
 				if (apply_shadow_buffers) {
-					patch_h_data_trb (h_trb, h_trb,
-							  cur_ub);
+					patch_h_data_trb (h_trb, cur_ub);
 					cur_ub = cur_ub->next;
 				}
 				break;
