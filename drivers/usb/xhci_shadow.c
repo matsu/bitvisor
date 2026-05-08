@@ -2510,7 +2510,7 @@ xhci_shadow_buffer (struct usb_host *usbhc, struct usb_request_block *g_urb,
 		h_ub->len  = g_ub->len;
 
 		if (h_ub->len > 0) {
-			h_ub->vadr = (virt_t)zalloc2 (h_ub->len, &h_ub->padr);
+			h_ub->vadr = (virt_t)alloc2 (h_ub->len, &h_ub->padr);
 
 			if (clone_content) {
 				void *g_vaddr;
