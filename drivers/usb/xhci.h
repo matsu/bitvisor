@@ -605,6 +605,9 @@ struct xhci_erst_data {
 	struct xhci_erst *erst;
 	struct xhci_trb **trb_array;
 
+	/* Used by the guest only. */
+	struct xhci_trb *pending_trb;
+
 	/* Used by the host only */
 	struct xhci_erst_data *g_erst_data;
 

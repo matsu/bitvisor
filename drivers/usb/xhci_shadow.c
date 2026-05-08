@@ -736,7 +736,20 @@ do_clone_er_trbs (struct xhci_host *host,
 
 			if (toggle == current_toggle) {
 				handle_ev_trb (host, &h_trbs[i_trb]);
-				g_trbs[i_trb] = h_trbs[i_trb];
+				/* Write inverted C bit here, then
+				 * write non-inverted C bit after
+				 * copying Device Context. */
+				if (g_erst_data->pending_trb == NULL) {
+					g_erst_data->pending_trb =
+						&g_trbs[i_trb];
+					h_trbs[i_trb].ctrl.value ^=
+						XHCI_TRB_SET_C (1);
+					g_trbs[i_trb] = h_trbs[i_trb];
+					h_trbs[i_trb].ctrl.value ^=
+						XHCI_TRB_SET_C (1);
+				} else {
+					g_trbs[i_trb] = h_trbs[i_trb];
+				}
 			} else {
 				stop = 1;
 				h_erst_data->current_idx = i_trb;
@@ -775,6 +788,23 @@ clone_er_trbs_to_guest (struct xhci_host *host)
 	}
 }
 
+static void
+finalize_guest_er_trbs (struct xhci_host *host)
+{
+	struct xhci_erst_data *g_erst_data;
+	asm_store_barrier ();
+	for (uint i = 0; i < host->usable_intrs; i++) {
+		g_erst_data = &host->g_data.erst_data[i];
+		if (g_erst_data->erst_size == 0)
+			continue;
+		struct xhci_trb *g_trb = g_erst_data->pending_trb;
+		if (g_trb == NULL)
+			continue;
+		g_erst_data->pending_trb = NULL;
+		g_trb->ctrl.value ^= XHCI_TRB_SET_C (1);
+	}
+}
+
 /* ---------- End Event Ring copyback related functions ---------- */
 
 /* ---------- Start state synchronization related functions ---------- */
@@ -792,6 +822,8 @@ xhci_update_er_and_dev_ctx (struct xhci_host *host)
 			clone_dev_ctx_to_guest (host, slot_id);
 		}
 	}
+
+	finalize_guest_er_trbs (host);
 }
 
 int
