@@ -2574,54 +2574,6 @@ xhci_hand_eps_back_to_guest (struct xhci_host *host, uint slot_id)
 	}
 }
 
-int
-xhci_ep0_shadowing (struct usb_host *usbhc,
-		    struct usb_request_block *h_urb, void *arg)
-{
-	/*
-	 * XXX: It is possible that h_urb->endpoint is NULL for
-	 * EP that is not 0. It is possible that endpoints are
-	 * added during SetConfigure() or SetInterface().
-	 */
-	if (XHCI_URB_PRIVATE (h_urb->shadow)->ep_no != 0) {
-		goto end;
-	}
-
-	xhci_shadow_buffer (usbhc, h_urb->shadow, 1);
-
-end:
-	return USB_HOOK_PASS;
-}
-
-int
-xhci_ep0_copyback (struct usb_host *usbhc,
-		   struct usb_request_block *h_urb, void *arg)
-{
-	if (XHCI_URB_PRIVATE (h_urb->shadow)->ep_no != 0) {
-		goto end;
-	}
-
-	struct usb_buffer_list *g_ub, *h_ub;
-	g_ub = h_urb->shadow->buffers;
-	h_ub = h_urb->buffers;
-
-	while (h_ub && g_ub) {
-
-		if (g_ub->pid == USB_PID_IN) {
-			void *g_vaddr = mapmem_as (usbhc->as_dma, g_ub->padr,
-						   g_ub->len, MAPMEM_WRITE);
-			memcpy (g_vaddr, (void *)h_ub->vadr, g_ub->len);
-			unmapmem (g_vaddr, g_ub->len);
-		}
-
-		g_ub = g_ub->next;
-		h_ub = h_ub->next;
-	}
-
-end:
-	return USB_HOOK_PASS;
-}
-
 /* ---------- End URB shadowing related functions ---------- */
 
 /* ---------- Start HC reset related functions ---------- */

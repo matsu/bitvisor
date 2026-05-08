@@ -1070,11 +1070,6 @@ void xhci_shadow_advance_dq_ptr (struct usb_request_block *g_urb,
 				 struct xhci_host *host, uint slot_id,
 				 uint ep_no);
 
-int xhci_ep0_shadowing (struct usb_host *usbhc,
-			struct usb_request_block *h_urb, void *arg);
-int xhci_ep0_copyback (struct usb_host *usbhc,
-		       struct usb_request_block *h_urb, void *arg);
-
 u8 xhci_check_urb_advance (struct usb_host *usbhc,
 			   struct usb_request_block *h_urb);
 u8 xhci_deactivate_urb (struct usb_host *usbhc,

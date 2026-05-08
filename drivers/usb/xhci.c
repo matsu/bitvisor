@@ -1967,20 +1967,6 @@ xhci_new (struct pci_device *pci_device)
 					    USB_HOST_TYPE_XHCI);
 	ASSERT (host->usb_host != NULL);
 
-	spinlock_lock (&host->usb_host->lock_hk);
-
-	usb_hook_register (host->usb_host, USB_HOOK_REQUEST,
-			   USB_HOOK_MATCH_ENDP,
-			   0, 0, NULL, xhci_ep0_shadowing,
-			   NULL, NULL);
-
-	usb_hook_register (host->usb_host, USB_HOOK_REPLY,
-			   USB_HOOK_MATCH_ENDP,
-			   0, 0, NULL, xhci_ep0_copyback,
-			   NULL, NULL);
-
-	spinlock_unlock (&host->usb_host->lock_hk);
-
 	/* Set up spinlock for state synchronization */
 	spinlock_init (&host->sync_lock);
 
