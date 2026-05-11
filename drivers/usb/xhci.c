@@ -625,14 +625,6 @@ handle_usb_cmd_write (struct xhci_host *host, u64 cmd)
 				  host->dev->address.func_no);
 			do_crs (host, host->css_data);
 			host->css_data = NULL;
-			/* Clear Configure Register to force Windows
-			 * driver to reset the host controller before
-			 * setting R/S=1.  This is a workaround of
-			 * unexpected behavior (port status change) in
-			 * another Intel xHC on the same host after
-			 * CRS=1 and R/S=1. */
-			dres_reg_write32 (regs->r, regs->opr_offset +
-					  OPR_CONFIG_OFFSET, 0);
 		} else {
 			panic ("CRS handling is not implemented yet.");
 		}
