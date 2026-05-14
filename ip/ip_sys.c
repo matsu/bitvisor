@@ -1,6 +1,9 @@
 #include <core/arith.h>
+#include <core/random.h>
 #include <core/time.h>
 #include "ip_sys.h"
+
+#define RAND_RETRY	20
 
 unsigned int
 ip_sys_now (void)
@@ -17,4 +20,16 @@ void
 epoch_now (long long *second, int *microsecond)
 {
 	return get_epoch_time (second, microsecond);
+}
+
+unsigned int
+ip_sys_rand (void)
+{
+	unsigned int num, success;
+
+	success = random_num_hw (RAND_RETRY, &num);
+	if (!success)
+		num = random_num_sw ();
+
+	return num;
 }

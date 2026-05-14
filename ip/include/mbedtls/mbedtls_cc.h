@@ -31,28 +31,16 @@
 #define __IP_INCLUDE_MBEDTLS_MBEDTLS_CC_H
 
 #include <core/printf.h> /* for snprintf */
-#include <core/random.h>
 #include <limits.h>
 
 #define CHAR_BIT	8
 #define SIZE_MAX	0xFFFFFFFFU
 #define NULL		((void *)0)
-#define RAND_RETRY	20
 
 typedef unsigned long int uintptr_t;
 
 char *strstr (const char *str, const char *sub);
 
-static inline unsigned int
-rand (void)
-{
-	unsigned int num, success;
-
-	success = random_num_hw (RAND_RETRY, &num);
-	if (!success)
-		num = random_num_sw ();
-
-	return num;
-}
+#define rand() (LWIP_RAND ())
 
 #endif /* __IP_INCLUDE_MBEDTLS_MBEDTLS_CC_H */

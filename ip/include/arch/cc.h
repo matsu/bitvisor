@@ -69,6 +69,9 @@ int printf (const char *format, ...)
 void panic (char *format, ...)
 	__attribute__ ((format (printf, 1, 2), noreturn));
 
+unsigned int ip_sys_rand (void);
+#define LWIP_RAND() (ip_sys_rand ())
+
 long int strtol (const char *nptr, char **endptr, int base);
 #define atoi(nptr) strtol(nptr, NULL, 10)
 
