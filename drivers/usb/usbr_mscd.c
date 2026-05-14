@@ -627,7 +627,7 @@ fetch_config (void)
 	for (int i = 0; i < 4; i++)
 		server_ip[i] = config.usbr.server_ip[i];
 	uname = config.usbr.uname;
-	uid = strtoul (config.usbr.uid, NULL, 0);
+	uid = config.usbr.uid;
 	data_limit_9p = config.usbr.data_limit_9p;
 }
 

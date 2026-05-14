@@ -274,7 +274,7 @@ struct config_data_usbr {
 	char usbr_img[256];
 	u8 server_ip[4];
 	u16 server_port;
-	char uid[5];
+	u32 uid;
 	char uname[32];
 	u32 data_limit_9p;
 };

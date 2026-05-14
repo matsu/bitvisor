@@ -104,8 +104,8 @@ For example, on a demo environment running Ubuntu LTS, you will need to install 
                         .usbr_img = "usb.img, fat1.RO,,,",
                         .server_ip = {192, 168, 2, 100},
                         .server_port = 10564,
-                        .uid = "1002"
-                        .uname = "user"
+                        .uid = 1002,
+                        .uname = "user",
                         .data_limit_9p = 65536,
                 },
         ```

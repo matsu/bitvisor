@@ -511,7 +511,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	ss (noconv, &name, &src, &len, "usbr.usbr_img", "usbr.usbr_img");
 	ss (ipv4_addr, &name, &src, &len, "usbr.server_ip", "usbr.server_ip");
 	ss (u16num, &name, &src, &len, "usbr.server_port", "usbr.server_port");
-	ss (noconv, &name, &src, &len, "usbr.uid", "usbr.uid");
+	ss (uintnum, &name, &src, &len, "usbr.uid", "usbr.uid");
 	ss (noconv, &name, &src, &len, "usbr.uname", "usbr.uname");
 	ss (uintnum, &name, &src, &len, "usbr.data_limit_9p",
 	    "usbr.data_limit_9p");
