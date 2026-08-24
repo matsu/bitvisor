@@ -80,10 +80,17 @@ pci_save_base_address_masks (struct pci_device *dev)
 	int i;
 	bool flag64;
 	uint offset;
+	u16 orig_cmd;
+	u16 cmd;
 
 	dev->base_address_mask_valid = 0;
 	if (dev->config_space.type != 0)
 		return;
+	pci_config_read (dev, &orig_cmd, sizeof orig_cmd, PCI_CONFIG_COMMAND);
+	cmd = orig_cmd &
+		~(PCI_CONFIG_COMMAND_IOENABLE | PCI_CONFIG_COMMAND_MEMENABLE);
+	if (cmd != orig_cmd)
+		pci_config_write (dev, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
 	flag64 = false;
 	for (i = 0; i < PCI_CONFIG_BASE_ADDRESS_NUMS; i++) {
 		offset = PCI_CONFIG_SPACE_GET_OFFSET (base_address[i]);
@@ -105,6 +112,9 @@ pci_save_base_address_masks (struct pci_device *dev)
 	}
 	offset = PCI_CONFIG_SPACE_GET_OFFSET (ext_rom_base);
 	dev->base_address_mask[6] = pci_get_base_address_mask (dev, offset);
+	if (cmd != orig_cmd)
+		pci_config_write (dev, &orig_cmd, sizeof orig_cmd,
+				  PCI_CONFIG_COMMAND);
 }
 
 static void
