@@ -1408,15 +1408,10 @@ pro1000_msi (struct pci_device *pci_device, void *data)
 static void
 pro1000_enable_dma_and_memory (struct pci_device *pci_device)
 {
-	u32 command_orig, command;
+	u16 command;
 
-	pci_config_read (pci_device, &command_orig, sizeof command_orig,
-			 PCI_CONFIG_COMMAND);
-	command = command_orig | PCI_CONFIG_COMMAND_MEMENABLE |
-		PCI_CONFIG_COMMAND_BUSMASTER;
-	if (command != command_orig)
-		pci_config_write (pci_device, &command, sizeof command,
-				  PCI_CONFIG_COMMAND);
+	command = PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER;
+	pci_enable_device (pci_device, command);
 }
 
 static void
@@ -1654,16 +1649,12 @@ pro1000_msix_generate (void *param, unsigned int queue)
 static void
 pro1000_disable_unused_space (struct pci_device *pci_device, struct data *d)
 {
-	u32 command_orig, command;
+	u16 command;
 	u32 zero = 0;
 	int i;
 
-	pci_config_read (pci_device, &command_orig, sizeof command_orig,
-			 PCI_CONFIG_COMMAND);
-	command = command_orig & ~PCI_CONFIG_COMMAND_IOENABLE;
-	if (command != command_orig)
-		pci_config_write (pci_device, &command, sizeof command,
-				  PCI_CONFIG_COMMAND);
+	command = PCI_CONFIG_COMMAND_IOENABLE;
+	pci_disable_device (pci_device, command);
 	for (i = 1; i < 6; i++) {
 		if (d[i].e) {
 			unreghook (&d[i]);
@@ -1803,8 +1794,8 @@ vpn_pro1000_config_write (struct pci_device *pci_device, u8 iosize,
 
 	/* check PCI command enable or disable. */
 	if (offset == PCI_CONFIG_COMMAND &&
-	    !(data->dword & (PCI_CONFIG_COMMAND_IOENABLE |
-			     PCI_CONFIG_COMMAND_MEMENABLE)))
+	    !(data->word & (PCI_CONFIG_COMMAND_IOENABLE |
+			    PCI_CONFIG_COMMAND_MEMENABLE)))
 		d->disable = true;
 	else
 		d->disable = false;

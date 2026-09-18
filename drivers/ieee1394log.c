@@ -276,11 +276,8 @@ ieee1394log_new (struct pci_device *pci_device)
 
 	/* Enable device */
 	u16 command;
-	int offset = PCI_CONFIG_COMMAND;
-	pci_handle_default_config_read  (pci_device, sizeof(u16), offset, (union mem*)&command);
-	command |= PCI_CONFIG_COMMAND_MEMENABLE;
-	command |= PCI_CONFIG_COMMAND_BUSMASTER;
-	pci_handle_default_config_write (pci_device, sizeof(u16), offset, (union mem*)&command);
+	command = PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER;
+	pci_enable_device (pci_device, command);
 
 	ctx = alloc (sizeof *ctx);
 	ASSERT (ctx);

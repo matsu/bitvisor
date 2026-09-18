@@ -1204,16 +1204,10 @@ reghook (struct nvme_data *nvme_data,
 static void
 nvme_enable_dma_and_memory (struct pci_device *pci_device)
 {
-	u32 command_orig, command;
+	u16 command;
 
-	pci_config_read (pci_device, &command_orig, sizeof (u32), 4);
-
-	command = command_orig |
-		  PCI_CONFIG_COMMAND_MEMENABLE |
-		  PCI_CONFIG_COMMAND_BUSMASTER;
-
-	if (command != command_orig)
-		pci_config_write (pci_device, &command, sizeof (u32), 4);
+	command = PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER;
+	pci_enable_device (pci_device, command);
 }
 
 static void

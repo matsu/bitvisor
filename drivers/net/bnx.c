@@ -447,6 +447,32 @@ bnx_mmioclr32 (const struct dres_reg *r, int offset, u32 clear_bits)
 	return bnx_mmioclrset32 (r, offset, clear_bits, 0x0);
 }
 
+static int
+bnx_mmioset16 (const struct dres_reg *r, int offset, u16 set_bits)
+{
+	u16 orig;
+	dres_reg_read16 (r, offset, &orig);
+	u16 new = orig | set_bits;
+	if (orig != new) {
+		dres_reg_write16 (r, offset, new);
+		return 1;
+	}
+	return 0;
+}
+
+static int
+bnx_mmioclr16 (const struct dres_reg *r, int offset, u16 clear_bits)
+{
+	u16 orig;
+	dres_reg_read16 (r, offset, &orig);
+	u16 new = orig & ~clear_bits;
+	if (orig != new) {
+		dres_reg_write16 (r, offset, new);
+		return 1;
+	}
+	return 0;
+}
+
 static void
 bnx_pciread32 (struct bnx *bnx, int offset, u32 *data)
 {
@@ -788,7 +814,7 @@ is_bnx_ok (struct bnx *bnx)
 	if (bnx->bridge_changing)
 		return 0;
 	struct pci_device *bridge = bnx->pci->parent_bridge;
-	static const u32 cmdreq = PCI_CONFIG_COMMAND_BUSMASTER |
+	static const u16 cmdreq = PCI_CONFIG_COMMAND_BUSMASTER |
 		PCI_CONFIG_COMMAND_MEMENABLE;
 	while (bridge) {
 		if ((bridge->config_space.command & cmdreq) != cmdreq)
@@ -820,11 +846,11 @@ is_bnx_ok (struct bnx *bnx)
 		}
 		bridge = bridge->parent_bridge;
 	}
-	u32 cmd;
+	u16 cmd;
 	spinlock_lock (&bnx->reg_lock);
-	bnx_mmioread32 (bnx->r, 4, &cmd);
+	dres_reg_read16 (bnx->r, PCI_CONFIG_COMMAND, &cmd);
 	spinlock_unlock (&bnx->reg_lock);
-	if (cmd == 0xFFFFFFFF)	/* Cannot access the device */
+	if (cmd == 0xFFFF) /* Cannot access the device */
 		return 0;
 	if ((cmd & cmdreq) != cmdreq)
 		return 0;
@@ -1413,7 +1439,7 @@ bnx_intr_disable (void *param)
 	bnx_mmioset32 (r, BNXREG_MISC_HOST_CTRL, set);
 	bnx_mmiowrite32 (r, BNXREG_HMBOX_INTR_CLR, 0);
 	set = PCI_CONFIG_COMMAND_INTR_DISABLE;
-	bnx_mmioset32 (r, PCI_CONFIG_COMMAND, set);
+	bnx_mmioset16 (r, PCI_CONFIG_COMMAND, set);
 	spinlock_unlock (&bnx->reg_lock);
 }
 
@@ -1432,7 +1458,7 @@ bnx_intr_enable (void *param)
 	bnx_mmioclr32 (r, BNXREG_MISC_HOST_CTRL, clr);
 	bnx_mmiowrite32 (r, BNXREG_HMBOX_INTR_CLR, 0);
 	clr = PCI_CONFIG_COMMAND_INTR_DISABLE;
-	bnx_mmioclr32 (r, PCI_CONFIG_COMMAND, clr);
+	bnx_mmioclr16 (r, PCI_CONFIG_COMMAND, clr);
 	spinlock_unlock (&bnx->reg_lock);
 }
 
@@ -1488,7 +1514,7 @@ bnx_new (struct pci_device *pci_device)
 	bool option_multifunction = false;
 	bool option_hotplugpass = false;
 	struct nicfunc *virtio_net_func;
-	u32 cmd;
+	u16 cmd;
 	u8 cap, pcie_ver;
 	u8 mac_fw[6];
 	bool mac_fw_valid = false;
@@ -1636,23 +1662,22 @@ static void
 bnx_disconnect (struct pci_device *pci_device)
 {
 	struct bnx *bnx = pci_device->host;
-	u32 cmd;
+	u16 cmd;
 
 	if (bnx_hotplugpass (bnx))
 		return;
 	spinlock_lock (&bnx->ok_lock);
 	bnx->disconnected = true;
 	spinlock_unlock (&bnx->ok_lock);
-	pci_config_read (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
-	cmd &= ~(PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER);
-	pci_config_write (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
+	cmd = PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER;
+	pci_disable_device (pci_device, cmd);
 }
 
 static void
 bnx_reconnect (struct pci_device *pci_device)
 {
 	struct bnx *bnx = pci_device->host;
-	u32 cmd;
+	u16 cmd;
 
 	if (bnx_hotplugpass (bnx))
 		return;
@@ -1669,9 +1694,8 @@ bnx_reconnect (struct pci_device *pci_device)
 	 * Thunderbolt to Gigabit Ethernet Adapter work... */
 	spinlock_lock (&bnx->reg_lock);
 	bnx_update_bar (bnx, bnx->base);
-	pci_config_read (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
-	cmd |= PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER;
-	pci_config_write (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
+	cmd = PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER;
+	pci_enable_device (pci_device, cmd);
 	spinlock_unlock (&bnx->reg_lock);
 	spinlock_lock (&bnx->ok_lock);
 	bnx->disconnected = false;

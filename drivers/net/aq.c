@@ -364,18 +364,11 @@ static LIST1_DEFINE_HEAD (struct aq, aq_list);
 static void
 pci_enable (struct pci_device *dev)
 {
-	u32 command_orig, command;
+	u16 command;
 
-	pci_config_read (dev, &command_orig, sizeof (u32), 4);
-
-	command = command_orig |
-		  PCI_CONFIG_COMMAND_BUSMASTER |
-		  PCI_CONFIG_COMMAND_MEMENABLE;
-
-	if (command != command_orig)
-		pci_config_write (dev, &command, sizeof (u32), 4);
-
-	pci_config_read (dev, &command_orig, sizeof (u32), 4);
+	command = PCI_CONFIG_COMMAND_BUSMASTER | PCI_CONFIG_COMMAND_MEMENABLE;
+	pci_enable_device (dev, command);
+	pci_config_read (dev, &command, sizeof command, PCI_CONFIG_COMMAND);
 }
 
 static void

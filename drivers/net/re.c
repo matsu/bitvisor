@@ -92,7 +92,7 @@ re_new (struct pci_device *dev)
 	char *option_net;
 	int option_tty = 0;
 	int option_virtio = 0;
-	u32 command_orig, command;
+	u16 command;
 	struct nicfunc *virtio_net_func = NULL;
 	struct pci_bar_info bar_info;
 
@@ -117,16 +117,8 @@ re_new (struct pci_device *dev)
 	pci_enable_device (dev, command);
 
 	/* Disable IO space */
-	pci_config_read (dev,
-			 &command_orig,
-			 sizeof command_orig,
-			 PCI_CONFIG_COMMAND);
-	command = command_orig & ~PCI_CONFIG_COMMAND_IOENABLE;
-	if (command != command_orig)
-		pci_config_write (dev,
-				  &command,
-				  sizeof command,
-				  PCI_CONFIG_COMMAND);
+	command = PCI_CONFIG_COMMAND_IOENABLE;
+	pci_disable_device (dev, command);
 
 	re_core_init (host);
 
@@ -254,7 +246,7 @@ static void
 re_resume (void)
 {
 	struct re_host *host;
-	u32 command;
+	u16 command;
 
 	command = PCI_CONFIG_COMMAND_BUSMASTER | PCI_CONFIG_COMMAND_MEMENABLE;
 
