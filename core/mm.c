@@ -880,6 +880,7 @@ found:
 		qq->off = q->off;
 		qq->len = len;
 		q->off += len;
+		q->len -= len;
 		LIST1_ADD (p->alloc, qq);
 		r = &p->p[qq->off];
 	}
